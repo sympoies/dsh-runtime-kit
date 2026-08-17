@@ -4,13 +4,13 @@
 
 - Source document: `docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-discussion-source.md`
 - Plan: `docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-plan.md`
-- Tracking issue: pending initial dispatch record
+- Tracking issue: <https://github.com/sympoies/dsh-runtime-kit/issues/1>
 - Profile: dispatch
 - Plan branch: `feat/dsh-runtime-migration-plan`
 - Current sprint: Sprint 1
 - Status: in-progress
-- Current task: 1.1 Initialize the dispatch record and plan branch
-- Next task: 1.2 Deliver the external bundle and skills baseline
+- Current task: Tasks 1.2 and 1.3 in parallel
+- Next task: 2.1 Add the bounded lifecycle compatibility layer
 - Integration checkout: managed plan worktree
 - Blockers: none
 - Last updated: 2026-08-18
@@ -19,7 +19,7 @@
 
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Initialize dispatch record and plan branch | in-progress | public `sympoies/dsh-runtime-kit`; local validated bundle pending | Orchestrator-owned source/plan/state phase |
+| 1.1 | Initialize dispatch record and plan branch | done | public `sympoies/dsh-runtime-kit`; local validated bundle pending; plan commit 5f8fb78; public issue #1; run 20260817T230951Z-issue-1 | Validated, published, and initialized |
 | 1.2 | Deliver external bundle and skills baseline | pending | local prototype; real DSH smoke receipt | DSH repo lane PR to plan branch |
 | 1.3 | Deliver strict nils-cli DSH ingress | pending | local test-first nils changes | Cross-repo dependency PR to nils-cli main |
 | 2.1 | Add bounded lifecycle compatibility layer | pending | pending | DSH repo lane |
@@ -71,6 +71,6 @@
 
 ## Handoff
 
-Finish Task 1.1 by validating and committing this bundle, publishing the plan
-branch, opening the dispatch issue, and initializing reconciled run state.
-Then run Tasks 1.2 and 1.3 in parallel managed worktrees with distinct writers.
+Run Tasks 1.2 and 1.3 in parallel managed worktrees with distinct writers.
+Each writer stops after delivering its PR and recording validation evidence;
+the orchestrator assigns independent review and owns all integration.
