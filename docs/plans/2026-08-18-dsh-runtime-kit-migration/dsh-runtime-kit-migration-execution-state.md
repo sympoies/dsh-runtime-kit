@@ -20,8 +20,8 @@
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Initialize dispatch record and plan branch | done | public `sympoies/dsh-runtime-kit`; local validated bundle pending; plan commit 5f8fb78; public issue #1; run 20260817T230951Z-issue-1 | Validated, published, and initialized |
-| 1.2 | Deliver external bundle and skills baseline | pending | local prototype; real DSH smoke receipt | DSH repo lane PR to plan branch |
-| 1.3 | Deliver strict nils-cli DSH ingress | pending | local test-first nils changes | Cross-repo dependency PR to nils-cli main |
+| 1.2 | Deliver external bundle and skills baseline | in-progress | local prototype; real DSH smoke receipt; managed lane feat/dsh-baseline; test-first baseline bound | Writer: architect_pragmatic; PR pending |
+| 1.3 | Deliver strict nils-cli DSH ingress | in-progress | local test-first nils changes; managed lane feat/dsh-ingress; test-first baseline bound | Writer: implement_nils_dsh_ingress; PR pending |
 | 2.1 | Add bounded lifecycle compatibility layer | pending | pending | DSH repo lane |
 | 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
 | 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
@@ -55,6 +55,11 @@
 - 2026-08-18: The current nils-cli prototype passed the full
   `cargo test -p nils-agent-hook` suite before dispatch conversion. Its final
   lane must rerun the declared repository gates from a managed worktree.
+- 2026-08-18: The legacy rule source currently contains 101 total rules, 69
+  `runtime-kit.handler.v1` registrations, and 22 distinct handler IDs. Its
+  declared legacy subset remains 67 registrations and 21 handlers because two
+  memory-start registrations are non-legacy additions; parity must inventory
+  actual rule rows instead of treating the legacy counters as the total.
 
 ## Decision Log
 
