@@ -11,6 +11,7 @@
   "files": [
     "index.js",
     "policy.js",
+    "src",
     "cordis.patch.yml",
     "compatibility",
     "docs",
@@ -19,14 +20,23 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@deepseek-ai/dsh-skill-filesystem": ">=0.1.0-rc.7 <0.2.0"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-subprocess": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.0-rc.7"
   },
   "dependencies": {
     "yaml": "^2.8.1"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "test:smoke": "node test/smoke.mjs"
+    "test:smoke": "node test/smoke.mjs",
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

@@ -21,7 +21,7 @@ import { applyPolicy, plusOneTool } from './policy.js'
 export { plusOneTool }
 
 export const name = 'dsh-runtime-kit'
-export const inject = ['skills', 'subprocess', 'tools']
+export const inject = ['agents', 'skills', 'subprocess', 'tools']
 
 const bundledSkillDir = fileURLToPath(new URL('./skills/', import.meta.url))
 const DEFAULT_PRIVATE_MAX_DEPTH = 32
