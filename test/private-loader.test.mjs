@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -106,6 +107,43 @@ test('private trust traversal enforces explicit depth and entry ceilings', async
       /maximum entry count/,
     )
   } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('private trust traversal enforces byte ceilings and clamps configurable hard caps', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-private-byte-limits-'))
+  let snapshot
+  try {
+    const oversized = join(root, 'oversized.bin')
+    writeFileSync(oversized, '', { mode: 0o600 })
+    truncateSync(oversized, (4 * 1024 * 1024) + 1)
+    await assert.rejects(
+      runtimeKit.snapshotPrivateSkills(root),
+      /file exceeds 4194304 bytes/,
+    )
+    rmSync(oversized)
+
+    for (let index = 0; index < 9; index += 1) {
+      const path = join(root, `aggregate-${index}.bin`)
+      writeFileSync(path, '', { mode: 0o600 })
+      truncateSync(path, 4 * 1024 * 1024)
+    }
+    await assert.rejects(
+      runtimeKit.snapshotPrivateSkills(root),
+      /exceeds 33554432 total file bytes/,
+    )
+    for (let index = 0; index < 9; index += 1) {
+      rmSync(join(root, `aggregate-${index}.bin`))
+    }
+
+    snapshot = await runtimeKit.snapshotPrivateSkills(root, {
+      maxDepth: Number.MAX_SAFE_INTEGER,
+      maxEntries: Number.MAX_SAFE_INTEGER,
+    })
+    assert.deepEqual(snapshot.limits, { maxDepth: 64, maxEntries: 20_000 })
+  } finally {
+    await snapshot?.dispose()
     rmSync(root, { recursive: true, force: true })
   }
 })
