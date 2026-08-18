@@ -25,7 +25,7 @@
 | 2.1 | Add bounded lifecycle compatibility layer | in-progress | managed lane `feat/lifecycle-compat`; 53/53 tests; packed real rc.7 smoke; API/performance/security review pass | Validated locally; PR delivery pending |
 | 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
 | 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
-| 3.1 | Freeze parity inventory and capability groups | pending | pending | Exhaustive 101-rule/22-handler disposition |
+| 3.1 | Freeze parity inventory and capability groups | review-converged | `policy/rule-parity.yaml`; exact source verifier; 101 unique registrations; 21 legacy handlers plus one relocated capability; authenticated active/planned test ownership; 65/65 tests; packed real DSH rc.7 smoke; API/data/red-team follow-up pass | Every source row maps to an owned DSH/nils capability or evidence-backed provider retirement; draft-only lanes remain planned until integrated |
 | 3.2 | Port Git, delivery, scope, and edit-admission policies | pending | pending | Deterministic nils capability lane |
 | 3.3 | Port privacy, memory, reminder, and portable-output policies | pending | pending | Deterministic nils capability lane |
 | 3.4 | Port coordination and operation lifecycle | pending | pending | Deterministic nils capability lane |
@@ -87,6 +87,31 @@
   `0.1.0-rc.7` DSH peer pins and the trusted in-process plugin boundary are now
   explicit. Affected API, performance, security, testing, maintainability, and
   red-team follow-ups converged with no remaining finding.
+- 2026-08-18: Task 3.1 froze the clean legacy source at commit `79d6b93f` and
+  file digest `sha256:5a7a5711...`. The public parity verifier matched all 101
+  registration IDs and their 27 source capability identifiers: 21 legacy
+  handlers, one relocated memory capability, four coordination capabilities,
+  and one read-only shadow capability. The Claude-only coauthor-trailer guard
+  is the sole provider-obsolete retirement and carries explicit evidence.
+- 2026-08-18: Task 3.1 API review repaired public package exports/bin,
+  machine-derived handler and relocation counters, and retirement-specific
+  executable evidence. Packed-install, verifier mutation, provider retirement,
+  and inventory owner tests pass; affected API follow-up reports no finding.
+- 2026-08-18: Task 3.1 testing review froze every target capability, status,
+  owner, and retirement disposition independently of its rule rows. The exact
+  retained source fixture drives the packed public verifier through both
+  success and mutation failure. Provider retirement is now checked across the
+  packed runtime/config surface and the live provider/tool graph composed by
+  an unmodified DSH rc.7 profile; testing follow-up reports no finding.
+- 2026-08-18: Task 3.1 maintainability review moved schema, all 27 frozen
+  dispositions, retirement evidence ownership, and rule-target consistency
+  into the exported verifier itself. External consumers can no longer receive
+  `ok: true` for an incomplete or internally inconsistent inventory. The
+  packed retirement test separately classifies runtime-loaded artifacts from
+  migration tooling, while a synthetic runtime injection and real rc.7 graph
+  keep the retirement boundary executable. Declared inventory count and unique
+  rule-ID checks also prevent duplicate rows from being collapsed into a false
+  public success result; maintainability follow-up reports no finding.
 
 ## Decision Log
 

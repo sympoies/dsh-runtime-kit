@@ -6,7 +6,12 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
+    "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs"
   },
   "files": [
     "index.js",
@@ -14,6 +19,8 @@
     "src",
     "cordis.patch.yml",
     "compatibility",
+    "policy",
+    "scripts/check-rule-parity-source.mjs",
     "docs",
     "skills",
     "README.md",
