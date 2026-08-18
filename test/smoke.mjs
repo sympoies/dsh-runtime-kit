@@ -528,6 +528,7 @@ try {
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
+  assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
 
   const driverPath = join(temporaryRoot, 'smoke-driver.mjs')
   const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
@@ -542,7 +543,7 @@ import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModule
 import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
 
 export const name = 'dsh-runtime-kit-smoke-driver'
-export const inject = ['agents', 'llm', 'skills', 'dshRuntimeKit']
+export const inject = ['agents', 'llm', 'skills', 'tools', 'dshRuntimeKit']
 
 function toolCallResponse() {
   const id = CallId('dsh-runtime-kit-smoke-call')
@@ -695,6 +696,8 @@ export function apply(ctx) {
         activePolicyChecks: ctx.dshRuntimeKit.activePolicyChecks,
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
+        providers: ctx.llm.listProviders().map(provider => provider.id),
+        tools: ctx.tools.schemas(agent).map(tool => tool.name),
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
       if (expectation === 'allow' && result?.value !== 42) process.exitCode = 1
@@ -728,6 +731,11 @@ export function apply(ctx) {
   assert.equal(receipt.pendingPolicyMarkers, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
+  assert.equal(
+    [...receipt.providers, ...receipt.tools]
+      .some(name => /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i.test(name)),
+    false,
+  )
   assert.deepEqual(receipt.lifecycle, [
     'session-start:startup',
     'pre-step:1:1',
@@ -893,6 +901,7 @@ export function apply(ctx) {
     lifecycleCorrelationVerified: true,
     cancellationAndDisposalVerified: true,
     rejectedLifecycleAttemptsVerified: true,
+    providerRetirementVerified: true,
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,

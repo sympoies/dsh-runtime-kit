@@ -119,6 +119,54 @@ wrappers run after the guard and publicly permit only signal replacement; all
 in-process wrappers are trusted computing base. The tested substitution
 guarantee is deliberately limited to the extensible pre-execute waterfall.
 
+## Task 3.1 parity inventory
+
+After dependency setup, the initial owner test failed with `ENOENT` because no
+DSH-owned `policy/rule-parity.yaml` existed. The completed inventory binds the
+clean legacy source file digest and all 101 unique registration IDs to 27
+source capability identifiers and explicit DSH/nils owners.
+
+API review then produced a three-part behavioral red: the packed artifacts had
+no exported package entrypoint, handler and relocation counts were literals
+rather than derived facts, and the sole provider retirement cited unchecked
+prose. Packed-install resolution plus bin execution, counter/disposition
+mutation tests, and a retirement-specific negative runtime scan now own those
+contracts. The exact retained source verifier reports 21 legacy handlers, 67
+legacy registrations, one relocated capability, and 22 combined runtime
+handler identifiers. API follow-up returned `NO_FINDINGS`.
+
+Testing review then found three additional false-green paths: the target
+capability/status/owner rows could drift together, the installed verifier was
+only asked for `--help`, and provider retirement was only a partial source
+substring scan. The owner suite now freezes all 27 source dispositions, keeps
+an exact clean legacy manifest fixture, imports the verifier through its packed
+public subpath, runs the installed binary through the complete 101/21/67/1/22
+contract, and requires a mutated source to fail. Retirement evidence now scans
+every packed runtime/config artifact and loads the installed package; the real
+unmodified rc.7 smoke additionally inspects the composed profile plus live LLM
+provider and tool registries. The strengthened smoke first failed because its
+test driver had not declared the `tools` service injection, then passed after
+that public dependency was made explicit. Testing follow-up returned
+`NO_FINDINGS`.
+
+Maintainability review then demonstrated that the exported verifier could
+return `ok: true` for a caller-supplied inventory with no schema or capability
+dispositions, because those checks lived only in repository tests. The focused
+regression passed the counter case but failed the new incomplete-inventory
+case. The public verifier now owns the frozen 27-disposition table, requires
+active test ownership, checks retirement evidence, and verifies every rule's
+target against its capability before any success result is emitted.
+The first full-suite run after that repair correctly exposed a test ownership
+coupling: the retirement scan treated the standalone migration verifier as a
+DSH runtime-loaded module and rejected its required frozen retirement metadata.
+Runtime/config classification now excludes migration tooling while retaining a
+synthetic runtime-surface negative assertion and the live rc.7 graph check.
+The next public-boundary mutation showed duplicate inventory rows could be
+collapsed by the verifier's ID map and still return success. Both an appended
+exact duplicate and a prepended conflicting-but-valid disposition duplicate
+now fail explicit declared-count and unique-ID checks. Maintainability
+follow-up returned `NO_FINDINGS`.
+
 The converged gates are the focused lifecycle/policy suite, the complete Node
 test suite, strict JSDoc type checking, package dry-run inspection, and the
 packed real-DSH rc.7 smoke. The smoke uses a public scripted LLM adapter and a

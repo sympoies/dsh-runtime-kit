@@ -13,6 +13,16 @@ is evaluated by the shared Rust engine rather than repeated in prompts or
 reimplemented in JavaScript. The probe tool remains deliberately small while
 the remaining policy handlers and reviewer personas are migrated.
 
+The frozen policy parity inventory is `policy/rule-parity.yaml`. It binds the
+101 source registration IDs, 21 legacy handlers, and one relocated memory
+capability to their DSH/nils replacement or evidence-backed retirement. During
+migration, verify it against the retained legacy source with:
+
+```sh
+node scripts/check-rule-parity-source.mjs \
+  /path/to/agent-runtime-kit/manifests/hook-rules.yaml
+```
+
 ## Current contract
 
 - Installs with `dsh plugin --profile <name> add <package>`.
