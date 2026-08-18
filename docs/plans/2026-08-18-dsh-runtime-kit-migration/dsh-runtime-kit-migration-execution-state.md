@@ -7,11 +7,11 @@
 - Tracking issue: <https://github.com/sympoies/dsh-runtime-kit/issues/1>
 - Profile: dispatch
 - Plan branch: `feat/dsh-runtime-migration-plan`
-- Current sprint: Sprint 1
+- Current sprint: Sprint 2
 - Status: in-progress
-- Current task: Tasks 1.2 and 1.3 in parallel
-- Next task: 2.1 Add the bounded lifecycle compatibility layer
-- Integration checkout: managed plan worktree
+- Current task: 2.1 Add the bounded lifecycle compatibility layer
+- Next task: 2.2 Implement selective runtime context
+- Integration checkout: managed lane `feat/lifecycle-compat`
 - Blockers: none
 - Last updated: 2026-08-18
 
@@ -20,9 +20,9 @@
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Initialize dispatch record and plan branch | done | public `sympoies/dsh-runtime-kit`; local validated bundle pending; plan commit 5f8fb78; public issue #1; run 20260817T230951Z-issue-1 | Validated, published, and initialized |
-| 1.2 | Deliver external bundle and skills baseline | in-progress | local prototype; real DSH smoke receipt; managed lane feat/dsh-baseline; test-first baseline bound | Writer: architect_pragmatic; PR pending |
-| 1.3 | Deliver strict nils-cli DSH ingress | in-progress | local test-first nils changes; managed lane feat/dsh-ingress; test-first baseline bound | Writer: implement_nils_dsh_ingress; PR pending |
-| 2.1 | Add bounded lifecycle compatibility layer | pending | pending | DSH repo lane |
+| 1.2 | Deliver external bundle and skills baseline | done | dsh-runtime-kit PR #2; squash `aef980293d48eac03e293acfca0d5562041b29e5`; 26/26 tests; packed real DSH rc.7 smoke | External bundle, private loader, and skill precedence integrated |
+| 1.3 | Deliver strict nils-cli DSH ingress | done | nils-cli PR #1465; squash `5937233a87b88f8afa4e00ba550124176be837c2`; exact-head Linux/macOS/coverage/cargo-deny/CodeQL | Strict ingress and native allow/block decision merged to nils-cli `main` |
+| 2.1 | Add bounded lifecycle compatibility layer | in-progress | managed lane `feat/lifecycle-compat`; 53/53 tests; packed real rc.7 smoke; API/performance/security review pass | Validated locally; PR delivery pending |
 | 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
 | 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
 | 3.1 | Freeze parity inventory and capability groups | pending | pending | Exhaustive 101-rule/22-handler disposition |
@@ -60,6 +60,33 @@
   declared legacy subset remains 67 registrations and 21 handlers because two
   memory-start registrations are non-legacy additions; parity must inventory
   actual rule rows instead of treating the legacy counters as the total.
+- 2026-08-18: DSH baseline PR #2 merged to the plan branch as `aef9802` after
+  26/26 tests, package validation, and a real unmodified DSH `0.1.0-rc.7`
+  allow/deny/private-skill smoke.
+- 2026-08-18: nils-cli PR #1465 merged to `main` as `5937233a` after six
+  exact-head specialist passes, zero unresolved threads, a zero-blocker review
+  ledger, and successful Linux, macOS, coverage, cargo-deny, and CodeQL jobs.
+- 2026-08-18: Task 2.1 defines lifecycle context as bounded
+  session/cwd/turn/step/call correlation. Model-facing selective context and
+  `decision.context.v1` remain owned by Task 2.2; the strict nils DSH ingress
+  v1 wire contract is unchanged.
+- 2026-08-18: Task 2.1 test-first execution ran the focused abort, disposal,
+  and rc.7 lifecycle cases before production edits: 0 passed and 3 failed. The
+  failures proved early abort settlement, missing active-child disposal, and
+  only two of the six required lifecycle extensions in the baseline.
+- 2026-08-18: The converged Task 2.1 lane passed 53/53 package tests, strict
+  JavaScript type-checking, package dry-run inspection, and the packed real DSH
+  rc.7 smoke against the clean `99f6f02` checkout. The smoke proved `41 -> 42`,
+  native allow/block, six lifecycle boundaries, rejected/closed lifecycle
+  denial, exact execution correlation, mutation/replay guards, and bounded
+  cancellation plus plugin-disposal quiescence.
+- 2026-08-18: Task 2.1 review reproduced and repaired mutable arguments,
+  Agent, Session, parent, signal, and token substitution; token replay; stale
+  pre-step state; unbounded teardown; stale approval authorization after
+  transport degradation; and repeated open-step history scans. Exact
+  `0.1.0-rc.7` DSH peer pins and the trusted in-process plugin boundary are now
+  explicit. Affected API, performance, security, testing, maintainability, and
+  red-team follow-ups converged with no remaining finding.
 
 ## Decision Log
 
@@ -76,6 +103,6 @@
 
 ## Handoff
 
-Run Tasks 1.2 and 1.3 in parallel managed worktrees with distinct writers.
-Each writer stops after delivering its PR and recording validation evidence;
-the orchestrator assigns independent review and owns all integration.
+Deliver the validated Task 2.1 `feat/lifecycle-compat` lane to the plan branch,
+then begin Task 2.2 in a fresh managed lane. Keep model-facing selective context
+and `decision.context.v1` outside the strict Task 2.1 ingress contract.

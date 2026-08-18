@@ -34,6 +34,14 @@ assert.notEqual(
 const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
+assert.ok(manifest.files.includes('src'))
+assert.deepEqual(manifest.peerDependencies, {
+  '@deepseek-ai/cordis': '^4.0.1',
+  '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
+})
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
 )
@@ -145,77 +153,307 @@ function runDsh(args, options = {}) {
   return result
 }
 
-async function verifyApprovalComposition() {
-  const dshRequire = createRequire(join(dshRoot, 'packages', 'core', 'tools', 'package.json'))
-  const [{ Context }, { default: SystemPrompt }, { default: ToolRuntime }, { default: ApprovalService }] = await Promise.all([
+let localDshModules
+
+async function loadLocalDshModules() {
+  if (localDshModules !== undefined) return localDshModules
+  const dshRequire = createRequire(join(dshRoot, 'packages', 'core', 'agent-loop', 'package.json'))
+  localDshModules = Promise.all([
     import(pathToFileURL(dshRequire.resolve('@deepseek-ai/cordis')).href),
-    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-system-prompt')).href),
-    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-tools')).href),
-    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-user-approval')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'llm', 'llm', 'lib', 'index.js')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'core', 'session', 'lib', 'index.js')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'core', 'system-prompt', 'lib', 'index.js')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'core', 'tools', 'lib', 'index.js')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'core', 'agent', 'lib', 'index.js')).href),
+    import(pathToFileURL(join(dshRoot, 'packages', 'core', 'agent-loop', 'lib', 'index.js')).href),
   ])
+  return localDshModules
+}
 
-  for (const [approvalOutcome, shouldExecute] of [
-    ['allowed-once', true],
-    ['rejected', false],
-    ['cancelled', false],
-  ]) {
-    const ctx = new Context()
+function stalledPolicySubprocess() {
+  let resolveSpawned
+  let resolveDone
+  let resolveTreeExit
+  const spawned = new Promise(resolve => { resolveSpawned = resolve })
+  const done = new Promise(resolve => { resolveDone = resolve })
+  const treeExit = new Promise(resolve => { resolveTreeExit = resolve })
+  let terminateCount = 0
+  let waitForExitCount = 0
+  let childReleased = false
+  let treeReleased = false
+  return {
+    service: {
+      spawn(spec) {
+        const payload = spec.stdio.stdin.data
+        const requestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
+        const stdout = JSON.stringify({
+          schema_version: 'cli.agent-hook.dispatch.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.normalized-decision.v1',
+            request_id: requestId,
+            product: 'dsh',
+            event: 'PreToolUse',
+            action: 'allow',
+            reasons: [],
+            config_digest: `sha256:${'0'.repeat(64)}`,
+            policy_digest: `sha256:${'0'.repeat(64)}`,
+            recovery_applied: false,
+          },
+        })
+        const handle = {
+          done,
+          terminate() { terminateCount += 1 },
+          async waitForExit() {
+            waitForExitCount += 1
+            await treeExit
+            return true
+          },
+          collected: {
+            stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
+          },
+        }
+        resolveSpawned({ spec, handle })
+        return handle
+      },
+    },
+    spawned,
+    releaseChild() {
+      if (childReleased) return
+      childReleased = true
+      resolveDone({ exitCode: null, signal: 'SIGTERM' })
+    },
+    releaseTree() {
+      if (treeReleased) return
+      treeReleased = true
+      resolveTreeExit()
+    },
+    release() {
+      this.releaseChild()
+      this.releaseTree()
+    },
+    get terminateCount() { return terminateCount },
+    get waitForExitCount() { return waitForExitCount },
+  }
+}
+
+function allowingPolicySubprocess() {
+  let spawnCount = 0
+  return {
+    service: {
+      spawn(spec) {
+        spawnCount += 1
+        const payload = spec.stdio.stdin.data
+        const requestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          terminate() {},
+          async waitForExit() { return true },
+          collected: {
+            stdout: {
+              readFrom: () => ({
+                text: JSON.stringify({
+                  schema_version: 'cli.agent-hook.dispatch.v1',
+                  ok: true,
+                  data: {
+                    schema_version: 'agent-hook.normalized-decision.v1',
+                    request_id: requestId,
+                    product: 'dsh',
+                    event: 'PreToolUse',
+                    action: 'allow',
+                    reasons: [],
+                    config_digest: `sha256:${'0'.repeat(64)}`,
+                    policy_digest: `sha256:${'0'.repeat(64)}`,
+                    recovery_applied: false,
+                  },
+                }),
+                lossy: false,
+              }),
+            },
+          },
+        }
+      },
+    },
+    get spawnCount() { return spawnCount },
+  }
+}
+
+async function localAgentHarness(label, {
+  subprocess = stalledPolicySubprocess(),
+  withToolCall = true,
+} = {}) {
+  const [
+    { Context },
+    { default: LlmRuntime, LlmAdapter, CallId, createUserMessage },
+    { default: SessionStore, SessionId },
+    { default: SystemPrompt },
+    { default: ToolRuntime },
+    { default: AgentRegistry },
+    { default: AgentLoop },
+  ] = await loadLocalDshModules()
+
+  function toolCallChunks() {
+    const id = CallId(`${label}-call`)
+    const argumentsJson = JSON.stringify({ value: 41 })
+    return [
+      { type: 'block-start', index: 0, blockType: 'tool-call' },
+      { type: 'tool-call-delta', index: 0, id, name: 'runtime_kit_plus_one', argumentsDelta: argumentsJson },
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'runtime_kit_plus_one', arguments: argumentsJson } },
+      { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+      { type: 'finish', reason: { kind: 'tool-calls' } },
+    ]
+  }
+
+  function textChunks() {
+    return [
+      { type: 'block-start', index: 0, blockType: 'text' },
+      { type: 'text-delta', index: 0, text: 'done' },
+      { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } },
+      { type: 'usage', usage: { inputTokens: 10, outputTokens: 4 } },
+      { type: 'finish', reason: { kind: 'stop' } },
+    ]
+  }
+
+  class LocalAdapter extends LlmAdapter {
+    calls = 0
+    resolveModel(provider, model) {
+      return Promise.resolve({ provider, id: model, name: model })
+    }
+    async *stream(options) {
+      const chunks = withToolCall && this.calls++ === 0 ? toolCallChunks() : textChunks()
+      for (const chunk of chunks) {
+        if (options.signal?.aborted) throw new Error('local smoke adapter aborted')
+        yield chunk
+      }
+    }
+  }
+
+  const ctx = new Context()
+  await ctx.plugin(LlmRuntime)
+  await ctx.plugin(SessionStore)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] })
+  ctx.provide('subprocess', subprocess.service)
+  ctx.llm.registerAdapter([`runtime-kit-${label}`], new LocalAdapter())
+  const policyFiber = await ctx.plugin({
+    name: `dsh-runtime-kit-${label}-policy`,
+    inject: ['agents', 'subprocess', 'tools'],
+    apply(inner) {
+      applyPolicy(inner, { agentHook: '/stalled/agent-hook', policyTimeoutMs: 30_000 })
+    },
+  })
+  const service = ctx.dshRuntimeKit
+  const agent = ctx.agentLoop.create(
+    SessionId(`dsh-runtime-kit-${label}`),
+    { provider: `runtime-kit-${label}`, model: 'scripted' },
+    { cwd: projectWorkspace },
+  )
+  const followup = () => agent.followup(createUserMessage({
+    content: [{ type: 'text', text: 'run plus one' }],
+    source: { kind: 'user' },
+  }))
+  return { ctx, subprocess, policyFiber, service, agent, followup }
+}
+
+async function verifyRejectedLifecycleAttempts() {
+  const [, { CallId }] = await loadLocalDshModules()
+  for (const mode of ['reject', 'error', 'abort', 'closed-step']) {
+    const subprocess = allowingPolicySubprocess()
+    const subject = await localAgentHarness(`lifecycle-${mode}`, {
+      subprocess,
+      withToolCall: false,
+    })
     try {
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
-      await ctx.plugin(ApprovalService)
-      ctx.provide('subprocess', {
-        spawn(spec) {
-          const payload = spec.stdio.stdin.data
-          const requestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
-          const stdout = JSON.stringify({
-            schema_version: 'cli.agent-hook.dispatch.v1',
-            ok: true,
-            data: {
-              schema_version: 'agent-hook.normalized-decision.v1',
-              request_id: requestId,
-              product: 'dsh',
-              event: 'PreToolUse',
-              action: 'allow',
-              reasons: [],
-              config_digest: `sha256:${'0'.repeat(64)}`,
-              policy_digest: `sha256:${'0'.repeat(64)}`,
-              recovery_applied: false,
-            },
-          })
-          return {
-            done: Promise.resolve({ exitCode: 0, signal: null }),
-            terminate() {},
-            collected: {
-              stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
-            },
-          }
-        },
-      })
-      applyPolicy(ctx, { agentHook: '/approval-contract/agent-hook' })
-      ctx.on('tools/pre-execute', async () => ({ kind: 'ask', reason: 'approval contract' }))
-      ctx.on('approval/request', () => Promise.resolve(approvalOutcome))
+      if (mode === 'reject') {
+        subject.ctx.on('agent/pre-step', async () => ({ kind: 'reject' }))
+      } else if (mode === 'error') {
+        subject.ctx.on('agent/pre-step', async () => {
+          throw new Error('distinctive real rc.7 pre-step error')
+        })
+      } else if (mode === 'abort') {
+        subject.ctx.on('agent/pre-step', async (_payload, next) => {
+          const decision = await next()
+          subject.agent.cancel({ kind: 'user' })
+          return decision
+        })
+      }
 
-      const result = await ctx.tools.execute({
-        callId: `approval-${approvalOutcome}`,
+      subject.followup()
+      await subject.agent.whenIdle()
+      const result = await subject.ctx.tools.execute({
+        callId: CallId(`lifecycle-${mode}-attempt`),
         name: 'runtime_kit_plus_one',
         arguments: { value: 41 },
         signal: new AbortController().signal,
-        agent: {
-          session: {
-            header: { cwd: projectWorkspace },
-            events: [{ type: 'turn/start' }],
-            append() { return {} },
-          },
-        },
+        agent: subject.agent,
       })
-      assert.equal(result.isError, !shouldExecute)
-      assert.equal(ctx.dshRuntimeKit.plusOneExecutions, shouldExecute ? 1 : 0)
-      if (shouldExecute) assert.equal(result.value, 42)
-      assert.equal(ctx.dshRuntimeKit.pendingPolicyMarkers, 0)
+      assert.equal(result.isError, true, mode)
+      assert.match(result.content[0].text, /policy-correlation-invalid/, mode)
+      assert.equal(subprocess.spawnCount, 0, mode)
+      assert.equal(subject.service.plusOneExecutions, 0, mode)
+      assert.equal(subject.service.pendingPolicyMarkers, 0, mode)
+      assert.equal(subject.service.pendingCorrelations, 0, mode)
     } finally {
-      await ctx.root.fiber.dispose()
+      await subject.ctx.root.fiber.dispose()
     }
+  }
+}
+
+async function verifyCancellationAndDisposalComposition() {
+  const cancelled = await localAgentHarness('cancel')
+  try {
+    cancelled.followup()
+    await cancelled.subprocess.spawned
+    assert.equal(cancelled.service.activePolicyChecks, 1)
+    cancelled.agent.cancel({ kind: 'user' })
+    let idle = false
+    const waiting = cancelled.agent.whenIdle().then(() => { idle = true })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(idle, false)
+    assert.ok(cancelled.subprocess.terminateCount >= 1)
+    cancelled.subprocess.releaseChild()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(idle, false)
+    assert.equal(cancelled.service.activePolicyChecks, 1)
+    cancelled.subprocess.releaseTree()
+    await waiting
+    assert.equal(cancelled.service.activePolicyChecks, 0)
+    assert.equal(cancelled.service.pendingPolicyMarkers, 0)
+    assert.equal(cancelled.service.pendingCorrelations, 0)
+    assert.equal(cancelled.service.plusOneExecutions, 0)
+    assert.equal(cancelled.subprocess.waitForExitCount, 1)
+  } finally {
+    cancelled.subprocess.release()
+    await cancelled.ctx.root.fiber.dispose()
+  }
+
+  const disposed = await localAgentHarness('dispose')
+  try {
+    disposed.followup()
+    await disposed.subprocess.spawned
+    let finished = false
+    const disposal = disposed.policyFiber.dispose().then(() => { finished = true })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, false)
+    assert.ok(disposed.subprocess.terminateCount >= 1)
+    assert.equal(disposed.service.activePolicyChecks, 1)
+    disposed.subprocess.releaseChild()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(finished, false)
+    assert.equal(disposed.service.activePolicyChecks, 1)
+    disposed.subprocess.releaseTree()
+    await disposal
+    await disposed.agent.whenIdle()
+    assert.equal(disposed.service.activePolicyChecks, 0)
+    assert.equal(disposed.service.pendingPolicyMarkers, 0)
+    assert.equal(disposed.service.pendingCorrelations, 0)
+    assert.equal(disposed.service.plusOneExecutions, 0)
+    assert.equal(disposed.subprocess.waitForExitCount, 1)
+  } finally {
+    disposed.subprocess.release()
+    await disposed.ctx.root.fiber.dispose()
   }
 }
 
@@ -256,6 +494,9 @@ try {
     'package.json',
     'index.js',
     'policy.js',
+    'src/compat/dsh-rc7.js',
+    'src/policy/index.js',
+    'src/policy/nils-transport.js',
     'cordis.patch.yml',
     'compatibility/nils-cli.json',
     'docs/policies/git-delivery.md',
@@ -290,17 +531,56 @@ try {
 
   const driverPath = join(temporaryRoot, 'smoke-driver.mjs')
   const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
+  const llmModuleUrl = pathToFileURL(
+    join(dshRoot, 'packages', 'llm', 'llm', 'lib', 'index.js'),
+  ).href
+  const sessionModuleUrl = pathToFileURL(
+    join(dshRoot, 'packages', 'core', 'session', 'lib', 'index.js'),
+  ).href
   writeFileSync(driverPath, `
+import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
+
 export const name = 'dsh-runtime-kit-smoke-driver'
-export const inject = ['tools', 'skills', 'dshRuntimeKit']
+export const inject = ['agents', 'llm', 'skills', 'dshRuntimeKit']
+
+function toolCallResponse() {
+  const id = CallId('dsh-runtime-kit-smoke-call')
+  const args = JSON.stringify({ value: 41 })
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name: 'runtime_kit_plus_one', argumentsDelta: args },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'runtime_kit_plus_one', arguments: args } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
+function textResponse(text) {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text },
+    { type: 'block-end', index: 0, block: { type: 'text', text } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
+class SmokeAdapter extends LlmAdapter {
+  calls = 0
+  resolveModel(provider, model) {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+  async *stream(options) {
+    const chunks = this.calls++ === 0 ? toolCallResponse() : textResponse('done')
+    for (const chunk of chunks) {
+      if (options.signal?.aborted) throw new Error('smoke adapter aborted')
+      yield chunk
+    }
+  }
+}
 
 export function apply(ctx) {
-  ctx.on('tools/pre-execute', (_exec, next) => {
-    if (process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
-      return Promise.resolve({ kind: 'allow' })
-    }
-    return next()
-  }, { prepend: true })
   void (async () => {
     try {
       const skillOptions = { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT }
@@ -324,21 +604,101 @@ export function apply(ctx) {
         bundledSource: bundled?.source,
         bundledContent: bundled?.content,
       }) + '\\n')
-      const result = await ctx.tools.execute({
-        callId: 'dsh-runtime-kit-smoke-1',
-        name: 'runtime_kit_plus_one',
-        arguments: { value: 41 },
-        signal: new AbortController().signal,
+
+      const targetId = 'dsh-runtime-kit-smoke-' + process.pid
+      const lifecycle = []
+      let preExec
+      let postExec
+      let finalExec
+      let result
+      const errors = []
+      ctx.on('agent/session-start', ({ agent, source }) => {
+        if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
       })
+      ctx.on('agent/pre-step', ({ agent, turn, step }, next) => {
+        if (String(agent.id) === targetId) lifecycle.push('pre-step:' + turn + ':' + step)
+        return next()
+      })
+      ctx.on('tools/pre-execute', (exec, next) => {
+        if (String(exec.agent?.id) !== targetId) return next()
+        lifecycle.push('pre-tool')
+        preExec = exec
+        if (process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
+          return Promise.resolve({ kind: 'allow' })
+        }
+        return next()
+      }, { prepend: true })
+      ctx.on('tools/pre-execute', async (exec, next) => {
+        const decision = await next()
+        if (String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS === '1') {
+          exec.arguments = { value: 99 }
+        }
+        if (String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION === '1') {
+          const current = exec.agent.session
+          exec.agent.session = Session.create(SessionId(targetId), current.events, current.header)
+        }
+        if (String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN === '1') {
+          exec.token = Symbol('substituted-token')
+        }
+        return decision
+      })
+      ctx.on('tools/post-execute', (exec, _candidate, next) => {
+        if (String(exec.agent?.id) === targetId) {
+          lifecycle.push('post-tool')
+          postExec = exec
+        }
+        return next()
+      })
+      ctx.on('tools/result', (exec, finalResult) => {
+        if (String(exec.agent?.id) === targetId) {
+          lifecycle.push('result')
+          finalExec = exec
+          result = finalResult
+        }
+      })
+      ctx.on('agent/turn-stopping', ({ agent, turn }) => {
+        if (String(agent.id) === targetId) lifecycle.push('turn-stop:' + turn)
+      })
+      ctx.on('agent/error', ({ agent, turn, step, error }) => {
+        if (String(agent.id) === targetId) {
+          errors.push({ turn, step, message: String(error?.stack ?? error) })
+        }
+      })
+
+      ctx.llm.registerAdapter(['runtime-kit-smoke'], new SmokeAdapter())
+      const handle = await ctx.agents.create({
+        sessionId: SessionId(targetId),
+        agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+        meta: { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT },
+      })
+      const agent = handle.agent
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'run plus one' }],
+        source: { kind: 'user' },
+      }))
+      await agent.whenIdle()
+
       process.stdout.write('${marker}' + JSON.stringify({
         result,
+        lifecycle,
+        errors,
+        sessionEvents: agent.session.events.map(event => event.type),
+        exactCorrelation: preExec !== undefined
+          && postExec?.token === preExec.token
+          && finalExec?.token === preExec.token
+          && finalExec.callId === preExec.callId
+          && finalExec.rootCallId === preExec.rootCallId,
         plusOneExecutions: ctx.dshRuntimeKit.plusOneExecutions,
         activePolicyChecks: ctx.dshRuntimeKit.activePolicyChecks,
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
+        pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
-      if (expectation === 'allow' && result.value !== 42) process.exitCode = 1
-      if (expectation === 'block' && !result.isError) process.exitCode = 1
+      if (expectation === 'allow' && result?.value !== 42) process.exitCode = 1
+      if (expectation === 'block' && !result?.isError) process.exitCode = 1
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
@@ -366,6 +726,17 @@ export function apply(ctx) {
   assert.equal(receipt.plusOneExecutions, 1)
   assert.equal(receipt.activePolicyChecks, 0)
   assert.equal(receipt.pendingPolicyMarkers, 0)
+  assert.equal(receipt.pendingCorrelations, 0)
+  assert.equal(receipt.exactCorrelation, true)
+  assert.deepEqual(receipt.lifecycle, [
+    'session-start:startup',
+    'pre-step:1:1',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:2',
+    'turn-stop:1',
+  ])
 
   const skillLine = boot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
   assert.ok(skillLine, `missing ${skillMarker} output:\n${boot.stdout}\n${boot.stderr}`)
@@ -400,6 +771,8 @@ export function apply(ctx) {
   assert.equal(blockedReceipt.plusOneExecutions, 0)
   assert.equal(blockedReceipt.activePolicyChecks, 0)
   assert.equal(blockedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(blockedReceipt.pendingCorrelations, 0)
+  assert.equal(blockedReceipt.exactCorrelation, true)
 
   installPolicy('allow')
   const shortCircuitedBoot = runDsh(
@@ -421,12 +794,89 @@ export function apply(ctx) {
   )
   const shortCircuitedReceipt = JSON.parse(shortCircuitedLine.slice(marker.length))
   assert.equal(shortCircuitedReceipt.result.isError, true)
-  assert.match(shortCircuitedReceipt.result.content[0].text, /policy-marker-missing/)
+  assert.match(shortCircuitedReceipt.result.content[0].text, /policy-correlation-invalid/)
   assert.equal(shortCircuitedReceipt.plusOneExecutions, 0)
   assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
   assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(shortCircuitedReceipt.pendingCorrelations, 0)
 
-  await verifyApprovalComposition()
+  const replacedArgumentsBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS: '1',
+      },
+    },
+  )
+  const replacedArgumentsLine = replacedArgumentsBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedArgumentsLine,
+    `missing argument-replacement ${marker} output:\n${replacedArgumentsBoot.stdout}\n${replacedArgumentsBoot.stderr}`,
+  )
+  const replacedArgumentsReceipt = JSON.parse(replacedArgumentsLine.slice(marker.length))
+  assert.equal(replacedArgumentsReceipt.result.isError, true)
+  assert.match(replacedArgumentsReceipt.result.content[0].text, /policy-marker-missing/)
+  assert.equal(replacedArgumentsReceipt.plusOneExecutions, 0)
+  assert.equal(replacedArgumentsReceipt.activePolicyChecks, 0)
+  assert.equal(replacedArgumentsReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedArgumentsReceipt.pendingCorrelations, 0)
+
+  const replacedSessionBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION: '1',
+      },
+    },
+  )
+  const replacedSessionLine = replacedSessionBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedSessionLine,
+    `missing session-replacement ${marker} output:\n${replacedSessionBoot.stdout}\n${replacedSessionBoot.stderr}`,
+  )
+  const replacedSessionReceipt = JSON.parse(replacedSessionLine.slice(marker.length))
+  assert.equal(replacedSessionReceipt.result.isError, true)
+  assert.match(replacedSessionReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.equal(replacedSessionReceipt.plusOneExecutions, 0)
+  assert.equal(replacedSessionReceipt.activePolicyChecks, 0)
+  assert.equal(replacedSessionReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedSessionReceipt.pendingCorrelations, 0)
+
+  const replacedTokenBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN: '1',
+      },
+    },
+  )
+  const replacedTokenLine = replacedTokenBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedTokenLine,
+    `missing token-replacement ${marker} output:\n${replacedTokenBoot.stdout}\n${replacedTokenBoot.stderr}`,
+  )
+  const replacedTokenReceipt = JSON.parse(replacedTokenLine.slice(marker.length))
+  assert.equal(replacedTokenReceipt.result.isError, true)
+  assert.match(replacedTokenReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.equal(replacedTokenReceipt.plusOneExecutions, 0)
+  assert.equal(replacedTokenReceipt.activePolicyChecks, 0)
+  assert.equal(replacedTokenReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedTokenReceipt.pendingCorrelations, 0)
+
+  await verifyCancellationAndDisposalComposition()
+  await verifyRejectedLifecycleAttempts()
 
   process.stdout.write(JSON.stringify({
     ok: true,
@@ -437,7 +887,12 @@ export function apply(ctx) {
     output: result.value,
     policyBlockVerified: true,
     shortCircuitGuardVerified: true,
-    approvalCompositionVerified: true,
+    argumentReplacementGuardVerified: true,
+    sessionReplacementGuardVerified: true,
+    tokenReplacementGuardVerified: true,
+    lifecycleCorrelationVerified: true,
+    cancellationAndDisposalVerified: true,
+    rejectedLifecycleAttemptsVerified: true,
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
