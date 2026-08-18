@@ -1,0 +1,86 @@
+{
+  "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
+  "status": "pending-release",
+  "minimum_supported_release": null,
+  "validated_release": null,
+  "commands": [
+    {
+      "id": "agent-hook.dispatch.dsh",
+      "binary": "agent-hook",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "agent-hook.dsh-ingress.v1",
+        "cli.agent-hook.dispatch.v1",
+        "agent-hook.normalized-decision.v1"
+      ],
+      "source_task": "sympoies/nils-cli task 1.3"
+    },
+    {
+      "id": "forge-cli.pr-deliver",
+      "binary": "forge-cli",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "pr delivery lifecycle",
+        "head-bound evidence and review convergence"
+      ]
+    },
+    {
+      "id": "git-cli.worktree",
+      "binary": "git-cli",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "managed worktree lifecycle",
+        "checkout lease guard"
+      ]
+    },
+    {
+      "id": "semantic-commit.create",
+      "binary": "semantic-commit",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "signed semantic commit"
+      ]
+    },
+    {
+      "id": "test-first-evidence.v2",
+      "binary": "test-first-evidence",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "test-first evidence record",
+        "delivery head binding"
+      ]
+    },
+    {
+      "id": "plan-issue.tracking",
+      "binary": "plan-issue",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "plan issue tracking and closeout"
+      ]
+    },
+    {
+      "id": "plan-tooling.ledger",
+      "binary": "plan-tooling",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "dispatch lane ledger"
+      ]
+    },
+    {
+      "id": "agent-run.project-script",
+      "binary": "agent-run",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "repository-owned script dispatch"
+      ]
+    }
+  ]
+}

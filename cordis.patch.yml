@@ -1,0 +1,8 @@
+- insert:
+    - id: dsh-runtime-kit
+      name: '@sympoies/dsh-runtime-kit'
+      config:
+        agentHook: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'
+        privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
+        policyTimeoutMs: 5000
+        maxActivePolicyChecks: 4
