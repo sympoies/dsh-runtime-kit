@@ -119,6 +119,21 @@ wrappers run after the guard and publicly permit only signal replacement; all
 in-process wrappers are trusted computing base. The tested substitution
 guarantee is deliberately limited to the extensible pre-execute waterfall.
 
+## Task 2.2 selective context
+
+The selective-context implementation was exercised against the real packed
+DSH rc.7 composition. It proved that no policy corpus appeared at startup, one
+explicit `runtime_context({ intent: "project-dev" })` call returned only the
+bounded `edit` documents, and the independent probe tool returned 42 for 41.
+
+A later security review found a confused-deputy path: syntactically valid
+model-selected review, delivery, or future intents reached `agent-docs` without
+an explicit phase. Before the production repair, the focused context test
+reported five passing and one failing test because all three disallowed intents
+called the client. A shared exact allowlist now admits only
+`project-dev -> edit`; the model-facing schema and subprocess transport both
+enforce it, and the negative regression proves zero process creation.
+
 The converged gates are the focused lifecycle/policy suite, the complete Node
 test suite, strict JSDoc type checking, package dry-run inspection, and the
 packed real-DSH rc.7 smoke. The smoke uses a public scripted LLM adapter and a

@@ -19,6 +19,7 @@ import { applyPolicy } from '../policy.js'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
+const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 
 assert.notEqual(
   process.env.DSH_SOURCE_ROOT,
@@ -29,6 +30,11 @@ assert.notEqual(
   process.env.AGENT_HOOK_BIN,
   undefined,
   'set AGENT_HOOK_BIN to the nils-cli agent-hook binary under test',
+)
+assert.notEqual(
+  process.env.AGENT_DOCS_BIN,
+  undefined,
+  'set AGENT_DOCS_BIN to the nils-cli agent-docs binary under test',
 )
 
 const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
@@ -67,6 +73,8 @@ const dshHome = join(temporaryRoot, 'home')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
 const policyPath = join(temporaryRoot, 'policy.toml')
+const agentDocsHome = join(temporaryRoot, 'agent-docs-home')
+const agentDocsStateHome = join(temporaryRoot, 'agent-docs-state')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const profile = 'runtime-kit-smoke'
@@ -78,6 +86,9 @@ const environment = {
   DSH_AGENTS_HOME: join(temporaryRoot, 'empty-agents-home'),
   DSH_TELEMETRY_DISABLED: '1',
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
+  DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+  DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
+  DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
   DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
   XDG_CONFIG_HOME: configHome,
@@ -102,6 +113,17 @@ mode = "enforce"
 failure_posture = "closed"
 override_class = "locked"
 ${capability}
+
+[[rules]]
+id = "dsh.runtime-context"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "runtime_context"
+priority = 20
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "decision.allow.v1", reason_code = "runtime-context-allowed" }
 `
   const digest = `sha256:${createHash('sha256').update(policy).digest('hex')}`
   const configDir = join(configHome, 'agent-hook')
@@ -468,6 +490,21 @@ function collectFiles(directory, prefix = '') {
 
 try {
   mkdirSync(join(projectWorkspace, '.git'), { recursive: true })
+  mkdirSync(agentDocsHome, { recursive: true })
+  mkdirSync(agentDocsStateHome, { recursive: true })
+  writeFileSync(join(agentDocsHome, 'AGENT_DOCS.toml'), `
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "PROJECT_DEV_EDIT.md"
+product = "dsh"
+phase = "edit"
+required = true
+`)
+  writeFileSync(
+    join(agentDocsHome, 'PROJECT_DEV_EDIT.md'),
+    '# DSH selective context\n\nDSH_RUNTIME_CONTEXT_SMOKE_MARKER\n',
+  )
   installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
   installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')
   installSkill(privateSkillsRoot, 'topic-radar', 'private-topic-radar-marker')
@@ -495,6 +532,8 @@ try {
     'index.js',
     'policy.js',
     'src/compat/dsh-rc7.js',
+    'src/context/index.js',
+    'src/context/nils-context.js',
     'src/policy/index.js',
     'src/policy/nils-transport.js',
     'cordis.patch.yml',
@@ -544,13 +583,13 @@ import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
 export const name = 'dsh-runtime-kit-smoke-driver'
 export const inject = ['agents', 'llm', 'skills', 'dshRuntimeKit']
 
-function toolCallResponse() {
-  const id = CallId('dsh-runtime-kit-smoke-call')
-  const args = JSON.stringify({ value: 41 })
+function toolCallResponse(name, value, suffix) {
+  const id = CallId('dsh-runtime-kit-smoke-' + suffix)
+  const args = JSON.stringify(value)
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id, name: 'runtime_kit_plus_one', argumentsDelta: args },
-    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'runtime_kit_plus_one', arguments: args } },
+    { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } },
     { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ]
@@ -568,11 +607,23 @@ function textResponse(text) {
 
 class SmokeAdapter extends LlmAdapter {
   calls = 0
+  contextVisibility = []
   resolveModel(provider, model) {
     return Promise.resolve({ provider, id: model, name: model })
   }
   async *stream(options) {
-    const chunks = this.calls++ === 0 ? toolCallResponse() : textResponse('done')
+    const isAgentLoopRequest = options.tools?.some(tool => tool.name === 'runtime_context') === true
+    if (!isAgentLoopRequest) {
+      for (const chunk of textResponse('smoke title')) yield chunk
+      return
+    }
+    this.contextVisibility.push(JSON.stringify(options.messages).includes('DSH_RUNTIME_CONTEXT_SMOKE_MARKER'))
+    const call = this.calls++
+    const chunks = call === 0
+      ? toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call')
+      : call === 1
+        ? toolCallResponse('runtime_kit_plus_one', { value: 41 }, 'plus-one-call')
+        : textResponse('done')
     for (const chunk of chunks) {
       if (options.signal?.aborted) throw new Error('smoke adapter aborted')
       yield chunk
@@ -611,6 +662,7 @@ export function apply(ctx) {
       let postExec
       let finalExec
       let result
+      let contextResult
       const errors = []
       ctx.on('agent/session-start', ({ agent, source }) => {
         if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
@@ -623,23 +675,27 @@ export function apply(ctx) {
         if (String(exec.agent?.id) !== targetId) return next()
         lifecycle.push('pre-tool')
         preExec = exec
-        if (process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
+        if (exec.name === 'runtime_kit_plus_one'
+          && process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
           return Promise.resolve({ kind: 'allow' })
         }
         return next()
       }, { prepend: true })
       ctx.on('tools/pre-execute', async (exec, next) => {
         const decision = await next()
-        if (String(exec.agent?.id) === targetId
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
           && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS === '1') {
           exec.arguments = { value: 99 }
         }
-        if (String(exec.agent?.id) === targetId
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
           && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION === '1') {
           const current = exec.agent.session
           exec.agent.session = Session.create(SessionId(targetId), current.events, current.header)
         }
-        if (String(exec.agent?.id) === targetId
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
           && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN === '1') {
           exec.token = Symbol('substituted-token')
         }
@@ -655,8 +711,12 @@ export function apply(ctx) {
       ctx.on('tools/result', (exec, finalResult) => {
         if (String(exec.agent?.id) === targetId) {
           lifecycle.push('result')
-          finalExec = exec
-          result = finalResult
+          if (exec.name === 'runtime_context') {
+            contextResult = finalResult
+          } else if (exec.name === 'runtime_kit_plus_one') {
+            finalExec = exec
+            result = finalResult
+          }
         }
       })
       ctx.on('agent/turn-stopping', ({ agent, turn }) => {
@@ -668,7 +728,8 @@ export function apply(ctx) {
         }
       })
 
-      ctx.llm.registerAdapter(['runtime-kit-smoke'], new SmokeAdapter())
+      const adapter = new SmokeAdapter()
+      ctx.llm.registerAdapter(['runtime-kit-smoke'], adapter)
       const handle = await ctx.agents.create({
         sessionId: SessionId(targetId),
         agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
@@ -683,6 +744,8 @@ export function apply(ctx) {
 
       process.stdout.write('${marker}' + JSON.stringify({
         result,
+        contextResult,
+        contextVisibility: adapter.contextVisibility,
         lifecycle,
         errors,
         sessionEvents: agent.session.events.map(event => event.type),
@@ -697,6 +760,7 @@ export function apply(ctx) {
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
+      if (contextResult?.value?.documents?.[0]?.content?.includes('DSH_RUNTIME_CONTEXT_SMOKE_MARKER') !== true) process.exitCode = 1
       if (expectation === 'allow' && result?.value !== 42) process.exitCode = 1
       if (expectation === 'block' && !result?.isError) process.exitCode = 1
     } catch (error) {
@@ -720,6 +784,14 @@ export function apply(ctx) {
 
   const receipt = JSON.parse(line.slice(marker.length))
   const result = receipt.result
+  const contextResult = receipt.contextResult
+  assert.equal(contextResult.isError, false)
+  assert.equal(contextResult.value.schema_version, 'dsh-runtime-context.result.v1')
+  assert.equal(contextResult.value.intent, 'project-dev')
+  assert.equal(contextResult.value.status, 'prepared')
+  assert.equal(contextResult.value.document_count, 1)
+  assert.match(contextResult.value.documents[0].content, /DSH_RUNTIME_CONTEXT_SMOKE_MARKER/)
+  assert.deepEqual(receipt.contextVisibility, [false, true, true])
   assert.equal(result.isError, false)
   assert.equal(result.value, 42)
   assert.deepEqual(result.content, [{ type: 'text', text: '42' }])
@@ -735,6 +807,10 @@ export function apply(ctx) {
     'post-tool',
     'result',
     'pre-step:1:2',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:3',
     'turn-stop:1',
   ])
 
@@ -885,6 +961,8 @@ export function apply(ctx) {
     tool: 'runtime_kit_plus_one',
     input: 41,
     output: result.value,
+    runtimeContextVerified: true,
+    startupContextAbsent: true,
     policyBlockVerified: true,
     shortCircuitGuardVerified: true,
     argumentReplacementGuardVerified: true,

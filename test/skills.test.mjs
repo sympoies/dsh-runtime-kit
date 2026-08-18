@@ -213,6 +213,21 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
     ],
     source_task: 'sympoies/nils-cli task 1.3',
   })
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-docs.session.context.dsh'),
+    {
+      id: 'agent-docs.session.context.dsh',
+      binary: 'agent-docs',
+      status: 'pending-release',
+      validation: 'source-validated',
+      contracts: [
+        'cli.agent-docs.session.context.v1',
+        'decision.context.v1',
+        'agent-docs.session.v2',
+      ],
+      source_task: 'sympoies/nils-cli task 2.2',
+    },
+  )
 })
 
 test('greenfield evidence labels the initial module-absence run as setup failure', () => {

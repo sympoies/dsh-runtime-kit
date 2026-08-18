@@ -5,7 +5,8 @@ layer that will replace `agent-runtime-kit`. It is a DSH bundle, not a fork and
 not a copied preset.
 
 The current implementation contributes one Cordis plugin, the 29 public
-workflow skills, optional private-skill loading, and one native DSH probe tool,
+workflow skills, optional private-skill loading, one selective
+`runtime_context({ intent })` tool, and the native DSH probe tool
 `runtime_kit_plus_one`. Its rc.7 adapter correlates the public session-start,
 pre-step, pre-tool, post-tool, result, and turn-stop lifecycle boundaries while
 forwarding only `tools/pre-execute` through `agent-hook --product dsh`. Policy
@@ -32,6 +33,21 @@ the remaining policy handlers and reviewer personas are migrated.
 - Invokes `agent-hook` through the host-provided DSH `subprocess` service and
   fails closed on missing, malformed, truncated, signaled, or mismatched policy
   output.
+- Loads no policy corpus at session start. The model explicitly calls
+  `runtime_context({ intent })`; the plugin invokes one atomic
+  `agent-docs session context` command and returns only the satisfied required
+  documents for that DSH session, project, product, intent, and content
+  fingerprint.
+- Allows only `project-dev` on the model-facing tool and always maps it to the
+  bounded `edit` phase. Unknown, review, and delivery intents are rejected
+  before `agent-docs` starts. Review and delivery phases remain workflow-owned
+  so the ordinary edit path cannot load the full legacy delivery corpus.
+- Accepts at most 20 KiB of document content by default (64 KiB hard cap),
+  validates the exact response and byte count, strips request/session/path
+  metadata from the model-facing result, and rejects cross-request replay.
+  Repeating the explicit tool call re-resolves current documents and returns
+  `already-current`; this supports recovery after model-context compaction
+  without weakening nils session verification.
 - Retains only content-free session/cwd/turn/step/call correlation. Prompt
   messages, raw arguments, subprocess output, and tool result bodies are never
   stored in lifecycle state, and session/turn/step facts do not expand the
@@ -81,6 +97,13 @@ beyond the active ceiling fail closed with `policy-overloaded`. Confirmed
 quiescence releases capacity normally; unknown quiescence closes all admission
 instead of silently reopening capacity.
 
+Selective context uses a separate process owner with a 5-second deadline,
+2-second teardown deadline, and two active requests. The configurable fields
+are `contextMaxBytes`, `contextTimeoutMs`, `contextTeardownTimeoutMs`, and
+`maxActiveContextRequests`; their hard ceilings are 64 KiB, 30 seconds,
+10 seconds, and 16. Context-transport degradation closes only context loading
+and never relaxes the independent pre-tool policy gate.
+
 The exact supported DSH peer line is `0.1.0-rc.7`; the compatibility adapter is
 not declared compatible with later release candidates or `0.1.x` releases.
 The mutation containment claims above apply to the public pre-execute policy
@@ -99,6 +122,7 @@ installer, then run:
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/target/debug/agent-hook \
+AGENT_DOCS_BIN=/path/to/nils-cli/target/debug/agent-docs \
 npm run test:smoke
 ```
 
@@ -106,8 +130,10 @@ The acceptance test packs the publishable tarball, installs it into a clean
 temporary `DSH_HOME`, invokes the actual `dsh plugin` and `dsh --dump-config`
 paths, and boots the real DSH composition. It proves the 29-skill catalog plus
 project/private precedence, then drives a scripted public LLM adapter through a
-real Agent and two-step tool loop. It checks all six lifecycle boundaries,
-observes `runtime_kit_plus_one({ value: 41 })` return `42`, switches policy to
+real Agent and three-step tool loop. It proves the context marker is absent
+from the initial request, calls `runtime_context({ intent: "project-dev" })`,
+observes the bounded marker only after that result, then observes
+`runtime_kit_plus_one({ value: 41 })` return `42`. It switches policy to
 prove pre-body denial, and exercises cancellation and plugin-disposal drains.
 
 ## Compatibility

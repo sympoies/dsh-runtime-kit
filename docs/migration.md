@@ -13,12 +13,13 @@ The replacement is staged behind executable gates:
    `0.1.0-rc.7`; unknown subprocess quiescence permanently degrades policy
    admission closed, revokes approval-waiting allow markers, and lifecycle
    refresh is append-incremental with sticky invalidation on history rewrite.
-5. In progress: model-facing context activation, post-tool/finish-line policy
-   events, and deterministic parity for the retained policy handlers. The
-   model-facing `decision.context.v1` capability is deliberately not part of
-   the lifecycle correlation delivered in the preceding stage.
-6. Pending: one DSH-native reviewer tool with eight read-only personas.
-7. Pending: setup/update/rollback diagnostics, performance budget, full
+5. Source complete, release pending: model-facing selective context through an
+   atomic nils `decision.context.v1` contract and a native DSH tool. No corpus
+   is injected at startup; project-dev/edit is bounded and replay-bound.
+6. In progress: post-tool/finish-line policy events and deterministic parity
+   for the retained policy handlers.
+7. Pending: one DSH-native reviewer tool with eight read-only personas.
+8. Pending: setup/update/rollback diagnostics, performance budget, full
    compatibility CI, and local runtime cutover.
 
 The previous runtime remains untouched until the new path passes every gate

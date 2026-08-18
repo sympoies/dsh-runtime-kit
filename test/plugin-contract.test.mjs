@@ -50,6 +50,7 @@ function harness({
   let peakActiveHandles = 0
   let signal
   let service
+  const registeredTools = new Map()
   const handles = []
   const session = {
     id: 'session-1',
@@ -62,7 +63,10 @@ function harness({
       list: () => [agent],
     },
     tools: {
-      register() {},
+      register(definition) {
+        registeredTools.set(definition.name, definition)
+        return () => registeredTools.delete(definition.name)
+      },
       guard(candidate) {
         guard = candidate
         return () => {
@@ -287,6 +291,8 @@ function harness({
         .map(([event]) => event)
         .sort()
     },
+    get registeredToolNames() { return [...registeredTools.keys()].sort() },
+    tool(name) { return registeredTools.get(name) },
     agent,
     get spawnCount() { return spawnCount },
     get peakActiveHandles() { return peakActiveHandles },
@@ -295,6 +301,23 @@ function harness({
     get service() { return service },
   }
 }
+
+test('the policy bundle exposes one explicit selective runtime-context tool', () => {
+  const subject = harness()
+
+  assert.deepEqual(subject.registeredToolNames, [
+    'runtime_context',
+    'runtime_kit_plus_one',
+  ])
+  assert.deepEqual(subject.tool('runtime_context')?.parameters, {
+    type: 'object',
+    properties: {
+      intent: { type: 'string', enum: ['project-dev'] },
+    },
+    required: ['intent'],
+    additionalProperties: false,
+  })
+})
 
 test('malformed normalized decisions fail closed without delegating', async () => {
   const malformed = [

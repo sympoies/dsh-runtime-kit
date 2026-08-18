@@ -1,6 +1,8 @@
 // @ts-check
 
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
+import { createRuntimeContextTool } from '../context/index.js'
+import { createNilsContextClient } from '../context/nils-context.js'
 import { createNilsTransport } from './nils-transport.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
@@ -103,10 +105,11 @@ function matchesAuthorization(authorization, exec) {
  * every ingress listener and guard before process-tree draining begins.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
+ * @param {{ agentHook?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
  */
 export function applyPolicy(ctx, config = {}) {
   const transport = createNilsTransport(ctx, config)
+  const contextClient = createNilsContextClient(ctx, config)
   const compatibility = createDshRc7Compatibility(ctx)
   /** @type {Map<Readonly<ToolExecution>, Authorization>} */
   const authorizations = new Map()
@@ -119,6 +122,7 @@ export function applyPolicy(ctx, config = {}) {
   }, 'dsh-runtime-kit policy state')
 
   let plusOneExecutions = 0
+  ctx.tools.register(createRuntimeContextTool(contextClient))
   ctx.tools.register(createPlusOneTool(() => { plusOneExecutions += 1 }))
 
   ctx.on('agent/session-start', payload => {
@@ -205,11 +209,17 @@ export function applyPolicy(ctx, config = {}) {
     apiVersion: 1,
     get plusOneExecutions() { return plusOneExecutions },
     get activePolicyChecks() { return transport.active },
+    get activeContextRequests() { return contextClient.active },
     get policyTransportDegraded() { return transport.degraded },
+    get contextTransportDegraded() { return contextClient.degraded },
     get pendingPolicyMarkers() { return authorizations.size },
     get pendingCorrelations() { return compatibility.pendingCorrelations },
     policyTimeoutMs: transport.timeoutMs,
     policyTeardownTimeoutMs: transport.teardownTimeoutMs,
     maxActivePolicyChecks: transport.maxActive,
+    contextMaxBytes: contextClient.maxBytes,
+    contextTimeoutMs: contextClient.timeoutMs,
+    contextTeardownTimeoutMs: contextClient.teardownTimeoutMs,
+    maxActiveContextRequests: contextClient.maxActive,
   }))
 }

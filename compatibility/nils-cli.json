@@ -17,6 +17,18 @@
       "source_task": "sympoies/nils-cli task 1.3"
     },
     {
+      "id": "agent-docs.session.context.dsh",
+      "binary": "agent-docs",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "cli.agent-docs.session.context.v1",
+        "decision.context.v1",
+        "agent-docs.session.v2"
+      ],
+      "source_task": "sympoies/nils-cli task 2.2"
+    },
+    {
       "id": "forge-cli.pr-deliver",
       "binary": "forge-cli",
       "status": "released",

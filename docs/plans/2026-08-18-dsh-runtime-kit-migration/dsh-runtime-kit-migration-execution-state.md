@@ -9,10 +9,12 @@
 - Plan branch: `feat/dsh-runtime-migration-plan`
 - Current sprint: Sprint 2
 - Status: in-progress
-- Current task: 2.1 Add the bounded lifecycle compatibility layer
-- Next task: 2.2 Implement selective runtime context
-- Integration checkout: managed lane `feat/lifecycle-compat`
-- Blockers: none
+- Current task: 2.2 Deliver selective runtime context
+- Next task: 2.3 Replace validation wrappers with result-driven finish-line state
+- Integration checkout: managed lane `feat/selective-runtime-context`
+- Blockers: nils-cli PR #1466 cannot merge or release on the 1.x
+  `nils-agent-docs` line because `Product::Dsh` expands a closed public Rust
+  enum; maintainer authorization for a 2.0 boundary is pending
 - Last updated: 2026-08-18
 
 ## Task Ledger
@@ -22,8 +24,8 @@
 | 1.1 | Initialize dispatch record and plan branch | done | public `sympoies/dsh-runtime-kit`; local validated bundle pending; plan commit 5f8fb78; public issue #1; run 20260817T230951Z-issue-1 | Validated, published, and initialized |
 | 1.2 | Deliver external bundle and skills baseline | done | dsh-runtime-kit PR #2; squash `aef980293d48eac03e293acfca0d5562041b29e5`; 26/26 tests; packed real DSH rc.7 smoke | External bundle, private loader, and skill precedence integrated |
 | 1.3 | Deliver strict nils-cli DSH ingress | done | nils-cli PR #1465; squash `5937233a87b88f8afa4e00ba550124176be837c2`; exact-head Linux/macOS/coverage/cargo-deny/CodeQL | Strict ingress and native allow/block decision merged to nils-cli `main` |
-| 2.1 | Add bounded lifecycle compatibility layer | in-progress | managed lane `feat/lifecycle-compat`; 53/53 tests; packed real rc.7 smoke; API/performance/security review pass | Validated locally; PR delivery pending |
-| 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
+| 2.1 | Add bounded lifecycle compatibility layer | done | dsh-runtime-kit PR #3; squash `ba15a9c1e4b14b97091a60bfb927b1b1c5855b65`; 53/53 tests; packed real rc.7 smoke; converged review ledger | Full lifecycle correlation and bounded fail-closed transport integrated |
+| 2.2 | Implement selective runtime context | source-complete | nils-cli PR #1466; dsh-runtime-kit draft PR #4; managed lane `feat/selective-runtime-context`; clean rc.7 smoke | Neither dependency nor DSH delivery may merge until the nils version boundary is resolved |
 | 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
 | 3.1 | Freeze parity inventory and capability groups | pending | pending | Exhaustive 101-rule/22-handler disposition |
 | 3.2 | Port Git, delivery, scope, and edit-admission policies | pending | pending | Deterministic nils capability lane |
@@ -87,6 +89,26 @@
   `0.1.0-rc.7` DSH peer pins and the trusted in-process plugin boundary are now
   explicit. Affected API, performance, security, testing, maintainability, and
   red-team follow-ups converged with no remaining finding.
+- 2026-08-18: Task 2.1 PR #3 merged by squash into the retained plan branch as
+  `ba15a9c1`. Task 2.2 started in a fresh managed lane; it will keep the full
+  policy corpus out of session-start and expose only intent-selected, bounded
+  agent-docs content through one DSH-native tool.
+- 2026-08-18: Task 2.2 source converged at 60/60 package tests, strict
+  type-checking, package dry-run inspection, and a packed smoke against the
+  clean upstream `dsh-v0.1.0-rc.7` checkout. The real Agent loop observed no
+  startup marker, loaded `project-dev` only through `runtime_context`, then
+  returned `42` from the independent plus-one tool. The exact nils dependency
+  is PR #1466 head `ec8b6021`, whose focused 67 unit and 206 integration tests
+  and API/security/testing specialist reviews are green; provider CI remains
+  the merge gate.
+- 2026-08-18: `Product::Dsh` expands a closed public Rust enum. Task 2.2 will
+  not merge or publish that contract on the nils 1.x line. The maintainer must
+  authorize a 2.0 boundary or choose a more isolated parser design before the
+  dependency and DSH delivery PRs can merge.
+- 2026-08-18: Security review of DSH PR #4 found that arbitrary model-selected
+  intents could omit phase and cross the workflow-owned review/delivery
+  boundary. The regression now rejects every intent except `project-dev`
+  before process creation and maps every accepted call explicitly to `edit`.
 
 ## Decision Log
 
@@ -103,6 +125,7 @@
 
 ## Handoff
 
-Deliver the validated Task 2.1 `feat/lifecycle-compat` lane to the plan branch,
-then begin Task 2.2 in a fresh managed lane. Keep model-facing selective context
-and `decision.context.v1` outside the strict Task 2.1 ingress contract.
+Review the source-complete Task 2.2 DSH lane while the nils version boundary is
+pending. In parallel, design Task 2.3 from authoritative DSH post-tool/result
+and turn-stop events; keep the old shell EXIT wrapper out of the new production
+path and preserve the strict Task 2.1 pre-tool ingress.

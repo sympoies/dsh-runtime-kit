@@ -3,7 +3,14 @@
       name: '@sympoies/dsh-runtime-kit'
       config:
         agentHook: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'
+        agentDocs: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? 'agent-docs'
+        agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
+        agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
         privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
+        contextMaxBytes: 20480
+        contextTimeoutMs: 5000
+        contextTeardownTimeoutMs: 2000
+        maxActiveContextRequests: 2
         policyTimeoutMs: 5000
         policyTeardownTimeoutMs: 2000
         maxActivePolicyChecks: 4

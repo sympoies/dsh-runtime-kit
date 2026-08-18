@@ -65,6 +65,27 @@ of the transport set and waiting for rc.7 approval. The subprocess receives a
 fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
 no forwarded environment, and no spill or unbounded output path.
 
+`src/context/nils-context.js` owns a separate bounded subprocess lifecycle for
+`agent-docs session context`. A tool call derives the exact DSH Session id and
+absolute cwd from the live Agent, mints a fresh request id, and asks nils to
+resolve, budget-check, fingerprint, and persist one intent atomically. The
+transport validates an exact `cli.agent-docs.session.context.v1` envelope and
+`decision.context.v1` payload, including request, product, intent, optional
+phase, document count, and UTF-8 byte count. It never trusts a previous tool
+result as authorization. Nils remains the owner of session/project/product and
+catalog-content replay binding; the plugin removes correlation and filesystem
+metadata before DSH materializes the canonical tool result.
+
+The tool result itself is the only model-facing context delivery path. Nothing
+is attached to the system prompt or session-start event, and the plugin does
+not duplicate the same document through `deferContext()`. The public tool
+schema allows only `project-dev`, which deterministically selects phase `edit`;
+the transport repeats the same allowlist check before spawning `agent-docs`.
+Workflow code will prepare review and delivery phases at their own boundaries.
+Context cancellation, timeout, and disposal join the complete child process
+tree. Unknown quiescence permanently closes this context surface but does not
+change the independent monotonic policy-transport state.
+
 The security boundary ends at DSH's monotonic guard. Public `tools/execute`
 wrappers run afterward with a `ToolDispatchExecution` whose contract makes only
 `signal` mutable. Such in-process plugins are trusted computing base; deliberate
