@@ -3,7 +3,9 @@
 The replacement is staged behind executable gates:
 
 1. Complete: external bundle installation and real DSH boot without a fork.
-2. Complete: strict nils-cli DSH ingress and fail-closed allow/block bridge.
+2. Source complete, release pending: strict nils-cli DSH ingress and fail-closed
+   allow/block bridge. The package release floor remains unset until the
+   matching nils-cli capability is published and artifact-validated.
 3. Complete: 29 public skills plus project/private discovery and precedence.
 4. In progress: context activation, post-tool/finish-line policy events, and
    deterministic parity for the retained policy handlers.

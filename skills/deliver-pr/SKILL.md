@@ -643,8 +643,9 @@ outcome, and retry. For `review_changes_requested` or
 `review_snapshot_incomplete`, inspect `pr reviews` and stop until the native
 state is cleared or complete. For `unresolved_review_threads`, use
 `forge-cli pr review-threads list`, then repair, reply and resolve as accepted,
-or create a follow-up and resolve with its link per
-`core/policies/review-thread-convergence.md`. Outdated unresolved threads are
+or create a follow-up and resolve with its link per the
+[review thread convergence policy](../../docs/policies/review-thread-convergence.md).
+Outdated unresolved threads are
 auto-dispositioned `stale` by `pr merge` (recorded in
 `data.stale_thread_dispositions`) and do not block, so this list/disposition
 path applies only to the remaining non-outdated threads. For
@@ -801,7 +802,8 @@ Use `profile=tracking` for lightweight plan-tracking issues and
     commit, chained closeout result, and any fallback used in delivery notes.
 20. If this workflow is the outermost terminal owner, finish any requested
     post-merge deployment, activation, archive, evidence, and local closeout
-    duties, then apply `core/policies/git-delivery.md` terminal cleanup. Recheck
+    duties, then apply the [git delivery policy](../../docs/policies/git-delivery.md)
+    terminal cleanup. Recheck
     status and provider merge/head truth. Restore a clean primary checkout to
     base, or invoke `git-cli worktree remove <path-or-slug> --format json` from
     the primary checkout through the supported hooked shell; the target-aware

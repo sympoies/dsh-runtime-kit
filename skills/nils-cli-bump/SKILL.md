@@ -17,15 +17,20 @@ description: >
 
 ## Workflow
 
-1. Read this repository's nils compatibility declaration and current lock or
-   release metadata.
-2. Compare the current validated tag with the target and identify changed
-   commands, flags, schemas, and exit codes consumed by this bundle.
+1. Read [the nils-cli compatibility manifest](../../compatibility/nils-cli.json)
+   and current release metadata. Treat every command entry independently.
+2. Compare each consumed command's status, contracts, flags, schemas, and exit
+   codes with the target release. A `pending-release` command is not evidence
+   for a release floor and keeps the package-level minimum and validated
+   release unset.
 3. Run focused `agent-hook` contract tests against the target artifact without
    replacing the user's system installation.
 4. Run `npm test`, pack the public bundle, and execute the real DSH allow/block
    smoke with the target `agent-hook` binary.
-5. Update version constraints and compatibility docs in one coherent change.
+5. Change a command to `released` only after the target artifact proves every
+   listed contract. Update package-level status, minimum, validated release,
+   version constraints, and compatibility docs in one coherent change; never
+   infer them from a source checkout or ambient binary.
 6. Run the repository's full package, discovery, policy, and compatibility
    gates before delivery.
 

@@ -4,8 +4,13 @@ const MAX_POLICY_OUTPUT_BYTES = 64 * 1024
 const MAX_POLICY_ERROR_BYTES = 8 * 1024
 const MAX_POLICY_INPUT_BYTES = 1024 * 1024
 const DEFAULT_POLICY_TIMEOUT_MS = 5_000
-const MAX_TIMER_DELAY_MS = 2_147_483_647
+const MAX_POLICY_TIMEOUT_MS = 30_000
+const DEFAULT_MAX_ACTIVE_POLICY_CHECKS = 4
+const MAX_ACTIVE_POLICY_CHECKS = 16
+const MAX_POLICY_INPUT_DEPTH = 64
+const MAX_POLICY_INPUT_ENTRIES = 10_000
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/
+const DSH_V1_REASON_DISPOSITIONS = new Set(['allow', 'block'])
 
 /**
  * Minimal native-tool probe used to prove the external-bundle seam before the
@@ -90,28 +95,107 @@ function jsonStringBytes(value, remaining) {
   return bytes
 }
 
-function boundedJsonBytes(value, limit, seen = new WeakSet()) {
-  if (value === null) return 4
-  if (typeof value === 'string') return jsonStringBytes(value, limit)
-  if (typeof value === 'boolean') return value ? 4 : 5
-  if (typeof value === 'number') return Number.isFinite(value) ? String(value).length : 4
-  if (typeof value !== 'object' || seen.has(value)) return limit + 1
-
-  seen.add(value)
-  let bytes = 2
-  const array = Array.isArray(value)
-  const entries = array
-    ? value.map((item, index) => [String(index), item])
-    : Object.entries(value)
-  for (let index = 0; index < entries.length; index += 1) {
-    const [key, item] = entries[index]
-    if (index > 0) bytes += 1
-    if (!array) bytes += jsonStringBytes(key, limit - bytes) + 1
-    bytes += boundedJsonBytes(item, limit - bytes, seen)
-    if (bytes > limit) break
+function* ownEnumerableEntries(value) {
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue
+    const item = value[key]
+    if (item === undefined || typeof item === 'function' || typeof item === 'symbol') continue
+    yield [key, item]
   }
-  seen.delete(value)
-  return bytes
+}
+
+/**
+ * Measure JSON incrementally without recursive calls or eager whole-container
+ * entry arrays. The traversal stops as soon as its byte, depth, or entry
+ * contract is exceeded; the later JSON.stringify is therefore bounded to a
+ * practical, already-validated shape.
+ */
+function boundedJsonMeasurement(value, limit) {
+  const ancestors = new WeakSet()
+  const stack = [{ kind: 'value', value, depth: 0 }]
+  let bytes = 0
+  let entries = 0
+
+  const addBytes = (amount) => {
+    bytes += amount
+    return bytes <= limit
+  }
+
+  while (stack.length > 0) {
+    const frame = stack.pop()
+    if (frame.kind === 'close') {
+      ancestors.delete(frame.value)
+      continue
+    }
+    if (frame.kind === 'container') {
+      let item
+      let key
+      if (frame.array) {
+        if (frame.index >= frame.value.length) {
+          ancestors.delete(frame.value)
+          continue
+        }
+        key = String(frame.index)
+        item = Object.hasOwn(frame.value, frame.index) ? frame.value[frame.index] : null
+        frame.index += 1
+      } else {
+        const next = frame.iterator.next()
+        if (next.done) {
+          ancestors.delete(frame.value)
+          continue
+        }
+        ;[key, item] = next.value
+      }
+      entries += 1
+      if (entries > MAX_POLICY_INPUT_ENTRIES) return { ok: false, reason: 'too-complex' }
+      if (!frame.first && !addBytes(1)) return { ok: false, reason: 'too-large' }
+      frame.first = false
+      if (!frame.array) {
+        if (!addBytes(jsonStringBytes(key, limit - bytes) + 1)) {
+          return { ok: false, reason: 'too-large' }
+        }
+      }
+      stack.push(frame)
+      stack.push({ kind: 'value', value: item, depth: frame.depth + 1 })
+      continue
+    }
+
+    const item = frame.value
+    if (item === null) {
+      if (!addBytes(4)) return { ok: false, reason: 'too-large' }
+      continue
+    }
+    if (typeof item === 'string') {
+      if (!addBytes(jsonStringBytes(item, limit - bytes))) return { ok: false, reason: 'too-large' }
+      continue
+    }
+    if (typeof item === 'boolean') {
+      if (!addBytes(item ? 4 : 5)) return { ok: false, reason: 'too-large' }
+      continue
+    }
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) return { ok: false, reason: 'too-complex' }
+      if (!addBytes(String(item).length)) return { ok: false, reason: 'too-large' }
+      continue
+    }
+    if (typeof item !== 'object' || ancestors.has(item)) {
+      return { ok: false, reason: 'too-complex' }
+    }
+    if (frame.depth >= MAX_POLICY_INPUT_DEPTH) return { ok: false, reason: 'too-complex' }
+
+    ancestors.add(item)
+    if (!addBytes(2)) return { ok: false, reason: 'too-large' }
+    stack.push({
+      kind: 'container',
+      value: item,
+      array: Array.isArray(item),
+      index: 0,
+      iterator: Array.isArray(item) ? undefined : ownEnumerableEntries(item),
+      first: true,
+      depth: frame.depth,
+    })
+  }
+  return { ok: true, bytes, entries }
 }
 
 function validReason(reason) {
@@ -122,7 +206,7 @@ function validReason(reason) {
     && typeof reason.code === 'string'
     && reason.code.length > 0
     && typeof reason.disposition === 'string'
-    && reason.disposition.length > 0
+    && DSH_V1_REASON_DISPOSITIONS.has(reason.disposition)
 }
 
 function validShadow(observation) {
@@ -136,7 +220,7 @@ function validShadow(observation) {
 }
 
 function validDecision(decision, expectedRequestId) {
-  return decision !== null
+  if (!(decision !== null
     && typeof decision === 'object'
     && decision.schema_version === 'agent-hook.normalized-decision.v1'
     && typeof decision.request_id === 'string'
@@ -157,14 +241,45 @@ function validDecision(decision, expectedRequestId) {
         && typeof decision.context === 'string'
         && decision.context.length > 0
         && Buffer.byteLength(decision.context, 'utf8') <= 16 * 1024))
-    && decision.replacement === undefined
+    && decision.replacement === undefined)) return false
+
+  const hasBlockReason = decision.reasons.some(reason => reason.disposition === 'block')
+  return decision.action === 'block'
+    ? hasBlockReason
+    : !hasBlockReason && decision.reasons.every(reason => reason.disposition === 'allow')
 }
 
-function positiveTimeout(value) {
-  return Number.isFinite(value) && value > 0 && value <= MAX_TIMER_DELAY_MS
+function policyTimeout(value) {
+  return Number.isFinite(value) && value > 0
+    ? Math.min(Math.floor(value), MAX_POLICY_TIMEOUT_MS)
+    : DEFAULT_POLICY_TIMEOUT_MS
 }
 
-async function evaluatePreToolPolicy(ctx, exec, command, timeoutMs) {
+function policyConcurrency(value) {
+  return Number.isInteger(value) && value > 0
+    ? Math.min(value, MAX_ACTIVE_POLICY_CHECKS)
+    : DEFAULT_MAX_ACTIVE_POLICY_CHECKS
+}
+
+function createPolicyLimiter(maxActive) {
+  let active = 0
+  return {
+    acquire() {
+      if (active >= maxActive) return undefined
+      active += 1
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        active -= 1
+      }
+    },
+    get active() { return active },
+    maxActive,
+  }
+}
+
+async function evaluatePreToolPolicy(ctx, exec, command, timeoutMs, limiter) {
   const cwd = exec.agent?.session.header.cwd ?? process.cwd()
   const ingress = {
     schema_version: 'agent-hook.dsh-ingress.v1',
@@ -176,30 +291,57 @@ async function evaluatePreToolPolicy(ctx, exec, command, timeoutMs) {
       arguments: exec.arguments,
     },
   }
-  if (boundedJsonBytes(ingress, MAX_POLICY_INPUT_BYTES) > MAX_POLICY_INPUT_BYTES) {
-    return denial('policy-input-too-large')
+  const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
+  if (!measurement.ok) {
+    return denial(`policy-input-${measurement.reason}`)
   }
-  const payload = JSON.stringify(ingress)
+  let payload
+  try {
+    payload = JSON.stringify(ingress)
+  } catch {
+    return denial('policy-input-too-complex')
+  }
   if (Buffer.byteLength(payload, 'utf8') > MAX_POLICY_INPUT_BYTES) {
     return denial('policy-input-too-large')
   }
   const expectedRequestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
 
+  if (exec.signal.aborted) return denial('policy-caller-aborted')
+  const release = limiter.acquire()
+  if (release === undefined) return denial('policy-overloaded')
+
   const policyController = new AbortController()
-  const onCallerAbort = () => policyController.abort(exec.signal.reason)
+  let resolveCallerAbort
+  const callerAborted = new Promise(resolve => { resolveCallerAbort = resolve })
+  const onCallerAbort = () => {
+    resolveCallerAbort({ kind: 'caller-aborted' })
+    policyController.abort(exec.signal.reason)
+  }
   exec.signal.addEventListener('abort', onCallerAbort, { once: true })
-  if (exec.signal.aborted) onCallerAbort()
-  const handle = ctx.subprocess.spawn({
-    argv: [command, 'dispatch', '--product', 'dsh', '--format', 'json'],
-    cwd,
-    stdio: {
-      stdin: { data: payload },
-      stdout: { maxBytes: MAX_POLICY_OUTPUT_BYTES },
-      stderr: { maxBytes: MAX_POLICY_ERROR_BYTES },
-    },
-    graceMs: 1_000,
-    signal: policyController.signal,
-  })
+  if (exec.signal.aborted) {
+    onCallerAbort()
+    release()
+    exec.signal.removeEventListener('abort', onCallerAbort)
+    return denial('policy-caller-aborted')
+  }
+  let handle
+  try {
+    handle = ctx.subprocess.spawn({
+      argv: [command, 'dispatch', '--product', 'dsh', '--format', 'json'],
+      cwd,
+      stdio: {
+        stdin: { data: payload },
+        stdout: { maxBytes: MAX_POLICY_OUTPUT_BYTES },
+        stderr: { maxBytes: MAX_POLICY_ERROR_BYTES },
+      },
+      graceMs: 1_000,
+      signal: policyController.signal,
+    })
+  } catch (error) {
+    release()
+    exec.signal.removeEventListener('abort', onCallerAbort)
+    throw error
+  }
   let timer
   const timeout = new Promise(resolve => {
     timer = setTimeout(() => {
@@ -212,9 +354,12 @@ async function evaluatePreToolPolicy(ctx, exec, command, timeoutMs) {
     outcome => ({ kind: 'done', outcome }),
     () => ({ kind: 'error' }),
   )
-  const result = await Promise.race([settled, timeout])
-  clearTimeout(timer)
+  void settled.then(release, release)
+  void settled.then(() => clearTimeout(timer))
+  const result = await Promise.race([settled, timeout, callerAborted])
+  if (result.kind !== 'caller-aborted') clearTimeout(timer)
   exec.signal.removeEventListener('abort', onCallerAbort)
+  if (result.kind === 'caller-aborted') return denial('policy-caller-aborted')
   if (result.kind === 'timeout') {
     await Promise.race([
       settled,
@@ -222,7 +367,7 @@ async function evaluatePreToolPolicy(ctx, exec, command, timeoutMs) {
     ])
     return denial('policy-timeout')
   }
-  if (exec.signal.aborted) return undefined
+  if (exec.signal.aborted) return denial('policy-caller-aborted')
   if (result.kind !== 'done') return denial('policy-unavailable')
   const outcome = result.outcome
   const stdout = handle.collected.stdout?.readFrom(0)
@@ -258,22 +403,54 @@ export function applyPolicy(ctx, config = {}) {
   const command = typeof config.agentHook === 'string' && config.agentHook.length > 0
     ? config.agentHook
     : 'agent-hook'
-  const timeoutMs = positiveTimeout(config.policyTimeoutMs)
-    ? config.policyTimeoutMs
-    : DEFAULT_POLICY_TIMEOUT_MS
+  const timeoutMs = policyTimeout(config.policyTimeoutMs)
+  const limiter = createPolicyLimiter(policyConcurrency(config.maxActivePolicyChecks))
+  const policyMarkers = new Map()
 
   let plusOneExecutions = 0
   ctx.tools.register(createPlusOneTool(() => { plusOneExecutions += 1 }))
   ctx.on('tools/pre-execute', async (exec, next) => {
     try {
-      const decision = await evaluatePreToolPolicy(ctx, exec, command, timeoutMs)
-      return decision ?? next()
+      const decision = await evaluatePreToolPolicy(ctx, exec, command, timeoutMs, limiter)
+      if (decision !== undefined) return decision
+      if (exec.signal.aborted) return denial('policy-caller-aborted')
+      policyMarkers.set(exec.token, {
+        callId: exec.callId,
+        name: exec.name,
+      })
+      let downstream
+      try {
+        downstream = await next()
+      } catch (error) {
+        policyMarkers.delete(exec.token)
+        throw error
+      }
+      if (downstream.kind !== 'allow') policyMarkers.delete(exec.token)
+      return downstream
     } catch {
       return denial('policy-unavailable')
     }
   })
+  ctx.tools.guard((exec) => {
+    const marker = policyMarkers.get(exec.token)
+    policyMarkers.delete(exec.token)
+    if (exec.signal.aborted) return denial('policy-caller-aborted').reason
+    if (marker === undefined
+      || marker.callId !== exec.callId
+      || marker.name !== exec.name) {
+      return denial('policy-marker-missing').reason
+    }
+    return undefined
+  })
+  ctx.on('tools/result', (exec) => {
+    policyMarkers.delete(exec.token)
+  })
   ctx.provide('dshRuntimeKit', Object.freeze({
     apiVersion: 1,
     get plusOneExecutions() { return plusOneExecutions },
+    get activePolicyChecks() { return limiter.active },
+    get pendingPolicyMarkers() { return policyMarkers.size },
+    policyTimeoutMs: timeoutMs,
+    maxActivePolicyChecks: limiter.maxActive,
   }))
 }

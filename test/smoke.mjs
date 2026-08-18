@@ -31,6 +31,22 @@ assert.notEqual(
 const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
 assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
+const nilsCompatibility = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
+)
+assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
+assert.equal(nilsCompatibility.status, 'pending-release')
+assert.equal(nilsCompatibility.minimum_supported_release, null)
+const dshIngressCompatibility = nilsCompatibility.commands.find(
+  command => command.id === 'agent-hook.dispatch.dsh',
+)
+assert.equal(dshIngressCompatibility?.status, 'pending-release')
+assert.equal(dshIngressCompatibility?.validation, 'source-validated')
+assert.deepEqual(dshIngressCompatibility?.contracts, [
+  'agent-hook.dsh-ingress.v1',
+  'cli.agent-hook.dispatch.v1',
+  'agent-hook.normalized-decision.v1',
+])
 const dshManifest = JSON.parse(readFileSync(join(dshRoot, 'package.json'), 'utf8'))
 assert.equal(dshManifest.name, '@deepseek-ai/dsh-root')
 assert.equal(dshManifest.version, '0.1.0-rc.7')
@@ -164,6 +180,9 @@ try {
     'index.js',
     'policy.js',
     'cordis.patch.yml',
+    'compatibility/nils-cli.json',
+    'docs/policies/git-delivery.md',
+    'docs/policies/review-thread-convergence.md',
     'skills/bootstrap/SKILL.md',
   ]) {
     assert.ok(packedFiles.has(required), `packed artifact is missing ${required}`)
@@ -199,6 +218,12 @@ export const name = 'dsh-runtime-kit-smoke-driver'
 export const inject = ['tools', 'skills', 'dshRuntimeKit']
 
 export function apply(ctx) {
+  ctx.on('tools/pre-execute', (_exec, next) => {
+    if (process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
+      return Promise.resolve({ kind: 'allow' })
+    }
+    return next()
+  }, { prepend: true })
   void (async () => {
     try {
       const skillOptions = { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT }
@@ -231,6 +256,8 @@ export function apply(ctx) {
       process.stdout.write('${marker}' + JSON.stringify({
         result,
         plusOneExecutions: ctx.dshRuntimeKit.plusOneExecutions,
+        activePolicyChecks: ctx.dshRuntimeKit.activePolicyChecks,
+        pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
       if (expectation === 'allow' && result.value !== 42) process.exitCode = 1
@@ -260,6 +287,8 @@ export function apply(ctx) {
   assert.equal(result.value, 42)
   assert.deepEqual(result.content, [{ type: 'text', text: '42' }])
   assert.equal(receipt.plusOneExecutions, 1)
+  assert.equal(receipt.activePolicyChecks, 0)
+  assert.equal(receipt.pendingPolicyMarkers, 0)
 
   const skillLine = boot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
   assert.ok(skillLine, `missing ${skillMarker} output:\n${boot.stdout}\n${boot.stderr}`)
@@ -292,6 +321,33 @@ export function apply(ctx) {
   assert.equal(blocked.value, undefined)
   assert.match(blocked.content[0].text, /plus-one-blocked/)
   assert.equal(blockedReceipt.plusOneExecutions, 0)
+  assert.equal(blockedReceipt.activePolicyChecks, 0)
+  assert.equal(blockedReceipt.pendingPolicyMarkers, 0)
+
+  installPolicy('allow')
+  const shortCircuitedBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT: '1',
+      },
+    },
+  )
+  const shortCircuitedLine = shortCircuitedBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    shortCircuitedLine,
+    `missing short-circuit ${marker} output:\n${shortCircuitedBoot.stdout}\n${shortCircuitedBoot.stderr}`,
+  )
+  const shortCircuitedReceipt = JSON.parse(shortCircuitedLine.slice(marker.length))
+  assert.equal(shortCircuitedReceipt.result.isError, true)
+  assert.match(shortCircuitedReceipt.result.content[0].text, /policy-marker-missing/)
+  assert.equal(shortCircuitedReceipt.plusOneExecutions, 0)
+  assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
+  assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
 
   process.stdout.write(JSON.stringify({
     ok: true,
@@ -301,6 +357,8 @@ export function apply(ctx) {
     input: 41,
     output: result.value,
     policyBlockVerified: true,
+    shortCircuitGuardVerified: true,
+    nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
   }) + '\n')

@@ -3,7 +3,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 
-const skillsRoot = resolve(import.meta.dirname, '..', 'skills')
+const projectRoot = resolve(import.meta.dirname, '..')
+const skillsRoot = join(projectRoot, 'skills')
 const expectedSkills = [
   'bootstrap',
   'code-review-specialists',
@@ -133,7 +134,7 @@ test('the public skill artifact contains no named private profile', () => {
   assert.deepEqual(violations, [])
 })
 
-test('relative Markdown resource links stay inside the complete catalog', () => {
+test('relative Markdown resource links stay inside the complete package', () => {
   const missing = []
   for (const relative of collectFiles(skillsRoot).filter(path => path.endsWith('.md'))) {
     const content = readFileSync(join(skillsRoot, relative), 'utf8')
@@ -141,10 +142,83 @@ test('relative Markdown resource links stay inside the complete catalog', () => 
       const target = match[1].split('#', 1)[0]
       if (target === '' || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue
       const resolved = resolve(skillsRoot, dirname(relative), target)
-      if (!resolved.startsWith(`${skillsRoot}/`) || !existsSync(resolved)) {
+      if (!resolved.startsWith(`${projectRoot}/`) || !existsSync(resolved)) {
         missing.push(`${relative} -> ${match[1]}`)
       }
     }
   }
   assert.deepEqual(missing, [])
+})
+
+test('mandatory workflow policy references resolve to DSH-owned public resources', () => {
+  const expectedPolicies = [
+    'external-facts.md',
+    'git-delivery.md',
+    'heuristic-error-inbox.md',
+    'review-thread-convergence.md',
+  ]
+  const policyRoot = join(projectRoot, 'docs', 'policies')
+  assert.deepEqual(
+    readdirSync(policyRoot, { withFileTypes: true })
+      .filter(entry => entry.isFile())
+      .map(entry => entry.name)
+      .sort(),
+    expectedPolicies,
+  )
+
+  const unresolvedLegacyReferences = []
+  for (const relative of collectFiles(skillsRoot).filter(path => path.endsWith('.md'))) {
+    const content = readFileSync(join(skillsRoot, relative), 'utf8')
+    for (const match of content.matchAll(/core\/policies\/[a-z0-9_./-]+/gi)) {
+      unresolvedLegacyReferences.push(`${relative} -> ${match[0]}`)
+    }
+  }
+  assert.deepEqual(unresolvedLegacyReferences, [])
+
+  for (const policy of expectedPolicies) {
+    const content = readFileSync(join(policyRoot, policy), 'utf8')
+    assert.match(content, /^# /)
+    assert.doesNotMatch(content, /\bCodex\b|\.codex\//i)
+  }
+})
+
+test('nils-cli compatibility is machine-readable and honest about pending DSH ingress release', () => {
+  const path = join(projectRoot, 'compatibility', 'nils-cli.json')
+  const manifest = JSON.parse(readFileSync(path, 'utf8'))
+  assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
+  assert.equal(manifest.status, 'pending-release')
+  assert.equal(manifest.minimum_supported_release, null)
+  assert.equal(manifest.validated_release, null)
+  assert.ok(Array.isArray(manifest.commands))
+  assert.ok(manifest.commands.length > 1)
+  assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
+
+  for (const command of manifest.commands) {
+    assert.match(command.id, /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/)
+    assert.match(command.binary, /^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    assert.ok(['released', 'pending-release'].includes(command.status))
+    assert.ok(Array.isArray(command.contracts) && command.contracts.length > 0)
+  }
+
+  const ingress = manifest.commands.find(command => command.id === 'agent-hook.dispatch.dsh')
+  assert.deepEqual(ingress, {
+    id: 'agent-hook.dispatch.dsh',
+    binary: 'agent-hook',
+    status: 'pending-release',
+    validation: 'source-validated',
+    contracts: [
+      'agent-hook.dsh-ingress.v1',
+      'cli.agent-hook.dispatch.v1',
+      'agent-hook.normalized-decision.v1',
+    ],
+    source_task: 'sympoies/nils-cli task 1.3',
+  })
+})
+
+test('greenfield evidence labels the initial module-absence run as setup failure', () => {
+  const evidence = readFileSync(join(projectRoot, 'docs', 'test-first-evidence.md'), 'utf8')
+  assert.match(evidence, /module-absence setup failure/i)
+  assert.match(evidence, /not a meaningful behavioral red/i)
+  assert.match(evidence, /packed DSH smoke/i)
+  assert.match(evidence, /final contract suite/i)
 })

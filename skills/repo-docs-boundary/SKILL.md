@@ -72,7 +72,8 @@ Use the strongest available source for each claim:
 
 For external, unstable, or version-sensitive facts, activate the repository's
 `task-tools` intent and run `agent-docs preflight --intent task-tools`, then
-follow `core/policies/external-facts.md` before asserting them.
+follow the [external facts policy](../../docs/policies/external-facts.md) before
+asserting them.
 
 ## Placement Rules
 

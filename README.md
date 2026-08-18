@@ -24,12 +24,32 @@ while the remaining policy handlers and reviewer personas are migrated.
   packaged.
 - Preserves DSH precedence: project skills override configured private skills,
   which override bundled public skills.
+- Validates private skills as an owner-controlled POSIX tree, then detaches all
+  instructions and resources into a sealed process-local snapshot before
+  registration. Changes take effect on the next DSH process; there is no live
+  watching or lazy reopening of the private source tree.
 - Invokes `agent-hook` through the host-provided DSH `subprocess` service and
   fails closed on missing, malformed, truncated, signaled, or mismatched policy
   output.
+- Binds every successful policy evaluation to DSH's opaque execution token and
+  consumes it in the host's monotonic tool guard. A prepended listener cannot
+  short-circuit around policy evaluation and still execute the tool.
 - Does not modify or vendor DeepSeek Harness.
 - Contains no private skills. Project discovery remains DSH-native through
   `.dsh/skills` and `.agents/skills`.
+
+Private discovery defaults to at most 32 directory levels, 10,000 entries,
+4 MiB per regular file, and 32 MiB total. `privateSkillMaxDepth` and
+`privateSkillMaxEntries` may lower those limits; hard ceilings are 64 and
+20,000. Symlinks, non-regular entries, foreign ownership, and group- or
+world-writable tree entries fail startup closed. The private loader is disabled
+on Windows until equivalent ACL trust checks exist.
+
+Policy checks default to a 5-second deadline and four active subprocesses.
+`policyTimeoutMs` is capped at 30 seconds and `maxActivePolicyChecks` at 16.
+There is deliberately no waiting queue: calls beyond the active ceiling fail
+closed with `policy-overloaded`, and timed-out children retain their slot until
+the subprocess actually settles.
 
 ## Keyless smoke test
 
@@ -55,3 +75,9 @@ The first verified compatibility target is DeepSeek Harness `0.1.0-rc.7` on a
 supported Node.js release. DSH is still prerelease software, so compatibility
 will be guarded by executable acceptance tests rather than by copying upstream
 implementation details.
+
+The machine-readable [nils-cli compatibility manifest](compatibility/nils-cli.json)
+is authoritative for consumed commands and protocols. The DSH ingress is
+currently source-validated but still `pending-release`, so this package does
+not yet declare a minimum or validated nils-cli release. A local checkout or
+ambient prototype binary must not be treated as release compatibility.

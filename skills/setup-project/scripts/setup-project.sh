@@ -96,11 +96,46 @@ else
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" ||
     die "current directory is not inside a git work tree"
 fi
+repo_root="$(cd "$repo_root" && pwd -P)" ||
+  die "could not canonicalize target repository"
 
 agents_dir="$repo_root/.agents"
 scripts_dir="$agents_dir/scripts"
 skills_dir="$agents_dir/skills"
 pre_pr_path="$scripts_dir/pre-pr.sh"
+
+assert_not_symlink() {
+  local path="$1"
+  local label="$2"
+  [ ! -L "$path" ] || die "$label must not be a symbolic link"
+}
+
+assert_safe_directory() {
+  local path="$1"
+  local label="$2"
+  assert_not_symlink "$path" "$label"
+  if [ -e "$path" ] && [ ! -d "$path" ]; then
+    die "$label must be a directory"
+  fi
+}
+
+assert_contained_directory() {
+  local path="$1"
+  local label="$2"
+  local canonical
+  canonical="$(cd "$path" && pwd -P)" || die "could not canonicalize $label"
+  case "$canonical" in
+    "$repo_root" | "$repo_root"/*) ;;
+    *) die "$label resolves outside the target repository" ;;
+  esac
+}
+
+assert_safe_directory "$agents_dir" ".agents"
+assert_safe_directory "$scripts_dir" ".agents/scripts"
+assert_safe_directory "$skills_dir" ".agents/skills"
+for name in bootstrap deploy pre-pr release; do
+  assert_not_symlink "$scripts_dir/$name.sh" ".agents/scripts/$name.sh"
+done
 
 script_status() {
   local path="$1"
@@ -175,7 +210,28 @@ fi
 [ -n "$pre_pr_command" ] || [ "$pre_pr_status" = "executable" ] ||
   die "apply requires --pre-pr-command to create .agents/scripts/pre-pr.sh"
 
-mkdir -p "$scripts_dir" "$skills_dir"
+ensure_directory() {
+  local path="$1"
+  local label="$2"
+  assert_safe_directory "$path" "$label"
+  if [ ! -e "$path" ]; then
+    mkdir -- "$path"
+  fi
+  assert_safe_directory "$path" "$label"
+  assert_contained_directory "$path" "$label"
+}
+
+ensure_directory "$agents_dir" ".agents"
+ensure_directory "$scripts_dir" ".agents/scripts"
+ensure_directory "$skills_dir" ".agents/skills"
+
+temporary_path=""
+cleanup_temporary_path() {
+  if [ -n "$temporary_path" ] && [ -e "$temporary_path" ]; then
+    rm -f -- "$temporary_path"
+  fi
+}
+trap cleanup_temporary_path EXIT
 
 write_dispatcher() {
   local name="$1"
@@ -183,10 +239,19 @@ write_dispatcher() {
   local path="$scripts_dir/$name.sh"
 
   [ -n "$command" ] || return 0
-  if [ -e "$path" ] && [ "$replace_existing" -ne 1 ]; then
-    die "refusing to overwrite existing script without --replace-existing: .agents/scripts/$name.sh"
+  assert_safe_directory "$agents_dir" ".agents"
+  assert_safe_directory "$scripts_dir" ".agents/scripts"
+  assert_contained_directory "$scripts_dir" ".agents/scripts"
+  assert_not_symlink "$path" ".agents/scripts/$name.sh"
+  if [ -e "$path" ]; then
+    [ -f "$path" ] || die ".agents/scripts/$name.sh must be a regular file"
+    if [ "$replace_existing" -ne 1 ]; then
+      die "refusing to overwrite existing script without --replace-existing: .agents/scripts/$name.sh"
+    fi
   fi
-  cat >"$path" <<SCRIPT_EOF
+  temporary_path="$(mktemp "$scripts_dir/.setup-project-$name.XXXXXX")" ||
+    die "could not allocate an atomic dispatcher write"
+  cat >"$temporary_path" <<SCRIPT_EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -198,7 +263,18 @@ cd "\$repo_root"
 # command and silently drop the rest, turning a partial run into a green gate.
 $command "\$@"
 SCRIPT_EOF
-  chmod +x "$path"
+  chmod 0700 "$temporary_path"
+  assert_safe_directory "$agents_dir" ".agents"
+  assert_safe_directory "$scripts_dir" ".agents/scripts"
+  assert_contained_directory "$scripts_dir" ".agents/scripts"
+  assert_not_symlink "$path" ".agents/scripts/$name.sh"
+  if [ -e "$path" ] && [ ! -f "$path" ]; then
+    die ".agents/scripts/$name.sh must remain a regular file"
+  fi
+  mv -f -- "$temporary_path" "$path"
+  temporary_path=""
+  assert_not_symlink "$path" ".agents/scripts/$name.sh"
+  [ -f "$path" ] || die "atomic dispatcher write did not create .agents/scripts/$name.sh"
   echo "setup-project: wrote .agents/scripts/$name.sh"
 }
 

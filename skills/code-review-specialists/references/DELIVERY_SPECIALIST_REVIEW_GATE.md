@@ -159,7 +159,8 @@ containing a `forge-cli`, `gh`, or `glab` invocation:
   also not outdated: outdated unresolved threads are auto-dispositioned `stale`
   (recorded in `data.stale_thread_dispositions`) and no longer block. Disposition
   the remaining non-outdated threads per
-  `core/policies/review-thread-convergence.md`; bypass the block only with
+  [review thread convergence policy](../../../docs/policies/review-thread-convergence.md);
+  bypass the block only with
   `--allow-unresolved-threads`, which now requires a paired
   `--allow-unresolved-threads-reason` (recorded as
   `data.unresolved_threads_override_reason`). Re-posting the same follow-up

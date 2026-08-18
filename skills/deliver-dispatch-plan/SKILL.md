@@ -69,7 +69,8 @@ Outputs:
   `record audit --profile dispatch --expect-visible` before completion.
 - After all dispatch-required post-merge activation/deployment, closeout,
   archive, and evidence duties, terminal cleanup for every safe completed
-  managed checkout under `core/policies/git-delivery.md`, with retained-state
+  managed checkout under the [git delivery policy](../../docs/policies/git-delivery.md),
+  with retained-state
   diagnostics for every unsafe one.
 
 Failure modes:

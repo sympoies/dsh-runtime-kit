@@ -81,7 +81,8 @@ Outputs:
   apply remains confirmation-gated.
 - After all plan-required post-merge activation/deployment, closeout, archive,
   and evidence duties, one terminal cleanup result under
-  `core/policies/git-delivery.md`: safe removal/restoration, or explicit
+  the [git delivery policy](../../docs/policies/git-delivery.md): safe
+  removal/restoration, or explicit
   retained state with its failed proof and recovery command.
 
 Failure modes:
