@@ -25,7 +25,7 @@
 | 2.1 | Add bounded lifecycle compatibility layer | in-progress | managed lane `feat/lifecycle-compat`; 53/53 tests; packed real rc.7 smoke; API/performance/security review pass | Validated locally; PR delivery pending |
 | 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
 | 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
-| 3.1 | Freeze parity inventory and capability groups | source-complete | `policy/rule-parity.yaml`; exact source verifier; 101 unique registrations; 21 legacy handlers plus one relocated capability | Every source row maps to an owned DSH/nils capability or evidence-backed provider retirement |
+| 3.1 | Freeze parity inventory and capability groups | review-converged | `policy/rule-parity.yaml`; exact source verifier; 101 unique registrations; 21 legacy handlers plus one relocated capability; authenticated active/planned test ownership; 65/65 tests; packed real DSH rc.7 smoke; API/data/red-team follow-up pass | Every source row maps to an owned DSH/nils capability or evidence-backed provider retirement; draft-only lanes remain planned until integrated |
 | 3.2 | Port Git, delivery, scope, and edit-admission policies | pending | pending | Deterministic nils capability lane |
 | 3.3 | Port privacy, memory, reminder, and portable-output policies | pending | pending | Deterministic nils capability lane |
 | 3.4 | Port coordination and operation lifecycle | pending | pending | Deterministic nils capability lane |

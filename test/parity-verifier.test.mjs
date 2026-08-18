@@ -6,7 +6,10 @@ import { test } from 'node:test'
 
 import { parse, stringify } from 'yaml'
 
-import { verifyParitySource } from '../scripts/check-rule-parity-source.mjs'
+import {
+  verifyParityInventory,
+  verifyParitySource,
+} from '../scripts/check-rule-parity-source.mjs'
 
 const SOURCE_URL = new URL('./fixtures/legacy-hook-rules.yaml', import.meta.url)
 const INVENTORY_URL = new URL('../policy/rule-parity.yaml', import.meta.url)
@@ -78,5 +81,83 @@ test('the public verifier rejects incomplete or internally inconsistent inventor
   })
   assert.throws(
     () => verifyParitySource(valid.sourceBytes, bytes(conflictingDuplicateHead)),
+  )
+})
+
+test('the public inventory verifier freezes provenance, counters, and exact rule IDs', async () => {
+  const valid = await fixture()
+  const mutations = [
+    inventory => { inventory.source.repository = 'github.com/example/drifted-runtime' },
+    inventory => { inventory.source.commit = '0'.repeat(40) },
+    inventory => { inventory.source.path = 'manifests/other-rules.yaml' },
+    inventory => { inventory.source.file_digest = `sha256:${'0'.repeat(64)}` },
+    inventory => { inventory.source.normalized_rule_id_digest = `sha256:${'1'.repeat(64)}` },
+    inventory => { inventory.source.rule_count += 1 },
+    inventory => {
+      inventory.test_owner_repositories['nils-cli'].identity = 'github.com/example/fake-nils'
+    },
+    inventory => {
+      inventory.test_owner_repositories['nils-cli'].evidence_commit = '0'.repeat(40)
+    },
+    inventory => { inventory.rules[0].id = 'runtime.fabricated.registration' },
+  ]
+
+  for (const mutate of mutations) {
+    const inventory = structuredClone(valid.inventory)
+    mutate(inventory)
+    assert.throws(() => verifyParityInventory(inventory))
+  }
+})
+
+test('the public inventory verifier freezes repository-qualified test ownership', async () => {
+  const valid = await fixture()
+  for (const sourceCapability of valid.inventory.capabilities.map(
+    capability => capability.source_capability,
+  )) {
+    const inventory = structuredClone(valid.inventory)
+    const capability = inventory.capabilities.find(
+      candidate => candidate.source_capability === sourceCapability,
+    )
+    capability.test_owners = [{
+      repository: 'dsh-runtime-kit',
+      path: 'test/fabricated-or-missing.test.mjs',
+      state: 'active',
+    }]
+    assert.throws(
+      () => verifyParityInventory(inventory),
+      undefined,
+      `fabricated test owner passed for ${sourceCapability}`,
+    )
+  }
+})
+
+test('the source digest is stable across LF and CRLF checkout materialization', async () => {
+  const valid = await fixture()
+  const crlfSource = Buffer.from(
+    valid.sourceBytes.toString('utf8').replaceAll('\n', '\r\n'),
+  )
+
+  assert.deepEqual(
+    verifyParitySource(crlfSource, valid.inventoryBytes),
+    verifyParitySource(valid.sourceBytes, valid.inventoryBytes),
+  )
+})
+
+test('source canonicalization rejects undeclared BOM and lone-CR transformations', async () => {
+  const valid = await fixture()
+  const bomSource = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    valid.sourceBytes,
+  ])
+  assert.throws(() => verifyParitySource(bomSource, valid.inventoryBytes))
+
+  const sourceText = valid.sourceBytes.toString('utf8')
+  const firstLineFeed = sourceText.indexOf('\n')
+  const loneCarriageReturn = Buffer.from(
+    `${sourceText.slice(0, firstLineFeed)}\r${sourceText.slice(firstLineFeed + 1)}`,
+  )
+  assert.throws(
+    () => verifyParitySource(loneCarriageReturn, valid.inventoryBytes),
+    /unsupported lone CR/,
   )
 })

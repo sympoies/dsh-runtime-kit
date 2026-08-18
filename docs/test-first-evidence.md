@@ -167,6 +167,45 @@ exact duplicate and a prepended conflicting-but-valid disposition duplicate
 now fail explicit declared-count and unique-ID checks. Maintainability
 follow-up returned `NO_FINDINGS`.
 
+The finish-line specialist pass then found four additional false-success
+boundaries. Before repair, focused tests proved that the exported inventory
+validator accepted changed source provenance, digests, and rule IDs; accepted
+fabricated test-owner paths; emitted the wrong installed command name; and
+rejected a byte-equivalent CRLF checkout. The focused run failed four of six
+tests, and the new owner-resolution suite could not import its missing public
+function. The repair freezes the complete source record and exact normalized
+rule-ID digest, represents every test owner as an exact repository/path/state
+triple, and resolves all active owners beneath caller-supplied repository
+roots. Capabilities not present on this PR's integrated base remain `planned`
+with explicitly planned evidence; draft lanes do not claim active ownership
+before merge. The retained fixture and inventory are pinned to LF, while the
+external legacy source is canonicalized from CRLF to LF and rejects lone
+carriage returns. The packed CLI now advertises its installed name and requires
+both DSH and nils repository roots for active cross-repository evidence. The
+same focused set then passed all ten tests.
+
+The first data-migration and red-team follow-up found two remaining
+canonicalization and provenance bypasses before delivery. `TextDecoder` removed
+a leading UTF-8 BOM even though only LF materialization was declared, and the
+owner resolver accepted a synthetic directory whose empty files merely matched
+the frozen relative paths. New regressions reproduced both false successes.
+The source verifier now rejects BOM and lone carriage returns explicitly. Test
+owner repository boundaries freeze the GitHub identity and evidence commit for
+both repositories; verification requires the exact Git top-level and `origin`,
+an evidence commit that is an ancestor of `HEAD`, a tracked regular non-symlink
+path, a clean index/worktree, and an identical evidence/HEAD blob. The synthetic
+packed consumer is rejected, while the real DSH and nils worktrees verify all
+three active owners.
+
+The final adversarial pass then exercised Git's evidence-hiding mechanisms.
+Repository-local clones with the authentic commits and remotes were modified
+behind both `skip-worktree` and `assume-unchanged`; each verifier run rejected
+the non-normal index tag. A replacement ref for the frozen DSH evidence commit
+was also rejected. Provenance commands now run with replacement processing
+disabled and relevant ambient Git overrides removed, any replace ref is a hard
+failure, and the actual no-filter working-file object ID must equal both the
+HEAD and frozen evidence blobs.
+
 The converged gates are the focused lifecycle/policy suite, the complete Node
 test suite, strict JSDoc type checking, package dry-run inspection, and the
 packed real-DSH rc.7 smoke. The smoke uses a public scripted LLM adapter and a

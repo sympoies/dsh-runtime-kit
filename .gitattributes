@@ -1,0 +1,2 @@
+policy/rule-parity.yaml text eol=lf
+test/fixtures/legacy-hook-rules.yaml text eol=lf

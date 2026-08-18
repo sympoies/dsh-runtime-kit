@@ -20,7 +20,11 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
     'retired',
     'dsh-runtime-kit',
     {
-      test_owner: 'test/provider-retirements.test.mjs',
+      test_owner: {
+        repository: 'dsh-runtime-kit',
+        path: 'test/provider-retirements.test.mjs',
+        state: 'active',
+      },
       assertion: 'the shipped DSH runtime has no Claude provider or automatic Claude coauthor-trailer surface',
     },
   ],
@@ -32,7 +36,7 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'block-unsafe-default-delivery': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'checkout-lease-guard': ['policy.checkout-lease.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'execution.read-only.v1': ['policy.read-only-ingress.v1', 'implemented', 'nils-cli'],
-  'finish-line-record': ['finish-line.enforcement.v1', 'in-progress', 'dsh-runtime-kit + nils-cli'],
+  'finish-line-record': ['finish-line.enforcement.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'forge-label-reminder': ['guidance.forge-label.v1', 'planned', 'nils-cli'],
   'mcp-secret-scan': ['policy.secret-egress.v1', 'planned', 'nils-cli'],
   'memory-write-principle-reminder': ['guidance.memory-boundary.v1', 'planned', 'nils-cli'],
@@ -41,9 +45,9 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'semantic-commit-body-gate': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'session-start-healthcheck': ['operations.health.v1', 'planned', 'dsh-runtime-kit'],
   'skill-usage-reminder': ['context.skill-routing.v1', 'planned', 'dsh-runtime-kit'],
-  'stop-finish-line-gate': ['finish-line.enforcement.v1', 'in-progress', 'dsh-runtime-kit + nils-cli'],
+  'stop-finish-line-gate': ['finish-line.enforcement.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'stop-pre-pr-reminder': ['delivery.pre-pr.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
-  'user-prompt-agent-docs': ['context.selective.v1', 'in-progress', 'dsh-runtime-kit + nils-cli'],
+  'user-prompt-agent-docs': ['context.selective.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'user-prompt-agent-memory': ['context.private-profile.v1', 'planned', 'dsh-runtime-kit'],
 }))
 
@@ -74,6 +78,7 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
     repository: 'github.com/sympoies/agent-runtime-kit',
     commit: '79d6b93f9df812e9cfd151ee03fc3d0ce44a0081',
     path: 'manifests/hook-rules.yaml',
+    byte_canonicalization: 'lf-line-endings',
     file_digest: 'sha256:5a7a571152fb1397b4243cb50c25a0812792a31bd3492a3e7d29a347f121849e',
     normalized_rule_id_digest: EXPECTED_RULE_ID_DIGEST,
     rule_count: 101,
@@ -81,6 +86,16 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
     legacy_registration_count: 67,
     relocated_capability_count: 1,
     runtime_handler_or_relocated_count: 22,
+  })
+  assert.deepEqual(inventory.test_owner_repositories, {
+    'dsh-runtime-kit': {
+      identity: 'github.com/sympoies/dsh-runtime-kit',
+      evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
+    },
+    'nils-cli': {
+      identity: 'github.com/sympoies/nils-cli',
+      evidence_commit: '5937233a87b88f8afa4e00ba550124176be837c2',
+    },
   })
   assert.equal(inventory.rules.length, 101)
   assert.equal(new Set(inventory.rules.map(rule => rule.id)).size, 101)
@@ -95,12 +110,26 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
     assert.ok(['implemented', 'in-progress', 'planned', 'retired'].includes(capability.status))
     assert.match(capability.owner, /^(dsh-runtime-kit|nils-cli|dsh-runtime-kit \+ nils-cli)$/)
     assert.ok(Array.isArray(capability.test_owners) && capability.test_owners.length > 0)
+    const expectedOwnerState = capability.status === 'planned' ? 'planned' : 'active'
+    for (const owner of capability.test_owners) {
+      assert.match(owner.repository, /^(dsh-runtime-kit|nils-cli)$/)
+      assert.match(owner.path, /^(test|crates)\//)
+      assert.equal(owner.state, expectedOwnerState)
+    }
+    assert.deepEqual(
+      [...new Set(capability.test_owners.map(owner => owner.repository))].sort(),
+      capability.owner.split(' + ').sort(),
+    )
     if (capability.status === 'retired') {
       assert.deepEqual(capability.retirement_evidence, {
-        test_owner: 'test/provider-retirements.test.mjs',
+        test_owner: {
+          repository: 'dsh-runtime-kit',
+          path: 'test/provider-retirements.test.mjs',
+          state: 'active',
+        },
         assertion: 'the shipped DSH runtime has no Claude provider or automatic Claude coauthor-trailer surface',
       })
-      assert.ok(capability.test_owners.includes(capability.retirement_evidence.test_owner))
+      assert.deepEqual(capability.test_owners, [capability.retirement_evidence.test_owner])
     }
   }
   for (const rule of inventory.rules) {

@@ -20,8 +20,24 @@ migration, verify it against the retained legacy source with:
 
 ```sh
 node scripts/check-rule-parity-source.mjs \
-  /path/to/agent-runtime-kit/manifests/hook-rules.yaml
+  /path/to/agent-runtime-kit/manifests/hook-rules.yaml \
+  --owner-root dsh-runtime-kit=. \
+  --owner-root nils-cli=/path/to/nils-cli
 ```
+
+The source digest is defined over UTF-8 with CRLF materialization normalized
+to LF; lone carriage returns are rejected. Every test owner is an exact
+repository-qualified record. Planned capabilities may name only `planned`
+owners, while implemented, in-progress, and retired capabilities require
+`active` owners. The command resolves every active owner as a regular file in
+the explicitly supplied repository roots. Each root must be the exact Git
+top-level with the frozen `origin` identity and evidence commit in its history;
+the active path must be tracked, clean, and have the same blob at `HEAD` as at
+that evidence commit. Replacement objects and `skip-worktree` or
+`assume-unchanged` index flags are forbidden; the actual unfiltered working-file
+blob must also equal the authenticated Git blob. A synthetic directory,
+relabelled repository, or hidden working-file substitution therefore cannot
+impersonate cross-repository test evidence.
 
 ## Current contract
 
