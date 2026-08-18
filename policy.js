@@ -425,7 +425,9 @@ export function applyPolicy(ctx, config = {}) {
         policyMarkers.delete(exec.token)
         throw error
       }
-      if (downstream.kind !== 'allow') policyMarkers.delete(exec.token)
+      if (downstream.kind !== 'allow' && downstream.kind !== 'ask') {
+        policyMarkers.delete(exec.token)
+      }
       return downstream
     } catch {
       return denial('policy-unavailable')

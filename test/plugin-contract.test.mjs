@@ -110,6 +110,7 @@ function harness({
 
   async function prepare(arguments_, {
     callId = 'call-1',
+    downstreamDecision = { kind: 'allow' },
     signal: callerSignal = new AbortController().signal,
     shortCircuit = false,
     token = Symbol(callId),
@@ -124,7 +125,7 @@ function harness({
     }
     const result = shortCircuit
       ? { kind: 'allow' }
-      : await listener(exec, async () => ({ kind: 'allow' }))
+      : await listener(exec, async () => downstreamDecision)
     return { exec, result }
   }
 
@@ -134,6 +135,11 @@ function harness({
       let delegated = false
       const prepared = await prepare(arguments_, options)
       let result = prepared.result
+      if (result.kind === 'ask') {
+        result = options.askOutcome === 'approved'
+          ? { kind: 'allow' }
+          : { kind: 'deny', reason: `approval-${options.askOutcome ?? 'denied'}` }
+      }
       if (result.kind === 'allow' && guard !== undefined) {
         const reason = guard(prepared.exec)
         if (reason !== undefined) result = { kind: 'deny', reason }
@@ -275,6 +281,28 @@ test('allow markers are bound to one opaque execution token and consumed once', 
   assert.match(subject.guard(stale), /policy-marker-missing/)
   assert.equal(subject.guard(prepared.exec), undefined)
   assert.match(subject.guard(prepared.exec), /policy-marker-missing/)
+})
+
+test('downstream ask decisions preserve exact-token authorization through approval', async () => {
+  const approved = harness()
+  const approvedResult = await approved.invoke({ value: 41 }, {
+    downstreamDecision: { kind: 'ask', reason: 'confirm execution' },
+    askOutcome: 'approved',
+  })
+  assert.equal(approvedResult.result.kind, 'allow')
+  assert.equal(approvedResult.delegated, true)
+  assert.equal(approved.service.pendingPolicyMarkers, 0)
+
+  for (const askOutcome of ['denied', 'cancelled']) {
+    const rejected = harness()
+    const rejectedResult = await rejected.invoke({ value: 41 }, {
+      downstreamDecision: { kind: 'ask', reason: 'confirm execution' },
+      askOutcome,
+    })
+    assert.equal(rejectedResult.result.kind, 'deny')
+    assert.equal(rejectedResult.delegated, false)
+    assert.equal(rejected.service.pendingPolicyMarkers, 0)
+  }
 })
 
 test('caller abort during policy evaluation is a terminal denial and never delegates', async () => {

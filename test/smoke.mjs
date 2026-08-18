@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
 import {
   mkdirSync,
   mkdtempSync,
@@ -10,8 +11,10 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
+
+import { applyPolicy } from '../policy.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -140,6 +143,80 @@ function runDsh(args, options = {}) {
     ].filter(Boolean).join('\n'),
   )
   return result
+}
+
+async function verifyApprovalComposition() {
+  const dshRequire = createRequire(join(dshRoot, 'packages', 'core', 'tools', 'package.json'))
+  const [{ Context }, { default: SystemPrompt }, { default: ToolRuntime }, { default: ApprovalService }] = await Promise.all([
+    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/cordis')).href),
+    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-system-prompt')).href),
+    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-tools')).href),
+    import(pathToFileURL(dshRequire.resolve('@deepseek-ai/dsh-user-approval')).href),
+  ])
+
+  for (const [approvalOutcome, shouldExecute] of [
+    ['allowed-once', true],
+    ['rejected', false],
+    ['cancelled', false],
+  ]) {
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRuntime)
+      await ctx.plugin(ApprovalService)
+      ctx.provide('subprocess', {
+        spawn(spec) {
+          const payload = spec.stdio.stdin.data
+          const requestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
+          const stdout = JSON.stringify({
+            schema_version: 'cli.agent-hook.dispatch.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.normalized-decision.v1',
+              request_id: requestId,
+              product: 'dsh',
+              event: 'PreToolUse',
+              action: 'allow',
+              reasons: [],
+              config_digest: `sha256:${'0'.repeat(64)}`,
+              policy_digest: `sha256:${'0'.repeat(64)}`,
+              recovery_applied: false,
+            },
+          })
+          return {
+            done: Promise.resolve({ exitCode: 0, signal: null }),
+            terminate() {},
+            collected: {
+              stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
+            },
+          }
+        },
+      })
+      applyPolicy(ctx, { agentHook: '/approval-contract/agent-hook' })
+      ctx.on('tools/pre-execute', async () => ({ kind: 'ask', reason: 'approval contract' }))
+      ctx.on('approval/request', () => Promise.resolve(approvalOutcome))
+
+      const result = await ctx.tools.execute({
+        callId: `approval-${approvalOutcome}`,
+        name: 'runtime_kit_plus_one',
+        arguments: { value: 41 },
+        signal: new AbortController().signal,
+        agent: {
+          session: {
+            header: { cwd: projectWorkspace },
+            events: [{ type: 'turn/start' }],
+            append() { return {} },
+          },
+        },
+      })
+      assert.equal(result.isError, !shouldExecute)
+      assert.equal(ctx.dshRuntimeKit.plusOneExecutions, shouldExecute ? 1 : 0)
+      if (shouldExecute) assert.equal(result.value, 42)
+      assert.equal(ctx.dshRuntimeKit.pendingPolicyMarkers, 0)
+    } finally {
+      await ctx.root.fiber.dispose()
+    }
+  }
 }
 
 function collectFiles(directory, prefix = '') {
@@ -349,6 +426,8 @@ export function apply(ctx) {
   assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
   assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
 
+  await verifyApprovalComposition()
+
   process.stdout.write(JSON.stringify({
     ok: true,
     dshVersion: dshManifest.version,
@@ -358,6 +437,7 @@ export function apply(ctx) {
     output: result.value,
     policyBlockVerified: true,
     shortCircuitGuardVerified: true,
+    approvalCompositionVerified: true,
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
