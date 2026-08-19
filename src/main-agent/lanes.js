@@ -28,27 +28,46 @@ export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
  * @property {Readonly<Record<string, string>>} workerEnv
  * @property {readonly string[]} brokerStopArgv
  * @property {(() => void) | undefined} stopHeartbeat
+ * @property {(() => void) | undefined} disposeAnchor
+ * @property {Promise<void>} sidecarChain
  */
+
+/**
+ * Parse the Linux `/proc/<pid>/stat` starttime (field 22, clock ticks).
+ * The comm field may itself contain spaces and parentheses, so parsing
+ * anchors on the last `)`.
+ *
+ * @param {string} statText
+ */
+export function parseStartTime(statText) {
+  const afterComm = statText.slice(statText.lastIndexOf(')') + 1)
+  const startTime = Number(afterComm.trim().split(/\s+/)[19])
+  return Number.isSafeInteger(startTime) && startTime > 0 ? startTime : undefined
+}
+
+/** @type {{ pid: number, start_time?: number } | undefined} */
+let memoizedHarnessIdentity
 
 /**
  * The DSH harness process identity written into every lane sidecar. The
  * `start_time` starttime-ticks pin lets the nils CLI prove pid reuse; it is
- * Linux-only and omitted where `/proc` is unavailable.
+ * Linux-only and omitted where `/proc` is unavailable. The identity is
+ * immutable for the process lifetime, so it is computed once.
  */
 export function harnessIdentity() {
+  if (memoizedHarnessIdentity !== undefined) return memoizedHarnessIdentity
   /** @type {{ pid: number, start_time?: number }} */
   const identity = { pid: process.pid }
   if (process.platform === 'linux') {
     try {
-      const stat = readFileSync(`/proc/${process.pid}/stat`, 'utf8')
-      const afterComm = stat.slice(stat.lastIndexOf(')') + 1)
-      const startTime = Number(afterComm.trim().split(/\s+/)[19])
-      if (Number.isSafeInteger(startTime) && startTime > 0) identity.start_time = startTime
+      const startTime = parseStartTime(readFileSync(`/proc/${process.pid}/stat`, 'utf8'))
+      if (startTime !== undefined) identity.start_time = startTime
     } catch {
       // The pid-only identity still proves liveness; reuse detection degrades.
     }
   }
-  return identity
+  memoizedHarnessIdentity = Object.freeze(identity)
+  return memoizedHarnessIdentity
 }
 
 /**
@@ -80,6 +99,10 @@ export function createLaneRegistry() {
       byAssignment.delete(lane.assignmentId)
       byChild.delete(lane.childId)
     },
+    clear() {
+      byAssignment.clear()
+      byChild.clear()
+    },
     list() {
       return [...byAssignment.values()]
     },
@@ -87,6 +110,22 @@ export function createLaneRegistry() {
       return byAssignment.size
     },
   })
+}
+
+/**
+ * Serialize sidecar publication per lane: each call chains behind the lane's
+ * previous write and snapshots the lane's state at execution time, so the
+ * last rename always reflects the last transition (concurrent transitions
+ * coalesce to the newest state instead of racing renames).
+ *
+ * @param {Lane} lane
+ */
+export function publishLivenessSidecar(lane) {
+  const next = lane.sidecarChain
+    .catch(() => {})
+    .then(() => writeLivenessSidecar(lane))
+  lane.sidecarChain = next.then(() => {}, () => {})
+  return next
 }
 
 /**

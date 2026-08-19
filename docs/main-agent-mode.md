@@ -69,6 +69,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   process identity proves the stop, `worker diagnose` classifies it, and the
   run continues through `worker reconcile-stopped` plus reassignment; live
   lane re-adoption after restart is future work.
+- Broker heartbeat death is detected CLI-side, not by this module: a stale
+  capability file makes the worker's next authenticated CLI call fail typed,
+  and `worker diagnose` classifies the stale broker. The module only owns
+  starting the heartbeat with the lane and terminating it at lane close.
+- Concurrent lanes are bounded by the `maxLanes` config (default 8, hard cap
+  64); a launch beyond capacity refuses with `main-agent-lane-capacity`.
 - Coordination is not an OS security boundary: lane isolation is worktree
   scoping plus in-process tool authority, matching the caveat the managed-CLI
   design carries.

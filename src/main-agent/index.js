@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 import { createCliClient } from './cli-client.js'
-import { createLaneRegistry, writeLivenessSidecar } from './lanes.js'
+import { createLaneRegistry, publishLivenessSidecar } from './lanes.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
@@ -15,6 +15,8 @@ const WORKER_START_RESULT_SCHEMA = 'main-agent.worker-start-result.v1'
 const EXTERNAL_LAUNCH_SCHEMA = 'main-agent.external-launch.v1'
 const DEFAULT_WORKER_SUBAGENT_PROVIDER = 'spawn'
 const LANE_SECTION_ORDER = 118
+const DEFAULT_MAX_LANES = 8
+const HARD_MAX_LANES = 64
 
 /**
  * Tools a managed worker lane must never reach: delegation and the
@@ -115,6 +117,7 @@ function launchSummary(lane, disposition) {
  *   workerProvider?: string,
  *   workerModel?: string,
  *   laneDeniedTools?: readonly string[],
+ *   maxLanes?: number,
  *   cliTimeoutMs?: number,
  *   cliTeardownTimeoutMs?: number,
  *   maxActiveCliCalls?: number,
@@ -133,10 +136,17 @@ export function applyMainAgentMode(ctx, config = {}) {
       ? config.laneDeniedTools
       : DEFAULT_LANE_DENIED_TOOLS,
   )
+  const maxLanes = typeof config.maxLanes === 'number'
+    && Number.isInteger(config.maxLanes)
+    && config.maxLanes > 0
+    ? Math.min(config.maxLanes, HARD_MAX_LANES)
+    : DEFAULT_MAX_LANES
   const client = createCliClient(ctx, config)
   const lanes = createLaneRegistry()
   /** @type {Map<string, Lane>} */
   const lanesByAnchor = new Map()
+  /** @type {Map<string, Promise<unknown>>} */
+  const launching = new Map()
   let closing = false
 
   ctx.effect(() => () => {
@@ -146,7 +156,30 @@ export function applyMainAgentMode(ctx, config = {}) {
     // teardown could not verify.
     closing = true
     lanesByAnchor.clear()
+    lanes.clear()
   }, 'dsh-runtime-kit main-agent lanes')
+
+  /**
+   * Serialize the launch critical section per assignment: concurrent
+   * launches of the same assignment (parallel tool calls, retries) queue
+   * behind one another instead of racing the registry check, so at most one
+   * anchor, heartbeat, and child ever exist per lane.
+   *
+   * @template T
+   * @param {string} assignmentId
+   * @param {() => Promise<T>} run
+   * @returns {Promise<T>}
+   */
+  const withLaunchLock = (assignmentId, run) => {
+    const previous = launching.get(assignmentId) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(run)
+    const tail = next.then(() => {}, () => {})
+    launching.set(assignmentId, tail)
+    void tail.then(() => {
+      if (launching.get(assignmentId) === tail) launching.delete(assignmentId)
+    })
+    return next
+  }
 
   // Anchor agents exist only to carry a lane's worktree cwd and lineage; they
   // must never spend model turns on settlement notices.
@@ -186,7 +219,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       currentTurn: { startedAt: nowEpoch() },
       lastTurn: lane.turn?.lastTurn,
     }
-    void writeLivenessSidecar(lane).catch(() => {})
+    void publishLivenessSidecar(lane).catch(() => {})
   })
   ctx.on('subagent/end', (payload) => {
     const lane = laneForRunPayload(payload)
@@ -203,7 +236,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           : 'completed',
       },
     }
-    void writeLivenessSidecar(lane).catch(() => {})
+    void publishLivenessSidecar(lane).catch(() => {})
   })
 
   // Per-child lane hardening: a monotonic deny-only guard (authority) plus the
@@ -323,91 +356,110 @@ export function applyMainAgentMode(ctx, config = {}) {
         'main-agent-worker-session-invalid',
       )
 
-      const existing = lanes.byAssignment(assignmentId)
-      if (existing !== undefined) {
-        if (existing.launchId !== externalLaunch.launch_id) {
-          throw laneError('main-agent-lane-incarnation-conflict', {
+      return withLaunchLock(assignmentId, async () => {
+        if (closing) throw laneError('main-agent-mode-disposed')
+        const existing = lanes.byAssignment(assignmentId)
+        if (existing !== undefined) {
+          if (existing.launchId !== externalLaunch.launch_id) {
+            throw laneError('main-agent-lane-incarnation-conflict', {
+              assignment_id: assignmentId,
+            })
+          }
+          await publishLivenessSidecar(existing)
+          return launchSummary(existing, 'reattached')
+        }
+        if (lanes.size >= maxLanes) {
+          throw laneError('main-agent-lane-capacity', {
             assignment_id: assignmentId,
+            max_lanes: maxLanes,
           })
         }
-        await writeLivenessSidecar(existing)
-        return launchSummary(existing, 'reattached')
-      }
 
-      const worktree = data.assignment?.worktree
-      const anchorCwd = typeof worktree === 'string' && isAbsolute(worktree) ? worktree : cwd
-      const provider = config.workerProvider ?? exec?.agent?.options?.provider
-      const model = config.workerModel ?? exec?.agent?.options?.model
-      if (typeof provider !== 'string' || typeof model !== 'string') {
-        throw laneError('main-agent-worker-route-unavailable')
-      }
-      const anchorHandle = await ctx.agents.create({
-        sessionId: /** @type {any} */ (randomUUID()),
-        meta: { cwd: anchorCwd },
-        agentOptions: { provider, model },
-      })
-      const anchor = anchorHandle.agent
-      const anchorId = String(anchor.session.header.id)
-      if (anchorId.length === 0) {
-        throw laneError('main-agent-anchor-unavailable')
-      }
-
-      /** @type {Lane} */
-      const lane = {
-        assignmentId,
-        workerSessionId,
-        launchId: externalLaunch.launch_id,
-        livenessFile: externalLaunch.liveness_file,
-        childId: '',
-        anchorId,
-        state: 'open',
-        turn: {
-          phase: 'waiting',
-          phaseChangedAt: nowEpoch(),
-          currentTurn: undefined,
-          lastTurn: undefined,
-        },
-        workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
-        brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
-        stopHeartbeat: undefined,
-      }
-      lanesByAnchor.set(anchorId, lane)
-      try {
-        // The heartbeat must be live before the child bootstraps: worker
-        // authentication reads the capability file the heartbeat maintains.
-        const heartbeat = ctx.subprocess.spawn({
-          argv: [...externalLaunch.broker_heartbeat_argv],
-          cwd,
-          stdio: {
-            stdin: 'ignore',
-            stdout: { maxBytes: 16 * 1024 },
-            stderr: { maxBytes: 8 * 1024 },
-          },
-          graceMs: 1_000,
-        })
-        lane.stopHeartbeat = () => {
-          try { heartbeat.terminate() } catch {}
+        const worktree = data.assignment?.worktree
+        const anchorCwd = typeof worktree === 'string' && isAbsolute(worktree) ? worktree : cwd
+        const provider = config.workerProvider ?? exec?.agent?.options?.provider
+        const model = config.workerModel ?? exec?.agent?.options?.model
+        if (typeof provider !== 'string' || typeof model !== 'string') {
+          throw laneError('main-agent-worker-route-unavailable')
         }
-        await writeLivenessSidecar(lane)
-        const started = await ctx.subagents.startContinuable({
-          provider: workerSubagentProvider,
-          label: `main-agent:${assignmentId}`,
-          request: {
-            prompt: [{ type: 'text', text: externalLaunch.prompt }],
-            parent: anchor,
-            toolFilter: { deny: [...laneDeniedTools] },
-          },
-          signal: exec.signal,
+        const anchorHandle = await ctx.agents.create({
+          sessionId: /** @type {any} */ (randomUUID()),
+          meta: { cwd: anchorCwd },
+          agentOptions: { provider, model },
         })
-        lane.childId = started.childId
-        lanes.add(lane)
-        return launchSummary(lane, 'launched')
-      } catch (error) {
-        lanesByAnchor.delete(anchorId)
-        lane.stopHeartbeat?.()
-        try { anchorHandle.dispose() } catch {}
-        throw error
-      }
+        const anchor = anchorHandle.agent
+        const anchorId = String(anchor.session.header.id)
+        if (anchorId.length === 0) {
+          throw laneError('main-agent-anchor-unavailable')
+        }
+
+        /** @type {Lane} */
+        const lane = {
+          assignmentId,
+          workerSessionId,
+          launchId: externalLaunch.launch_id,
+          livenessFile: externalLaunch.liveness_file,
+          childId: '',
+          anchorId,
+          state: 'open',
+          turn: {
+            phase: 'waiting',
+            phaseChangedAt: nowEpoch(),
+            currentTurn: undefined,
+            lastTurn: undefined,
+          },
+          workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
+          brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
+          disposeAnchor: () => {
+            try { anchorHandle.dispose() } catch {}
+          },
+          sidecarChain: Promise.resolve(),
+          stopHeartbeat: undefined,
+        }
+        lanesByAnchor.set(anchorId, lane)
+        try {
+          // The heartbeat must be live before the child bootstraps: worker
+          // authentication reads the capability file the heartbeat maintains.
+          const heartbeat = ctx.subprocess.spawn({
+            argv: [...externalLaunch.broker_heartbeat_argv],
+            cwd,
+            stdio: {
+              stdin: 'ignore',
+              stdout: { maxBytes: 16 * 1024 },
+              stderr: { maxBytes: 8 * 1024 },
+            },
+            graceMs: 1_000,
+          })
+          lane.stopHeartbeat = () => {
+            try { heartbeat.terminate() } catch {}
+          }
+          await publishLivenessSidecar(lane)
+          const started = await ctx.subagents.startContinuable({
+            provider: workerSubagentProvider,
+            label: `main-agent:${assignmentId}`,
+            request: {
+              prompt: [{ type: 'text', text: externalLaunch.prompt }],
+              parent: anchor,
+              toolFilter: { deny: [...laneDeniedTools] },
+            },
+            signal: exec.signal,
+          })
+          lane.childId = started.childId
+          lanes.add(lane)
+          return launchSummary(lane, 'launched')
+        } catch (error) {
+          // Roll the half-launched lane back completely: without a child the
+          // `open` sidecar would make the pinned live harness identity vouch
+          // for a lane that does not exist.
+          lanesByAnchor.delete(anchorId)
+          lane.state = 'terminated'
+          lane.turn = undefined
+          await publishLivenessSidecar(lane).catch(() => {})
+          lane.stopHeartbeat?.()
+          lane.disposeAnchor?.()
+          throw error
+        }
+      })
     },
   }
 
@@ -434,6 +486,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         record.assignment_id,
         'main-agent-assignment-id-invalid',
       )
+      if (closing) throw laneError('main-agent-mode-disposed')
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
       ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
@@ -446,7 +499,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           outcome: 'interrupted',
         },
       }
-      await writeLivenessSidecar(lane)
+      await publishLivenessSidecar(lane)
       return { ...launchSummary(lane, 'reattached'), interrupted: true }
     },
   }
@@ -476,12 +529,18 @@ export function applyMainAgentMode(ctx, config = {}) {
         record.assignment_id,
         'main-agent-assignment-id-invalid',
       )
+      if (closing) throw laneError('main-agent-mode-disposed')
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
-      ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+      try {
+        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+      } catch {
+        // A settled or already-drained child has nothing to interrupt; close
+        // must still release the heartbeat, sidecar, and anchor.
+      }
       lane.state = 'terminated'
       lane.turn = undefined
-      await writeLivenessSidecar(lane)
+      await publishLivenessSidecar(lane)
       lane.stopHeartbeat?.()
       if (lane.brokerStopArgv.length > 0) {
         // Best-effort broker release; the heartbeat's own shutdown also stops
@@ -491,6 +550,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           signal: exec.signal,
         }).catch(() => undefined)
       }
+      lane.disposeAnchor?.()
       lanes.remove(lane)
       lanesByAnchor.delete(lane.anchorId)
       return { ...launchSummary(lane, 'reattached'), closed: true }

@@ -142,15 +142,21 @@ export function createCliClient(ctx, config = {}) {
         } catch {
           return failure('cli-unavailable')
         }
+        /** @type {() => void} */
+        let onDeadline = () => {}
+        const deadline = new Promise(resolve => { onDeadline = () => resolve(undefined) })
         timer = setTimeout(() => {
           controller.abort(new Error('dsh-runtime-kit main-agent CLI deadline exceeded'))
           try { handle.terminate() } catch {}
+          onDeadline()
         }, boundedMs(options.timeoutMs, timeoutMs, MAX_CLI_TIMEOUT_MS))
 
-        const outcome = await Promise.resolve(handle.done).then(
-          value => value,
-          () => undefined,
-        )
+        // The deadline races completion so a wedged child cannot pin this
+        // call; quiescence below still bounds the process tree either way.
+        const outcome = await Promise.race([
+          Promise.resolve(handle.done).then(value => value, () => undefined),
+          deadline,
+        ])
         const quiescent = await boundedQuiescence(handle)
         if (!quiescent) {
           degraded = true

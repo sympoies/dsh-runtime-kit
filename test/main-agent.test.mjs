@@ -75,7 +75,7 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
   }
 }
 
-function createContext({ envelope, spawnFailure = false } = {}) {
+function createContext({ envelope, spawnFailure = false, startContinuable } = {}) {
   const listeners = new Map()
   const effects = []
   const provided = new Map()
@@ -110,10 +110,13 @@ function createContext({ envelope, spawnFailure = false } = {}) {
         if (spawnFailure) throw new Error('spawn failed')
         const record = { spec, terminated: false }
         spawned.push(record)
-        const isCli = spec.stdio.stdout?.maxBytes === 256 * 1024
-        const done = isCli
-          ? Promise.resolve({ exitCode: envelope.ok === false ? 1 : 0, signal: null })
-          : new Promise(() => {})
+        // Heartbeats are long-running broker processes; everything else is a
+        // one-shot CLI invocation that must settle with an envelope.
+        const isHeartbeat = spec.argv.includes('heartbeat')
+        const currentEnvelope = typeof envelope === 'function' ? envelope(spec) : envelope
+        const done = isHeartbeat
+          ? new Promise(() => {})
+          : Promise.resolve({ exitCode: currentEnvelope.ok === false ? 1 : 0, signal: null })
         return {
           done,
           terminate() { record.terminated = true },
@@ -121,7 +124,7 @@ function createContext({ envelope, spawnFailure = false } = {}) {
           collected: {
             stdout: {
               readFrom() {
-                return { text: JSON.stringify(envelope), lossy: false }
+                return { text: JSON.stringify(currentEnvelope), lossy: false }
               },
             },
           },
@@ -143,6 +146,7 @@ function createContext({ envelope, spawnFailure = false } = {}) {
     subagents: {
       async startContinuable(spec) {
         continuations.push(spec)
+        if (startContinuable !== undefined) return startContinuable(spec, continuations.length)
         return { childId: `child-${continuations.length}`, messageId: 'message-1' }
       },
       interrupt(target, authority) {
@@ -405,6 +409,11 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
   assert.equal(sidecar.turn, undefined)
   const heartbeat = harness.spawned[1]
   assert.equal(heartbeat.terminated, true, 'lane close stops the broker heartbeat')
+  assert.ok(
+    harness.spawned.some(record => record.spec.argv.includes('stop')),
+    'lane close runs the broker stop argv',
+  )
+  assert.equal(harness.anchors.length, 0, 'lane close disposes the anchor agent')
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 0)
   await assert.rejects(
@@ -414,4 +423,213 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     ),
     /main-agent-lane-not-found/,
   )
+})
+
+test('concurrent launches of one assignment serialize to a single lane', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  let releaseFirstChild
+  const gate = new Promise(resolve => { releaseFirstChild = resolve })
+  const harness = createContext({
+    envelope: workerStartEnvelope(livenessFile),
+    async startContinuable(_spec, count) {
+      if (count === 1) await gate
+      return { childId: `child-${count}`, messageId: `message-${count}` }
+    },
+  })
+  applyMainAgentMode(harness.ctx, {})
+  const launch = harness.registeredTools.get('main_agent_worker_launch')
+  const first = launch.execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  const second = launch.execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  await new Promise(resolve => setTimeout(resolve, 10))
+  releaseFirstChild()
+  const [firstResult, secondResult] = await Promise.all([first, second])
+  assert.equal(firstResult.disposition, 'launched')
+  assert.equal(secondResult.disposition, 'reattached')
+  assert.equal(harness.continuations.length, 1, 'exactly one child is spawned')
+  assert.equal(harness.anchors.length, 1, 'exactly one anchor exists')
+  assert.equal(
+    harness.spawned.filter(record => record.spec.argv.includes('heartbeat')).length,
+    1,
+    'exactly one heartbeat runs',
+  )
+})
+
+test('a failed launch rolls back completely and terminates its sidecar', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  const harness = createContext({
+    envelope: workerStartEnvelope(livenessFile),
+    async startContinuable() {
+      throw new Error('child refused to start')
+    },
+  })
+  applyMainAgentMode(harness.ctx, {})
+  await assert.rejects(
+    harness.registeredTools.get('main_agent_worker_launch').execute(
+      { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+      controllerExec(),
+    ),
+    /child refused to start/,
+  )
+  assert.equal(harness.anchors.length, 0, 'rollback disposes the anchor')
+  const heartbeat = harness.spawned.find(record => record.spec.argv.includes('heartbeat'))
+  assert.equal(heartbeat.terminated, true, 'rollback stops the heartbeat')
+  const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  assert.equal(
+    sidecar.lane.state,
+    'terminated',
+    'rollback never leaves an open sidecar vouched by a live harness',
+  )
+  const service = harness.provided.get('dshRuntimeKitMainAgent')
+  assert.equal(service.laneCount, 0)
+})
+
+test('a registered lane refuses a foreign launch incarnation', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  let launchId = 'launch-1'
+  const harness = createContext({
+    envelope: () => workerStartEnvelope(livenessFile, {
+      external_launch: { launch_id: launchId },
+    }),
+  })
+  applyMainAgentMode(harness.ctx, {})
+  const launch = harness.registeredTools.get('main_agent_worker_launch')
+  await launch.execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  launchId = 'launch-2'
+  await assert.rejects(
+    launch.execute(
+      { assignment_file: '/private/assignment.json', idempotency_key: 'key-2' },
+      controllerExec(),
+    ),
+    /main-agent-lane-incarnation-conflict/,
+  )
+  assert.equal(harness.continuations.length, 1, 'the conflict spawns nothing')
+  assert.equal(harness.anchors.length, 1)
+})
+
+test('lane capacity is bounded with a typed refusal', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  let assignment = 'assignment-a'
+  const harness = createContext({
+    envelope: () => {
+      const envelope = workerStartEnvelope(join(scratch, `${assignment}.json`))
+      envelope.data.assignment.assignment_id = assignment
+      envelope.data.external_launch.liveness_file = join(scratch, `${assignment}.json`)
+      return envelope
+    },
+  })
+  applyMainAgentMode(harness.ctx, { maxLanes: 1 })
+  const launch = harness.registeredTools.get('main_agent_worker_launch')
+  await launch.execute(
+    { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
+    controllerExec(),
+  )
+  assignment = 'assignment-b'
+  await assert.rejects(
+    launch.execute(
+      { assignment_file: '/private/b.json', idempotency_key: 'key-b' },
+      controllerExec(),
+    ),
+    /main-agent-lane-capacity/,
+  )
+  assert.equal(harness.continuations.length, 1, 'the refused lane spawns nothing')
+})
+
+test('disposal closes the runtime: tools refuse and lane bookkeeping empties', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
+  applyMainAgentMode(harness.ctx, {})
+  await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  for (const effect of harness.effects) {
+    const dispose = effect.callback()
+    if (typeof dispose === 'function') dispose()
+  }
+  const service = harness.provided.get('dshRuntimeKitMainAgent')
+  assert.equal(service.laneCount, 0, 'disposal empties the lane registry')
+  for (const name of [
+    'main_agent_worker_launch',
+    'main_agent_worker_interrupt',
+    'main_agent_lane_close',
+  ]) {
+    await assert.rejects(
+      harness.registeredTools.get(name).execute(
+        name === 'main_agent_worker_launch'
+          ? { assignment_file: '/private/assignment.json', idempotency_key: 'key-2' }
+          : { assignment_id: 'assignment-one' },
+        controllerExec(),
+      ),
+      /main-agent-mode-disposed|main-agent-lane-not-found|cli-disposed/,
+    )
+  }
+})
+
+test('lane close still releases the heartbeat when the interrupt throws', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
+  harness.ctx.subagents.interrupt = () => {
+    throw new Error('child already settled')
+  }
+  applyMainAgentMode(harness.ctx, {})
+  await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  const closed = await harness.registeredTools.get('main_agent_lane_close').execute(
+    { assignment_id: 'assignment-one' },
+    controllerExec(),
+  )
+  assert.equal(closed.closed, true)
+  const heartbeat = harness.spawned.find(record => record.spec.argv.includes('heartbeat'))
+  assert.equal(heartbeat.terminated, true, 'the heartbeat is released regardless')
+  const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  assert.equal(sidecar.lane.state, 'terminated')
+})
+
+test('synchronous run boundaries publish the last transition, not the last rename', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = join(scratch, 'dsh-runtime-liveness.json')
+  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
+  applyMainAgentMode(harness.ctx, {})
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  // Fire a fast turn: start and end without yielding between them.
+  harness.listeners.get('subagent/start')({ sessionId: launched.child_session_id })
+  harness.listeners.get('subagent/end')({
+    sessionId: launched.child_session_id,
+    stopReason: 'completed',
+  })
+  const deadline = Date.now() + 2_000
+  let sidecar
+  for (;;) {
+    sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+    if (sidecar.turn?.last_turn?.outcome === 'completed' || Date.now() > deadline) break
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  assert.equal(sidecar.turn.phase, 'waiting', 'the final publication reflects the final transition')
+  assert.equal(sidecar.turn.last_turn.outcome, 'completed')
 })
