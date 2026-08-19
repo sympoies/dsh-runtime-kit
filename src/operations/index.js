@@ -35,6 +35,7 @@ import {
   readActivation,
   resolveActivationRoot,
   resolveProviderDisjointPath,
+  resolveProviderHomeTopology,
 } from '../activation/index.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
@@ -1928,6 +1929,45 @@ function recoveryFor(actual, state, paths) {
   return { action: 'unknown', pending }
 }
 
+/**
+ * Revalidate every persisted activation root against the provider homes and
+ * symlink topology that exist now, before recovery can inspect or mutate any
+ * of those roots. The returned canonical roots and labeled provider topology
+ * are included in the reviewed repair-plan digest.
+ *
+ * @param {any} state
+ * @param {string} profile
+ */
+function repairRuntimeRootTopology(state, profile) {
+  try {
+    const pending = state?.pending === null || state?.pending === undefined
+      ? null
+      : validatePending(state.pending, profile)
+    const pendingPlan = pending === null ? null : validatePlan(pending.plan, profile)
+    const current = state?.current === null || state?.current === undefined
+      ? null
+      : validateSnapshot(state.current)
+    const previous = state?.previous === null || state?.previous === undefined
+      ? null
+      : validateSnapshot(state.previous)
+    return {
+      roots: {
+        pending: pendingPlan === null ? null : resolveActivationRoot(pendingPlan.runtime_root),
+        current: current === null ? null : resolveActivationRoot(current.runtime_root),
+        previous: previous === null ? null : resolveActivationRoot(previous.runtime_root),
+      },
+      provider_homes: resolveProviderHomeTopology(),
+    }
+  } catch (error) {
+    throw new OperationsError(
+      'unsafe-repair-runtime-root',
+      error instanceof Error
+        ? `persisted recovery runtime root is unsafe: ${error.message}`
+        : 'persisted recovery runtime root is unsafe for the current provider topology',
+    )
+  }
+}
+
 /** @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook @param {string} home */
 function agentHookDoctor(agentHook, home) {
   const [agentHookBin, ...args] = agentHook.argv([
@@ -2017,6 +2057,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
   const state = stateRead.value
+  repairRuntimeRootTopology(state, profile)
   const recovery = recoveryFor(actual, state, paths)
   let ownedStatus = 'absent'
   if (recovery !== null) ownedStatus = 'recovery-required'
@@ -2085,6 +2126,7 @@ function repairPlan(profile, paths, diagnostic) {
   }
   const stateRead = readState(paths.state, profile)
   const state = /** @type {any} */ (stateRead.value)
+  const runtimeRootTopology = repairRuntimeRootTopology(state, profile)
   const pending = validatePending(diagnostic.recovery.pending, profile)
   let proposed
   if (diagnostic.recovery.action === 'clear' || diagnostic.recovery.action === 'restore-collateral') {
@@ -2126,6 +2168,7 @@ function repairPlan(profile, paths, diagnostic) {
     pending_plan_digest: diagnostic.recovery.pending.plan_digest,
     observed_manifest_digest: diagnostic.observed.manifest_digest,
     state_digest: stateRead.digest,
+    runtime_root_topology: runtimeRootTopology,
     proposed_state: proposed,
   }
   return { plan, plan_digest: sha256(stableJson(plan)) }
@@ -2139,6 +2182,7 @@ function applyRepair(profile, paths, reviewed) {
     const actual = readActual(paths)
     const stateRead = readState(paths.state, profile)
     const state = stateRead.value
+    repairRuntimeRootTopology(state, profile)
     const recovery = recoveryFor(actual, state, paths)
     if (recovery === null || recovery.action === 'unknown') {
       throw new OperationsError('recovery-drift', 'recovery state changed after preview')

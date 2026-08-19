@@ -42,6 +42,27 @@ function canonicalMaybe(path) {
 }
 
 /**
+ * Resolve the current explicit and default provider-home topology. Preserve the
+ * source labels as well as canonical paths so a reviewed recovery plan changes
+ * when either the configured homes or their symlink topology changes.
+ *
+ * @param {NodeJS.ProcessEnv} [environment]
+ */
+export function resolveProviderHomeTopology(environment = process.env) {
+  const defaultHome = environment.HOME ?? homedir()
+  return [
+    ['codex-explicit', environment.CODEX_HOME],
+    ['claude-explicit', environment.CLAUDE_CONFIG_DIR],
+    ['codex-default', join(defaultHome, '.codex')],
+    ['claude-default', join(defaultHome, '.claude')],
+  ].flatMap(([source, path]) => (
+    typeof path === 'string' && path.length > 0
+      ? [{ source, path: canonicalMaybe(path) }]
+      : []
+  ))
+}
+
+/**
  * Canonicalize one DSH-owned root and reject every direct, nested, or aliased
  * overlap with explicit and default Codex or Claude homes.
  *
@@ -54,15 +75,7 @@ export function resolveProviderDisjointPath(value, label, environment = process.
     throw new TypeError(`${label} is required and must be an absolute path`)
   }
   const root = canonicalMaybe(value)
-  const providerCandidates = [
-    environment.CODEX_HOME,
-    environment.CLAUDE_CONFIG_DIR,
-    join(environment.HOME ?? homedir(), '.codex'),
-    join(environment.HOME ?? homedir(), '.claude'),
-  ]
-  const providerHomes = new Set(providerCandidates.flatMap(path => (
-    typeof path === 'string' && path.length > 0 ? [canonicalMaybe(path)] : []
-  )))
+  const providerHomes = new Set(resolveProviderHomeTopology(environment).map(entry => entry.path))
   for (const providerHome of providerHomes) {
     if (overlaps(root, providerHome)) {
       throw new TypeError(`${label} must be disjoint from Codex and Claude runtime homes`)

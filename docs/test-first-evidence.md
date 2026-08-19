@@ -1021,3 +1021,30 @@ suite passes 237/237 plus strict typechecking. The final packed source
 acceptance, run ID `issue1-finalhead-20260820d`, remains released mode with 10
 passed, 2 authorization-pending, and 0 failed. Follow-up specialist disposition
 and hosted acceptance remain promotion gates; no merge or cutover is claimed.
+
+The next final-head security follow-up reproduced three persisted-root recovery
+gaps before production changes. A four-test focused run passed only the
+existing-package collateral update restoration case and failed the other three:
+doctor repair accepted current provider-home equality/nesting/aliases for a
+persisted pending root, accepted a provider home overlapping a retained
+previous root, and omitted current provider topology from the repair-plan
+digest. The package-update case was coverage-only: the existing shared
+restoration path already returned the typed collateral failure while exactly
+restoring the v1 installed digest/version, activation manifest and asset set,
+profile manifest/lock bytes, current/previous/last-applied state, and clearing
+pending after an interrupted v2 update.
+
+The repair now reuses the activation root validator for every persisted
+pending, current, and previous runtime root before recovery can inspect or
+mutate one. It binds those canonical roots plus source-labeled explicit and
+default Codex/Claude home topology into the reviewed doctor-repair digest, so
+provider configuration or symlink topology drift between preview and apply is
+rejected. Negative coverage exercises equality, provider-above-root,
+provider-below-root, symlink aliases, default Codex home, retained previous
+roots, collateral restoration, and remove finalization while provider sentinel
+bytes remain unchanged. The focused suite passes 5/5, affected
+operations-plus-launcher passes 39/39, operations passes 35/35 on Node 22 and
+Node 24, and the full suite passes 242/242 plus typechecking. Packed source
+acceptance `issue1-finalhead-20260820e` remains released mode with 10 passed, 2
+authorization-pending, and 0 failed. Follow-up review and hosted acceptance
+remain promotion gates; no merge or cutover is claimed.

@@ -304,11 +304,13 @@ function run(subject, args, extraEnv = {}) {
   return { ...result, value }
 }
 
-function applyPlan(subject, args) {
-  const preview = run(subject, args)
+function applyPlan(subject, args, extraEnv = {}) {
+  const preview = run(subject, args, extraEnv)
   assert.equal(preview.status, 0, preview.stderr)
   assert.equal(preview.value.data.mode, 'dry-run')
-  const applied = run(subject, [...args, '--apply', '--expected-plan-digest', preview.value.data.plan_digest])
+  const applied = run(subject, [
+    ...args, '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+  ], extraEnv)
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
   return { preview: preview.value.data, applied: applied.value.data }
 }
@@ -720,6 +722,272 @@ snapshots:
     assert.equal(readFileSync(lockfile, 'utf8'), lockfileBefore)
     assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
     assert.equal(JSON.parse(readFileSync(join(subject.home, 'runtime-kit/state/work.json'))).pending, null)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor repair rejects current provider topology overlapping persisted pending roots', () => {
+  const cases = [
+    {
+      name: 'explicit equality',
+      roots(subject) {
+        const runtime = join(subject.root, 'persisted-equal')
+        return { runtime, provider: runtime, environment: { CODEX_HOME: runtime } }
+      },
+    },
+    {
+      name: 'explicit provider ancestor',
+      roots(subject) {
+        const provider = join(subject.root, 'persisted-parent')
+        return { runtime: join(provider, 'runtime'), provider, environment: { CLAUDE_CONFIG_DIR: provider } }
+      },
+    },
+    {
+      name: 'explicit provider descendant',
+      roots(subject) {
+        const runtime = join(subject.root, 'persisted-parent-of-provider')
+        const provider = join(runtime, 'provider')
+        return { runtime, provider, environment: { CODEX_HOME: provider } }
+      },
+    },
+    {
+      name: 'explicit symlink alias',
+      roots(subject) {
+        const runtime = join(subject.root, 'persisted-alias-target')
+        const provider = join(subject.root, 'persisted-provider-alias')
+        return { runtime, provider, aliasTarget: runtime, environment: { CLAUDE_CONFIG_DIR: provider } }
+      },
+    },
+    {
+      name: 'default Codex home',
+      roots(subject) {
+        const userHome = join(subject.root, 'persisted-default-user')
+        const runtime = join(userHome, '.codex')
+        return { runtime, provider: runtime, environment: { HOME: userHome } }
+      },
+    },
+  ]
+  for (const entry of cases) {
+    const subject = fixture()
+    try {
+      const { runtime, provider, aliasTarget, environment } = entry.roots(subject)
+      mkdirSync(runtime, { recursive: true, mode: 0o700 })
+      if (aliasTarget !== undefined) symlinkSync(aliasTarget, provider, 'dir')
+      else mkdirSync(provider, { recursive: true, mode: 0o700 })
+      const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1], {
+        DSH_RUNTIME_KIT_RUNTIME_ROOT: runtime,
+      })
+      writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+      const interrupted = run(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ], { DSH_RUNTIME_KIT_RUNTIME_ROOT: runtime })
+      assert.notEqual(interrupted.status, 0, entry.name)
+      unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+      const sentinel = join(aliasTarget ?? provider, 'provider-sentinel')
+      writeFileSync(sentinel, `unchanged: ${entry.name}`)
+
+      const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'], {
+        DSH_RUNTIME_KIT_RUNTIME_ROOT: runtime,
+        ...environment,
+      })
+      assert.equal(rejected.status, 65, `${entry.name}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, 'unsafe-repair-runtime-root')
+      assert.equal(readFileSync(sentinel, 'utf8'), `unchanged: ${entry.name}`)
+      assert.notEqual(JSON.parse(readFileSync(join(
+        subject.home, 'runtime-kit', 'state', 'work.json',
+      ), 'utf8')).pending, null)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('doctor repair validates persisted previous roots against current provider topology', () => {
+  const subject = fixture()
+  try {
+    const previousRoot = join(subject.root, 'previous-runtime')
+    const currentRoot = join(subject.root, 'current-runtime')
+    mkdirSync(previousRoot, { mode: 0o700 })
+    mkdirSync(currentRoot, { mode: 0o700 })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1], {
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: previousRoot,
+    })
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2], {
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
+    })
+    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v1], {
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
+    })
+    writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+    const interrupted = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], { DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot })
+    assert.notEqual(interrupted.status, 0)
+    unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+    const sentinel = join(previousRoot, 'provider-sentinel')
+    writeFileSync(sentinel, 'previous provider bytes')
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'], {
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
+      CODEX_HOME: previousRoot,
+    })
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'unsafe-repair-runtime-root')
+    assert.equal(readFileSync(sentinel, 'utf8'), 'previous provider bytes')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor repair validates roots before collateral restoration or remove finalization', () => {
+  for (const recoveryKind of ['restore-collateral', 'remove']) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const operation = recoveryKind === 'restore-collateral' ? 'update' : 'remove'
+      const args = operation === 'update'
+        ? [operation, '--profile', 'work', '--package', subject.v2]
+        : [operation, '--profile', 'work']
+      const preview = run(subject, args)
+      if (recoveryKind === 'restore-collateral') {
+        writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+      }
+      writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+      const interrupted = run(subject, [
+        ...args, '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.notEqual(interrupted.status, 0)
+      if (recoveryKind === 'restore-collateral') {
+        unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+      }
+      unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+      const doctor = run(subject, ['doctor', '--profile', 'work'])
+      assert.equal(
+        doctor.value.data.recovery.action,
+        recoveryKind === 'restore-collateral' ? 'restore-collateral' : 'finalize',
+      )
+      assert.equal(doctor.value.data.recovery.pending.operation, operation)
+      const sentinel = join(subject.runtimeRoot, `provider-${recoveryKind}`)
+      writeFileSync(sentinel, `unchanged: ${recoveryKind}`)
+
+      const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'], {
+        CLAUDE_CONFIG_DIR: subject.runtimeRoot,
+      })
+      assert.equal(rejected.status, 65, `${recoveryKind}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, 'unsafe-repair-runtime-root')
+      assert.equal(readFileSync(sentinel, 'utf8'), `unchanged: ${recoveryKind}`)
+      assert.notEqual(JSON.parse(readFileSync(join(
+        subject.home, 'runtime-kit', 'state', 'work.json',
+      ), 'utf8')).pending, null)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('doctor repair plan binds current provider topology across preview and apply', () => {
+  const subject = fixture()
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.notEqual(interrupted.status, 0)
+    unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, `${repair.stdout}\n${repair.stderr}`)
+    assert.ok(repair.value.data.plan.runtime_root_topology)
+    const provider = join(subject.root, 'new-safe-provider-home')
+    mkdirSync(provider, { mode: 0o700 })
+    const sentinel = join(provider, 'provider-sentinel')
+    writeFileSync(sentinel, 'unchanged')
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ], { CODEX_HOME: provider })
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged')
+    assert.notEqual(JSON.parse(readFileSync(join(
+      subject.home, 'runtime-kit', 'state', 'work.json',
+    ), 'utf8')).pending, null)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('collateral update recovery restores the exact prior package activation and state', () => {
+  const subject = fixture()
+  try {
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    writeFileSync(lockfile, `lockfileVersion: '9.0'
+importers:
+  .: {}
+packages:
+  unrelated@1.0.0:
+    resolution: {integrity: preserved}
+snapshots:
+  unrelated@1.0.0: {}
+`)
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const stateBefore = JSON.parse(readFileSync(statePath, 'utf8'))
+    const activationBefore = readFileSync(activationPath, 'utf8')
+    const activationBeforeValue = JSON.parse(activationBefore)
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'), 'utf8')
+    const lockfileBefore = readFileSync(lockfile, 'utf8')
+
+    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+    writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+    const interrupted = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v2,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.notEqual(interrupted.status, 0)
+    unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+    unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
+
+    const stateAfter = JSON.parse(readFileSync(statePath, 'utf8'))
+    const activationAfter = readFileSync(activationPath, 'utf8')
+    const installedManifest = JSON.parse(readFileSync(join(
+      subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json',
+    ), 'utf8'))
+    assert.equal(installedManifest.version, '1.0.0')
+    assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), manifestBefore)
+    assert.equal(readFileSync(lockfile, 'utf8'), lockfileBefore)
+    assert.equal(activationAfter, activationBefore)
+    assert.equal(JSON.parse(activationAfter).asset_set_sha256, activationBeforeValue.asset_set_sha256)
+    assert.deepEqual(stateAfter.current, stateBefore.current)
+    assert.deepEqual(stateAfter.previous, stateBefore.previous)
+    assert.deepEqual(stateAfter.last_applied, stateBefore.last_applied)
+    assert.equal(stateAfter.pending, null)
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, `${healthy.stdout}\n${healthy.stderr}`)
+    assert.equal(healthy.value.data.observed.installed_version, '1.0.0')
+    assert.equal(healthy.value.data.observed.installed_digest, stateBefore.current.installed_digest)
   } finally {
     subject.cleanup()
   }
