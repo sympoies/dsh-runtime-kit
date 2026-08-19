@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -313,6 +314,69 @@ function applyPlan(subject, args, extraEnv = {}) {
   ], extraEnv)
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
   return { preview: preview.value.data, applied: applied.value.data }
+}
+
+function interruptCollateralUpdate(subject) {
+  const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+  writeFileSync(lockfile, `lockfileVersion: '9.0'
+importers:
+  .: {}
+packages:
+  unrelated@1.0.0:
+    resolution: {integrity: preserved}
+snapshots:
+  unrelated@1.0.0: {}
+`)
+  applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+  const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+  const activationPath = join(subject.runtimeRoot, 'activation.json')
+  const expected = {
+    state: JSON.parse(readFileSync(statePath, 'utf8')),
+    activation: readFileSync(activationPath, 'utf8'),
+    manifest: readFileSync(join(subject.profileDir, 'package.json'), 'utf8'),
+    lockfile: readFileSync(lockfile, 'utf8'),
+  }
+  const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+  writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+  writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+  const interrupted = run(subject, [
+    'update', '--profile', 'work', '--package', subject.v2,
+    '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+  ])
+  assert.notEqual(interrupted.status, 0)
+  unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+  unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+  const doctor = run(subject, ['doctor', '--profile', 'work'])
+  assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
+  return { statePath, activationPath, lockfile, expected }
+}
+
+function assertExactPriorInstall(subject, recovery) {
+  const state = JSON.parse(readFileSync(recovery.statePath, 'utf8'))
+  const installed = JSON.parse(readFileSync(join(
+    subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json',
+  ), 'utf8'))
+  assert.equal(installed.version, '1.0.0')
+  assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), recovery.expected.manifest)
+  assert.equal(readFileSync(recovery.lockfile, 'utf8'), recovery.expected.lockfile)
+  assert.equal(readFileSync(recovery.activationPath, 'utf8'), recovery.expected.activation)
+  assert.deepEqual(state.current, recovery.expected.state.current)
+  assert.deepEqual(state.previous, recovery.expected.state.previous)
+  assert.deepEqual(state.last_applied, recovery.expected.state.last_applied)
+  assert.equal(state.pending, null)
+}
+
+function assertPrivateAtomicTemporary(directory, targetName) {
+  const prefix = `.${targetName}.dsh-runtime-kit-atomic.`
+  const names = readdirSync(directory).filter(name => name.startsWith(prefix) && name.endsWith('.tmp'))
+  assert.equal(names.length, 1)
+  const stat = lstatSync(join(directory, names[0]))
+  assert.equal(stat.isFile(), true)
+  assert.equal(stat.isSymbolicLink(), false)
+  assert.equal(stat.mode & 0o077, 0)
+  assert.equal(stat.nlink, 1)
+  if (typeof process.getuid === 'function') assert.equal(stat.uid, process.getuid())
 }
 
 test('setup, update, rollback, and remove preserve unrelated profile and private state', () => {
@@ -988,6 +1052,79 @@ snapshots:
     assert.equal(healthy.status, 0, `${healthy.stdout}\n${healthy.stderr}`)
     assert.equal(healthy.value.data.observed.installed_version, '1.0.0')
     assert.equal(healthy.value.data.observed.installed_digest, stateBefore.current.installed_digest)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor repair survives interruption during an atomic profile snapshot replacement', () => {
+  const subject = fixture()
+  try {
+    const recovery = interruptCollateralUpdate(subject)
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const crashed = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ], {
+      NODE_ENV: 'test',
+      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'restore-profile:package.json',
+    })
+    assert.equal(crashed.status, null)
+    assert.equal(crashed.signal, 'SIGKILL')
+    const retained = JSON.parse(readFileSync(recovery.statePath, 'utf8'))
+    assert.notEqual(retained.pending, null)
+    assertPrivateAtomicTemporary(subject.profileDir, 'package.json')
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.value.data.recovery.action, 'restore-collateral')
+    const retry = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const converged = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', retry.value.data.plan_digest,
+    ])
+    assert.equal(converged.status, 65)
+    assert.equal(converged.value.error.code, 'native-dsh-collateral-mutation')
+    assertExactPriorInstall(subject, recovery)
+    assert.equal(
+      readdirSync(subject.profileDir).some(name => name.includes('.dsh-runtime-kit-atomic.')),
+      false,
+    )
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor repair survives interruption during the final atomic state replacement', () => {
+  const subject = fixture()
+  try {
+    const recovery = interruptCollateralUpdate(subject)
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const crashed = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ], {
+      NODE_ENV: 'test',
+      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'restore-state',
+    })
+    assert.equal(crashed.status, null)
+    assert.equal(crashed.signal, 'SIGKILL')
+    const retained = JSON.parse(readFileSync(recovery.statePath, 'utf8'))
+    assert.notEqual(retained.pending, null)
+    assertPrivateAtomicTemporary(dirname(recovery.statePath), 'work.json')
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.value.data.recovery.action, 'clear')
+    const retry = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const converged = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', retry.value.data.plan_digest,
+    ])
+    assert.equal(converged.status, 0, `${converged.stdout}\n${converged.stderr}`)
+    assertExactPriorInstall(subject, recovery)
+    assert.equal(
+      readdirSync(dirname(recovery.statePath)).some(name => name.includes('.dsh-runtime-kit-atomic.')),
+      false,
+    )
   } finally {
     subject.cleanup()
   }

@@ -162,21 +162,68 @@ function assertSafeStateFile(path) {
   assertOwnedPath(path, 'file', true)
 }
 
-/** @param {string} path @param {unknown} value */
-function atomicWriteJson(path, value) {
-  ensurePrivateDirectory(dirname(path))
-  assertSafeStateFile(path)
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+const ATOMIC_REPLACE_MARKER = '.dsh-runtime-kit-atomic.'
+
+/** @param {string} point */
+function injectTestFault(point) {
+  if (process.env.NODE_ENV === 'test'
+    && process.env.DSH_RUNTIME_KIT_TEST_FAULT_POINT === point) {
+    process.kill(process.pid, 'SIGKILL')
+  }
+}
+
+/** @param {string} path @param {boolean} privateOnly */
+function cleanupAtomicReplaceTemporaries(path, privateOnly) {
+  const directory = dirname(path)
+  assertOwnedPath(directory, 'directory', privateOnly)
+  const prefix = `.${basename(path)}${ATOMIC_REPLACE_MARKER}`
+  let removed = false
+  for (const name of readdirSync(directory)) {
+    if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
+    const temporary = join(directory, name)
+    const stat = assertOwnedPath(temporary, 'file', true)
+    if (stat.nlink !== 1) {
+      throw new OperationsError('unsafe-profile-tree', `${temporary} must have exactly one link`)
+    }
+    unlinkSync(temporary)
+    removed = true
+  }
+  if (removed) fsyncDirectory(directory)
+}
+
+/**
+ * Replace an owned control file without modifying its current inode in place.
+ * The durable temporary is private and lives in the target directory.
+ *
+ * @param {string} path
+ * @param {string | Buffer} content
+ * @param {number} mode
+ * @param {{privateOnly?: boolean, faultPoint?: string}} [options]
+ */
+function atomicReplaceOwnedFile(path, content, mode, options = {}) {
+  const privateOnly = options.privateOnly ?? false
+  if (lstatMaybe(path) !== null) assertOwnedPath(path, 'file', privateOnly)
+  cleanupAtomicReplaceTemporaries(path, privateOnly)
+  const temporary = join(
+    dirname(path),
+    `.${basename(path)}${ATOMIC_REPLACE_MARKER}${process.pid}.${randomUUID()}.tmp`,
+  )
   let fd
   let renamed = false
   try {
     fd = openSync(temporary, 'wx', 0o600)
-    writeFileSync(fd, `${JSON.stringify(value, undefined, 2)}\n`, 'utf8')
+    writeFileSync(fd, content)
     fsyncSync(fd)
     closeSync(fd)
     fd = undefined
+    if (options.faultPoint !== undefined) injectTestFault(options.faultPoint)
     renameSync(temporary, path)
     renamed = true
+    chmodSync(path, mode)
+    fd = openSync(path, 'r')
+    fsyncSync(fd)
+    closeSync(fd)
+    fd = undefined
     fsyncDirectory(dirname(path))
   } finally {
     if (fd !== undefined) {
@@ -186,6 +233,26 @@ function atomicWriteJson(path, value) {
       try { unlinkSync(temporary) } catch {}
     }
   }
+}
+
+/** @param {string} path @param {{privateOnly?: boolean, faultPoint?: string}} [options] */
+function atomicRemoveOwnedFile(path, options = {}) {
+  const privateOnly = options.privateOnly ?? false
+  cleanupAtomicReplaceTemporaries(path, privateOnly)
+  if (lstatMaybe(path) === null) return
+  assertOwnedPath(path, 'file', privateOnly)
+  if (options.faultPoint !== undefined) injectTestFault(options.faultPoint)
+  unlinkSync(path)
+  fsyncDirectory(dirname(path))
+}
+
+/** @param {string} path @param {unknown} value */
+function atomicWriteJson(path, value) {
+  ensurePrivateDirectory(dirname(path))
+  assertSafeStateFile(path)
+  atomicReplaceOwnedFile(path, `${JSON.stringify(value, undefined, 2)}\n`, 0o600, {
+    privateOnly: true,
+  })
 }
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -485,18 +552,31 @@ function restoreProfileSnapshot(snapshot, paths) {
   for (const file of snapshot.files) {
     const path = join(paths.profileDir, file.name)
     if (!file.present) {
-      if (lstatMaybe(path) !== null) {
-        assertOwnedPath(path, 'file')
-        unlinkSync(path)
-      }
+      atomicRemoveOwnedFile(path, { faultPoint: `restore-profile:${file.name}` })
       continue
     }
-    writeFileSync(path, /** @type {string} */ (file.content), {
-      mode: /** @type {number} */ (file.mode),
-    })
-    chmodSync(path, /** @type {number} */ (file.mode))
+    atomicReplaceOwnedFile(
+      path,
+      /** @type {string} */ (file.content),
+      /** @type {number} */ (file.mode),
+      { faultPoint: `restore-profile:${file.name}` },
+    )
   }
-  fsyncDirectory(paths.profileDir)
+}
+
+/** @param {string} path @param {ReturnType<typeof readState>} stateRead */
+function commitRestoredState(path, stateRead) {
+  if (stateRead.raw === null) {
+    atomicRemoveOwnedFile(path, {
+      privateOnly: true,
+      faultPoint: 'restore-state',
+    })
+    return
+  }
+  atomicReplaceOwnedFile(path, stateRead.raw, 0o600, {
+    privateOnly: true,
+    faultPoint: 'restore-state',
+  })
 }
 
 /** @param {string} raw */
@@ -1691,13 +1771,18 @@ function restoreAfterCollateral(dshBin, paths, profile, priorState, profileBefor
     stageActivation(paths, previous.target, previous.runtime_root, profile)
   }
   restoreProfileSnapshot(profileBefore, paths)
-  if (stateRead.raw === null) {
-    if (lstatMaybe(paths.state) !== null) unlinkSync(paths.state)
-  } else {
-    writeFileSync(paths.state, stateRead.raw, { mode: 0o600 })
-    chmodSync(paths.state, 0o600)
+  const restoredActual = readActual(paths)
+  const profileRestored = !profileHasCollateralMutation(profileBefore, captureProfileSnapshot(paths))
+  const packageRestored = previous === null
+    ? actualAbsent(restoredActual)
+    : snapshotMatches(restoredActual, previous, paths)
+  if (!profileRestored || !packageRestored) {
+    throw new OperationsError(
+      'native-dsh-collateral-recovery-failed',
+      'DSH collateral restoration did not reach the exact prior package and profile state',
+    )
   }
-  fsyncDirectory(dirname(paths.state))
+  commitRestoredState(paths.state, stateRead)
 }
 
 /** @param {string} profile @param {string} operation @param {string} planDigest @param {any} state @param {ReturnType<typeof resolveTarget> | null} target @param {unknown} plan @param {ReturnType<typeof captureProfileSnapshot>} profileBefore */
@@ -2225,21 +2310,6 @@ function applyRepair(profile, paths, reviewed) {
         throw new OperationsError(
           'native-dsh-collateral-recovery-failed',
           'interrupted DSH collateral could not be restored to the exact prior package and profile state',
-        )
-      }
-      const restoredActual = readActual(paths)
-      const prior = recoveredState.current === null ? null : validateSnapshot(recoveredState.current)
-      const profileRestored = !profileHasCollateralMutation(
-        validateProfileSnapshot(pending.profile_before),
-        captureProfileSnapshot(paths),
-      )
-      const packageRestored = prior === null
-        ? actualAbsent(restoredActual)
-        : snapshotMatches(restoredActual, prior, paths)
-      if (!profileRestored || !packageRestored) {
-        throw new OperationsError(
-          'native-dsh-collateral-recovery-failed',
-          'interrupted DSH collateral restoration did not reach the exact prior package and profile state',
         )
       }
       throw new OperationsError(

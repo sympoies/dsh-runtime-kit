@@ -1048,3 +1048,25 @@ Node 24, and the full suite passes 242/242 plus typechecking. Packed source
 acceptance `issue1-finalhead-20260820e` remains released mode with 10 passed, 2
 authorization-pending, and 0 failed. Follow-up review and hosted acceptance
 remain promotion gates; no merge or cutover is claimed.
+
+The final convergence recovery audit reproduced both crash windows before the
+atomic restore implementation. Two deterministic process-loss tests failed
+0/2: doctor repair returned the normal typed collateral result instead of being
+interrupted at a durable profile replacement or final state replacement, so
+the tests could not prove a parseable pending receipt survived either point.
+
+All restored profile control files and operations state now use one
+owner-checked atomic replacement primitive. It creates a private, single-link
+temporary in the target directory, writes and fsyncs the complete bytes,
+renames over the old inode, restores and fsyncs the final mode, and fsyncs the
+directory. Recovery restores and verifies the prior package, activation, and
+complete profile snapshot before the final state replacement can clear the
+pending receipt. A process killed immediately after either temporary becomes
+durable leaves valid pending JSON; the next doctor repair removes the exact
+orphan temporary and converges to the prior v1 package, assets, manifest,
+lockfile, and state. The focused regressions pass 2/2, operations passes 37/37
+on Node 22 and Node 24, and the full suite passes 244/244 plus typechecking.
+Policy benchmark, 132-entry package preview, plan validation, and diff checks
+pass. Packed source acceptance `issue1-finalhead-20260820h` remains released
+mode with 10 passed, 2 authorization-pending, and 0 failed. Follow-up review
+and hosted acceptance remain promotion gates; no merge or cutover is claimed.
