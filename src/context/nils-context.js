@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path'
 
 import { runtimeContextPhase } from './intents.js'
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
+import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -46,15 +47,6 @@ function boundedPositiveInteger(value, fallback, maximum) {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
     ? Math.min(value, maximum)
     : fallback
-}
-
-/** @param {unknown} value @param {string} field */
-function optionalAbsolutePath(value, field) {
-  if (value === undefined || value === '') return undefined
-  if (typeof value !== 'string' || !isAbsolute(value) || value.includes('\0')) {
-    throw new TypeError(`dsh-runtime-kit: ${field} must be an absolute path`)
-  }
-  return value
 }
 
 /** @param {unknown} value @param {string} fallback @param {string} field */
@@ -319,6 +311,7 @@ export function createNilsContextClient(ctx, config = {}) {
             },
             graceMs: 1_000,
             signal: operation.controller.signal,
+            env: isolatedNilsEnvironment(undefined),
           })
         } catch {
           if (operation.cause !== undefined) throw failure(operation.cause)

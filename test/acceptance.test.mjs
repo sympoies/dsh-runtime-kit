@@ -23,9 +23,14 @@ const REVIEW_SHA = 'd'.repeat(64)
 const SEMANTIC_COMMIT_SHA = 'e'.repeat(64)
 const FORGE_CLI_SHA = 'f'.repeat(64)
 const PACKAGE_SHA = '9'.repeat(64)
+const SOURCE_COMMIT = '7'.repeat(40)
+const ARCHIVE_SHA = '8'.repeat(64)
+const PROVIDER_SKILL_SHA = '4'.repeat(64)
+const PROVIDER_HOOK_SHA = '5'.repeat(64)
+const PROVIDER_SESSION_SHA = '6'.repeat(64)
 
-function scenario(id, producer, evidence = [id + ':verified']) {
-  return { id, status: 'passed', producer, evidence }
+function scenario(id, producer, evidence = [id + ':verified'], extra = {}) {
+  return { id, status: 'passed', producer, evidence, ...extra }
 }
 
 function runtimeReceipt() {
@@ -41,7 +46,17 @@ function runtimeReceipt() {
         'skills:private-project-precedence',
         'coexistence:no-cross-loaded-hooks-skills-session-state',
         'coexistence:dsh-hook-docs-state-isolated',
-      ]),
+      ], {
+        isolation: {
+          schema_version: 'dsh-runtime-kit.runtime-isolation.v1',
+          provider_skill_loaded: false,
+          provider_hook_loaded: false,
+          provider_session_state_loaded: false,
+          provider_skill_fixture_sha256: PROVIDER_SKILL_SHA,
+          provider_hook_fixture_sha256: PROVIDER_HOOK_SHA,
+          provider_session_fixture_sha256: PROVIDER_SESSION_SHA,
+        },
+      }),
       scenario('resume', 'packed-runtime'),
       scenario('subagent', 'packed-runtime'),
       scenario('finish-line', 'packed-runtime'),
@@ -93,6 +108,11 @@ function nilsIdentity(
   return {
     version,
     source_revision: revision,
+    source_commit: SOURCE_COMMIT,
+    archive: {
+      name: `nils-cli-v${version}-x86_64-unknown-linux-gnu.tar.gz`,
+      sha256: ARCHIVE_SHA,
+    },
     artifacts: {
       'agent-hook': { sha256: HOOK_SHA },
       'agent-docs': { sha256: DOCS_SHA },
@@ -122,7 +142,12 @@ function releasedCompatibility(version = '1.26.4', minimum = '1.26.4') {
     validated_release: version,
     release: {
       source_revision: 'v' + version,
+      source_commit: SOURCE_COMMIT,
       platform: 'linux-x64',
+      archive: {
+        name: `nils-cli-v${version}-x86_64-unknown-linux-gnu.tar.gz`,
+        sha256: ARCHIVE_SHA,
+      },
       artifacts: {
         'agent-hook': { sha256: HOOK_SHA },
         'agent-docs': { sha256: DOCS_SHA },
@@ -263,6 +288,26 @@ test('hosted acceptance rejects ambient provider hook, docs, or state fallback',
   )
 })
 
+test('hosted acceptance binds structured provider isolation evidence', () => {
+  const input = baseInput()
+  const skills = input.runtime.scenarios.find(item => item.id === 'private-project-skill')
+  skills.isolation.provider_skill_loaded = true
+
+  assert.throws(
+    () => buildAcceptanceSummary(input),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
+
+  skills.isolation.provider_skill_loaded = false
+  skills.isolation.provider_session_fixture_sha256 = 'not-a-digest'
+  assert.throws(
+    () => buildAcceptanceSummary(input),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
+})
+
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
@@ -319,6 +364,27 @@ test('a newer exact release may retain an older supported minimum', () => {
     nils: nilsIdentity('v1.27.0-alpha.1', '1.27.0-alpha.1'),
     allow_source_nils: false,
   }))
+})
+
+test('release gate rejects source or archive substitution for the nils bundle', () => {
+  for (const mutate of [
+    nils => { nils.source_commit = '0'.repeat(40) },
+    nils => { nils.archive.name = 'substituted-bundle.tar.gz' },
+    nils => { nils.archive.sha256 = '0'.repeat(64) },
+  ]) {
+    const nils = nilsIdentity('v1.27.0', '1.27.0')
+    mutate(nils)
+    assert.throws(
+      () => buildAcceptanceSummary({
+        ...baseInput(),
+        compatibility: releasedCompatibility('1.27.0'),
+        nils,
+        allow_source_nils: false,
+      }),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
+    )
+  }
 })
 
 test('release gate rejects unknown revisions and version-only substitute binaries', () => {
@@ -441,9 +507,13 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
   assert.match(runner, /'semantic-commit-bin'/u)
   assert.match(runner, /'forge-cli-bin'/u)
+  assert.match(runner, /'nils-source-commit'/u)
+  assert.match(runner, /'nils-archive-name'/u)
+  assert.match(runner, /'nils-archive-sha256'/u)
   assert.match(runner, /KillMode=control-group/u)
   assert.match(runner, /verifyControlPlane/u)
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
+  assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
   assert.match(runner, /'run-id'/u)
   assert.match(runner, /'package-tarball'/u)
@@ -488,6 +558,9 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       '--review-specialists-bin', '/bin/true',
       '--semantic-commit-bin', '/bin/true',
       '--forge-cli-bin', '/bin/true',
+      '--nils-source-commit', SOURCE_COMMIT,
+      '--nils-archive-name', 'nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz',
+      '--nils-archive-sha256', ARCHIVE_SHA,
       '--pnpm-bin', '/bin/true',
       '--npm-bin', '/bin/true',
     ], { cwd: projectRoot, encoding: 'utf8' }),
@@ -508,6 +581,9 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       '--review-specialists-bin', '/bin/true',
       '--semantic-commit-bin', '/bin/true',
       '--forge-cli-bin', '/bin/true',
+      '--nils-source-commit', SOURCE_COMMIT,
+      '--nils-archive-name', 'nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz',
+      '--nils-archive-sha256', ARCHIVE_SHA,
       '--pnpm-bin', '/bin/true',
       '--npm-bin', '/bin/true',
       '--run-id', 'acceptance-external-123',

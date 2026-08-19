@@ -350,27 +350,41 @@ Production activation uses DSH's native `headless` profile. A new arbitrary
 profile name is not equivalent: DSH initializes unknown names with only
 `@deepseek-ai/dsh-base`, while `headless` composes both the base and headless
 agent bundles. Save the complete pre-activation `headless` profile and
-`$DSH_HOME/.env` as the rollback point before applying the reviewed package.
+owner-only DSH runtime root as the rollback point before applying the reviewed
+package.
 
 The package ships a compact DSH-only `agent-docs/` catalog and the
-`policy/dsh-runtime-kit-v1.toml` policy source. Activation copies both into an
-owner-only DSH runtime root; it must not point at a Codex or Claude Code runtime
-home. Copy the policy rather than hard-linking or using the pnpm-installed file:
-`agent-hook` requires the selected config and policy to be owner-only regular
-files with `nlink` equal to 1. Hash the copied policy, record that digest in a
-strict `agent-hook.config.v1` config, and create separate owner-only hook and
-agent-docs state directories.
+`policy/dsh-runtime-kit-v1.toml` policy source. The operations owner copies
+both into a content-addressed, immutable asset directory under an owner-only
+DSH runtime root; that root must not overlap a Codex or Claude Code runtime
+home. It creates a strict `agent-hook.config.v1` file that binds the copied
+policy digest, separate mutable hook and agent-docs state directories, and an
+owner-only `activation.json` provenance manifest. The copied files are regular
+files with `nlink` equal to 1; neither hard links nor pnpm-store links are part
+of the activation contract.
 
-Every live DSH launch must set these absolute paths, normally in the
-user-owned `$DSH_HOME/.env` layer read by DSH:
+Every setup, doctor, and live DSH launch uses the packaged owner launcher with
+one absolute owner-only runtime root:
 
-```dotenv
-DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG=/absolute/dsh-runtime/agent-hook/config.toml
-DSH_RUNTIME_KIT_AGENT_HOOK_POLICY=/absolute/dsh-runtime/agent-hook/policy.toml
-DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR=/absolute/dsh-runtime/agent-hook/state
-DSH_RUNTIME_KIT_AGENT_DOCS_HOME=/absolute/dsh-runtime/agent-docs
-DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME=/absolute/dsh-runtime/agent-docs-state
+```sh
+install -d -m 0700 /absolute/dsh-runtime
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- <command> [args...]
 ```
+
+The launcher verifies that the root is a real owner-only directory and exports
+`DSH_RUNTIME_KIT_RUNTIME_ROOT`. Before the first setup it supplies only the
+bounded bootstrap layout needed by the operations command. Once activated, it
+authenticates `activation.json`, every member digest, realpath containment, and
+asset/state disjointness before exporting the exact versioned hook and docs
+paths. It overrides ambient values for those five paths. DSH `0.1.0-rc.7`
+intentionally rejects every `DSH_*` bootstrap variable found in a project or
+Harness-home `.env`; do not store this activation contract in `$DSH_HOME/.env`.
+
+The five manifest-derived values are
+`DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG`, `DSH_RUNTIME_KIT_AGENT_HOOK_POLICY`,
+`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR`, `DSH_RUNTIME_KIT_AGENT_DOCS_HOME`, and
+`DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`. Operators do not populate them
+individually; the launcher replaces ambient values with authenticated paths.
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may also
 pin the released v1.27.0 executables. The runtime passes the config, policy, and
@@ -384,23 +398,29 @@ operations flow, then inspect and boot that same profile:
 
 ```sh
 # Preview and retain the returned plan_digest.
-dsh-runtime-kit setup --profile headless \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@<approved-version> --format json
 
 # Apply the unchanged reviewed plan.
-dsh-runtime-kit setup --profile headless \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@<approved-version> \
   --apply --expected-plan-digest <digest> --format json
 
-dsh --profile headless --dump-config
-dsh --profile headless "run the requested task"
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit doctor --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh --profile headless --dump-config
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh --profile headless "run the requested task"
 ```
 
 The optional private loader remains opt-in. No Codex or Claude Code private
 bundle is auto-enrolled. Leave `DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR` unset, point
 it at an empty owner-only DSH directory, or select an explicit DSH-only
 projection that satisfies the loader's no-symlink and permission checks.
-Rollback restores only the saved `headless` profile, DSH `.env`, and DSH runtime
+Rollback restores only the saved `headless` profile and DSH runtime
 root; Codex and Claude Code configuration, hooks, skills, and sessions remain
 unchanged throughout activation and rollback.
 
@@ -417,19 +437,25 @@ second unbound registry resolution.
 
 ```sh
 # Preview only; prints plan_digest.
-dsh-runtime-kit setup --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@1.0.0 --format json
 
 # Apply the unchanged reviewed plan.
-dsh-runtime-kit setup --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@1.0.0 \
   --apply --expected-plan-digest <digest> --format json
 
-dsh-runtime-kit update --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit update --profile headless \
   --package @sympoies/dsh-runtime-kit@1.1.0 --format json
-dsh-runtime-kit rollback --profile work --format json
-dsh-runtime-kit remove --profile work --format json
-dsh-runtime-kit doctor --profile work --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit rollback --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit remove --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit doctor --profile headless --format json
 ```
 
 `setup`, `update`, `rollback`, and `remove` all use preview then digest-bound
@@ -441,18 +467,23 @@ without stale-path reclamation. Replaying the same applied digest succeeds as
 `duplicate` only after those locks are acquired and the installed terminal
 state is revalidated. The receipt records the exact target, artifact digest,
 requested/dependency specs, installed version, installed package-tree digest,
-and bundle index, so source-byte, installed-byte, or unrelated-manifest drift
-invalidates the operation and rollback restores the recorded
-package/configuration pair.
+policy/catalog/document digests, DSH and pnpm executable identities, bounded
+profile control files, and bundle index. Apply revalidates all of those inputs
+before mutation and rejects collateral manifest or lockfile changes afterward.
+Source-byte, installed-byte, activation-asset, toolchain, or unrelated-profile
+drift invalidates the operation; rollback and interrupted-operation recovery
+restore the recorded package, profile, and activation-asset set together.
 An unmanaged existing installation is never adopted by version alone. A
 durably renamed pending receipt is written before native mutation. After
 interruption, `doctor --repair` previews the complete recovered receipt and may
 finalize or clear only an internally consistent attempt; every third state
 fails closed.
 
-Doctor also validates the released nils `agent-hook doctor --product dsh`
-contract: DSH dispatch is supported and registration ownership belongs to
-`dsh-runtime-kit`. Remove first asks native DSH to remove the package and bundle
+Doctor validates both released nils boundaries. `agent-hook doctor --product
+dsh` must report DSH dispatch support and registration ownership by
+`dsh-runtime-kit`; `agent-docs --version` must be v1.27.0, and the DSH-only
+catalog plus state roots must remain owner-only real paths. Remove first asks
+native DSH to remove the package and bundle
 row, then cleans only a fixed final package entry if pnpm retained it. The
 profile, state, package-parent, and cleanup paths reject symlinks or unsafe
 ownership before any recursive removal. Management subprocesses use resolved

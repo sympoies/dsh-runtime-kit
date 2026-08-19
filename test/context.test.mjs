@@ -193,7 +193,12 @@ test('the context client invokes one bounded atomic agent-docs command for the e
   assert.equal(spec.stdio.stdin, 'ignore')
   assert.deepEqual(spec.stdio.stdout, { maxBytes: 155_648 })
   assert.deepEqual(spec.stdio.stderr, { maxBytes: 8_192 })
-  assert.equal(spec.env, undefined)
+  assert.equal(
+    Object.entries(spec.env ?? {}).every(
+      ([name, value]) => name.startsWith('AGENT_SESSION_') && value === undefined,
+    ),
+    true,
+  )
 })
 
 test('the context client rejects ambient Codex or Claude agent-docs fallback', () => {

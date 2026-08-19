@@ -374,7 +374,19 @@ test('run sends no outcome and preserves exact command bytes and observed execut
       },
     },
   })
-  assert.deepEqual(subject.spawns[0].spec.env, environment)
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(subject.spawns[0].spec.env)
+        .filter(([, value]) => value !== undefined),
+    ),
+    environment,
+  )
+  assert.equal(
+    Object.entries(subject.spawns[0].spec.env)
+      .filter(([, value]) => value === undefined)
+      .every(([name]) => name.startsWith('AGENT_SESSION_')),
+    true,
+  )
   assert.equal('outcome' in subject.spawns[0].request, false)
   assert.deepEqual(result.execution, {
     exitCode: 17,
@@ -414,7 +426,12 @@ test('run probes an exact contract without execution metadata or child environme
     correlationId,
   })
   assert.equal('execution' in subject.spawns[0].request, false)
-  assert.equal('env' in subject.spawns[0].spec, false)
+  assert.equal('env' in subject.spawns[0].spec, true)
+  assert.equal(
+    Object.entries(subject.spawns[0].spec.env)
+      .every(([name, value]) => name.startsWith('AGENT_SESSION_') && value === undefined),
+    true,
+  )
 })
 
 test('ordinary foreground run is typed across probe and nils-observed execution', async () => {

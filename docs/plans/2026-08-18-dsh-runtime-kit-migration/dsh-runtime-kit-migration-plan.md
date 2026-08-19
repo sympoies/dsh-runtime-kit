@@ -489,11 +489,12 @@ are both proven.
 
 - **Location**: user-owned DSH configuration and machine-local runtime surfaces
 - **Description**: save an exact rollback point for the native `headless` profile,
-  install the approved package and released nils-cli, copy the DSH-only
-  hook policy and agent-docs catalog into owner-only roots, bind every
-  hook/docs config-policy-state path explicitly, optionally enable a separately
-  selected DSH private loader path, and verify from a fresh DSH process without
-  changing Codex or Claude Code wiring.
+  install the approved package and released nils-cli through the digest-reviewed
+  operations command, activate its content-addressed DSH-only hook policy and
+  agent-docs catalog through the owner launcher and authenticated activation
+  manifest, optionally enable a separately selected DSH private loader path,
+  and verify from a fresh DSH process without changing Codex or Claude Code
+  wiring.
 - **Dependencies**: Task 6.1
 - **Complexity**: 8
 - **Acceptance criteria**:
@@ -504,6 +505,10 @@ are both proven.
   - Every agent-hook dispatch, finish-line, and doctor call resolves the copied
     DSH config/policy/state, and agent-docs resolves the copied DSH catalog/state;
     ambient provider/XDG fallback is rejected.
+  - Preview and apply bind the runtime root, exact DSH/pnpm executable
+    identities, package and asset digests, and bounded profile/lockfile state;
+    activation switches only after the versioned assets and native package
+    mutation verify, and rollback/recovery restores a matched package/asset set.
   - No Codex/Claude private bundle is implicitly migrated; the DSH private root
     may remain absent or empty until an explicit DSH projection is selected.
   - Codex and Claude Code configuration and runtime sentinels are unchanged.

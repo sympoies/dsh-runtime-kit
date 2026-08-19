@@ -18,8 +18,10 @@ import { spawnSync } from 'node:child_process'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
+const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 assert.notEqual(process.env.DSH_SOURCE_ROOT, undefined, 'set DSH_SOURCE_ROOT')
 assert.notEqual(process.env.AGENT_HOOK_BIN, undefined, 'set AGENT_HOOK_BIN')
+assert.notEqual(process.env.AGENT_DOCS_BIN, undefined, 'set AGENT_DOCS_BIN')
 assert.notEqual(
   process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1,
   undefined,
@@ -40,8 +42,11 @@ const codexHome = join(userHome, '.codex')
 const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
+const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 mkdirSync(dshHome, { mode: 0o700 })
+mkdirSync(runtimeRoot, { mode: 0o700 })
 
 function stageProviderSentinel(root, provider) {
   for (const directory of ['hooks', 'skills', 'sessions']) {
@@ -72,9 +77,13 @@ const policy = readFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml
 const policyPath = join(temporaryRoot, 'policy.toml')
 const agentHookConfig = join(configHome, 'agent-hook', 'config.toml')
 const agentHookStateDir = join(stateHome, 'agent-hook-dsh')
+const agentDocsHome = join(temporaryRoot, 'agent-docs')
+const agentDocsStateHome = join(stateHome, 'agent-docs-dsh')
 const policyDigest = createHash('sha256').update(policy).digest('hex')
 mkdirSync(join(configHome, 'agent-hook'), { recursive: true })
 mkdirSync(stateHome, { recursive: true })
+mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
+mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
 writeFileSync(policyPath, policy, { mode: 0o600 })
 writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 
@@ -82,6 +91,13 @@ writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 path = ${JSON.stringify(policyPath)}
 digest = "sha256:${policyDigest}"
 `, { mode: 0o600 })
+for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
+  writeFileSync(
+    join(agentDocsHome, name),
+    readFileSync(join(projectRoot, 'agent-docs', name)),
+    { mode: 0o600 },
+  )
+}
 
 function stageUnrelatedBundle(name, version) {
   const dir = join(temporaryRoot, `${name.replace(/[^a-z]/gi, '-')}-${version}`)
@@ -129,7 +145,12 @@ function upstreamStatus() {
 }
 
 function operation(args) {
-  const result = run(process.execPath, [cli, ...args, '--format', 'json'], {
+  const result = run(process.execPath, [
+    launcher,
+    '--runtime-root', runtimeRoot,
+    '--',
+    process.execPath, cli, ...args, '--format', 'json',
+  ], {
     DSH_HOME: dshHome,
     CODEX_HOME: codexHome,
     CLAUDE_CONFIG_DIR: claudeHome,
@@ -138,6 +159,9 @@ function operation(args) {
     DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
     DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
     DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
+    DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+    DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
+    DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
     DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
     XDG_CONFIG_HOME: configHome,
     XDG_STATE_HOME: stateHome,
@@ -201,6 +225,9 @@ try {
   const doctor = operation(['doctor', '--profile', 'operations-smoke'])
   assert.equal(doctor.status, 'healthy')
   assert.equal(doctor.agent_hook.ok, true)
+  assert.equal(doctor.agent_docs.ok, true)
+  assert.equal(doctor.activation.status, 'activated')
+  assert.equal(doctor.agent_docs.catalog.startsWith(`${runtimeRoot}/assets/`), true)
   assert.match(doctor.dsh.version, /0\.1\.0-rc\.7/)
 
   apply(['update', '--profile', 'operations-smoke', '--package', packageV2])

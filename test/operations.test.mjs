@@ -35,6 +35,23 @@ function stageBundle(root, version) {
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   })
   writeFileSync(join(dir, 'cordis.patch.yml'), '[]\n')
+  mkdirSync(join(dir, 'policy'), { mode: 0o700 })
+  mkdirSync(join(dir, 'agent-docs'), { mode: 0o700 })
+  writeFileSync(
+    join(dir, 'policy', 'dsh-runtime-kit-v1.toml'),
+    `schema_version = "dsh.policy.v1"\n# asset ${version}\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(dir, 'agent-docs', 'AGENT_DOCS.toml'),
+    `schema_version = "agent-docs.catalog.v1"\n# asset ${version}\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(dir, 'agent-docs', 'PROJECT_DEV_EDIT.md'),
+    `# DSH project-dev ${version}\n`,
+    { mode: 0o600 },
+  )
   return dir
 }
 
@@ -48,7 +65,7 @@ function stageFakeCommands(root) {
   assert.ok(realNpm, 'test fixture could not resolve npm')
   const npm = join(commandDir, 'npm')
   writeFileSync(npm, `#!/usr/bin/env node
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -75,6 +92,11 @@ if (/^@sympoies\\/dsh-runtime-kit@/.test(spec)) {
     name: '@sympoies/dsh-runtime-kit',
     version,
   }) + '\\n')
+  mkdirSync(join(staged, 'policy'), { recursive: true })
+  mkdirSync(join(staged, 'agent-docs'), { recursive: true })
+  writeFileSync(join(staged, 'policy', 'dsh-runtime-kit-v1.toml'), 'schema_version = "dsh.policy.v1"\\n# registry ' + version + '\\n')
+  writeFileSync(join(staged, 'agent-docs', 'AGENT_DOCS.toml'), 'schema_version = "agent-docs.catalog.v1"\\n# registry ' + version + '\\n')
+  writeFileSync(join(staged, 'agent-docs', 'PROJECT_DEV_EDIT.md'), '# registry ' + version + '\\n')
   args[args.length - 1] = staged
 }
 const result = spawnSync(${JSON.stringify(realpathSync(realNpm))}, args, {
@@ -158,7 +180,15 @@ if (verb === 'add') {
 } else {
   process.exit(93)
 }
+if (existsSync(join(home, 'collateral-profile-mutation'))) {
+  writeFileSync(join(profileDir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\\nimporters:\\n  .: {}\\npackages:\\n  unrelated@1.0.0:\\n    resolution: {integrity: forged}\\nsnapshots:\\n  unrelated@1.0.0: {}\\n")
+}
 writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
+if (existsSync(join(home, 'block-asset-activation'))) {
+  const assets = join(dirname(home), 'dsh-runtime', 'assets')
+  rmSync(assets, { recursive: true, force: true })
+  writeFileSync(assets, 'activation blocked')
+}
 if (existsSync(join(home, 'leave-descendant-after-mutation'))) {
   const descendant = spawn(process.execPath, ['-e', ${JSON.stringify("setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'late'), 300)")}, join(home, 'late-normal-exit')], {
     stdio: 'ignore',
@@ -192,7 +222,13 @@ process.stdout.write(JSON.stringify({
 }) + '\\n')
 `)
   chmodSync(agentHook, 0o755)
-  return { commandDir, dsh, agentHook }
+  const agentDocs = join(root, 'fake-agent-docs.mjs')
+  writeFileSync(agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.0 (v1.27.0, test)\\n')
+`)
+  chmodSync(agentDocs, 0o755)
+  return { commandDir, dsh, agentHook, agentDocs }
 }
 
 function fixture() {
@@ -209,14 +245,24 @@ function fixture() {
   })
   writeFileSync(join(profileDir, 'cordis.patch.yml'), '# unrelated user config\n[]\n')
   const privateRoot = join(root, 'private-skills')
+  const runtimeRoot = join(root, 'dsh-runtime')
   mkdirSync(privateRoot)
+  mkdirSync(runtimeRoot, { mode: 0o700 })
   writeFileSync(join(privateRoot, 'must-survive.txt'), 'private')
   const commands = stageFakeCommands(root)
+  const agentDocsHome = join(root, 'agent-docs')
+  const agentDocsStateHome = join(root, 'agent-docs-state')
+  mkdirSync(agentDocsHome, { mode: 0o700 })
+  mkdirSync(agentDocsStateHome, { mode: 0o700 })
+  writeFileSync(join(agentDocsHome, 'AGENT_DOCS.toml'), '[[document]]\ncontext = "project-dev"\n', { mode: 0o600 })
   return {
     root,
     home,
     profileDir,
     privateRoot,
+    runtimeRoot,
+    agentDocsHome,
+    agentDocsStateHome,
     v1: stageBundle(root, '1.0.0'),
     v2: stageBundle(root, '2.0.0'),
     ...commands,
@@ -236,7 +282,11 @@ function run(subject, args, extraEnv = {}) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(subject.root, 'agent-hook', 'config.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(subject.root, 'agent-hook', 'policy.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(subject.root, 'agent-hook', 'state'),
+      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: subject.agentDocs,
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: subject.agentDocsHome,
+      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: subject.agentDocsStateHome,
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: subject.privateRoot,
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: subject.runtimeRoot,
       PATH: `${subject.commandDir}${delimiter}${process.env.PATH ?? ''}`,
       ...extraEnv,
     },
@@ -292,6 +342,141 @@ test('setup, update, rollback, and remove preserve unrelated profile and private
   }
 })
 
+test('operations bind toolchain and activate the exact versioned policy and docs asset set', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(setup.preview.plan.runtime_root, realpathSync(subject.runtimeRoot))
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.0-rc.7')
+    assert.equal(
+      setup.preview.plan.toolchain.dsh.source_revision,
+      '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
+    )
+    assert.match(setup.preview.plan.toolchain.dsh.executable_sha256, /^[a-f0-9]{64}$/)
+    assert.match(setup.preview.plan.toolchain.pnpm.executable_sha256, /^[a-f0-9]{64}$/)
+    assert.match(setup.preview.plan.toolchain.pnpm.version, /^\d+\.\d+\.\d+/)
+    assert.match(setup.preview.plan.target.assets.asset_set_sha256, /^[a-f0-9]{64}$/)
+
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const first = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(first.schema_version, 'dsh-runtime-kit.activation.v1')
+    assert.equal(first.profile, 'work')
+    assert.equal(first.package_version, '1.0.0')
+    assert.equal(first.asset_set_sha256, setup.preview.plan.target.assets.asset_set_sha256)
+    for (const relative of [
+      first.agent_hook.config,
+      first.agent_hook.policy,
+      first.agent_docs.home,
+      first.agent_hook.state,
+      first.agent_docs.state,
+    ]) {
+      assert.equal(resolve(subject.runtimeRoot, relative).startsWith(`${subject.runtimeRoot}/`), true)
+    }
+
+    const update = applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const second = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(second.package_version, '2.0.0')
+    assert.notEqual(second.asset_set_sha256, first.asset_set_sha256)
+    assert.equal(second.asset_set_sha256, update.preview.plan.target.assets.asset_set_sha256)
+
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    const rolledBack = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(rolledBack.package_version, '1.0.0')
+    assert.equal(rolledBack.asset_set_sha256, first.asset_set_sha256)
+
+    const activePolicy = join(subject.runtimeRoot, rolledBack.agent_hook.policy)
+    writeFileSync(activePolicy, `${readFileSync(activePolicy, 'utf8')}# tampered\n`)
+    const drifted = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(drifted.status, 65)
+    assert.equal(drifted.value.data.status, 'needs-attention')
+    assert.equal(drifted.value.data.activation.ok, false)
+    assert.match(drifted.value.data.activation.error, /digest|activation/u)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('apply rejects DSH or pnpm tool replacement after preview before profile mutation', () => {
+  const subject = fixture()
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const original = readFileSync(subject.dsh, 'utf8')
+    writeFileSync(subject.dsh, `${original}\n// toolchain replacement\n`)
+    chmodSync(subject.dsh, 0o755)
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor finalizes a package mutation interrupted before asset activation', () => {
+  const subject = fixture()
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    writeFileSync(join(subject.home, 'block-asset-activation'), '')
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.notEqual(interrupted.status, 0)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    unlinkSync(join(subject.home, 'block-asset-activation'))
+    rmSync(join(subject.runtimeRoot, 'assets'), { force: true })
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.recovery.action, 'finalize')
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const repaired = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(repaired.status, 0, repaired.stderr)
+    assert.equal(
+      JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
+      '1.0.0',
+    )
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('unexpected unrelated profile and lockfile mutations are restored and rejected', () => {
+  const subject = fixture()
+  try {
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    writeFileSync(lockfile, `lockfileVersion: '9.0'
+importers:
+  .: {}
+packages:
+  unrelated@1.0.0:
+    resolution: {integrity: preserved}
+snapshots:
+  unrelated@1.0.0: {}
+`)
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'), 'utf8')
+    const lockfileBefore = readFileSync(lockfile, 'utf8')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
+    assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), manifestBefore)
+    assert.equal(readFileSync(lockfile, 'utf8'), lockfileBefore)
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('doctor rejects missing DSH-only agent-hook isolation paths before execution', () => {
   const subject = fixture()
   try {
@@ -301,6 +486,37 @@ test('doctor rejects missing DSH-only agent-hook isolation paths before executio
     assert.equal(result.status, 65)
     assert.equal(result.value.error.code, 'agent-hook-isolation-invalid')
     assert.match(result.value.error.message, /agentHookConfig is required/)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor reports DSH-only agent-docs executable, catalog, and state health', () => {
+  const subject = fixture()
+  try {
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, healthy.stderr)
+    assert.equal(healthy.value.data.status, 'healthy')
+    assert.deepEqual(healthy.value.data.agent_docs, {
+      ok: true,
+      version: '1.27.0',
+      catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
+      state_home: subject.agentDocsStateHome,
+    })
+
+    const absent = run(subject, ['doctor', '--profile', 'work'], {
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: '',
+    })
+    assert.equal(absent.status, 65)
+    assert.equal(absent.value.data.status, 'needs-attention')
+    assert.equal(absent.value.data.agent_docs.ok, false)
+    assert.match(absent.value.data.agent_docs.error, /agentDocsHome is required/)
+
+    rmSync(join(subject.agentDocsHome, 'AGENT_DOCS.toml'))
+    const missingCatalog = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(missingCatalog.status, 65)
+    assert.equal(missingCatalog.value.data.agent_docs.ok, false)
+    assert.match(missingCatalog.value.data.agent_docs.error, /catalog/)
   } finally {
     subject.cleanup()
   }
@@ -535,7 +751,7 @@ test('duplicate apply rechecks terminal state while holding the profile lock', (
   }
 })
 
-test('digest-only duplicate replay needs neither the original source nor child executables', () => {
+test('digest-only duplicate replay needs no source but revalidates its bound toolchain', () => {
   const subject = fixture()
   try {
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
@@ -543,12 +759,19 @@ test('digest-only duplicate replay needs neither the original source nor child e
     const replay = run(subject, [
       'setup', '--profile', 'work',
       '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+    ])
+    assert.equal(replay.status, 0, `${replay.stdout}\n${replay.stderr}`)
+    assert.equal(replay.value.data.mode, 'duplicate')
+
+    const missingToolchain = run(subject, [
+      'setup', '--profile', 'work',
+      '--apply', '--expected-plan-digest', setup.preview.plan_digest,
     ], {
       PATH: subject.root,
       DSH_RUNTIME_KIT_DSH_BIN: join(subject.root, 'missing-dsh'),
     })
-    assert.equal(replay.status, 0, `${replay.stdout}\n${replay.stderr}`)
-    assert.equal(replay.value.data.mode, 'duplicate')
+    assert.equal(missingToolchain.status, 70)
+    assert.equal(missingToolchain.value.error.code, 'command-unavailable')
   } finally {
     subject.cleanup()
   }
@@ -879,21 +1102,30 @@ test('subprocesses receive a minimal environment and child stderr cannot echo se
   try {
     const hostile = join(subject.root, 'hostile-dsh.mjs')
     writeFileSync(hostile, `#!/usr/bin/env node
+if (process.argv[2] === '--version') {
+  process.stdout.write('0.1.0-rc.7\\n')
+  process.exit(0)
+}
 const sentinel = process.env.RUNTIME_KIT_SECRET_SENTINEL ?? '<absent>'
 const proxy = process.env.HTTPS_PROXY ?? '<absent>'
 process.stderr.write('sentinel=' + sentinel + ';proxy=' + proxy)
 process.exit(sentinel === '<absent>' && !proxy.includes('must-not-leak') ? 70 : 71)
 `)
     chmodSync(hostile, 0o755)
-    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    const rejected = run(subject, [
-      'setup', '--profile', 'work', '--package', subject.v1,
-      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
-    ], {
+    const environment = {
       DSH_RUNTIME_KIT_DSH_BIN: hostile,
       RUNTIME_KIT_SECRET_SENTINEL: 'must-not-leak',
       HTTPS_PROXY: 'http://must-not-leak:credential@example.invalid',
-    })
+    }
+    const preview = run(
+      subject,
+      ['setup', '--profile', 'work', '--package', subject.v1],
+      environment,
+    )
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], environment)
     assert.equal(rejected.status, 70)
     assert.equal(rejected.value.error.details.exit_code, 70)
     assert.equal(rejected.stdout.includes('must-not-leak'), false)

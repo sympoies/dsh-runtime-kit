@@ -20,27 +20,29 @@ const dshRuntime = Object.freeze({
   validateEscalationArgs,
 })
 
-test('policy subprocess restores only the managed session path identity', () => {
+test('policy subprocess never restores ambient provider session identity', () => {
   assert.deepEqual(
     selectManagedSessionEnvironment({
-      AGENT_SESSION_ID: 'managed-session',
-      AGENT_SESSION_RUNTIME_ID: 'runtime-1',
-      AGENT_SESSION_BIN: '/trusted/agent-session',
-      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
-      AGENT_SESSION_STATE_DIR: '/private/state',
+      AGENT_SESSION_ID: 'codex-provider-session',
+      AGENT_SESSION_RUNTIME_ID: 'claude-runtime-1',
+      AGENT_SESSION_BIN: '/provider/agent-session',
+      AGENT_SESSION_CAPABILITY_FILE: '/provider/capability',
+      AGENT_SESSION_STATE_DIR: '/provider/state',
       AGENT_SESSION_TOKEN: 'must-not-cross',
       AGENT_SESSION_CHECKPOINT_FILE: '/must/not/cross',
       UNRELATED_SECRET: 'must-not-cross',
     }),
     {
-      AGENT_SESSION_ID: 'managed-session',
-      AGENT_SESSION_RUNTIME_ID: 'runtime-1',
-      AGENT_SESSION_BIN: '/trusted/agent-session',
-      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
-      AGENT_SESSION_STATE_DIR: '/private/state',
+      AGENT_SESSION_ID: undefined,
+      AGENT_SESSION_RUNTIME_ID: undefined,
+      AGENT_SESSION_BIN: undefined,
+      AGENT_SESSION_CAPABILITY_FILE: undefined,
+      AGENT_SESSION_STATE_DIR: undefined,
+      AGENT_SESSION_TOKEN: undefined,
+      AGENT_SESSION_CHECKPOINT_FILE: undefined,
     },
   )
-  assert.equal(selectManagedSessionEnvironment({}), undefined)
+  assert.deepEqual(selectManagedSessionEnvironment({}), {})
 })
 
 function decision(action = 'allow', overrides = {}) {

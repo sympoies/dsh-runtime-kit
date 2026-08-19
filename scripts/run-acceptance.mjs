@@ -54,6 +54,9 @@ function parseCli() {
         'review-specialists-bin': { type: 'string' },
         'semantic-commit-bin': { type: 'string' },
         'forge-cli-bin': { type: 'string' },
+        'nils-source-commit': { type: 'string' },
+        'nils-archive-name': { type: 'string' },
+        'nils-archive-sha256': { type: 'string' },
         'pnpm-bin': { type: 'string' },
         'npm-bin': { type: 'string' },
         'git-bin': { type: 'string', default: DEFAULT_GIT },
@@ -94,11 +97,20 @@ function parseCli() {
   ].filter(value => value !== undefined)
   const hasPackageTarball = parsed.values['package-tarball'] !== undefined
   const hasPackageSha256 = parsed.values['package-sha256'] !== undefined
+  const nilsSourceCommit = parsed.values['nils-source-commit']
+  const nilsArchiveName = parsed.values['nils-archive-name']
+  const nilsArchiveSha256 = parsed.values['nils-archive-sha256']
   if (required.some(value => typeof value !== 'string')
     || paths.some(value => typeof value !== 'string' || !isAbsolute(value))
     || (parsed.values['run-id'] !== undefined
       && !RUN_ID.test(parsed.values['run-id']))
     || hasPackageTarball !== hasPackageSha256
+    || typeof nilsSourceCommit !== 'string'
+    || !/^[0-9a-f]{40,64}$/u.test(nilsSourceCommit)
+    || typeof nilsArchiveName !== 'string'
+    || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u.test(nilsArchiveName)
+    || typeof nilsArchiveSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/u.test(nilsArchiveSha256)
     || (hasPackageSha256
       && !/^[0-9a-f]{64}$/u.test(parsed.values['package-sha256']))) {
     throw new AcceptanceError(
@@ -114,6 +126,9 @@ function parseCli() {
     reviewSpecialistsBin: resolve(required[4]),
     semanticCommitBin: resolve(required[5]),
     forgeCliBin: resolve(required[6]),
+    nilsSourceCommit,
+    nilsArchiveName,
+    nilsArchiveSha256,
     pnpmBin: resolve(required[7]),
     npmBin: resolve(required[8]),
     gitBin: resolve(required[9]),
@@ -436,9 +451,45 @@ async function prepareOperationsLeg(root, artifact, tarballSha256, tools, env) {
     })
     operationPackages[key] = destination
   }
+  await installPackageDependencies(
+    project,
+    artifact.packageLock,
+    tools.npm,
+    env,
+    'operations acceptance dependency installation',
+  )
   return Object.freeze({
     project,
     operationPackages: Object.freeze(operationPackages),
+  })
+}
+
+/**
+ * @param {string} project
+ * @param {Buffer} packageLock
+ * @param {{path:string,sha256:string}} npm
+ * @param {Record<string,string>} env
+ * @param {string} label
+ */
+async function installPackageDependencies(project, packageLock, npm, env, label) {
+  await writeFile(resolve(project, 'package-lock.json'), packageLock, {
+    mode: 0o600,
+    flag: 'wx',
+  })
+  const npmCache = resolve(process.env.HOME ?? '/', '.npm')
+  runChecked(npm.path, [
+    'ci',
+    '--ignore-scripts',
+    '--omit=dev',
+    '--omit=peer',
+    '--prefer-offline',
+    '--no-audit',
+    '--no-fund',
+    '--cache', npmCache,
+  ], {
+    cwd: project,
+    env: { ...env, NPM_CONFIG_OFFLINE: 'false' },
+    label,
   })
 }
 
@@ -460,25 +511,13 @@ async function prepareRuntimeLeg(root, artifact, tarballSha256, tools, env) {
     env,
     label: 'runtime leg',
   })
-  await writeFile(resolve(project, 'package-lock.json'), artifact.packageLock, {
-    mode: 0o600,
-    flag: 'wx',
-  })
-  const npmCache = resolve(process.env.HOME ?? '/', '.npm')
-  runChecked(tools.npm.path, [
-    'ci',
-    '--ignore-scripts',
-    '--omit=dev',
-    '--omit=peer',
-    '--prefer-offline',
-    '--no-audit',
-    '--no-fund',
-    '--cache', npmCache,
-  ], {
-    cwd: project,
-    env: { ...env, NPM_CONFIG_OFFLINE: 'false' },
-    label: 'runtime-kit acceptance dependency installation',
-  })
+  await installPackageDependencies(
+    project,
+    artifact.packageLock,
+    tools.npm,
+    env,
+    'runtime-kit acceptance dependency installation',
+  )
   return project
 }
 
@@ -802,6 +841,11 @@ async function main() {
       nils: {
         version: hookIdentity.version,
         source_revision: hookIdentity.source_revision,
+        source_commit: input.nilsSourceCommit,
+        archive: {
+          name: input.nilsArchiveName,
+          sha256: input.nilsArchiveSha256,
+        },
         artifacts: {
           'agent-hook': { sha256: hookIdentity.sha256 },
           'agent-docs': { sha256: docsIdentity.sha256 },

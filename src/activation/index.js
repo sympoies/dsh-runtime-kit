@@ -1,0 +1,181 @@
+// @ts-check
+
+import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+
+const DIGEST = /^[a-f0-9]{64}$/
+
+/** @param {string | Buffer} value */
+export function activationSha256(value) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+/** @param {string} parent @param {string} child */
+function within(parent, child) {
+  const fragment = relative(parent, child)
+  return fragment === '' || (!fragment.startsWith(`..${sep}`) && fragment !== '..' && !isAbsolute(fragment))
+}
+
+/** @param {string} left @param {string} right */
+function overlaps(left, right) {
+  return within(left, right) || within(right, left)
+}
+
+/** @param {string} path */
+function canonicalMaybe(path) {
+  try { return realpathSync(path) } catch { return resolve(path) }
+}
+
+/** @param {string} path @param {'directory' | 'file'} kind @param {boolean} [privateOnly] */
+function owned(path, kind, privateOnly = true) {
+  const stat = lstatSync(path)
+  if (stat.isSymbolicLink() || (kind === 'directory' ? !stat.isDirectory() : !stat.isFile())) {
+    throw new TypeError(`${path} must be a real ${kind}`)
+  }
+  if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+    throw new TypeError(`${path} must be owned by the current user`)
+  }
+  if ((stat.mode & (privateOnly ? 0o077 : 0o022)) !== 0) {
+    throw new TypeError(`${path} must be an owner-only ${kind}`)
+  }
+  if (kind === 'file' && stat.nlink !== 1) {
+    throw new TypeError(`${path} must have exactly one link`)
+  }
+  return stat
+}
+
+/**
+ * @param {unknown} value
+ * @param {NodeJS.ProcessEnv} [environment]
+ */
+export function resolveActivationRoot(value, environment = process.env) {
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || !isAbsolute(value)) {
+    throw new TypeError('runtime root is required and must be an absolute path')
+  }
+  try {
+    owned(value, 'directory')
+  } catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error).code === 'ENOENT') {
+      throw new TypeError('runtime root must be a real directory')
+    }
+    throw error
+  }
+  const root = realpathSync(value)
+  const providerCandidates = [
+    environment.CODEX_HOME,
+    environment.CLAUDE_CONFIG_DIR,
+    join(environment.HOME ?? homedir(), '.codex'),
+    join(environment.HOME ?? homedir(), '.claude'),
+  ]
+  const providerHomes = new Set(providerCandidates.flatMap(path => (
+    typeof path === 'string' && path.length > 0 ? [canonicalMaybe(path)] : []
+  )))
+  for (const providerHome of providerHomes) {
+    if (overlaps(root, providerHome)) {
+      throw new TypeError('runtime root must be disjoint from Codex and Claude runtime homes')
+    }
+  }
+  return root
+}
+
+/** @param {unknown} value */
+function record(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? /** @type {Record<string, any>} */ (value)
+    : undefined
+}
+
+/** @param {string} root @param {string} relativePath @param {'directory'|'file'} kind */
+function activationPath(root, relativePath, kind) {
+  if (relativePath.includes('\0') || isAbsolute(relativePath)) {
+    throw new TypeError('activation paths must be relative')
+  }
+  const path = join(root, relativePath)
+  owned(path, kind)
+  const exact = realpathSync(path)
+  if (!within(root, exact)) throw new TypeError('activation path escapes the runtime root')
+  return exact
+}
+
+/** @param {string} path @param {string} expected @param {string} label */
+function verifyDigest(path, expected, label) {
+  if (!DIGEST.test(expected) || activationSha256(readFileSync(path)) !== expected) {
+    throw new TypeError(`${label} digest does not match activation provenance`)
+  }
+}
+
+/** @param {string} root */
+export function readActivation(root) {
+  const activationPathname = join(root, 'activation.json')
+  owned(activationPathname, 'file')
+  let value
+  try { value = JSON.parse(readFileSync(activationPathname, 'utf8')) } catch {
+    throw new TypeError('activation manifest must be valid JSON')
+  }
+  const activation = record(value)
+  const hook = record(activation?.agent_hook)
+  const docs = record(activation?.agent_docs)
+  const assets = record(activation?.assets)
+  if (activation?.schema_version !== 'dsh-runtime-kit.activation.v1'
+    || typeof activation.profile !== 'string'
+    || typeof activation.package_version !== 'string'
+    || !DIGEST.test(activation.package_artifact_sha256)
+    || !DIGEST.test(activation.package_installed_sha256)
+    || !DIGEST.test(activation.asset_set_sha256)
+    || hook === undefined || docs === undefined || assets === undefined
+    || typeof hook.config !== 'string' || typeof hook.policy !== 'string'
+    || hook.state !== 'state/agent-hook'
+    || typeof docs.home !== 'string' || docs.state !== 'state/agent-docs'
+    || !DIGEST.test(assets.policy_sha256)
+    || !DIGEST.test(assets.catalog_sha256)
+    || !DIGEST.test(assets.document_sha256)) {
+    throw new TypeError('activation manifest has an incompatible contract')
+  }
+  const assetRoot = `assets/${activation.asset_set_sha256}`
+  if (hook.config !== `${assetRoot}/agent-hook/config.toml`
+    || hook.policy !== `${assetRoot}/agent-hook/policy.toml`
+    || docs.home !== `${assetRoot}/agent-docs`) {
+    throw new TypeError('activation manifest paths do not match its versioned asset set')
+  }
+  const config = activationPath(root, hook.config, 'file')
+  const policy = activationPath(root, hook.policy, 'file')
+  const hookState = activationPath(root, hook.state, 'directory')
+  const docsHome = activationPath(root, docs.home, 'directory')
+  const docsState = activationPath(root, docs.state, 'directory')
+  const catalog = activationPath(root, `${docs.home}/AGENT_DOCS.toml`, 'file')
+  const document = activationPath(root, `${docs.home}/PROJECT_DEV_EDIT.md`, 'file')
+  if (overlaps(realpathSync(join(root, assetRoot)), hookState)
+    || overlaps(realpathSync(join(root, assetRoot)), docsState)
+    || overlaps(hookState, docsState)) {
+    throw new TypeError('activation assets and mutable state roots must be disjoint')
+  }
+  verifyDigest(policy, assets.policy_sha256, 'policy')
+  verifyDigest(catalog, assets.catalog_sha256, 'agent-docs catalog')
+  verifyDigest(document, assets.document_sha256, 'agent-docs document')
+  const expectedSet = activationSha256(JSON.stringify({
+    catalog_sha256: assets.catalog_sha256,
+    document_sha256: assets.document_sha256,
+    policy_sha256: assets.policy_sha256,
+  }))
+  if (expectedSet !== activation.asset_set_sha256) {
+    throw new TypeError('activation asset-set digest does not match its members')
+  }
+  const configText = readFileSync(config, 'utf8')
+  if (!configText.includes(`path = ${JSON.stringify(policy)}`)
+    || !configText.includes(`digest = "sha256:${assets.policy_sha256}"`)) {
+    throw new TypeError('agent-hook config does not bind the activated policy')
+  }
+  return {
+    manifest: activation,
+    environment: {
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: root,
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: config,
+      DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policy,
+      DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: hookState,
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: docsHome,
+      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: docsState,
+    },
+  }
+}

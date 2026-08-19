@@ -26,9 +26,15 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { parse as parseYaml } from 'yaml'
 
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
-import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import {
+  activationSha256,
+  readActivation,
+  resolveActivationRoot,
+} from '../activation/index.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
 const STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v1'
@@ -42,6 +48,8 @@ const MAX_INSTALLED_PACKAGE_FILES = 16_384
 const MAX_INSTALLED_PACKAGE_BYTES = 256 * 1024 * 1024
 const MAX_ARTIFACT_COUNT = 64
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
+const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
+const DSH_SOURCE_REVISION = '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca'
 const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
@@ -200,6 +208,7 @@ function resolveHome() {
 function pathsFor(home, profile) {
   return {
     home,
+    profile,
     profileDir: join(home, 'profiles', profile),
     manifest: join(home, 'profiles', profile, 'package.json'),
     installedPackage: join(home, 'profiles', profile, 'node_modules', '@sympoies', 'dsh-runtime-kit'),
@@ -297,6 +306,56 @@ function installedPackageDigest(paths) {
   return packageTreeDigest(paths.installedPackage, paths.profileDir)
 }
 
+/** @param {string} packageRoot */
+function packageAssets(packageRoot) {
+  const paths = {
+    policy: join(packageRoot, 'policy', 'dsh-runtime-kit-v1.toml'),
+    catalog: join(packageRoot, 'agent-docs', 'AGENT_DOCS.toml'),
+    document: join(packageRoot, 'agent-docs', 'PROJECT_DEV_EDIT.md'),
+  }
+  const bytes = /** @type {Record<string, Buffer>} */ ({})
+  let total = 0
+  for (const [name, path] of Object.entries(paths)) {
+    const stat = lstatMaybe(path)
+    if (stat === null || stat.isSymbolicLink() || !stat.isFile()) {
+      throw new OperationsError('invalid-package-spec', `package activation asset ${name} must be a regular file`)
+    }
+    total += stat.size
+    if (total > MAX_ACTIVATION_ASSET_BYTES) {
+      throw new OperationsError('invalid-package-spec', 'package activation assets exceed the byte limit')
+    }
+    bytes[name] = readFileSync(path)
+  }
+  const assets = {
+    catalog_sha256: sha256(bytes.catalog),
+    document_sha256: sha256(bytes.document),
+    policy_sha256: sha256(bytes.policy),
+  }
+  return {
+    ...assets,
+    asset_set_sha256: activationSha256(JSON.stringify(assets)),
+  }
+}
+
+/** @param {unknown} value */
+function validateAssets(value) {
+  if (!plainRecord(value)
+    || Object.keys(value).sort().join(',') !== 'asset_set_sha256,catalog_sha256,document_sha256,policy_sha256'
+    || !['asset_set_sha256', 'catalog_sha256', 'document_sha256', 'policy_sha256']
+      .every(key => typeof value[key] === 'string' && DIGEST_PATTERN.test(value[key]))) {
+    throw new OperationsError('invalid-operations-state', 'package target has invalid activation assets')
+  }
+  const expected = activationSha256(JSON.stringify({
+    catalog_sha256: value.catalog_sha256,
+    document_sha256: value.document_sha256,
+    policy_sha256: value.policy_sha256,
+  }))
+  if (expected !== value.asset_set_sha256) {
+    throw new OperationsError('invalid-operations-state', 'package target activation asset digest is inconsistent')
+  }
+  return /** @type {{asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string}} */ (value)
+}
+
 /** @param {ReturnType<typeof pathsFor>} paths */
 function readActual(paths) {
   assertProfileTree(paths)
@@ -364,6 +423,192 @@ function publicActual(actual) {
   }
 }
 
+const PROFILE_SNAPSHOT_FILES = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'pnpm-workspace.yml']
+
+/** @param {ReturnType<typeof pathsFor>} paths */
+function captureProfileSnapshot(paths) {
+  let total = 0
+  const files = PROFILE_SNAPSHOT_FILES.map(name => {
+    const path = join(paths.profileDir, name)
+    const stat = lstatMaybe(path)
+    if (stat === null) return { name, present: false, content: null, mode: null }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new OperationsError('unsafe-profile-tree', `${name} must be a regular profile file`)
+    }
+    total += stat.size
+    if (total > 16 * 1024 * 1024) {
+      throw new OperationsError('profile-snapshot-limit', 'profile control files exceed the snapshot byte limit')
+    }
+    return { name, present: true, content: readFileSync(path, 'utf8'), mode: stat.mode & 0o777 }
+  })
+  return { files, digest: sha256(stableJson(files)) }
+}
+
+/** @param {unknown} value */
+function validateProfileSnapshot(value) {
+  if (!plainRecord(value) || typeof value.digest !== 'string' || !DIGEST_PATTERN.test(value.digest)
+    || !Array.isArray(value.files) || value.files.length !== PROFILE_SNAPSHOT_FILES.length) {
+    throw new OperationsError('invalid-operations-state', 'pending profile snapshot is invalid')
+  }
+  const names = value.files.map(file => plainRecord(file) ? file.name : undefined)
+  if (stableJson(names) !== stableJson(PROFILE_SNAPSHOT_FILES)) {
+    throw new OperationsError('invalid-operations-state', 'pending profile snapshot inventory is invalid')
+  }
+  let total = 0
+  for (const file of value.files) {
+    if (!plainRecord(file) || typeof file.name !== 'string' || typeof file.present !== 'boolean'
+      || (file.present
+        ? (typeof file.content !== 'string' || !Number.isSafeInteger(file.mode))
+        : !(file.content === null && file.mode === null))) {
+      throw new OperationsError('invalid-operations-state', 'pending profile snapshot file is invalid')
+    }
+    if (file.present) total += Buffer.byteLength(/** @type {string} */ (file.content))
+  }
+  if (total > 16 * 1024 * 1024 || sha256(stableJson(value.files)) !== value.digest) {
+    throw new OperationsError('invalid-operations-state', 'pending profile snapshot digest is invalid')
+  }
+  return /** @type {ReturnType<typeof captureProfileSnapshot>} */ (value)
+}
+
+/** @param {ReturnType<typeof captureProfileSnapshot>} snapshot @param {ReturnType<typeof pathsFor>} paths */
+function restoreProfileSnapshot(snapshot, paths) {
+  for (const file of snapshot.files) {
+    const path = join(paths.profileDir, file.name)
+    if (!file.present) {
+      if (lstatMaybe(path) !== null) {
+        assertOwnedPath(path, 'file')
+        unlinkSync(path)
+      }
+      continue
+    }
+    writeFileSync(path, /** @type {string} */ (file.content), {
+      mode: /** @type {number} */ (file.mode),
+    })
+    chmodSync(path, /** @type {number} */ (file.mode))
+  }
+  fsyncDirectory(paths.profileDir)
+}
+
+/** @param {string} raw */
+function unownedManifest(raw) {
+  const manifest = JSON.parse(raw)
+  if (plainRecord(manifest.dependencies)) delete manifest.dependencies[PACKAGE_NAME]
+  if (plainRecord(manifest.dsh) && plainRecord(manifest.dsh.profile)
+    && Array.isArray(manifest.dsh.profile.bundles)) {
+    manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
+      /** @param {unknown} value */ value => value !== PACKAGE_NAME,
+    )
+  }
+  return manifest
+}
+
+/** @param {Record<string, unknown>} lock */
+function lockInventory(lock) {
+  return new Set(['packages', 'snapshots'].flatMap(section => (
+    plainRecord(lock[section]) ? Object.keys(lock[section]) : []
+  )))
+}
+
+/** @param {Record<string, unknown>} lock @param {Set<string>} inventory */
+function runtimeKitLockClosure(lock, inventory) {
+  const roots = new Set([...inventory].filter(key => key.startsWith(`${PACKAGE_NAME}@`)))
+  const closure = new Set(roots)
+  const snapshots = plainRecord(lock.snapshots) ? lock.snapshots : {}
+  const queue = [...roots]
+  while (queue.length > 0) {
+    const key = /** @type {string} */ (queue.shift())
+    const snapshot = snapshots[key]
+    if (!plainRecord(snapshot)) continue
+    for (const field of ['dependencies', 'optionalDependencies']) {
+      const dependencies = snapshot[field]
+      if (!plainRecord(dependencies)) continue
+      for (const [name, resolution] of Object.entries(dependencies)) {
+        const version = typeof resolution === 'string'
+          ? resolution
+          : plainRecord(resolution) && typeof resolution.version === 'string'
+            ? resolution.version
+            : undefined
+        if (version === undefined) continue
+        const prefix = `${name}@${version}`
+        for (const candidate of inventory) {
+          if ((candidate === prefix || candidate.startsWith(`${prefix}(`))
+            && !closure.has(candidate)) {
+            closure.add(candidate)
+            queue.push(candidate)
+          }
+        }
+      }
+    }
+  }
+  return { roots, closure }
+}
+
+/** @param {Record<string, unknown>} lock @param {Set<string>} removed */
+function unownedLock(lock, removed) {
+  const projected = structuredClone(lock)
+  if (plainRecord(projected.importers)) {
+    for (const details of Object.values(projected.importers)) {
+      if (!plainRecord(details)) continue
+      for (const field of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+        if (!plainRecord(details[field])) continue
+        delete details[field][PACKAGE_NAME]
+        if (Object.keys(details[field]).length === 0) delete details[field]
+      }
+    }
+  }
+  for (const section of ['packages', 'snapshots']) {
+    if (!plainRecord(projected[section])) continue
+    for (const key of removed) delete projected[section][key]
+    if (Object.keys(projected[section]).length === 0) delete projected[section]
+  }
+  return projected
+}
+
+/** @param {string | null} leftRaw @param {string | null} rightRaw */
+function lockProjections(leftRaw, rightRaw) {
+  if (leftRaw === null || rightRaw === null) return [leftRaw, rightRaw]
+  const left = parseYaml(leftRaw)
+  const right = parseYaml(rightRaw)
+  if (!plainRecord(left) || !plainRecord(right)) return [left, right]
+  const leftInventory = lockInventory(left)
+  const rightInventory = lockInventory(right)
+  const leftClosure = runtimeKitLockClosure(left, leftInventory)
+  const rightClosure = runtimeKitLockClosure(right, rightInventory)
+  const leftRemoved = new Set([
+    ...leftClosure.roots,
+    ...[...leftClosure.closure].filter(key => !rightInventory.has(key)),
+  ])
+  const rightRemoved = new Set([
+    ...rightClosure.roots,
+    ...[...rightClosure.closure].filter(key => !leftInventory.has(key)),
+  ])
+  return [unownedLock(left, leftRemoved), unownedLock(right, rightRemoved)]
+}
+
+/** @param {ReturnType<typeof captureProfileSnapshot>} before @param {ReturnType<typeof captureProfileSnapshot>} after */
+function profileHasCollateralMutation(before, after) {
+  const beforeMap = new Map(before.files.map(file => [file.name, file]))
+  const afterMap = new Map(after.files.map(file => [file.name, file]))
+  const beforeManifest = beforeMap.get('package.json')
+  const afterManifest = afterMap.get('package.json')
+  if (!beforeManifest?.present || !afterManifest?.present
+    || stableJson(unownedManifest(/** @type {string} */ (beforeManifest.content)))
+      !== stableJson(unownedManifest(/** @type {string} */ (afterManifest.content)))) return true
+  for (const name of PROFILE_SNAPSHOT_FILES.slice(1)) {
+    const left = beforeMap.get(name)
+    const right = afterMap.get(name)
+    const leftRaw = left?.present ? /** @type {string} */ (left.content) : null
+    const rightRaw = right?.present ? /** @type {string} */ (right.content) : null
+    try {
+      const [leftProjection, rightProjection] = lockProjections(leftRaw, rightRaw)
+      if (stableJson(leftProjection) !== stableJson(rightProjection)) return true
+    } catch {
+      return true
+    }
+  }
+  return false
+}
+
 /** @param {ReturnType<typeof readActual>} actual */
 function actualAbsent(actual) {
   return actual.dependency_spec === null && actual.bundle_indexes.length === 0
@@ -391,7 +636,7 @@ function validateTarget(value) {
   }
   if (value.kind === 'registry') {
     if (Object.keys(value).some(key => ![
-      'kind', 'requested_spec', 'expected_version', 'artifact_sha256', 'installed_sha256',
+      'kind', 'requested_spec', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets',
     ].includes(key))
       || value.requested_spec !== `${PACKAGE_NAME}@${value.expected_version}`
       || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
@@ -399,13 +644,14 @@ function validateTarget(value) {
       throw new OperationsError('invalid-operations-state', 'operations state contains an invalid registry target')
     }
   } else if (Object.keys(value).some(key => ![
-    'kind', 'requested_spec', 'source_path', 'expected_version', 'artifact_sha256', 'installed_sha256',
+    'kind', 'requested_spec', 'source_path', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets',
   ].includes(key)) || typeof value.source_path !== 'string' || !isAbsolute(value.source_path)
     || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
     || typeof value.installed_sha256 !== 'string' || !DIGEST_PATTERN.test(value.installed_sha256)) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid local package target')
   }
-  return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string}} */ (value)
+  validateAssets(value.assets)
+  return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}} */ (value)
 }
 
 /** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target */
@@ -435,8 +681,8 @@ function targetMatchesActual(actual, target, paths) {
   }
 }
 
-/** @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof validateTarget>} target @param {ReturnType<typeof pathsFor>} paths */
-function snapshot(actual, target, paths) {
+/** @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof validateTarget>} target @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot @param {string} profile */
+function expectedSnapshot(actual, target, paths, runtimeRoot, profile) {
   assertActualInstall(actual)
   if (!targetMatchesActual(actual, target, paths)) {
     throw new OperationsError('native-dsh-verification-failed', 'installed runtime-kit target does not match the reviewed package identity')
@@ -447,8 +693,20 @@ function snapshot(actual, target, paths) {
     installed_version: actual.installed_version,
     installed_digest: actual.installed_digest,
     bundle_index: actual.bundle_indexes[0],
+    runtime_root: runtimeRoot,
+    activation_digest: sha256(`${JSON.stringify(activationManifest(target, profile), undefined, 2)}\n`),
     target,
   }
+}
+
+/** @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof validateTarget>} target @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot @param {string} profile */
+function snapshot(actual, target, paths, runtimeRoot, profile) {
+  const expected = expectedSnapshot(actual, target, paths, runtimeRoot, profile)
+  if (!activationMatches(target, runtimeRoot, profile)
+    || sha256(readFileSync(join(runtimeRoot, 'activation.json'))) !== expected.activation_digest) {
+    throw new OperationsError('activation-drift', 'active policy and docs do not match the installed package')
+  }
+  return expected
 }
 
 /** @param {unknown} value */
@@ -457,8 +715,11 @@ function validateSnapshot(value) {
     || typeof value.dependency_spec !== 'string' || typeof value.installed_version !== 'string'
     || typeof value.installed_digest !== 'string' || !DIGEST_PATTERN.test(value.installed_digest)
     || !Number.isSafeInteger(value.bundle_index) || /** @type {number} */ (value.bundle_index) < 0
+    || typeof value.runtime_root !== 'string' || !isAbsolute(value.runtime_root)
+    || typeof value.activation_digest !== 'string' || !DIGEST_PATTERN.test(value.activation_digest)
     || Object.keys(value).some(key => ![
-      'requested_spec', 'dependency_spec', 'installed_version', 'installed_digest', 'bundle_index', 'target',
+      'requested_spec', 'dependency_spec', 'installed_version', 'installed_digest', 'bundle_index',
+      'runtime_root', 'activation_digest', 'target',
     ].includes(key))) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid install snapshot')
   }
@@ -466,7 +727,7 @@ function validateSnapshot(value) {
   if (value.requested_spec !== target.requested_spec || value.installed_version !== target.expected_version) {
     throw new OperationsError('invalid-operations-state', 'install snapshot does not match its package target')
   }
-  return /** @type {{requested_spec: string, dependency_spec: string, installed_version: string, installed_digest: string, bundle_index: number, target: ReturnType<typeof validateTarget>}} */ (value)
+  return /** @type {{requested_spec: string, dependency_spec: string, installed_version: string, installed_digest: string, bundle_index: number, runtime_root: string, activation_digest: string, target: ReturnType<typeof validateTarget>}} */ (value)
 }
 
 /** @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof validateSnapshot>} expected @param {ReturnType<typeof pathsFor>} paths */
@@ -478,6 +739,8 @@ function snapshotMatches(actual, expected, paths) {
     && actual.bundle_indexes.length === 1
     && actual.bundle_indexes[0] === expected.bundle_index
     && targetMatchesActual(actual, expected.target, paths)
+    && activationMatches(expected.target, expected.runtime_root, paths.profile)
+    && sha256(readFileSync(join(expected.runtime_root, 'activation.json'))) === expected.activation_digest
 }
 
 /** @param {string} path @param {string} expectedProfile */
@@ -549,12 +812,15 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
     if (unpacked.status !== 0) {
       throw new OperationsError('invalid-package-spec', 'packed local package could not be inspected', 65, commandFailure(unpacked))
     }
-    const installedSha256 = packageTreeDigest(join(extracted, 'package'), extracted)
+    const extractedPackage = join(extracted, 'package')
+    const installedSha256 = packageTreeDigest(extractedPackage, extracted)
+    const assets = packageAssets(extractedPackage)
     return {
       temporary,
       archive_path: archivePath,
       artifact_sha256: sha256(archive),
       installed_sha256: installedSha256,
+      assets,
       version: output[0].version,
     }
   } catch (error) {
@@ -621,6 +887,7 @@ function resolveTarget(input, npmBin, home, retainPacked = false) {
         expected_version: manifest.version,
         artifact_sha256: packed.artifact_sha256,
         installed_sha256: packed.installed_sha256,
+        assets: packed.assets,
       }, packed, retainPacked)
   }
   const registry = /^@sympoies\/dsh-runtime-kit@(.+)$/.exec(input)
@@ -638,6 +905,7 @@ function resolveTarget(input, npmBin, home, retainPacked = false) {
       expected_version: registry[1],
       artifact_sha256: packed.artifact_sha256,
       installed_sha256: packed.installed_sha256,
+      assets: packed.assets,
     }, packed, retainPacked)
 }
 
@@ -723,7 +991,8 @@ function installSpecForTarget(target, paths, npmBin) {
   const packed = retainedPacked ?? packPackageSpec(packageSpec, cwd, npmBin, paths.home)
   try {
     if (packed.version !== target.expected_version || packed.artifact_sha256 !== target.artifact_sha256
-      || packed.installed_sha256 !== target.installed_sha256) {
+      || packed.installed_sha256 !== target.installed_sha256
+      || stableJson(packed.assets) !== stableJson(target.assets)) {
       throw new OperationsError('plan-drift', 'local package content changed after preview')
     }
     const inventory = reconcileArtifacts(paths)
@@ -754,8 +1023,17 @@ function installSpecForTarget(target, paths, npmBin) {
   }
 }
 
-/** @param {string} operation @param {string} profile @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof readState>} stateRead @param {ReturnType<typeof resolveTarget> | null} target @param {string} action */
-function planFor(operation, profile, actual, stateRead, target, action) {
+/**
+ * @param {string} operation
+ * @param {string} profile
+ * @param {ReturnType<typeof readActual>} actual
+ * @param {ReturnType<typeof readState>} stateRead
+ * @param {ReturnType<typeof resolveTarget> | null} target
+ * @param {string} action
+ * @param {string} runtimeRoot
+ * @param {ReturnType<typeof resolveToolchain>} toolchain
+ */
+function planFor(operation, profile, actual, stateRead, target, action, runtimeRoot, toolchain) {
   const plan = {
     schema_version: PLAN_SCHEMA,
     operation,
@@ -763,6 +1041,8 @@ function planFor(operation, profile, actual, stateRead, target, action) {
     package_name: PACKAGE_NAME,
     action,
     target,
+    runtime_root: runtimeRoot,
+    toolchain,
     observed: {
       profile_exists: actual.profile_exists,
       dependency_spec_digest: actual.dependency_spec === null ? null : sha256(actual.dependency_spec),
@@ -782,8 +1062,10 @@ function validatePlan(value, profile) {
   if (!plainRecord(value) || value.schema_version !== PLAN_SCHEMA || value.profile !== profile
     || value.package_name !== PACKAGE_NAME || typeof value.operation !== 'string'
     || typeof value.action !== 'string' || !plainRecord(value.observed)
+    || typeof value.runtime_root !== 'string' || !isAbsolute(value.runtime_root)
+    || !plainRecord(value.toolchain)
     || Object.keys(value).some(key => ![
-      'schema_version', 'operation', 'profile', 'package_name', 'action', 'target', 'observed',
+      'schema_version', 'operation', 'profile', 'package_name', 'action', 'target', 'runtime_root', 'toolchain', 'observed',
     ].includes(key))
     || Object.keys(value.observed).some(key => ![
       'profile_exists', 'dependency_spec_digest', 'bundle_indexes', 'installed_version',
@@ -803,6 +1085,7 @@ function validatePlan(value, profile) {
       || (typeof value.observed.state_digest === 'string' && DIGEST_PATTERN.test(value.observed.state_digest)))) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid reviewed plan')
   }
+  validateToolchain(value.toolchain)
   const actions = {
     setup: ['install', 'noop'],
     update: ['update', 'noop'],
@@ -828,11 +1111,12 @@ function validatePending(value, profile) {
     || typeof value.started_at !== 'string'
     || !(value.phase === undefined || ['prepared', 'native-applied'].includes(/** @type {string} */ (value.phase)))
     || Object.keys(value).some(key => ![
-      'operation', 'plan_digest', 'target', 'plan', 'phase', 'started_at',
+      'operation', 'plan_digest', 'target', 'plan', 'phase', 'started_at', 'profile_before',
     ].includes(key))) {
     throw new OperationsError('invalid-operations-state', 'runtime-kit pending operation is invalid')
   }
   const plan = validatePlan(value.plan, profile)
+  validateProfileSnapshot(value.profile_before)
   if (plan.operation !== value.operation || sha256(stableJson(plan)) !== value.plan_digest
     || stableJson(plan.target) !== stableJson(value.target)) {
     throw new OperationsError('invalid-operations-state', 'pending operation does not match its reviewed plan')
@@ -863,8 +1147,17 @@ function validateAppliedReceipt(value, profile) {
   return value
 }
 
-/** @param {string} operation @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof readState>} stateRead @param {ReturnType<typeof resolveTarget> | null} requestedTarget */
-function buildMutationPlan(operation, profile, paths, actual, stateRead, requestedTarget) {
+/**
+ * @param {string} operation
+ * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof readActual>} actual
+ * @param {ReturnType<typeof readState>} stateRead
+ * @param {ReturnType<typeof resolveTarget> | null} requestedTarget
+ * @param {string} runtimeRoot
+ * @param {ReturnType<typeof resolveToolchain>} toolchain
+ */
+function buildMutationPlan(operation, profile, paths, actual, stateRead, requestedTarget, runtimeRoot, toolchain) {
   const state = stateRead.value
   if (state?.pending !== null && state?.pending !== undefined) {
     throw new OperationsError('recovery-required', 'an interrupted operation must be resolved with doctor --repair')
@@ -885,9 +1178,9 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
       if (stableJson(current.target) !== stableJson(requestedTarget)) {
         throw new OperationsError('already-managed', 'runtime-kit is already managed; use update for a new exact package', 64)
       }
-      return planFor(operation, profile, actual, stateRead, requestedTarget, 'noop')
+      return planFor(operation, profile, actual, stateRead, requestedTarget, 'noop', runtimeRoot, toolchain)
     }
-    return planFor(operation, profile, actual, stateRead, requestedTarget, 'install')
+    return planFor(operation, profile, actual, stateRead, requestedTarget, 'install', runtimeRoot, toolchain)
   }
   if (operation === 'update') {
     if (requestedTarget === null) throw new OperationsError('missing-package', 'update requires --package', 64)
@@ -899,6 +1192,8 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
       stateRead,
       requestedTarget,
       stableJson(current.target) === stableJson(requestedTarget) ? 'noop' : 'update',
+      runtimeRoot,
+      toolchain,
     )
   }
   if (operation === 'rollback') {
@@ -908,11 +1203,11 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
     }
     const previous = validateSnapshot(state.previous)
     const target = previous.target
-    return planFor(operation, profile, actual, stateRead, target, 'rollback')
+    return planFor(operation, profile, actual, stateRead, target, 'rollback', runtimeRoot, toolchain)
   }
   if (operation === 'remove') {
-    if (current === null) return planFor(operation, profile, actual, stateRead, null, 'noop')
-    return planFor(operation, profile, actual, stateRead, null, 'remove')
+    if (current === null) return planFor(operation, profile, actual, stateRead, null, 'noop', runtimeRoot, toolchain)
+    return planFor(operation, profile, actual, stateRead, null, 'remove', runtimeRoot, toolchain)
   }
   throw new OperationsError('unsupported-operation', `unsupported operation ${operation}`, 64)
 }
@@ -965,6 +1260,62 @@ function resolveExecutable(input) {
     } catch {}
   }
   throw new OperationsError('command-unavailable', `cannot resolve a trusted executable for ${basename(input)}`, 70)
+}
+
+/** @param {unknown} value */
+function validateToolchain(value) {
+  if (!plainRecord(value) || !plainRecord(value.dsh) || !plainRecord(value.pnpm)
+    || Object.keys(value).sort().join(',') !== 'dsh,pnpm'
+    || Object.keys(value.dsh).sort().join(',') !== 'executable,executable_sha256,source_revision,version'
+    || Object.keys(value.pnpm).sort().join(',') !== 'executable,executable_sha256,version'
+    || typeof value.dsh.executable !== 'string' || !isAbsolute(value.dsh.executable)
+    || typeof value.dsh.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.dsh.executable_sha256)
+    || value.dsh.source_revision !== DSH_SOURCE_REVISION
+    || value.dsh.version !== '0.1.0-rc.7'
+    || typeof value.pnpm.executable !== 'string' || !isAbsolute(value.pnpm.executable)
+    || typeof value.pnpm.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.pnpm.executable_sha256)
+    || typeof value.pnpm.version !== 'string' || !EXACT_VERSION_PATTERN.test(value.pnpm.version)) {
+    throw new OperationsError('invalid-operations-state', 'operations plan has an invalid toolchain identity')
+  }
+  return /** @type {{dsh:{executable:string,executable_sha256:string,source_revision:string,version:string},pnpm:{executable:string,executable_sha256:string,version:string}}} */ (value)
+}
+
+/** @param {string} path */
+function executableDigest(path) {
+  const stat = statSync(path)
+  if (stat.size > MAX_PACKED_PACKAGE_BYTES) {
+    throw new OperationsError('command-unavailable', `${basename(path)} executable exceeds the identity bound`, 70)
+  }
+  return sha256(readFileSync(path))
+}
+
+/** @param {string} dshInput @param {string} home */
+function resolveToolchain(dshInput, home) {
+  const dsh = resolveExecutable(dshInput)
+  const pnpm = resolveExecutable('pnpm')
+  const dshResult = spawn(dsh, ['--version'], home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
+  const pnpmResult = spawn(pnpm, ['--version'], home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
+  const dshVersion = dshResult.status === 0 ? dshResult.stdout.trim() : ''
+  const pnpmVersion = pnpmResult.status === 0 ? pnpmResult.stdout.trim() : ''
+  if (dshVersion !== '0.1.0-rc.7') {
+    throw new OperationsError('command-unavailable', 'DSH toolchain must be exactly 0.1.0-rc.7', 70)
+  }
+  if (!EXACT_VERSION_PATTERN.test(pnpmVersion)) {
+    throw new OperationsError('command-unavailable', 'pnpm toolchain did not report an exact version', 70)
+  }
+  return validateToolchain({
+    dsh: {
+      executable: dsh,
+      executable_sha256: executableDigest(dsh),
+      source_revision: DSH_SOURCE_REVISION,
+      version: dshVersion,
+    },
+    pnpm: {
+      executable: pnpm,
+      executable_sha256: executableDigest(pnpm),
+      version: pnpmVersion,
+    },
+  })
 }
 
 /** @param {string} home @param {Record<string, string>} [extra] */
@@ -1150,8 +1501,194 @@ function runDshMutation(dshBin, home, profile, verb, spec) {
   }
 }
 
-/** @param {string} profile @param {string} operation @param {string} planDigest @param {any} state @param {ReturnType<typeof resolveTarget> | null} target @param {unknown} plan */
-function pendingState(profile, operation, planDigest, state, target, plan) {
+/** @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot @param {string} profile */
+function activationMatches(target, runtimeRoot, profile) {
+  try {
+    const activation = readActivation(runtimeRoot).manifest
+    return activation.profile === profile
+      && activation.package_version === target.expected_version
+      && activation.package_artifact_sha256 === target.artifact_sha256
+      && activation.package_installed_sha256 === target.installed_sha256
+      && activation.asset_set_sha256 === target.assets.asset_set_sha256
+      && stableJson(activation.assets) === stableJson({
+        policy_sha256: target.assets.policy_sha256,
+        catalog_sha256: target.assets.catalog_sha256,
+        document_sha256: target.assets.document_sha256,
+      })
+  } catch {
+    return false
+  }
+}
+
+/** @param {ReturnType<typeof validateTarget>} target @param {string} profile */
+function activationManifest(target, profile) {
+  return {
+    schema_version: 'dsh-runtime-kit.activation.v1',
+    profile,
+    package_version: target.expected_version,
+    package_artifact_sha256: target.artifact_sha256,
+    package_installed_sha256: target.installed_sha256,
+    asset_set_sha256: target.assets.asset_set_sha256,
+    assets: {
+      policy_sha256: target.assets.policy_sha256,
+      catalog_sha256: target.assets.catalog_sha256,
+      document_sha256: target.assets.document_sha256,
+    },
+    agent_hook: {
+      config: `assets/${target.assets.asset_set_sha256}/agent-hook/config.toml`,
+      policy: `assets/${target.assets.asset_set_sha256}/agent-hook/policy.toml`,
+      state: 'state/agent-hook',
+    },
+    agent_docs: {
+      home: `assets/${target.assets.asset_set_sha256}/agent-docs`,
+      state: 'state/agent-docs',
+    },
+  }
+}
+
+/** @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot */
+function stagedActivationAssetsMatch(target, runtimeRoot) {
+  try {
+    const finalRoot = join(runtimeRoot, 'assets', target.assets.asset_set_sha256)
+    const hook = join(finalRoot, 'agent-hook')
+    const docs = join(finalRoot, 'agent-docs')
+    assertOwnedPath(finalRoot, 'directory', true)
+    assertOwnedPath(hook, 'directory', true)
+    assertOwnedPath(docs, 'directory', true)
+    const policy = join(hook, 'policy.toml')
+    const config = join(hook, 'config.toml')
+    const catalog = join(docs, 'AGENT_DOCS.toml')
+    const document = join(docs, 'PROJECT_DEV_EDIT.md')
+    for (const path of [policy, config, catalog, document]) assertSafeStateFile(path)
+    if (sha256(readFileSync(policy)) !== target.assets.policy_sha256
+      || sha256(readFileSync(catalog)) !== target.assets.catalog_sha256
+      || sha256(readFileSync(document)) !== target.assets.document_sha256) return false
+    const configText = readFileSync(config, 'utf8')
+    return configText.includes(`path = ${JSON.stringify(policy)}`)
+      && configText.includes(`digest = "sha256:${target.assets.policy_sha256}"`)
+  } catch {
+    return false
+  }
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot */
+function stageActivationAssets(paths, target, runtimeRoot) {
+  ensurePrivateDirectory(runtimeRoot)
+  const assetsRoot = join(runtimeRoot, 'assets')
+  const stateRoot = join(runtimeRoot, 'state')
+  ensurePrivateDirectory(assetsRoot)
+  ensurePrivateDirectory(stateRoot)
+  ensurePrivateDirectory(join(stateRoot, 'agent-hook'))
+  ensurePrivateDirectory(join(stateRoot, 'agent-docs'))
+
+  const artifact = artifactPathFor(paths, target)
+  assertSafeStateFile(artifact)
+  if (sha256(readFileSync(artifact)) !== target.artifact_sha256) {
+    throw new OperationsError('artifact-drift', 'activation package artifact no longer matches its reviewed digest')
+  }
+  const finalRoot = join(assetsRoot, target.assets.asset_set_sha256)
+  if (lstatMaybe(finalRoot) === null) {
+    const extracted = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-assets-'))
+    const temporary = mkdtempSync(join(assetsRoot, `.${target.assets.asset_set_sha256}.`))
+    try {
+      const tar = resolveExecutable('tar')
+      const unpacked = spawn(tar, ['-xzf', artifact, '-C', extracted], paths.home, {
+        timeoutMs: PACKAGE_COMMAND_TIMEOUT_MS,
+      })
+      if (unpacked.status !== 0) {
+        throw new OperationsError('activation-staging-failed', 'reviewed activation assets could not be extracted')
+      }
+      const source = join(extracted, 'package')
+      const observedAssets = packageAssets(source)
+      if (stableJson(observedAssets) !== stableJson(target.assets)) {
+        throw new OperationsError('activation-staging-failed', 'reviewed activation assets changed before staging')
+      }
+      const hook = join(temporary, 'agent-hook')
+      const docs = join(temporary, 'agent-docs')
+      mkdirSync(hook, { mode: 0o700 })
+      mkdirSync(docs, { mode: 0o700 })
+      const policyPath = join(hook, 'policy.toml')
+      writeFileSync(policyPath, readFileSync(join(source, 'policy', 'dsh-runtime-kit-v1.toml')), { mode: 0o600 })
+      writeFileSync(join(docs, 'AGENT_DOCS.toml'), readFileSync(join(source, 'agent-docs', 'AGENT_DOCS.toml')), { mode: 0o600 })
+      writeFileSync(join(docs, 'PROJECT_DEV_EDIT.md'), readFileSync(join(source, 'agent-docs', 'PROJECT_DEV_EDIT.md')), { mode: 0o600 })
+      writeFileSync(join(hook, 'config.toml'), `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(join(finalRoot, 'agent-hook', 'policy.toml'))}
+digest = "sha256:${target.assets.policy_sha256}"
+`, { mode: 0o600 })
+      renameSync(temporary, finalRoot)
+      fsyncDirectory(assetsRoot)
+    } finally {
+      rmSync(extracted, { recursive: true, force: true })
+      rmSync(temporary, { recursive: true, force: true })
+    }
+  }
+  if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
+    throw new OperationsError('activation-staging-failed', 'staged activation assets failed pre-switch verification')
+  }
+}
+
+/** @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot @param {string} profile */
+function activateStagedAssets(target, runtimeRoot, profile) {
+  if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
+    throw new OperationsError('activation-staging-failed', 'staged activation assets changed before activation')
+  }
+  const activation = activationManifest(target, profile)
+  atomicWriteJson(join(runtimeRoot, 'activation.json'), activation)
+  if (!activationMatches(target, runtimeRoot, profile)) {
+    throw new OperationsError('activation-staging-failed', 'activated asset set did not pass provenance validation')
+  }
+  return activation
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot @param {string} profile */
+function stageActivation(paths, target, runtimeRoot, profile) {
+  stageActivationAssets(paths, target, runtimeRoot)
+  return activateStagedAssets(target, runtimeRoot, profile)
+}
+
+/** @param {string} runtimeRoot */
+function removeActivation(runtimeRoot) {
+  const path = join(runtimeRoot, 'activation.json')
+  if (lstatMaybe(path) === null) return
+  assertSafeStateFile(path)
+  unlinkSync(path)
+  fsyncDirectory(runtimeRoot)
+}
+
+/**
+ * @param {string} dshBin
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} profile
+ * @param {any} priorState
+ * @param {ReturnType<typeof captureProfileSnapshot>} profileBefore
+ * @param {ReturnType<typeof readState>} stateRead
+ * @param {string} npmBin
+ */
+function restoreAfterCollateral(dshBin, paths, profile, priorState, profileBefore, stateRead, npmBin) {
+  const previous = priorState?.current === null || priorState?.current === undefined
+    ? null
+    : validateSnapshot(priorState.current)
+  if (previous === null) {
+    runDshMutation(dshBin, paths.home, profile, 'remove', null)
+    if (lstatMaybe(paths.installedPackage) !== null) cleanupInstalledEntry(paths)
+  } else {
+    const installSpec = installSpecForTarget(previous.target, paths, npmBin)
+    runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
+  }
+  restoreProfileSnapshot(profileBefore, paths)
+  if (stateRead.raw === null) {
+    if (lstatMaybe(paths.state) !== null) unlinkSync(paths.state)
+  } else {
+    writeFileSync(paths.state, stateRead.raw, { mode: 0o600 })
+    chmodSync(paths.state, 0o600)
+  }
+  fsyncDirectory(dirname(paths.state))
+}
+
+/** @param {string} profile @param {string} operation @param {string} planDigest @param {any} state @param {ReturnType<typeof resolveTarget> | null} target @param {unknown} plan @param {ReturnType<typeof captureProfileSnapshot>} profileBefore */
+function pendingState(profile, operation, planDigest, state, target, plan, profileBefore) {
   return {
     schema_version: STATE_SCHEMA,
     profile,
@@ -1165,6 +1702,7 @@ function pendingState(profile, operation, planDigest, state, target, plan) {
       plan,
       phase: 'prepared',
       started_at: new Date().toISOString(),
+      profile_before: profileBefore,
     },
   }
 }
@@ -1200,12 +1738,18 @@ function duplicateIsTerminal(state, actual, receipt, paths) {
 function applyMutation(operation, profile, paths, expectedPlanDigest, packageInput, dshInput) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
+    const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
+    const toolchain = resolveToolchain(dshInput, paths.home)
     reconcileArtifacts(paths)
     const stateRead = readState(paths.state, profile)
     const priorState = /** @type {any} */ (stateRead.value)
     const actual = readActual(paths)
     if (priorState?.last_applied?.plan_digest === expectedPlanDigest
       && priorState.last_applied.operation === operation) {
+      if (priorState.last_applied.plan.runtime_root !== runtimeRoot
+        || stableJson(priorState.last_applied.plan.toolchain) !== stableJson(toolchain)) {
+        throw new OperationsError('plan-drift', 'runtime root or toolchain changed after the applied receipt')
+      }
       if (packageInput !== undefined) {
         const supplied = resolveTarget(packageInput, resolveExecutable('npm'), paths.home)
         if (stableJson(supplied) !== stableJson(priorState.last_applied.plan.target)) {
@@ -1222,7 +1766,16 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       ? null
       : resolveTarget(packageInput, npmBin, paths.home, true)
     return withResolvedTarget(requestedTarget, () => {
-    const reviewed = buildMutationPlan(operation, profile, paths, actual, stateRead, requestedTarget)
+    const reviewed = buildMutationPlan(
+      operation,
+      profile,
+      paths,
+      actual,
+      stateRead,
+      requestedTarget,
+      runtimeRoot,
+      toolchain,
+    )
     if (reviewed.plan_digest !== expectedPlanDigest) {
       throw new OperationsError('plan-drift', 'profile or runtime-kit state changed after preview')
     }
@@ -1242,19 +1795,46 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
     }
 
-    const dshBin = resolveExecutable(dshInput)
+    const dshBin = toolchain.dsh.executable
     const installSpec = target === null ? null : installSpecForTarget(target, paths, npmBin)
-    const pending = pendingState(profile, operation, reviewed.plan_digest, state, target, reviewed.plan)
+    if (target !== null) stageActivationAssets(paths, target, runtimeRoot)
+    const profileBefore = captureProfileSnapshot(paths)
+    const pending = pendingState(
+      profile,
+      operation,
+      reviewed.plan_digest,
+      state,
+      target,
+      reviewed.plan,
+      profileBefore,
+    )
     atomicWriteJson(paths.state, pending)
     if (operation === 'remove') {
       runDshMutation(dshBin, paths.home, profile, 'remove', null)
     } else {
       runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
     }
+    const profileAfter = captureProfileSnapshot(paths)
+    if (profileHasCollateralMutation(profileBefore, profileAfter)) {
+      try {
+        restoreAfterCollateral(dshBin, paths, profile, state, profileBefore, stateRead, npmBin)
+      } catch {
+        throw new OperationsError(
+          'native-dsh-collateral-recovery-failed',
+          'DSH changed unrelated profile state and the exact pre-mutation snapshot could not be restored',
+        )
+      }
+      throw new OperationsError(
+        'native-dsh-collateral-mutation',
+        'DSH changed profile or lockfile state outside the reviewed runtime-kit boundary',
+      )
+    }
     atomicWriteJson(paths.state, {
       ...pending,
       pending: { ...pending.pending, phase: 'native-applied' },
     })
+    if (operation === 'remove') removeActivation(runtimeRoot)
+    else activateStagedAssets(/** @type {ReturnType<typeof validateTarget>} */ (target), runtimeRoot, profile)
     let observed = readActual(paths)
     let current = null
     if (operation === 'remove') {
@@ -1276,7 +1856,13 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       }
     } else {
       assertActualInstall(observed)
-      current = snapshot(observed, /** @type {ReturnType<typeof validateTarget>} */ (target), paths)
+      current = snapshot(
+        observed,
+        /** @type {ReturnType<typeof validateTarget>} */ (target),
+        paths,
+        runtimeRoot,
+        profile,
+      )
     }
     const previous = operation === 'update' || operation === 'rollback'
       ? state?.current ?? null
@@ -1346,6 +1932,42 @@ function agentHookDoctor(agentHook, home) {
   }
 }
 
+/**
+ * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
+ * @param {string} home
+ */
+function agentDocsDoctor(config, home) {
+  try {
+    const executable = resolveExecutable(config.agentDocs ?? 'agent-docs')
+    const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
+    const stateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
+    assertOwnedPath(docsHome, 'directory', true)
+    assertOwnedPath(stateHome, 'directory', true)
+    const catalog = join(docsHome, 'AGENT_DOCS.toml')
+    try {
+      assertOwnedPath(catalog, 'file', true)
+    } catch (error) {
+      throw new Error(`agent-docs catalog is invalid: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const result = spawn(executable, ['--version'], home, {
+      timeoutMs: HEALTH_COMMAND_TIMEOUT_MS,
+    })
+    if (result.status !== 0) {
+      return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
+    }
+    const match = /^agent-docs (1\.27\.0) \([^\r\n]+\)$/u.exec(result.stdout.trim())
+    if (match === null) {
+      return { ok: false, error: 'agent-docs version is not the supported 1.27.0 release' }
+    }
+    return { ok: true, version: match[1], catalog, state_home: stateHome }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : 'agent-docs isolation is invalid',
+    }
+  }
+}
+
 /** @param {string} dshBin @param {string} home */
 function dshVersion(dshBin, home) {
   const result = spawn(dshBin, ['--version'], home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
@@ -1356,8 +1978,15 @@ function dshVersion(dshBin, home) {
     : { ok: false, error: 'DSH version is not the supported 0.1.0-rc.7 release' }
 }
 
-/** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook @param {string} dshBin */
-function diagnose(profile, paths, agentHook, dshBin) {
+/**
+ * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook
+ * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} agentDocs
+ * @param {string} dshBin
+ * @param {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string}} activationInput
+ */
+function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput) {
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
   const state = stateRead.value
@@ -1368,9 +1997,45 @@ function diagnose(profile, paths, agentHook, dshBin) {
     ownedStatus = snapshotMatches(actual, validateSnapshot(state.current), paths) ? 'installed' : 'drift'
   } else if (!actualAbsent(actual)) ownedStatus = 'unmanaged'
   else if (state !== null) ownedStatus = 'removed'
+  const activationRequired = (state?.current !== null && state?.current !== undefined)
+    || (state?.pending !== null && state?.pending !== undefined)
+    || !actualAbsent(actual)
+  let activation
+  if (activationInput.error !== undefined) {
+    activation = { ok: false, error: activationInput.error }
+  } else if (activationInput.data === undefined) {
+    activation = activationRequired
+      ? { ok: false, error: 'runtime activation manifest is required' }
+      : { ok: true, status: 'not-activated' }
+  } else {
+    const active = activationInput.data.manifest
+    const currentTarget = plainRecord(state?.current) ? state.current.target : undefined
+    const pendingTarget = plainRecord(state?.pending) ? state.pending.target : undefined
+    const expected = currentTarget ?? pendingTarget
+    activation = expected === null || expected === undefined
+      ? { ok: false, error: 'runtime activation exists without a managed package target' }
+      : activationMatches(
+          validateTarget(expected),
+          /** @type {string} */ (activationInput.runtimeRoot),
+          profile,
+        )
+        ? {
+            ok: true,
+            status: 'activated',
+            asset_set_sha256: active.asset_set_sha256,
+            package_version: active.package_version,
+          }
+        : { ok: false, error: 'runtime activation does not match the managed package target' }
+  }
   const hook = agentHookDoctor(agentHook, paths.home)
+  const docs = agentDocsDoctor(agentDocs, paths.home)
   const dsh = dshVersion(dshBin, paths.home)
-  const healthy = recovery === null && !['drift', 'unmanaged'].includes(ownedStatus) && hook.ok && dsh.ok
+  const healthy = recovery === null
+    && !['drift', 'unmanaged'].includes(ownedStatus)
+    && hook.ok
+    && docs.ok
+    && activation.ok
+    && dsh.ok
   return {
     schema_version: 'dsh-runtime-kit.doctor.v1',
     profile,
@@ -1379,6 +2044,8 @@ function diagnose(profile, paths, agentHook, dshBin) {
     recovery,
     observed: publicActual(actual),
     agent_hook: hook,
+    agent_docs: docs,
+    activation,
     dsh,
   }
 }
@@ -1403,7 +2070,15 @@ function repairPlan(profile, paths, diagnostic) {
   } else {
     const target = pending.operation === 'remove' ? null : validateTarget(pending.target)
     proposed = {
-      current: target === null ? null : snapshot(readActual(paths), target, paths),
+      current: target === null
+        ? null
+        : expectedSnapshot(
+            readActual(paths),
+            target,
+            paths,
+            /** @type {any} */ (pending.plan).runtime_root,
+            profile,
+          ),
       previous: pending.operation === 'update' || pending.operation === 'rollback' ? state.current : null,
       last_applied: {
         operation: pending.operation,
@@ -1462,8 +2137,11 @@ function applyRepair(profile, paths, reviewed) {
         if (!actualAbsent(cleaned)) {
           throw new OperationsError('recovery-drift', 'recovered remove did not reach the reviewed absent state')
         }
+        removeActivation(pending.plan.runtime_root)
       } else {
-        installed = snapshot(actual, validateTarget(pending.target), paths)
+        const target = validateTarget(pending.target)
+        stageActivation(paths, target, pending.plan.runtime_root, profile)
+        installed = snapshot(actual, target, paths, pending.plan.runtime_root, profile)
         previous = pending.operation === 'update' || pending.operation === 'rollback'
           ? recoveredState.current
           : null
@@ -1561,13 +2239,24 @@ export function main(argv = process.argv.slice(2)) {
       }
       assertOperationsTree(paths)
       const dshBin = resolveExecutable(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh')
+      /** @type {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string}} */
+      const activationInput = {}
+      try {
+        activationInput.runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
+        if (existsSync(join(activationInput.runtimeRoot, 'activation.json'))) {
+          activationInput.data = readActivation(activationInput.runtimeRoot)
+        }
+      } catch (error) {
+        activationInput.error = error instanceof Error ? error.message : 'runtime activation is invalid'
+      }
+      const activeEnvironment = activationInput.data?.environment ?? process.env
       let agentHook
       try {
         agentHook = resolveAgentHookRuntime({
           agentHook: resolveExecutable(process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'),
-          agentHookConfig: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG,
-          agentHookPolicy: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY,
-          agentHookStateDir: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR,
+          agentHookConfig: activeEnvironment.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG,
+          agentHookPolicy: activeEnvironment.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY,
+          agentHookStateDir: activeEnvironment.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR,
         })
       } catch (error) {
         throw new OperationsError(
@@ -1575,7 +2264,11 @@ export function main(argv = process.argv.slice(2)) {
           error instanceof Error ? error.message : 'agent-hook isolation is invalid',
         )
       }
-      const diagnostic = diagnose(profile, paths, agentHook, dshBin)
+      const diagnostic = diagnose(profile, paths, agentHook, {
+        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+        agentDocsHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_HOME,
+        agentDocsStateHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME,
+      }, dshBin, activationInput)
       if (!parsed.values.repair) {
         print(envelope(diagnostic, diagnostic.status === 'healthy'), format)
         return diagnostic.status === 'healthy' ? 0 : 65
@@ -1603,7 +2296,18 @@ export function main(argv = process.argv.slice(2)) {
       const target = parsed.values.package === undefined ? null : resolveTarget(parsed.values.package, npmBin, home)
       const actual = readActual(paths)
       const stateRead = readState(paths.state, profile)
-      const planned = buildMutationPlan(operation, profile, paths, actual, stateRead, target)
+      const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
+      const toolchain = resolveToolchain(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh', home)
+      const planned = buildMutationPlan(
+        operation,
+        profile,
+        paths,
+        actual,
+        stateRead,
+        target,
+        runtimeRoot,
+        toolchain,
+      )
       print(envelope({ mode: 'dry-run', ...planned }), format)
       return 0
     }

@@ -86,12 +86,16 @@ const codexHome = join(userHome, '.codex')
 const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
-const agentHookRoot = join(temporaryRoot, 'dsh-agent-hook')
+const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
+const agentHookRoot = join(runtimeRoot, 'agent-hook')
 const agentHookConfig = join(agentHookRoot, 'config.toml')
 const agentHookPolicy = join(agentHookRoot, 'policy.toml')
 const agentHookStateDir = join(agentHookRoot, 'state')
-const agentDocsHome = join(projectRoot, 'agent-docs')
-const agentDocsStateHome = join(temporaryRoot, 'agent-docs-state')
+const agentHookWrapper = join(temporaryRoot, 'agent-hook-isolation-wrapper')
+const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed')
+const agentDocsHome = join(runtimeRoot, 'agent-docs')
+const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
+const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const profile = 'runtime-kit-smoke'
@@ -107,15 +111,49 @@ const privateIdentityPattern = new RegExp(
   'i',
 )
 
-function stageProviderSentinel(root, provider) {
-  for (const directory of ['hooks', 'skills', 'sessions']) {
-    mkdirSync(join(root, directory), { recursive: true, mode: 0o700 })
-    writeFileSync(
-      join(root, directory, `${provider}-only.txt`),
-      `${provider}:${directory}:must-remain-untouched\n`,
-      { mode: 0o600 },
-    )
+function fixtureDigest(values) {
+  const hash = createHash('sha256')
+  for (const value of values) {
+    hash.update(String(Buffer.byteLength(value)))
+    hash.update('\0')
+    hash.update(value)
+    hash.update('\0')
   }
+  return hash.digest('hex')
+}
+
+function providerSkillDocument(provider) {
+  return `---
+name: ${provider}-only
+description: >
+  Valid provider-only skill that DSH must never load.
+---
+
+# ${provider}-only
+
+${provider.toUpperCase()}_PROVIDER_SKILL_MUST_NOT_LOAD
+`
+}
+
+function stageProviderSentinel(root, provider) {
+  mkdirSync(join(root, 'hooks'), { recursive: true, mode: 0o700 })
+  mkdirSync(join(root, 'sessions'), { recursive: true, mode: 0o700 })
+  mkdirSync(join(root, 'skills', `${provider}-only`), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    join(root, 'hooks', `${provider}-only.txt`),
+    `${provider}:hooks:must-not-load\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(root, 'sessions', `${provider}-only.txt`),
+    `${provider}:sessions:must-not-load\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(root, 'skills', `${provider}-only`, 'SKILL.md'),
+    providerSkillDocument(provider),
+    { mode: 0o600 },
+  )
   writeFileSync(
     join(root, provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'),
     '# Provider-only runtime docs\n\nARK_PROVIDER_DOCS_MUST_NOT_LOAD\n',
@@ -129,16 +167,40 @@ function assertProviderSentinel(root, provider) {
     [provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md', 'hooks', 'sessions', 'skills'],
   )
   for (const directory of ['hooks', 'skills', 'sessions']) {
-    assert.deepEqual(readdirSync(join(root, directory)), [`${provider}-only.txt`])
+    assert.deepEqual(readdirSync(join(root, directory)), [
+      directory === 'skills' ? `${provider}-only` : `${provider}-only.txt`,
+    ])
+    if (directory === 'skills') {
+      assert.equal(
+        readFileSync(join(root, directory, `${provider}-only`, 'SKILL.md'), 'utf8'),
+        providerSkillDocument(provider),
+      )
+      continue
+    }
     assert.equal(
       readFileSync(join(root, directory, `${provider}-only.txt`), 'utf8'),
-      `${provider}:${directory}:must-remain-untouched\n`,
+      `${provider}:${directory}:must-not-load\n`,
     )
   }
 }
 
 stageProviderSentinel(codexHome, 'codex')
 stageProviderSentinel(claudeHome, 'claude')
+const providerSkillFixtureSha256 = fixtureDigest([
+  providerSkillDocument('codex'),
+  providerSkillDocument('claude'),
+])
+const providerSessionFixture = Object.freeze({
+  AGENT_SESSION_ID: 'codex-provider-session',
+  AGENT_SESSION_RUNTIME_ID: 'claude-provider-runtime',
+  AGENT_SESSION_BIN: join(codexHome, 'sessions', 'provider-agent-session'),
+  AGENT_SESSION_CAPABILITY_FILE: join(codexHome, 'sessions', 'provider-capability'),
+  AGENT_SESSION_STATE_DIR: join(claudeHome, 'sessions'),
+})
+const providerSessionFixtureSha256 = fixtureDigest(
+  Object.entries(providerSessionFixture).flatMap(([name, value]) => [name, value]),
+)
+let providerHookFixtureSha256
 const environment = {
   ...process.env,
   HOME: userHome,
@@ -147,30 +209,18 @@ const environment = {
   DSH_HOME: dshHome,
   DSH_AGENTS_HOME: join(temporaryRoot, 'empty-agents-home'),
   DSH_TELEMETRY_DISABLED: '1',
-  DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
-  DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
-  DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: agentHookPolicy,
-  DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
+  DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookWrapper,
   DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
-  DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
-  DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
   DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
   DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-primary',
   DSH_PERMISSION_MODE: 'workspace-write',
+  ...providerSessionFixture,
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_NOSYSTEM: '1',
   PATH: `${dirname(agentHookBin)}:${process.env.PATH ?? ''}`,
   XDG_CONFIG_HOME: configHome,
   XDG_STATE_HOME: stateHome,
-}
-// The packed smoke creates its own DSH session and intentionally exercises the
-// declared unmanaged operation contract. Never let an invoking Codex/Claude
-// session's capability paths or bearer material turn it into that parent
-// session accidentally; managed DSH coordination has a separate exact bridge
-// integration regression.
-for (const name of Object.keys(environment)) {
-  if (name.startsWith('AGENT_SESSION_')) delete environment[name]
 }
 
 function installPolicy(action) {
@@ -213,11 +263,38 @@ capability = { id = "decision.allow.v1", reason_code = "runtime-context-allowed"
 path = ${JSON.stringify(agentHookPolicy)}
 digest = "${digest}"
 `, { mode: 0o600 })
-  writeFileSync(
-    join(configHome, 'agent-hook', 'config.toml'),
-    'schema_version = "ambient-provider-config-must-not-load"\n',
-    { mode: 0o600 },
-  )
+  const providerPolicy = `${policy}
+
+[[rules]]
+id = "ambient.provider-hook-must-not-load"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "runtime_kit_plus_one"
+priority = 1000
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "decision.block.v1", reason_code = "ambient-provider-hook-must-not-load", message = "ambient provider hook loaded" }
+`
+  const providerPolicyPath = join(configHome, 'agent-hook', 'provider-policy.toml')
+  const providerPolicyDigest = `sha256:${createHash('sha256').update(providerPolicy).digest('hex')}`
+  const providerConfig = `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(providerPolicyPath)}
+digest = "${providerPolicyDigest}"
+`
+  writeFileSync(providerPolicyPath, providerPolicy, { mode: 0o600 })
+  writeFileSync(join(configHome, 'agent-hook', 'config.toml'), providerConfig, { mode: 0o600 })
+  providerHookFixtureSha256 = fixtureDigest([providerConfig, providerPolicy])
+  const wrapper = `#!/bin/sh
+if /usr/bin/env | /usr/bin/grep -q '^AGENT_SESSION_'; then
+  /usr/bin/printf '%s\\n' 'provider-session-env-observed' > ${JSON.stringify(providerSessionMarker)}
+  exit 91
+fi
+exec ${JSON.stringify(agentHookBin)} "$@"
+`
+  writeFileSync(agentHookWrapper, wrapper, { mode: 0o700 })
   for (const path of [agentHookConfig, agentHookPolicy]) {
     const metadata = statSync(path)
     assert.equal(metadata.isFile(), true)
@@ -270,7 +347,12 @@ function resetCheckoutLease() {
 }
 
 function runDsh(args, options = {}) {
-  const result = spawnSync('pnpm', ['dsh', ...args], {
+  const result = spawnSync(process.execPath, [
+    ownerLauncher,
+    '--runtime-root', runtimeRoot,
+    '--',
+    'pnpm', 'dsh', ...args,
+  ], {
     cwd: dshRoot,
     env: environment,
     encoding: 'utf8',
@@ -301,6 +383,38 @@ function collectFiles(directory, prefix = '') {
 }
 
 try {
+  mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
+  mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
+  for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
+    writeFileSync(
+      join(agentDocsHome, name),
+      readFileSync(join(projectRoot, 'agent-docs', name)),
+      { mode: 0o600 },
+    )
+  }
+  mkdirSync(dshHome, { recursive: true, mode: 0o700 })
+  const forbiddenEnvironmentPath = join(dshHome, '.env')
+  writeFileSync(
+    forbiddenEnvironmentPath,
+    `DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG=${agentHookConfig}\n`,
+    { mode: 0o600 },
+  )
+  const forbiddenEnvironment = spawnSync(
+    'pnpm',
+    ['dsh', '--profile', 'headless', 'bootstrap environment rejection probe'],
+    {
+    cwd: dshRoot,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 120_000,
+    },
+  )
+  assert.notEqual(forbiddenEnvironment.status, 0)
+  assert.match(forbiddenEnvironment.stderr, /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u)
+  assert.match(forbiddenEnvironment.stderr, /export/u)
+  rmSync(forbiddenEnvironmentPath)
+
   mkdirSync(projectWorkspace, { recursive: true })
   const initializedProject = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], {
     cwd: projectWorkspace,
@@ -395,6 +509,7 @@ description = "packed rc.7 finish-line smoke"
     'package.json',
     'index.js',
     'policy.js',
+    'bin/dsh-runtime-kit-launch.js',
     'src/compat/dsh-rc7.js',
     'src/context/index.js',
     'src/context/nils-context.js',
@@ -1080,6 +1195,17 @@ exec "$@"
   assert.match(skillReceipt.bundledContent, /# Daily Brief/)
   assert.equal(skillReceipt.names.includes('codex-only'), false)
   assert.equal(skillReceipt.names.includes('claude-only'), false)
+  const providerSkillLoaded = skillReceipt.names.some(
+    name => name === 'codex-only' || name === 'claude-only',
+  ) || JSON.stringify(skillReceipt).includes('PROVIDER_SKILL_MUST_NOT_LOAD')
+  const providerHookLoaded = JSON.stringify(receipt).includes('ambient-provider-hook-must-not-load')
+  const providerSessionStateLoaded = existsSync(providerSessionMarker)
+  assert.equal(providerSkillLoaded, false)
+  assert.equal(providerHookLoaded, false)
+  assert.equal(providerSessionStateLoaded, false)
+  assert.match(providerSkillFixtureSha256, /^[0-9a-f]{64}$/u)
+  assert.match(providerHookFixtureSha256, /^[0-9a-f]{64}$/u)
+  assert.match(providerSessionFixtureSha256, /^[0-9a-f]{64}$/u)
 
   resetCheckoutLease()
   const reviewerBoot = runDsh(
@@ -1345,6 +1471,15 @@ exec "$@"
           'coexistence:no-cross-loaded-hooks-skills-session-state',
           'coexistence:dsh-hook-docs-state-isolated',
         ],
+        isolation: {
+          schema_version: 'dsh-runtime-kit.runtime-isolation.v1',
+          provider_skill_loaded: providerSkillLoaded,
+          provider_hook_loaded: providerHookLoaded,
+          provider_session_state_loaded: providerSessionStateLoaded,
+          provider_skill_fixture_sha256: providerSkillFixtureSha256,
+          provider_hook_fixture_sha256: providerHookFixtureSha256,
+          provider_session_fixture_sha256: providerSessionFixtureSha256,
+        },
       },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },

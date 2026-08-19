@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -346,7 +347,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
 
   /**
    * @param {Record<string, unknown>} request
-   * @param {Readonly<Record<string, string>> | undefined} childEnvironment
+   * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
    */
   async function quiesceCancelledRun(request, childEnvironment) {
     const payload = serialize({
@@ -369,7 +370,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           stderr: { maxBytes: MAX_ERROR_BYTES },
         },
         graceMs: 1_000,
-        ...childEnvironment === undefined ? {} : { env: childEnvironment },
+        env: isolatedNilsEnvironment(childEnvironment),
       })
     } catch {
       return false
@@ -414,7 +415,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
 
   /**
    * @param {Record<string, unknown>} request
-   * @param {Readonly<Record<string, string>> | undefined} childEnvironment
+   * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
    */
   async function trackedQuiescence(request, childEnvironment) {
     const cleanup = quiesceCancelledRun(request, childEnvironment)
@@ -437,7 +438,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
    * @param {'open' | 'begin' | 'run' | 'stop' | 'release'} action
    * @param {Record<string, unknown>} request
    * @param {AbortSignal | undefined} callerSignal
-   * @param {Readonly<Record<string, string>> | undefined} childEnvironment
+   * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
    * @param {number} requestTimeoutMs
    */
   async function invoke(
@@ -490,7 +491,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           },
           graceMs: 1_000,
           signal: operation.controller.signal,
-          ...childEnvironment === undefined ? {} : { env: childEnvironment },
+          env: isolatedNilsEnvironment(childEnvironment),
         })
       } catch {
         throw new Error('dsh-runtime-kit: finish-line unavailable')

@@ -941,3 +941,58 @@ blockers: disposable isolated execution and authorized live delivery. Its
 private-project-skill scenario carries both zero-cross-loading and explicit
 DSH hook/docs/state isolation evidence. This remains a local trusted-code
 rehearsal, not the final hosted pass.
+
+## Task 6.1 candidate review-repair evidence
+
+The first hosted package jobs on the candidate head supplied a real benchmark
+red on both Node 22 and Node 24: the benchmark still constructed the nils
+transport without the newly mandatory DSH hook config, policy, and state roots.
+The isolated fixture now supplies all three exact paths, and the benchmark gate
+passes locally.
+
+Security follow-up then added provider-shaped ambient `AGENT_SESSION_*` input,
+valid loadable provider skills, observable hook/session markers, structured
+zero-loading booleans, and exact fixture digests. DSH nils subprocesses now
+tombstone every ambient managed-session variable; no unauthenticated provider
+session bridge remains. Acceptance additionally binds the nils source commit,
+release archive name, and archive SHA-256, and rejects source, archive-name, or
+archive-digest substitution independently of the six executable hashes.
+
+Maintainability and API follow-up made doctor validate the released agent-docs
+executable plus the owner-only DSH catalog and state roots, removed dead context
+path code, and retained the review status as unresolved until follow-up review.
+A real pinned rc.7 regression proves `$DSH_HOME/.env` rejects `DSH_*` bootstrap
+variables. The supported path is instead one owner launcher invocation for
+setup, doctor, and live DSH; it authenticates one absolute DSH-only runtime root
+and overrides ambient provider paths.
+
+Data-migration and adversarial follow-up first failed four focused operations
+contracts for versioned policy/docs assets, tool replacement, interruption
+between package mutation and asset activation, and unrelated profile mutation.
+The reviewed plan now binds exact DSH/pnpm executable identities, the runtime
+root, package and asset digests, and bounded profile control files. Assets are
+staged and verified in a content-addressed owner-only directory before native
+mutation, while `activation.json` switches only after native package
+verification. Doctor recovery and rollback restore matched package/asset sets.
+Provider-home aliases, symlinked roots, nested asset/state roots, and tool
+replacement fail closed.
+
+A final audit strengthened the collateral test so it changed only an unrelated
+pnpm `packages` integrity entry. It failed meaningfully because the first
+projection ignored all `packages` and `snapshots` entries (observed status 0,
+expected 65). The corrected projection removes only the runtime-kit root and
+its one-sided dependency closure; shared and unrelated lock entries remain
+bound. That focused regression passes, as do the three asset/rollback/recovery
+tests and strict typechecking.
+
+The first post-review source acceptance also failed before setup because the
+fresh packed operations controller lacked its production `yaml` dependency.
+The operations leg now installs the candidate's exact package-lock closure with
+scripts and peers omitted, matching the existing runtime leg. The rerun,
+`issue1-reviewfix-20260820b`, exited zero in released mode with 10 passed, 2
+authorization-pending, and 0 failed. It binds runtime package SHA-256
+`3e7f4c3d5c36a61aabab2283ec87f8aa7a1e6ec0513ff5358be864118987fa89`,
+official nils-cli v1.27.0 source/archive/binary identities, versioned operations
+activation, and three structured provider zero-loading results. Follow-up
+specialist disposition remains a provider gate; this source evidence does not
+claim those reviews clean or authorize cutover.

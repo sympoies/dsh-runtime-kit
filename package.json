@@ -6,6 +6,7 @@
   "main": "index.js",
   "bin": {
     "dsh-runtime-kit": "./bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-launch": "./bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs"
   },
   "exports": {

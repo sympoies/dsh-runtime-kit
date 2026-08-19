@@ -46,7 +46,9 @@ agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
 8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
 `agent_run_inspect` tests explicitly skipped; private trust-root `make validate`;
 real packed DSH smoke; and external-tarball rehearsal 10 passed, 2
-authority-pending, 0 failed. Security and maintainability follow-ups are clean.
+authority-pending, 0 failed. Security, maintainability, API-contract, and
+data-migration follow-ups for the current coexistence candidate remain open
+until the repaired head is re-reviewed.
 
 ## Validation Log
 
@@ -307,6 +309,7 @@ catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit
 and no-merge PR delivery. After promotion, Task 6.2 may activate only the
 native `headless` profile behind an exact rollback point. It must bind the five
-DSH-only hook/docs paths explicitly, keep private loading absent/empty unless a
-DSH projection is explicitly selected, and must not change Codex or Claude Code
-agent-runtime-kit wiring.
+DSH-only hook/docs paths through the owner launcher and authenticated activation
+manifest, keep private loading absent/empty unless a DSH projection is
+explicitly selected, and must not change Codex or Claude Code agent-runtime-kit
+wiring.
