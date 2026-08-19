@@ -1,0 +1,157 @@
+{
+  "schema_version": "dsh-runtime-kit.dsh-compatibility.v1",
+  "repository": "https://github.com/deepseek-ai/deepseek-harness",
+  "channels": {
+    "pinned": {
+      "ref": "refs/tags/dsh-v0.1.0-rc.7",
+      "revision": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca",
+      "version": "0.1.0-rc.7"
+    },
+    "upstream-next": {
+      "ref": "refs/heads/master",
+      "revision": "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca",
+      "version": "0.1.0-rc.7",
+      "selected_at": "2026-08-19"
+    }
+  },
+  "public_packages": {
+    "@deepseek-ai/cordis": {
+      "peer": "4.0.1",
+      "version": "4.0.1",
+      "path": "vendor/cordis",
+      "entrypoint_sha256": "1729cdbf8ee40b17c8839e06bf96491490548559e11ef7e411271e0754e751c5",
+      "types_sha256": "07bae5644c6daf842c291799022faa0374dabd7c813362e084083b328a421529",
+      "exports": {}
+    },
+    "@deepseek-ai/dsh-agent": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/core/agent",
+      "entrypoint_sha256": "e7e40c5ca66d9827a5084c5c0c68983f9685842bb9b6d604803d4cb4642bb263",
+      "types_sha256": "577f7ee31d8954c8a09c4af9ce9c1fbdb25220caff40b2120bec257305bd2a35",
+      "exports": {}
+    },
+    "@deepseek-ai/dsh-bash-local": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/shell/bash-local",
+      "entrypoint_sha256": "30e6cde90ae4e5d132e46124515df66f7eec4e592eb0f07b236ff885911fdcba",
+      "types_sha256": "68e89d3f9f25186443d6042c892615aa76c5119da92d52fd78384619eeb26a18",
+      "exports": { "ENV_OVERRIDES": "object" }
+    },
+    "@deepseek-ai/dsh-fs": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/fs/fs",
+      "entrypoint_sha256": "0fa8999edf94bbcf460224273f6e566eef13952c5940072ee41fd61b6483d0a6",
+      "types_sha256": "5880470a6e6a9f2e52b84cf35a88c0ffe0bfc547197ea344bfb011862f95db1c",
+      "exports": {}
+    },
+    "@deepseek-ai/dsh-llm": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/llm/llm",
+      "entrypoint_sha256": "66ef669901973863a474e7bfc172d7cdc9cb13420f92c74104730dd6858afc1d",
+      "types_sha256": "3da34a99f10eb4bbfd85d4f153ab5d6d29528d6aa293b6ba9f41c1b11ad91fea",
+      "exports": { "HarnessError": "function", "createUserMessage": "function" }
+    },
+    "@deepseek-ai/dsh-sandbox": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/sandbox/sandbox",
+      "entrypoint_sha256": "63ee2a10873a336162acd9a0d7da7f5f3dc59d072456a0b5271da277565e324f",
+      "types_sha256": "8e5fca22b53e76511c25d56482b9baaf24bfefdc6f05948f8264f653a983b3c1",
+      "exports": { "approveEscalation": "function", "canonicalPath": "function", "validateEscalationArgs": "function" }
+    },
+    "@deepseek-ai/dsh-skill-filesystem": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/skill/skill-filesystem",
+      "entrypoint_sha256": "1aea87781ba5b4d44c7cfd6184d933a1c171a3fd2791456b65ebfc8b255f1221",
+      "types_sha256": "14dadeeb548ef5ffcbfdfafe4da4f11c18a6dd22515f5f35481f659d0f36dfbf",
+      "exports": { "apply": "function" }
+    },
+    "@deepseek-ai/dsh-subagent": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/subagent/subagent",
+      "entrypoint_sha256": "510aba14f13d1a9deccf3d81d790be3e7ebcdc4797fcfa584908350d07c529c6",
+      "types_sha256": "c70d33dca3125e6f1e004eb36b7cc84c4cfe1431d3c9b69ec3c5aec3dc5b5d91",
+      "exports": {}
+    },
+    "@deepseek-ai/dsh-subprocess": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/subprocess/subprocess",
+      "entrypoint_sha256": "679e514028454cdef67adeb362e99a18e8efb7ca281857cf7868fc26d4821f6c",
+      "types_sha256": "ffb02f0f6f0eda800e5c74e85cff341456e178c42d441e4979d72d4500f3db4d",
+      "exports": {}
+    },
+    "@deepseek-ai/dsh-tools": {
+      "peer": "0.1.0-rc.7",
+      "path": "packages/core/tools",
+      "entrypoint_sha256": "47de95d14493dbd22d1a3ade14890fc99d7232db4e363f2190c9063b030dd029",
+      "types_sha256": "bad13885fcaa9d781e2a28988e9e9fd4cdeb750e65b8bc148356ffd1f0457907",
+      "exports": { "TOOL_ABORTED": "string" }
+    }
+  },
+  "workspace_artifacts": {
+    "@deepseek-ai/cordis": { "version": "4.0.1", "path": "vendor/cordis", "artifact_sha256": "823427d3133c555c2b922084a6f0f2972dd12b80d64eedc919575b95fc57a651" },
+    "@deepseek-ai/cordis-plugin-include": { "version": "1.0.6", "path": "vendor/include", "artifact_sha256": "b179929a16047ee5cc452690a254b96d0523840b706733e9debf0d5016790f29" },
+    "@deepseek-ai/cordis-plugin-loader": { "version": "1.0.2", "path": "vendor/loader", "artifact_sha256": "f33add5a1b4cc61f80baf781a888442378fed26e313665094a737a6f5cf52ccb" },
+    "@deepseek-ai/cosmokit": { "version": "1.8.2", "path": "vendor/cosmokit", "artifact_sha256": "e9eb2d7ac6743d46cc63a44821ba6edf9c1db7331b149fbd00a1044ceb46f69b" },
+    "@deepseek-ai/dsh-agent": { "version": "0.1.0-rc.7", "path": "packages/core/agent", "artifact_sha256": "39cac5495e1241a2f1c0216c688a72513adc9c1720b5aa14a8d29ed0ed199626" },
+    "@deepseek-ai/dsh-agent-presets": { "version": "0.1.0-rc.7", "path": "packages/preset/agent-presets", "artifact_sha256": "dd3382d6f70da797620cba936e62ad434cb1b2be960ef9594d0ecc7fee0db7e0" },
+    "@deepseek-ai/dsh-atomic-write": { "version": "0.1.0-rc.7", "path": "packages/util/atomic-write", "artifact_sha256": "7b0c5685dfa71de3f91f486b6fedaeb6752e7a8af030ffbf3b11ae9beaff45f7" },
+    "@deepseek-ai/dsh-attachment": { "version": "0.1.0-rc.7", "path": "packages/attachment/attachment", "artifact_sha256": "2d5d647a97aade322fb89e42d97c75aa4b5356034b60f47bb3f3d19d03956bb5" },
+    "@deepseek-ai/dsh-bash-local": { "version": "0.1.0-rc.7", "path": "packages/shell/bash-local", "artifact_sha256": "3ba8a08528a8ce496f040e68cbd52a0aefaf41ad0a8b558c1557335c0094eebf" },
+    "@deepseek-ai/dsh-brand": { "version": "0.1.0-rc.7", "path": "packages/util/brand", "artifact_sha256": "feb35099141a5533686bdafcf10e97ab351ee8cacd76c0e9434c3f73dad4ae5c" },
+    "@deepseek-ai/dsh-code-runtime": { "version": "0.1.0-rc.7", "path": "packages/code-runtime/code-runtime", "artifact_sha256": "b9c60fa8002890393a91e89ac602b955f1159d718aabf8c15ec3a0dc8087dc3a" },
+    "@deepseek-ai/dsh-fs": { "version": "0.1.0-rc.7", "path": "packages/fs/fs", "artifact_sha256": "9c779904de5b6fa1811e02fe68c1d9694ddbbf746369db4778eb66d8f0c0a001" },
+    "@deepseek-ai/dsh-home-paths": { "version": "0.1.0-rc.7", "path": "packages/util/home-paths", "artifact_sha256": "55d79edf3287ae853e7bfc86efac284cd6edfab4efa458bf9f720e56875f813d" },
+    "@deepseek-ai/dsh-invariants": { "version": "0.1.0-rc.7", "path": "packages/runtime-diagnostics/invariants", "artifact_sha256": "6d5a1b469daf9de2d4c1c7dd54ae831f82d397938d5ecf6701c381406708aa11" },
+    "@deepseek-ai/dsh-jobs": { "version": "0.1.0-rc.7", "path": "packages/jobs/jobs", "artifact_sha256": "5db3c125897f87eca90eb0efdbd5b9078adf68720d19b9c5c295d44bb2ee15e3" },
+    "@deepseek-ai/dsh-llm": { "version": "0.1.0-rc.7", "path": "packages/llm/llm", "artifact_sha256": "dadbb9e88bbf866ea5e3864c945c02c158d0a26be8a419c3a29f6e572756fe6b" },
+    "@deepseek-ai/dsh-sandbox": { "version": "0.1.0-rc.7", "path": "packages/sandbox/sandbox", "artifact_sha256": "a485d0de4a5200a1aced82bb60768b5e34601a090df5a147ff5a441cf0582f26" },
+    "@deepseek-ai/dsh-sandbox-policy": { "version": "0.1.0-rc.7", "path": "packages/sandbox/sandbox-policy", "artifact_sha256": "2671f9523468cc2dd05a3c9c3c5d180b1a3f6727863c29146a3431be1061037d" },
+    "@deepseek-ai/dsh-scope": { "version": "0.1.0-rc.7", "path": "packages/core/scope", "artifact_sha256": "7c9d3dcd3d27b33965ee74d6b3dbf8fff365c767b35feff22afcd18c0deb9ef3" },
+    "@deepseek-ai/dsh-session": { "version": "0.1.0-rc.7", "path": "packages/core/session", "artifact_sha256": "dc436a08434053cd59bbb97f07048f34211b08712744fc2f328d73867f1dc62e" },
+    "@deepseek-ai/dsh-session-persistence": { "version": "0.1.0-rc.7", "path": "packages/session/session-persistence", "artifact_sha256": "84e883ebfcac7b475c5b6f3cd73f2547982c2b940ebd380fae791200d1e4051b" },
+    "@deepseek-ai/dsh-session-projection": { "version": "0.1.0-rc.7", "path": "packages/session/session-projection", "artifact_sha256": "bb82fb5c6978f3f30bae93c730265f6140eb9ce57e3b82d7103e407cf9cd48e8" },
+    "@deepseek-ai/dsh-session-projection-cache": { "version": "0.1.0-rc.7", "path": "packages/session/session-projection-cache", "artifact_sha256": "13d220ce2de68f4f10b12e3bd9af1a88f07eba1a32bc5df650fe17f6fcbb73f9" },
+    "@deepseek-ai/dsh-settings": { "version": "0.1.0-rc.7", "path": "packages/settings/settings", "artifact_sha256": "a46a1c6b50a4c7bd9eb328df3192f209b760b81f4c918524b8ab40eef4881edb" },
+    "@deepseek-ai/dsh-shell": { "version": "0.1.0-rc.7", "path": "packages/shell/shell", "artifact_sha256": "e73551dcda3e1274cf9cc10fc477df28fc6050e66f38139c5a449ec62e333821" },
+    "@deepseek-ai/dsh-skill": { "version": "0.1.0-rc.7", "path": "packages/skill/skill", "artifact_sha256": "f7a28dde43950e3dd1a19f70ba5b7013d1834d78ea08ee29b0ef9d698ef76fbe" },
+    "@deepseek-ai/dsh-skill-filesystem": { "version": "0.1.0-rc.7", "path": "packages/skill/skill-filesystem", "artifact_sha256": "c0b0bc833ecb3460f7a34683b0904625a116b8f02bbfa87adbf7a8f1fd6d7921" },
+    "@deepseek-ai/dsh-storage": { "version": "0.1.0-rc.7", "path": "packages/storage/storage", "artifact_sha256": "a3f2d1b579506b6cf4f950bc30c7d244c9b310f3d5b89e9518ee35a2a49e67dc" },
+    "@deepseek-ai/dsh-storage-domain": { "version": "0.1.0-rc.7", "path": "packages/storage/storage-domain", "artifact_sha256": "135964cf7a4f9b4b2c779f2cb6e0d0e4c4256c3d7c8584108cec33a2aa518bcf" },
+    "@deepseek-ai/dsh-subagent": { "version": "0.1.0-rc.7", "path": "packages/subagent/subagent", "artifact_sha256": "aaabf5a9bb74d58f1e0a80f110c939211fc9d804510ba5661ef8b74e6d4862de" },
+    "@deepseek-ai/dsh-subprocess": { "version": "0.1.0-rc.7", "path": "packages/subprocess/subprocess", "artifact_sha256": "25162ad0a551bafc36d2b0d7d65f302eb324213ac62171eef470c6ca858b1517" },
+    "@deepseek-ai/dsh-system-prompt": { "version": "0.1.0-rc.7", "path": "packages/core/system-prompt", "artifact_sha256": "42bf6bbc5d97bfdfd4640108d2156f44faf605a20f64235010f8c2e45caf2cd8" },
+    "@deepseek-ai/dsh-timeout": { "version": "0.1.0-rc.7", "path": "packages/util/timeout", "artifact_sha256": "69b42695bcbd3fb75d983414138033ccce6d0690f66ca7670219104f0df5d14f" },
+    "@deepseek-ai/dsh-tools": { "version": "0.1.0-rc.7", "path": "packages/core/tools", "artifact_sha256": "433739b9d8c6941e8f3ff45e004a87f4939a573b9edf30d8b6684a471e9cd93c" },
+    "@deepseek-ai/dsh-typert-protocol": { "version": "0.1.0-rc.7", "path": "packages/typert/protocol", "artifact_sha256": "161d2fcb248386122027108dd64fe9df3d89f13542d3e0757855caf4d70ee9ef" },
+    "@deepseek-ai/dsh-user-approval": { "version": "0.1.0-rc.7", "path": "packages/interaction/user-approval", "artifact_sha256": "d513d863f6db97208decb6edeffe11d4cb2191e619c368ff40ef0440d43a7213" },
+    "@deepseek-ai/schemastery": { "version": "3.18.1", "path": "vendor/schemastery", "artifact_sha256": "d3a42dda8029b25c5ffb2498d413f7042e98404e2add4172ff545fd277143537" }
+  },
+  "runtime_surface": [
+    "on",
+    "effect",
+    "provide",
+    "get",
+    "agents.list",
+    "agents.get",
+    "sessions.flush",
+    "shell.resolve",
+    "shellEnv.collect",
+    "skills.register",
+    "subagents.start",
+    "subagents.getProvider",
+    "subprocess.spawn",
+    "tools.register",
+    "tools.guard"
+  ],
+  "performance": {
+    "pre_tool": {
+      "warmup_iterations": 250,
+      "iterations": 1000,
+      "batches": 2,
+      "p95_ms": 5,
+      "retained_heap_bytes": 8388608,
+      "retained_growth_bytes": 2097152,
+      "max_active_after": 0
+    }
+  }
+}

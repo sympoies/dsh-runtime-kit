@@ -1,6 +1,8 @@
 // @ts-check
 
 import { createHash } from 'node:crypto'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -17,8 +19,33 @@ const DEFAULT_MAX_ACTIVE_POLICY_CHECKS = 4
 const MAX_ACTIVE_POLICY_CHECKS = 16
 const MAX_POLICY_INPUT_DEPTH = 64
 const MAX_POLICY_INPUT_ENTRIES = 10_000
+const MANAGED_SESSION_ENVIRONMENT = Object.freeze([
+  'AGENT_SESSION_ID',
+  'AGENT_SESSION_RUNTIME_ID',
+  'AGENT_SESSION_BIN',
+  'AGENT_SESSION_CAPABILITY_FILE',
+  'AGENT_SESSION_STATE_DIR',
+])
+
+/**
+ * Restore only the trusted session identity fields that DSH's subprocess
+ * service deliberately scrubs from ambient process state. Bearer/token values
+ * are never forwarded; agent-session reads its capability from the private
+ * path after nils validates the managed contract.
+ *
+ * @param {NodeJS.ProcessEnv} environment
+ */
+export function selectManagedSessionEnvironment(environment) {
+  /** @type {Record<string, string>} */
+  const selected = {}
+  for (const name of MANAGED_SESSION_ENVIRONMENT) {
+    const value = environment[name]
+    if (typeof value === 'string' && value.length > 0) selected[name] = value
+  }
+  return Object.keys(selected).length === 0 ? undefined : Object.freeze(selected)
+}
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/
-const DSH_V1_REASON_DISPOSITIONS = new Set(['allow', 'block'])
+const DSH_V1_REASON_DISPOSITIONS = new Set(['allow', 'warn', 'context', 'block'])
 
 /** @typedef {'caller-aborted' | 'timeout' | 'disposed' | 'degraded'} CancellationCause */
 
@@ -214,6 +241,17 @@ function validReason(reason) {
     && DSH_V1_REASON_DISPOSITIONS.has(candidate.disposition)
 }
 
+/** @param {unknown} action */
+function actionRank(action) {
+  switch (action) {
+    case 'allow': return 0
+    case 'warn': return 1
+    case 'context': return 2
+    case 'block': return 3
+    default: return -1
+  }
+}
+
 /** @param {unknown} observation */
 function validShadow(observation) {
   if (observation === null || typeof observation !== 'object') return false
@@ -226,16 +264,16 @@ function validShadow(observation) {
     && candidate.code.length > 0
 }
 
-/** @param {any} decision @param {string} expectedRequestId */
-function validDecision(decision, expectedRequestId) {
+/** @param {any} decision @param {string} expectedRequestId @param {string} expectedEvent */
+function validDecision(decision, expectedRequestId, expectedEvent) {
   if (!(decision !== null
     && typeof decision === 'object'
     && decision.schema_version === 'agent-hook.normalized-decision.v1'
     && typeof decision.request_id === 'string'
     && decision.request_id === expectedRequestId
     && decision.product === 'dsh'
-    && decision.event === 'PreToolUse'
-    && ['allow', 'block'].includes(decision.action)
+    && decision.event === expectedEvent
+    && ['allow', 'warn', 'context', 'block'].includes(decision.action)
     && Array.isArray(decision.reasons)
     && decision.reasons.every(validReason)
     && (decision.action !== 'block' || decision.reasons.length > 0)
@@ -245,22 +283,21 @@ function validDecision(decision, expectedRequestId) {
     && (decision.shadow === undefined
       || (Array.isArray(decision.shadow) && decision.shadow.every(validShadow)))
     && (decision.context === undefined
-      || (decision.action === 'block'
+      || (['warn', 'context', 'block'].includes(decision.action)
         && typeof decision.context === 'string'
         && decision.context.length > 0
         && Buffer.byteLength(decision.context, 'utf8') <= 16 * 1024))
+    && (!['warn', 'context'].includes(decision.action)
+      || typeof decision.context === 'string')
     && decision.replacement === undefined)) return false
 
-  const hasBlockReason = decision.reasons.some(
-    /** @param {Record<string, unknown>} reason */
-    reason => reason.disposition === 'block',
+  const expectedRank = actionRank(decision.action)
+  const reasonRank = decision.reasons.reduce(
+    /** @param {number} highest @param {Record<string, unknown>} reason */
+    (highest, reason) => Math.max(highest, actionRank(reason.disposition)),
+    0,
   )
-  return decision.action === 'block'
-    ? hasBlockReason
-    : !hasBlockReason && decision.reasons.every(
-      /** @param {Record<string, unknown>} reason */
-      reason => reason.disposition === 'allow',
-    )
+  return reasonRank === expectedRank
 }
 
 /** @param {unknown} value */
@@ -284,6 +321,15 @@ function policyTeardownTimeout(value) {
     : DEFAULT_POLICY_TEARDOWN_TIMEOUT_MS
 }
 
+/** @param {unknown} value @param {string} name */
+function optionalAbsolutePath(value, name) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || !isAbsolute(value)) {
+    throw new TypeError(`dsh-runtime-kit: ${name} must be an absolute path`)
+  }
+  return value
+}
+
 /** @param {CancellationCause} cause */
 function cancellationDenial(cause) {
   if (cause === 'caller-aborted') return denial('policy-caller-aborted')
@@ -300,7 +346,7 @@ function cancellationDenial(cause) {
  * sibling operation, so possible survivors can never create reusable capacity.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
+ * @param {{ agentHook?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
  */
 export function createNilsTransport(ctx, config = {}) {
   const command = typeof config.agentHook === 'string' && config.agentHook.length > 0
@@ -309,6 +355,12 @@ export function createNilsTransport(ctx, config = {}) {
   const timeoutMs = policyTimeout(config.policyTimeoutMs)
   const teardownTimeoutMs = policyTeardownTimeout(config.policyTeardownTimeoutMs)
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
+  const agentDocsHome = optionalAbsolutePath(config.agentDocsHome, 'agentDocsHome')
+  const agentDocsStateHome = optionalAbsolutePath(
+    config.agentDocsStateHome,
+    'agentDocsStateHome',
+  ) ?? join(homedir(), '.local/state/dsh-runtime-kit')
+  const managedSessionEnvironment = selectManagedSessionEnvironment(process.env)
   /** @type {Set<ActiveOperation>} */
   const active = new Set()
   let open = true
@@ -374,145 +426,225 @@ export function createNilsTransport(ctx, config = {}) {
 
   ctx.effect(() => dispose, 'dsh-runtime-kit nils transport')
 
+  /**
+   * @param {Record<string, unknown>} ingress
+   * @param {AbortSignal} signal
+   * @param {string} cwd
+   * @param {'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'UserPromptSubmit' | 'Stop'} expectedEvent
+   */
+  async function evaluateIngress(ingress, signal, cwd, expectedEvent) {
+    const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
+    if (!measurement.ok) return denial(`policy-input-${measurement.reason}`)
+    let payload
+    try {
+      payload = JSON.stringify(ingress)
+    } catch {
+      return denial('policy-input-too-complex')
+    }
+    if (Buffer.byteLength(payload, 'utf8') > MAX_POLICY_INPUT_BYTES) {
+      return denial('policy-input-too-large')
+    }
+    const expectedRequestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
+
+    if (!open) return denial(degraded ? 'policy-unavailable' : 'policy-disposed')
+    if (signal.aborted) return denial('policy-caller-aborted')
+    if (active.size >= maxActive) return denial('policy-overloaded')
+
+    let resolveSettled = () => {}
+    /** @type {Promise<void>} */
+    const settled = new Promise(resolve => { resolveSettled = () => resolve() })
+    let resolveCancelled = () => {}
+    /** @type {Promise<void>} */
+    const cancelled = new Promise(resolve => { resolveCancelled = () => resolve() })
+    /** @type {ActiveOperation} */
+    const operation = {
+      controller: new AbortController(),
+      handle: undefined,
+      cause: undefined,
+      cancel: /** @type {ActiveOperation['cancel']} */ ((cause, reason) => {
+        cancelOperation(operation, cause, reason)
+      }),
+      cancelled,
+      resolveCancelled,
+      settled,
+      resolveSettled,
+    }
+    active.add(operation)
+
+    const onCallerAbort = () => operation.cancel('caller-aborted', signal.reason)
+    signal.addEventListener('abort', onCallerAbort, { once: true })
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer
+    try {
+      if (signal.aborted) operation.cancel('caller-aborted', signal.reason)
+      if (!open) operation.cancel('disposed')
+      if (operation.cause !== undefined) return cancellationDenial(operation.cause)
+
+      try {
+        operation.handle = ctx.subprocess.spawn({
+          argv: [command, 'dispatch', '--product', 'dsh', '--format', 'json'],
+          cwd,
+          ...(managedSessionEnvironment === undefined
+            ? {}
+            : { env: managedSessionEnvironment }),
+          stdio: {
+            stdin: { data: payload },
+            stdout: { maxBytes: MAX_POLICY_OUTPUT_BYTES },
+            stderr: { maxBytes: MAX_POLICY_ERROR_BYTES },
+          },
+          graceMs: 1_000,
+          signal: operation.controller.signal,
+        })
+      } catch {
+        return operation.cause === undefined
+          ? denial('policy-unavailable')
+          : cancellationDenial(operation.cause)
+      }
+      const handle = operation.handle
+      if (operation.cause !== undefined) {
+        try { handle.terminate() } catch {}
+      }
+      timer = setTimeout(() => {
+        operation.cancel('timeout', new Error('dsh-runtime-kit policy deadline exceeded'))
+      }, timeoutMs)
+
+      const doneObserved = Promise.resolve(handle.done).then(
+        outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),
+        () => ({ kind: /** @type {const} */ ('done'), outcome: undefined, failed: true }),
+      )
+      const first = await Promise.race([
+        doneObserved,
+        operation.cancelled.then(() => ({
+          kind: /** @type {const} */ ('cancelled'),
+          outcome: undefined,
+          failed: false,
+        })),
+      ])
+      const quiescent = await boundedQuiescence(handle)
+      if (!quiescent) degradeAdmission()
+
+      if (operation.cause !== undefined) return cancellationDenial(operation.cause)
+      if (first.kind !== 'done' || first.failed || first.outcome === undefined || !quiescent) {
+        return denial('policy-unavailable')
+      }
+      const outcome = first.outcome
+
+      const stdout = handle.collected.stdout?.readFrom(0)
+      if (stdout === undefined || stdout.lossy) return denial('policy-output-invalid')
+      let envelope
+      try {
+        envelope = JSON.parse(stdout.text)
+      } catch {
+        return denial('policy-output-invalid')
+      }
+      if (envelope?.schema_version !== 'cli.agent-hook.dispatch.v1'
+        || envelope.ok !== true
+        || !validDecision(envelope.data, expectedRequestId, expectedEvent)) {
+        return denial('policy-output-invalid')
+      }
+
+      const decision = envelope.data
+      if (decision.action === 'block') {
+        return outcome.exitCode === 1 && outcome.signal === null
+          ? { kind: /** @type {const} */ ('deny'), reason: policyReason(decision) }
+          : denial('policy-exit-mismatch')
+      }
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        return denial('policy-exit-mismatch')
+      }
+      return decision.action === 'context' || decision.action === 'warn'
+        ? { kind: /** @type {const} */ ('context'), context: decision.context }
+        : undefined
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      signal.removeEventListener('abort', onCallerAbort)
+      active.delete(operation)
+      operation.resolveSettled()
+    }
+  }
+
   return Object.freeze({
     /**
      * @param {ToolExecution} exec
-     * @param {string} cwd
+     * @param {{sessionId: string, cwd: string, turn: number, step: number}} context
      */
-    async evaluate(exec, cwd) {
-      const ingress = {
-        schema_version: 'agent-hook.dsh-ingress.v1',
+    async evaluate(exec, context) {
+      return evaluateIngress({
+        schema_version: 'agent-hook.dsh-ingress.v2',
         event: 'tools/pre-execute',
         call_id: String(exec.callId),
-        cwd,
+        cwd: context.cwd,
+        subject: {
+          session_id: context.sessionId,
+          turn: context.turn,
+          step: context.step,
+          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_state_home: agentDocsStateHome,
+        },
         tool: {
           name: exec.name,
           arguments: exec.arguments,
         },
+      }, exec.signal, context.cwd, 'PreToolUse')
+    },
+
+    /**
+     * Complete the exact operation lifecycle without forwarding candidate
+     * output. Caller cancellation has already become an observed tool result
+     * at this boundary, so cleanup receives its own signal and remains bounded
+     * by the transport deadline/disposal controls.
+     * @param {ToolExecution} exec
+     * @param {Readonly<import('@deepseek-ai/dsh-tools').ToolExecutionResult>} result
+     * @param {{sessionId: string, cwd: string, turn: number, step: number}} context
+     */
+    async evaluatePost(exec, result, context) {
+      return evaluateIngress({
+        schema_version: 'agent-hook.dsh-ingress.v4',
+        event: 'tools/post-execute',
+        call_id: String(exec.callId),
+        cwd: context.cwd,
+        subject: {
+          session_id: context.sessionId,
+          turn: context.turn,
+          step: context.step,
+          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_state_home: agentDocsStateHome,
+        },
+        tool: {
+          name: exec.name,
+          arguments: exec.arguments,
+        },
+        result: { is_error: result.isError === true },
+      }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse')
+    },
+
+    /**
+     * @param {{event: 'agent/pre-step', prompt: string, sessionStartSource?: string, signal: AbortSignal, context: {sessionId: string, cwd: string, turn: number, step: number}} | {event: 'agent/turn-stopping', signal: AbortSignal, context: {sessionId: string, cwd: string, turn: number}}} request
+     */
+    async evaluateLifecycle(request) {
+      const preStep = request.event === 'agent/pre-step'
+      const ingress = {
+        schema_version: 'agent-hook.dsh-ingress.v3',
+        event: request.event,
+        cwd: request.context.cwd,
+        ...preStep ? { prompt: request.prompt } : {},
+        subject: {
+          session_id: request.context.sessionId,
+          turn: request.context.turn,
+          ...preStep ? { step: request.context.step } : {},
+          ...preStep && request.sessionStartSource !== undefined
+            ? { session_start_source: request.sessionStartSource }
+            : {},
+          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_state_home: agentDocsStateHome,
+        },
       }
-      const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
-      if (!measurement.ok) return denial(`policy-input-${measurement.reason}`)
-      let payload
-      try {
-        payload = JSON.stringify(ingress)
-      } catch {
-        return denial('policy-input-too-complex')
-      }
-      if (Buffer.byteLength(payload, 'utf8') > MAX_POLICY_INPUT_BYTES) {
-        return denial('policy-input-too-large')
-      }
-      const expectedRequestId = `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`
-
-      if (!open) return denial(degraded ? 'policy-unavailable' : 'policy-disposed')
-      if (exec.signal.aborted) return denial('policy-caller-aborted')
-      if (active.size >= maxActive) return denial('policy-overloaded')
-
-      let resolveSettled = () => {}
-      /** @type {Promise<void>} */
-      const settled = new Promise(resolve => { resolveSettled = () => resolve() })
-      let resolveCancelled = () => {}
-      /** @type {Promise<void>} */
-      const cancelled = new Promise(resolve => { resolveCancelled = () => resolve() })
-      /** @type {ActiveOperation} */
-      const operation = {
-        controller: new AbortController(),
-        handle: undefined,
-        cause: undefined,
-        cancel: /** @type {ActiveOperation['cancel']} */ ((cause, reason) => {
-          cancelOperation(operation, cause, reason)
-        }),
-        cancelled,
-        resolveCancelled,
-        settled,
-        resolveSettled,
-      }
-      active.add(operation)
-
-      const onCallerAbort = () => operation.cancel('caller-aborted', exec.signal.reason)
-      exec.signal.addEventListener('abort', onCallerAbort, { once: true })
-      /** @type {ReturnType<typeof setTimeout> | undefined} */
-      let timer
-      try {
-        if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
-        if (!open) operation.cancel('disposed')
-        if (operation.cause !== undefined) return cancellationDenial(operation.cause)
-
-        try {
-          operation.handle = ctx.subprocess.spawn({
-            argv: [command, 'dispatch', '--product', 'dsh', '--format', 'json'],
-            cwd,
-            stdio: {
-              stdin: { data: payload },
-              stdout: { maxBytes: MAX_POLICY_OUTPUT_BYTES },
-              stderr: { maxBytes: MAX_POLICY_ERROR_BYTES },
-            },
-            graceMs: 1_000,
-            signal: operation.controller.signal,
-          })
-        } catch {
-          return operation.cause === undefined
-            ? denial('policy-unavailable')
-            : cancellationDenial(operation.cause)
-        }
-        const handle = operation.handle
-        if (operation.cause !== undefined) {
-          try { handle.terminate() } catch {}
-        }
-        timer = setTimeout(() => {
-          operation.cancel('timeout', new Error('dsh-runtime-kit policy deadline exceeded'))
-        }, timeoutMs)
-
-        const doneObserved = Promise.resolve(handle.done).then(
-          outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),
-          () => ({ kind: /** @type {const} */ ('done'), outcome: undefined, failed: true }),
-        )
-        const first = await Promise.race([
-          doneObserved,
-          operation.cancelled.then(() => ({
-            kind: /** @type {const} */ ('cancelled'),
-            outcome: undefined,
-            failed: false,
-          })),
-        ])
-        const quiescent = await boundedQuiescence(handle)
-        if (!quiescent) degradeAdmission()
-
-        if (operation.cause !== undefined) return cancellationDenial(operation.cause)
-        if (first.kind !== 'done' || first.failed || first.outcome === undefined || !quiescent) {
-          return denial('policy-unavailable')
-        }
-        const outcome = first.outcome
-
-        const stdout = handle.collected.stdout?.readFrom(0)
-        if (stdout === undefined || stdout.lossy) return denial('policy-output-invalid')
-        let envelope
-        try {
-          envelope = JSON.parse(stdout.text)
-        } catch {
-          return denial('policy-output-invalid')
-        }
-        if (envelope?.schema_version !== 'cli.agent-hook.dispatch.v1'
-          || envelope.ok !== true
-          || !validDecision(envelope.data, expectedRequestId)) {
-          return denial('policy-output-invalid')
-        }
-
-        const decision = envelope.data
-        if (decision.action === 'block') {
-          return outcome.exitCode === 1 && outcome.signal === null
-            ? { kind: /** @type {const} */ ('deny'), reason: policyReason(decision) }
-            : denial('policy-exit-mismatch')
-        }
-        if (outcome.exitCode !== 0 || outcome.signal !== null) {
-          return denial('policy-exit-mismatch')
-        }
-        return undefined
-      } finally {
-        if (timer !== undefined) clearTimeout(timer)
-        exec.signal.removeEventListener('abort', onCallerAbort)
-        active.delete(operation)
-        operation.resolveSettled()
-      }
+      return evaluateIngress(
+        ingress,
+        request.signal,
+        request.context.cwd,
+        preStep ? 'UserPromptSubmit' : 'Stop',
+      )
     },
 
     dispose,

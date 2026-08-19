@@ -125,6 +125,27 @@ test('public skill instructions do not route through retired agent runtimes', ()
   assert.deepEqual(violations, [])
 })
 
+test('code review routes quick, focused, specialist, and red-team work through the native tool', () => {
+  const content = readFileSync(join(skillsRoot, 'code-review-specialists', 'SKILL.md'), 'utf8')
+  for (const marker of [
+    '**Quick**',
+    '**Focused**',
+    '**Specialist**',
+    '`reviewer-quick`',
+    '`reviewer-testing`',
+    '`reviewer-maintainability`',
+    '`reviewer-red-team`',
+    '`review_specialists`',
+    '`task` and `roles`',
+  ]) {
+    assert.match(content, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.match(content, /include `reviewer-red-team` in the same call/i)
+  assert.match(content, /runs it only after the first wave/i)
+  assert.doesNotMatch(content, /Select one canonical role per call/)
+  assert.doesNotMatch(content, /\b(?:quick|testing|security|red-team)\b[^\n]*role per call/i)
+})
+
 test('the public skill artifact contains no named private profile', () => {
   const violations = []
   for (const relative of collectFiles(skillsRoot)) {
@@ -208,10 +229,20 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
     validation: 'source-validated',
     contracts: [
       'agent-hook.dsh-ingress.v1',
+      'agent-hook.dsh-ingress.v2',
+      'agent-hook.dsh-ingress.v3',
+      'agent-hook.dsh-ingress.v4',
+      'agent-hook.policy.v1',
+      'dsh.policy.v1',
       'cli.agent-hook.dispatch.v1',
       'agent-hook.normalized-decision.v1',
     ],
-    source_task: 'sympoies/nils-cli task 1.3',
+    source_tasks: [
+      'sympoies/nils-cli task 1.3',
+      'sympoies/nils-cli task 3.2',
+      'sympoies/nils-cli task 3.3',
+      'sympoies/nils-cli task 3.4',
+    ],
   })
   assert.deepEqual(
     manifest.commands.find(command => command.id === 'agent-docs.session.context.dsh'),
@@ -226,6 +257,36 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
         'agent-docs.session.v2',
       ],
       source_task: 'sympoies/nils-cli task 2.2',
+    },
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-hook.finish-line.dsh'),
+    {
+      id: 'agent-hook.finish-line.dsh',
+      binary: 'agent-hook',
+      status: 'pending-release',
+      validation: 'source-validated',
+      contracts: [
+        'agent-hook.finish-line.open.v1',
+        'cli.agent-hook.finish-line-open.v1',
+        'agent-hook.finish-line.open-result.v1',
+        'agent-hook.finish-line.begin.v1',
+        'cli.agent-hook.finish-line-begin.v1',
+        'agent-hook.finish-line.begin-result.v1',
+        'agent-hook.finish-line.run.v1',
+        'cli.agent-hook.finish-line-run.v1',
+        'agent-hook.finish-line.run-result.v1',
+        'agent-hook.finish-line.stop.v1',
+        'cli.agent-hook.finish-line-stop.v1',
+        'agent-hook.finish-line.stop-result.v1',
+        'agent-hook.finish-line.quiesce.v1',
+        'cli.agent-hook.finish-line-quiesce.v1',
+        'agent-hook.finish-line.quiesce-result.v1',
+        'agent-hook.finish-line.release.v1',
+        'cli.agent-hook.finish-line-release.v1',
+        'agent-hook.finish-line.release-result.v1',
+      ],
+      source_task: 'sympoies/nils-cli task 2.3',
     },
   )
 })

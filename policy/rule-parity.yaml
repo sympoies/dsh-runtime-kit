@@ -1,0 +1,1198 @@
+schema_version: dsh-runtime-kit.rule-parity.v1
+source:
+  repository: https://github.com/sympoies/agent-runtime-kit
+  commit: 79d6b93f9df812e9cfd151ee03fc3d0ce44a0081
+  manifest: manifests/hook-rules.yaml
+  manifest_schema: agent-runtime-kit.hook-rules.v1
+  manifest_sha256: 5a7a571152fb1397b4243cb50c25a0812792a31bd3492a3e7d29a347f121849e
+  legacy_registrations: tests/agent-hook/fixtures/legacy-registrations.tsv
+  legacy_registrations_sha256: 4be983272a04c8d151d618847d997650506fcdea488404e8e91ca33b522b2452
+  counts:
+    rules: 101
+    handler_capability_registrations: 69
+    handler_ids: 22
+    legacy_registrations: 67
+    legacy_handler_ids: 21
+capability_groups:
+  - id: execution-read-only
+    disposition: dsh-native
+    migration_task: "2.1"
+    status: implemented
+    source_keys:
+      - reason:read-only-capability
+    implementation_owner: dsh-runtime-kit:src/policy/index.js#applyPolicy
+    test_owners:
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#pre-body-policy-admission
+    stronger_replacement: Every DSH tool crosses the monotonic nils pre-execute gate; the legacy shadow-only Bash observation is no longer an enforcement boundary.
+  - id: agent-activity
+    disposition: nils-capability
+    migration_task: "3.4"
+    status: implemented
+    source_keys:
+      - reason:agent-activity
+    implementation_owner: nils-cli:crates/agent-hook/src/policy_parity.rs#agent-activity
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/policy_parity.rs#agent-activity
+  - id: owner-unclaimed
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - reason:foreign-writer-liveness
+    implementation_owner: nils-cli:crates/agent-hook/src/evaluator.rs#dsh-owner-unclaimed
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#dsh-coordination-groups
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: semantic-conflict
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - reason:semantic-conflict
+    implementation_owner: nils-cli:crates/agent-hook/src/liveness.rs#derive-dsh-semantic-conflict
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#dsh-coordination-groups
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: operation-lifecycle
+    disposition: nils-capability
+    migration_task: "3.4"
+    status: implemented
+    source_keys:
+      - reason:operation-lifecycle
+    implementation_owner: nils-cli:crates/agent-hook/src/policy_parity.rs#operation-lifecycle
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/policy_parity.rs#operation-lifecycle
+  - id: agent-scope-lock-guard
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:agent-scope-lock-guard
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#agent-scope-lock-guard
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#scope-lock-adapter
+      - nils-cli:crates/agent-scope-lock/tests/integration/cli.rs#validate-scope
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: block-claude-coauthor-trailer
+    disposition: provider-obsolete
+    migration_task: "3.1"
+    status: retired
+    source_keys:
+      - handler:block-claude-coauthor-trailer
+    implementation_owner: null
+    test_owners: []
+    replacement_groups:
+      - block-direct-git-commit
+      - semantic-commit-body-gate
+    retirement_evidence: DSH is not Claude Code and does not synthesize a Claude coauthor trailer. Generic direct-commit denial and semantic-commit message enforcement retain the provider-independent Git invariants.
+  - id: block-direct-git-commit
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:block-direct-git-commit
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-direct-git-commit
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#block-direct-git-commit
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: block-direct-git-worktree
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:block-direct-git-worktree
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-direct-git-worktree
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#block-direct-git-worktree
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: block-direct-pr-create
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:block-direct-pr-create
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-direct-pr-create
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#block-direct-pr-create
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: block-direct-python
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:block-direct-python
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-direct-python
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#block-direct-python
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: block-project-memory-write
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:block-project-memory-write
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-project-memory-write
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-tool-policies
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: block-unsafe-default-delivery
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:block-unsafe-default-delivery
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#block-unsafe-default-delivery
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#unsafe-default-delivery
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: checkout-lease-guard
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:checkout-lease-guard
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#checkout-lease-guard
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#checkout-lease-guard
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: finish-line-record
+    disposition: nils-capability
+    migration_task: "2.3"
+    status: implemented
+    source_keys:
+      - handler:finish-line-record
+      - handler:stop-finish-line-gate
+    implementation_owner: nils-cli:crates/agent-hook/src/finish_line.rs
+    test_owners:
+      - dsh-runtime-kit:test/finish-line.test.mjs
+      - nils-cli:crates/agent-hook/tests/finish_line.rs
+    stronger_replacement: Nils executes and records every foreground Bash outcome inside a contained runner, while DSH stop admission consumes only current authoritative evidence.
+  - id: forge-label-reminder
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:forge-label-reminder
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#forge-label-reminder
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-tool-policies
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: mcp-secret-scan
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:mcp-secret-scan
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#mcp-secret-scan
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-privacy-corpus
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: memory-write-principle-reminder
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:memory-write-principle-reminder
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#memory-write-principle-reminder
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-tool-policies
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: portable-paths-scan
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:portable-paths-scan
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#portable-paths-scan
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-privacy-corpus
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: pre-edit-intent-gate
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:pre-edit-intent-gate
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#pre-edit-intent-gate
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#pre-edit-intent-gate
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: semantic-commit-body-gate
+    disposition: nils-capability
+    migration_task: "3.2"
+    status: implemented
+    source_keys:
+      - handler:semantic-commit-body-gate
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#semantic-commit-body-gate
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#semantic-commit-body-gate
+      - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
+  - id: session-start-healthcheck
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:session-start-healthcheck
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#session-start-healthcheck
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-session-health
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: skill-usage-reminder
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:skill-usage-reminder
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#skill-usage-reminder
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-lifecycle
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: stop-pre-pr-reminder
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:stop-pre-pr-reminder
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#stop-pre-pr-reminder
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-pre-pr
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+  - id: runtime-context
+    disposition: dsh-native
+    migration_task: "2.2"
+    status: implemented
+    source_keys:
+      - handler:user-prompt-agent-docs
+    implementation_owner: dsh-runtime-kit:src/context/index.js#createRuntimeContextTool
+    test_owners:
+      - dsh-runtime-kit:test/context.test.mjs
+    stronger_replacement: DSH loads no policy corpus at session start; the model requests one bounded nils-owned project-dev context through the native runtime_context tool.
+  - id: user-prompt-agent-memory
+    disposition: nils-capability
+    migration_task: "3.3"
+    status: implemented
+    source_keys:
+      - handler:user-prompt-agent-memory
+    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#user-prompt-agent-memory
+    test_owners:
+      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-startup-memory
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+rules:
+  - id: runtime.shared.pre-tool-use.bash.read-only-shadow
+    products:
+      - codex
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:read-only-capability
+    legacy: false
+    source_digest: 5d77f098bc0c8ce04cdd35e46b13e6e9fc4741279c8adf35801ea51b2dbcb44e
+  - id: runtime.codex.pre-tool-use.bash.pre-edit-intent-gate
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:pre-edit-intent-gate
+    legacy: true
+    source_digest: 3b82873dc9c103b0bcae91c2e2de504447f5b3ae772156a30fa9462b5a7f9f18
+  - id: runtime.codex.pre-tool-use.bash.checkout-lease-guard
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: cfc729cdfe3f53481eace07c2b6f0a16ac5390d137abc917d6316a29e9684279
+  - id: runtime.codex.pre-tool-use.bash.block-direct-git-commit
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-git-commit
+    legacy: true
+    source_digest: 8c9db61e178c9d5764f8a4070d310c2d1f00556d1263743580fc901357c0f456
+  - id: runtime.codex.pre-tool-use.bash.block-unsafe-default-delivery
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-unsafe-default-delivery
+    legacy: true
+    source_digest: ebf9968707bd4ed2cbfc6c13a6de4ba307501e0f4c3548e02cdadf67ba206043
+  - id: runtime.codex.pre-tool-use.bash.block-direct-git-worktree
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-git-worktree
+    legacy: true
+    source_digest: 8d229a398c7a80e583a36b8b9be1d449e29e605b0a6e16fa9f563ef08ab85add
+  - id: runtime.codex.pre-tool-use.bash.semantic-commit-body-gate
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:semantic-commit-body-gate
+    legacy: true
+    source_digest: fda66bc42c5dcaa96eeba89984cc153a3b9056e4f885590503b376fc447ee824
+  - id: runtime.codex.pre-tool-use.bash.block-direct-python
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-python
+    legacy: true
+    source_digest: c1a18b855e30930cc0fc0429fdba5f4020c1f7b86f2623cdbf6fba286c7fa581
+  - id: runtime.codex.pre-tool-use.bash.mcp-secret-scan
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:mcp-secret-scan
+    legacy: true
+    source_digest: 7714a0d09971b7112322508532d67df15d342e191e7191d93566d179bc2616d7
+  - id: runtime.codex.pre-tool-use.bash.block-project-memory-write
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-project-memory-write
+    legacy: true
+    source_digest: 3a2f2e25c4706ea51a52be18c4237d5ff1c0d5b56c6667fbf1b8fe74ee9e62b6
+  - id: runtime.codex.pre-tool-use.bash.memory-write-principle-reminder
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:memory-write-principle-reminder
+    legacy: true
+    source_digest: d0d637f55b6b0d2e4ba963b06f22646b987697b493b6b69b2739e15b4e7370c6
+  - id: runtime.codex.pre-tool-use.bash.portable-paths-scan
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:portable-paths-scan
+    legacy: true
+    source_digest: 2898de8e68f15486dd6dc58a248f68238dd930036478dcf4ff7c609abfee5523
+  - id: runtime.codex.pre-tool-use.bash.block-direct-pr-create
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-pr-create
+    legacy: true
+    source_digest: 93d40a7c449b12a41366bda6062162143a990bb4024d91cad80ec2c04efbcf11
+  - id: runtime.codex.pre-tool-use.bash.forge-label-reminder
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:forge-label-reminder
+    legacy: true
+    source_digest: 9ca33586a790ed6fabbd53b06081b6d3ca9247cb4e667c0675ec78a1fdbdf809
+  - id: runtime.codex.pre-tool-use.bash.finish-line-record
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:finish-line-record
+    legacy: true
+    source_digest: 59f6e26ab507654331ccbdcd7d1209c253c474a7d344fc3d23fc4c635b8c5e97
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.block-project-memory-write
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:block-project-memory-write
+    legacy: true
+    source_digest: 4765e5e553bcf5a803bd5427515c7e3e3e16f61e2ce62343137650a75b7636d2
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.memory-write-principle-reminder
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:memory-write-principle-reminder
+    legacy: true
+    source_digest: 85b60c8a4cafd61a43ec1fd334717ecc3c11c3f788f28a6345d3006b2be03f81
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.mcp-secret-scan
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:mcp-secret-scan
+    legacy: true
+    source_digest: 8215c5b331a23278e57e1f3b97a3474e1df45d5251de22c7f774d2f48cc211b8
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.portable-paths-scan
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:portable-paths-scan
+    legacy: true
+    source_digest: 94e352b3a5ac7c35dfd0dc8f43d583bda3dcc089889de3fec9ee1ab976ac4e80
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.agent-scope-lock-guard
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:agent-scope-lock-guard
+    legacy: true
+    source_digest: 6f4bf7cb6b67b7f3abdcbbcb00216650d2ce503ac3fdb5e22ffe7cd4cf4223cc
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.pre-edit-intent-gate
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:pre-edit-intent-gate
+    legacy: true
+    source_digest: 470f894ba8cf95a9ffd30d35d284ab60d04b46bb79b6a8e66075d80c6dd2b279
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.checkout-lease-guard
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: c082b1696951fb88ab16174a075def840d8489b04213f276a341bf77be00376c
+  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.finish-line-record
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: handler:finish-line-record
+    legacy: true
+    source_digest: 01d8cc5deab913b388ffee8ddcf7bf25b9b777c30a426b1425e65a4ee02db3f4
+  - id: runtime.codex.user-prompt-submit.all.user-prompt-agent-docs
+    products:
+      - codex
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:user-prompt-agent-docs
+    legacy: true
+    source_digest: 0823b3aab4b7a570bcc4c4e7dd4123b3c7c3ca11d9c69165c87f9ca9ee082fd3
+  - id: runtime.codex.user-prompt-submit.all.checkout-lease-guard
+    products:
+      - codex
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: af98aa86686b91556c26636cab92ca7e8cd555bc64a251df680bd199ba0b4e51
+  - id: runtime.codex.session-start.startup-resume-clear.user-prompt-agent-memory
+    products:
+      - codex
+    events:
+      - SessionStart
+    matcher: startup|resume|clear
+    source_key: handler:user-prompt-agent-memory
+    legacy: false
+    source_digest: fb092a6a7dff1de32a080c048c99ec5dea011ad8e48b2aac01ab9cbc254439c5
+  - id: runtime.codex.user-prompt-submit.all.skill-usage-reminder
+    products:
+      - codex
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:skill-usage-reminder
+    legacy: true
+    source_digest: 3763ee4496874b7ef65fcd4f0b78bdf6242c81ecaab69f265001f152c08e4bce
+  - id: runtime.codex.session-start.startup-resume-clear.session-start-healthcheck
+    products:
+      - codex
+    events:
+      - SessionStart
+    matcher: startup|resume|clear
+    source_key: handler:session-start-healthcheck
+    legacy: true
+    source_digest: 2ae5a2e23a4fea0c32f6d5f8ff681930b18fa4433aa6c4a5e0efb9eb3e7a4e3b
+  - id: runtime.codex.stop.all.stop-pre-pr-reminder
+    products:
+      - codex
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:stop-pre-pr-reminder
+    legacy: true
+    source_digest: da8e9053f69cea5bd63e6dd536fa017e4319142ef2b5ab9b9a090801f0ac8ff1
+  - id: runtime.codex.stop.all.agent-scope-lock-guard
+    products:
+      - codex
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:agent-scope-lock-guard
+    legacy: true
+    source_digest: 3b2b322470ba5063f3859da3f128e8e345189fb2789e5cd11b61dff04997f04e
+  - id: runtime.codex.stop.all.checkout-lease-guard
+    products:
+      - codex
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: 624b13de5fd3c8a1ad8e4043582dfd32d94fd17c93fa311e4eddd69e7de1efbd
+  - id: runtime.codex.stop.all.stop-finish-line-gate
+    products:
+      - codex
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:stop-finish-line-gate
+    legacy: true
+    source_digest: 15d3d5fb5cef1362c9fb9642b3ba8393d0a282cec520648e86ab8dd5eca6fe43
+  - id: runtime.claude.user-prompt-submit.all.user-prompt-agent-docs
+    products:
+      - claude
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:user-prompt-agent-docs
+    legacy: true
+    source_digest: b4004446035b508e634c441836f096fb28ddf3a8ded28645f8746a0df575d0ba
+  - id: runtime.claude.user-prompt-submit.all.checkout-lease-guard
+    products:
+      - claude
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: 07288812fc3e9b8764733a815de3a2ab4dc7bb3c4439d7d48817c5f0cd8a9565
+  - id: runtime.claude.session-start.startup-resume-clear.user-prompt-agent-memory
+    products:
+      - claude
+    events:
+      - SessionStart
+    matcher: startup|resume|clear
+    source_key: handler:user-prompt-agent-memory
+    legacy: false
+    source_digest: ecc39e7eb79cc1ad620232c65274928e1a815b85478359574ea8ac522437b60c
+  - id: runtime.claude.user-prompt-submit.all.skill-usage-reminder
+    products:
+      - claude
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: handler:skill-usage-reminder
+    legacy: true
+    source_digest: 050023c7fd79c9073244a8e966f14eb59612f1b8fffeacae104731644bb8f451
+  - id: runtime.claude.stop.all.stop-pre-pr-reminder
+    products:
+      - claude
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:stop-pre-pr-reminder
+    legacy: true
+    source_digest: cb448df0db22ade7bd97179abe3881273740b91716ea1425e24fa75c2913b10e
+  - id: runtime.claude.stop.all.agent-scope-lock-guard
+    products:
+      - claude
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:agent-scope-lock-guard
+    legacy: true
+    source_digest: de3d7b261a6c010f32c5b875cc9057bec92cffbff849829e7ffb4d52ea766870
+  - id: runtime.claude.stop.all.checkout-lease-guard
+    products:
+      - claude
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: e4302fbb48cf1914f117e370355d282eb95411b1cd767bd9f286c5e59b0b63e2
+  - id: runtime.claude.stop.all.stop-finish-line-gate
+    products:
+      - claude
+    events:
+      - Stop
+    matcher: null
+    source_key: handler:stop-finish-line-gate
+    legacy: true
+    source_digest: 57c1a9cc94a36000cf8263350afb1f04e1e26d1cb62062358c5744bd544ad6f5
+  - id: runtime.claude.session-start.startup-resume-clear.session-start-healthcheck
+    products:
+      - claude
+    events:
+      - SessionStart
+    matcher: startup|resume|clear
+    source_key: handler:session-start-healthcheck
+    legacy: true
+    source_digest: e3f43dec40df533d520bf03bcd93ef9006fd958248b79a3a02b04d116bdf439d
+  - id: runtime.claude.pre-tool-use.bash.pre-edit-intent-gate
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:pre-edit-intent-gate
+    legacy: true
+    source_digest: 3e6a08a7a30ee00ea5ea5e05164a7c9a79ee676d585e157832b3f8f2c267bb54
+  - id: runtime.claude.pre-tool-use.bash.checkout-lease-guard
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: cd78ddd687204ad144c74c42d862c09625fbf15715ab1316ee0b0a1494929a9b
+  - id: runtime.claude.pre-tool-use.bash.block-direct-git-commit
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-git-commit
+    legacy: true
+    source_digest: 7b1a8b2d95096718dc3557582445955f5a7a251fa698bc78561e81547148caf8
+  - id: runtime.claude.pre-tool-use.bash.block-unsafe-default-delivery
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-unsafe-default-delivery
+    legacy: true
+    source_digest: 604712080ca802c91c752f6d9556f8303117772d403aabee3781dca35c346e76
+  - id: runtime.claude.pre-tool-use.bash.block-direct-git-worktree
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-git-worktree
+    legacy: true
+    source_digest: 82c1d8a485906443d2d9994419593bdc0b59d6a05de3073590b2a282dac05c20
+  - id: runtime.claude.pre-tool-use.bash.semantic-commit-body-gate
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:semantic-commit-body-gate
+    legacy: true
+    source_digest: f80e70e4998a0b629c9a5585c90000b8f520615b9259a76b8f86137045a62823
+  - id: runtime.claude.pre-tool-use.bash.block-claude-coauthor-trailer
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-claude-coauthor-trailer
+    legacy: true
+    source_digest: 2138ed6e93babb622b0dcda3ebfd21fae48aa6d12662bc27f6624b55db38628f
+  - id: runtime.claude.pre-tool-use.bash.block-direct-pr-create
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-pr-create
+    legacy: true
+    source_digest: 52ccedcbcc0db28ee2249c411344170158a5fc6cf1ad45ff478d7a16f495000f
+  - id: runtime.claude.pre-tool-use.bash.forge-label-reminder
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:forge-label-reminder
+    legacy: true
+    source_digest: dd1c2baa6c223c00ceb832ca9441e16ad4a4af5fa691c804583fabb9c1f85905
+  - id: runtime.claude.pre-tool-use.bash.block-direct-python
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-direct-python
+    legacy: true
+    source_digest: 0558c49ed1b308f920122128ed61e8a4815d0995788a12bcc78afe349d640820
+  - id: runtime.claude.pre-tool-use.bash.mcp-secret-scan
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:mcp-secret-scan
+    legacy: true
+    source_digest: 59988709075fa722d68c40988fa4e5d0f9c9cc116e5929ae51840fe13282d379
+  - id: runtime.claude.pre-tool-use.bash.block-project-memory-write
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:block-project-memory-write
+    legacy: true
+    source_digest: 7d73a10aaf41e78072a607bd789fbd8d7d02dd98477ca0e88666957492fd10ad
+  - id: runtime.claude.pre-tool-use.bash.memory-write-principle-reminder
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:memory-write-principle-reminder
+    legacy: true
+    source_digest: bd8882c457870a83b88f3a66627e11eb9ef65b4a31b500c63f5d81d3d55711b2
+  - id: runtime.claude.pre-tool-use.bash.portable-paths-scan
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:portable-paths-scan
+    legacy: true
+    source_digest: 6d941aa120211633c1850554e5742358fca2f75a7fe2b346c8e505f08fa4b806
+  - id: runtime.claude.pre-tool-use.bash.finish-line-record
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: handler:finish-line-record
+    legacy: true
+    source_digest: d86377c840408f19df324250798bba79710a57a6b3d06bfd5553de44229ac22f
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.mcp-secret-scan
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:mcp-secret-scan
+    legacy: true
+    source_digest: c9e1e81dac256c24c40fbd58b88adc866ac1e668f04d94f937ca651f5d85c9f0
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.block-project-memory-write
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:block-project-memory-write
+    legacy: true
+    source_digest: 820ccdb4f9a1a9e3211c49401be2c93b5b813f4121d9a9f7d52819cb34bc3d30
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.memory-write-principle-reminder
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:memory-write-principle-reminder
+    legacy: true
+    source_digest: 9a0c69b6b3c1a8471829443026bc102f41f9a04e0628e481501c10d4453366a5
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.agent-scope-lock-guard
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:agent-scope-lock-guard
+    legacy: true
+    source_digest: 48f2c427338e536490efb095038ae62d48c3c3e50e247ef9e8bfd18c21439677
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.portable-paths-scan
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:portable-paths-scan
+    legacy: true
+    source_digest: 0b75e9548271a0c8db94b67d4f7f0f889cf75e54450a0d64fe35369baa9d2e36
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.pre-edit-intent-gate
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:pre-edit-intent-gate
+    legacy: true
+    source_digest: 28886ce6d43d713989792a540a889dcf799db2e4ecc1dfda10f0badf8914f3f5
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.checkout-lease-guard
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: 7392b4323ab66571702d7ae3cff542c52c074bace53e29aecc4011ae3263932a
+  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.finish-line-record
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: handler:finish-line-record
+    legacy: true
+    source_digest: 96d88fdd900ec11906bcb13f3a4387e5ef1757375a0c8f4464a9a22c6c6a54ac
+  - id: runtime.claude.pre-tool-use.multi-edit.block-project-memory-write
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:block-project-memory-write
+    legacy: true
+    source_digest: 01eac4e7366a28ce23641b8b3456a2f46325c20afedbe9b42bd447737beeaeca
+  - id: runtime.claude.pre-tool-use.multi-edit.memory-write-principle-reminder
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:memory-write-principle-reminder
+    legacy: true
+    source_digest: 801a68b532f3406bf780c751a651966a1fcdbb4bf2f6c7724880b838eea33fd7
+  - id: runtime.claude.pre-tool-use.multi-edit.agent-scope-lock-guard
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:agent-scope-lock-guard
+    legacy: true
+    source_digest: f502d7647b2ebe0d4a8ba53c92652f55ef865e8b918217b87c05e95c67d9ede3
+  - id: runtime.claude.pre-tool-use.multi-edit.pre-edit-intent-gate
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:pre-edit-intent-gate
+    legacy: true
+    source_digest: 31b3608bd3bf79273feb22f726eac84fc16e883d990073de94e7c8d638c35d6c
+  - id: runtime.claude.pre-tool-use.multi-edit.checkout-lease-guard
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:checkout-lease-guard
+    legacy: true
+    source_digest: d95c5767448db620eca540dce76642b55f912d14aec8c12b7c2bebc351b57d5a
+  - id: runtime.claude.pre-tool-use.multi-edit.finish-line-record
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:finish-line-record
+    legacy: true
+    source_digest: 3c554698500553d4ef4e845c297aae229210907d2e552238991484f853583ff8
+  - id: coord.activity.prompt-stop
+    products:
+      - codex
+      - claude
+    events:
+      - UserPromptSubmit
+      - Stop
+    matcher: null
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 7ec338a225de047c188e4c14a58160db82332350d2ad3fa7b22adc87bde2aac0
+  - id: coord.claude.stop-failure.activity
+    products:
+      - claude
+    events:
+      - StopFailure
+    matcher: null
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 6a7232d6ca3a777c50b6fc5f2e1ffaba664344baea1d1a87a291a69fafba5b51
+  - id: coord.claude.notification.activity
+    products:
+      - claude
+    events:
+      - Notification
+    matcher: agent_needs_input|idle_prompt
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: cc55f440a465b1869f93b2e974f5ac01a57a6225d489682c2787e5ba1103ca90
+  - id: coord.claude.permission-request.activity
+    products:
+      - claude
+    events:
+      - PermissionRequest
+    matcher: null
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: ed10e1db8455ef2933a013c5cca68d66388d9494d9d346877653047cd028ecfb
+  - id: coord.claude.pre-tool-use.ask-user-question.activity
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: AskUserQuestion
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 7eefbf2cc83bc643f396a36d8bb9e53da3d9fc91acf67e05bf6bf8ffc0a43a2e
+  - id: coord.claude.post-tool.ask-user-question.activity
+    products:
+      - claude
+    events:
+      - PostToolUse
+      - PostToolUseFailure
+    matcher: AskUserQuestion
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 9102a0bd2b92ce1a5802c73d97c771d5002f9327d357d626ef15acc3dfb7257a
+  - id: coord.activity.session-start
+    products:
+      - codex
+      - claude
+    events:
+      - SessionStart
+    matcher: startup|resume|clear
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: ecf56713ee2ef310e366c61f771c8c4813f242ede61f11458337a4b2bf45c9bc
+  - id: coord.codex.pre-tool-use.bash.activity
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: c6f9207232c15700462427342dcc89f30fb1483e55fbc6fb3a6daa05d78eefd6
+  - id: coord.codex.pre-tool-use.bash.semantic-conflict
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: a5a0bf83de184eee9e47efdc7607499744a1412f5d6e79a1df466ecca7801875
+  - id: coord.codex.pre-tool-use.bash.owner-liveness
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:foreign-writer-liveness
+    legacy: false
+    source_digest: 5acecec333666084951159ac1c3ac38a9329a55cc1f816602b6e7479d674f2a2
+  - id: coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.activity
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 956efbf082c0ee827e0ab393968a1af58aabeb2e343ffeed987a5908bf2f4854
+  - id: coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.semantic-conflict
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: 38bfbdf5b0fadcc3ce783d0aa4dc2e41c2bc5495c7afdb0d77507e764b247d49
+  - id: coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.owner-liveness
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: reason:foreign-writer-liveness
+    legacy: false
+    source_digest: 821d90ccac2cbb7f66f508f4e99c791babf65d151b632535156d4a1b1eafce1f
+  - id: coord.claude.pre-tool-use.bash.activity
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 252e18d264a1e8ef876491c2706bdbfc6b7319df7d5f226d879977603ea634c1
+  - id: coord.claude.pre-tool-use.bash.semantic-conflict
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: 40f38f1ac9a84590bbd1c09371d7320fa51b76f30cea011c387add254a9b7170
+  - id: coord.claude.pre-tool-use.bash.owner-liveness
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:foreign-writer-liveness
+    legacy: false
+    source_digest: 47a5cb4de5184140e9e90b853fba98e9ad8f60da2c5a4468a117d8557b3cde45
+  - id: coord.claude.pre-tool-use.write-edit-notebook-edit.activity
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 26d32aa3bbc7f6d65a7705bd0cd6441b0fc52d89cb91bfb39545142b76c8e1be
+  - id: coord.claude.pre-tool-use.write-edit-notebook-edit.semantic-conflict
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: 46baa0ea5d95841a230a05575ed26d2b8d5035b8e94d63d53a84c2ec40df2864
+  - id: coord.claude.pre-tool-use.write-edit-notebook-edit.owner-liveness
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: reason:foreign-writer-liveness
+    legacy: false
+    source_digest: 2af9124232566baea47f553a789901267c8fd9cff72fdf51fbcd83ddc456fb14
+  - id: coord.claude.pre-tool-use.multi-edit.activity
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: reason:agent-activity
+    legacy: false
+    source_digest: 83ba50569f85d775bbc21d3cafb3690d6e86082b7cc9ad96b37fb1343e388a1e
+  - id: coord.claude.pre-tool-use.multi-edit.semantic-conflict
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: 0e55958082e5004dcd9c1d8d304d3d08f950c529bd1040200e67f87c4aad2624
+  - id: coord.claude.pre-tool-use.multi-edit.owner-liveness
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: reason:foreign-writer-liveness
+    legacy: false
+    source_digest: 56d9ec272b75553a8a66eb4db0f308736ed4699cd36b6bc8f0d0361a0bfa9587
+  - id: coord.semantic-conflict.user-prompt-submit
+    products:
+      - codex
+      - claude
+    events:
+      - UserPromptSubmit
+    matcher: null
+    source_key: reason:semantic-conflict
+    legacy: false
+    source_digest: 412b2d8dc75d098c69c69fa84faebce5aa0df78e40b9ad58dd36a6c6483e1c76
+  - id: coord.codex.pre-tool-use.bash.transaction
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: 325c03e534fb7d054f33f9221f7c532501737e707a5cb20c6436740c09b31bdd
+  - id: coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.transaction
+    products:
+      - codex
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit|apply_patch
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: 4fe5fe55877698f827fcfa2b109152f4e5333d8ff823271dddc0b1a8d73d36d9
+  - id: coord.codex.post-tool.transaction
+    products:
+      - codex
+    events:
+      - PostToolUse
+      - PostToolUseFailure
+    matcher: Bash|Write|Edit|NotebookEdit|apply_patch
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: b161e9f758950478bcf992e6bddd5f1660fdbfb5e627ae131694129771c78238
+  - id: coord.claude.pre-tool-use.bash.transaction
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Bash
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: 9353e450f41bb5b62ee689e1ae3885a8b160612a16049fb90ebeb2b1034e6793
+  - id: coord.claude.pre-tool-use.write-edit-notebook-edit.transaction
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: Write|Edit|NotebookEdit
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: da65794e69e027efd3a35351730e8674659e91c659a9874ae7b89672a09231c8
+  - id: coord.claude.pre-tool-use.multi-edit.transaction
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: e1efd11fc5fd6ff8ddb794982663fb5179c47a61a4564a0156a5796aa71b5456
+  - id: coord.claude.post-tool.transaction
+    products:
+      - claude
+    events:
+      - PostToolUse
+      - PostToolUseFailure
+    matcher: Bash|Write|Edit|NotebookEdit|MultiEdit
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: bc3332d1ded9f7a7fd1417b4b88929c179bc557faa6a3247f49ac654ae7727f0
+  - id: coord.stop.transaction
+    products:
+      - codex
+      - claude
+    events:
+      - Stop
+    matcher: null
+    source_key: reason:operation-lifecycle
+    legacy: false
+    source_digest: e8f876cf89eb9caf4f5a1c5fa296d22b67ce4975fc0f4e244d6f174540575065

@@ -14,3 +14,14 @@
         policyTimeoutMs: 5000
         policyTeardownTimeoutMs: 2000
         maxActivePolicyChecks: 4
+        finishLineTimeoutMs: 5000
+        finishLineTeardownTimeoutMs: 2000
+        maxActiveFinishLineRequests: 4
+        maxSameTurnFinishLineSteers: 2
+        maxActiveReviewers: 4
+        maxQueuedReviewers: 16
+        reviewerTaskMaxBytes: 32768
+        reviewerOutputMaxBytes: 65536
+        reviewerRedTeamContextMaxBytes: 131072
+        reviewerTimeoutMs: 600000
+        reviewerMaxDepth: 2

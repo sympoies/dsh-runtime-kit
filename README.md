@@ -7,16 +7,32 @@ not a copied preset.
 The current implementation contributes one Cordis plugin, the 29 public
 workflow skills, optional private-skill loading, one selective
 `runtime_context({ intent })` tool, and the native DSH probe tool
-`runtime_kit_plus_one`. Its rc.7 adapter correlates the public session-start,
+`runtime_kit_plus_one`. It also exposes one DSH-native
+`review_specialists({ task, roles })` tool backed by eight fixed, server-owned
+read-only reviewer personas. Its rc.7 adapter correlates the public session-start,
 pre-step, pre-tool, post-tool, result, and turn-stop lifecycle boundaries while
-forwarding only `tools/pre-execute` through `agent-hook --product dsh`. Policy
-is evaluated by the shared Rust engine rather than repeated in prompts or
-reimplemented in JavaScript. The probe tool remains deliberately small while
-the remaining policy handlers and reviewer personas are migrated.
+forwarding pre-tool plus pre-step/turn-stop policy and the versioned finish-line
+open, begin, run, and stop boundaries to `agent-hook`. Policy and durable validation state are
+evaluated by the shared Rust engine rather than repeated in prompts or
+reimplemented in JavaScript.
+
+The migration baseline is frozen in `policy/rule-parity.yaml`. It records 101
+source rules, including 69 handler-capability registrations across 22 handler
+IDs; the narrower legacy provider subset is 67 registrations across 21
+handlers because two SessionStart memory rows were later typed additions. Each
+source row resolves uniquely to one nils capability group, a stronger
+DSH-native boundary, or the single provider-obsolete Claude coauthor rule.
+`npm run verify:policy-source -- /path/to/agent-runtime-kit
+/path/to/nils-cli` compares the checked-in digests, all row projections, the
+legacy registration snapshot, and the 23 nils-owned capability group IDs.
 
 ## Current contract
 
 - Installs with `dsh plugin --profile <name> add <package>`.
+- Ships a `dsh-runtime-kit` operations CLI whose mutations are dry-run by
+  default and delegate package changes to that native DSH command. Reviewed
+  applies require the exact plan digest; update, rollback, interruption repair,
+  and remove retain only runtime-kit-owned receipts under `DSH_HOME`.
 - Contributes configuration through `cordis.patch.yml`.
 - Registers tools through the host-provided DSH `tools` service.
 - Registers the packaged `skills/` catalog through DSH's public filesystem
@@ -26,6 +42,29 @@ the remaining policy handlers and reviewer personas are migrated.
   packaged.
 - Preserves DSH precedence: project skills override configured private skills,
   which override bundled public skills.
+- Registers exactly eight reviewer roles behind one schema-stable
+  `review_specialists` tool. The caller supplies only a bounded task and fixed
+  role IDs; persona text, child creation, runtime-global concurrency, result
+  ordering, cancellation, cleanup, structured output, and second-wave
+  red-team context are runtime-owned. Results contain summaries plus one
+  deterministic `findings_jsonl` artifact accepted by nils
+  `review-specialists validate`; model-authored prose is never the finding
+  contract.
+- Creates every reviewer through rc.7's native in-process `spawn` provider in
+  a fresh child context. Quick review runs alone; focused and specialist roles
+  may run in parallel under one semaphore shared by every concurrent tool
+  call. A preselected red-team must accompany a first wave; the runtime also
+  adds it automatically for a structured critical finding, always after
+  bounded first-wave evidence is collected.
+- Authenticates reviewer authority by the exact live child `Agent` published
+  synchronously during the trusted spawn call, not by a session event, role
+  string, prompt, or caller claim. The child receives a final read-only sandbox
+  override and an agent-scoped monotonic tool guard. Repository reads remain
+  available, while Bash, filesystem mutation, code mode, nested calls,
+  delegation, and unknown tools are denied before their body executes. Exact
+  reviewers bypass ordinary edit/finish-line lifecycle evaluation only because
+  that stricter guard owns their entire tool surface; ordinary and forged
+  sessions continue through the full nils policy path.
 - Validates private skills as an owner-controlled POSIX tree, then detaches all
   instructions and resources into a sealed process-local snapshot before
   registration. Changes take effect on the next DSH process; there is no live
@@ -50,8 +89,44 @@ the remaining policy handlers and reviewer personas are migrated.
   without weakening nils session verification.
 - Retains only content-free session/cwd/turn/step/call correlation. Prompt
   messages, raw arguments, subprocess output, and tool result bodies are never
-  stored in lifecycle state, and session/turn/step facts do not expand the
-  strict `agent-hook.dsh-ingress.v1` wire format.
+  stored in lifecycle state. The strict `agent-hook.dsh-ingress.v2` wire binds
+  the exact session/turn/step plus configured absolute agent-docs roots to each
+  pre-tool request. V4 binds the matching post-tool identity and projects only
+  the canonical `is_error` fact; candidate values, content, and errors never
+  cross the nils boundary. V3 binds downstream-accepted pre-step and turn-stop
+  requests, carries at most 64 KiB of user-authored prompt text, and includes a known
+  session-start source only on the first accepted pre-step. Its closed values
+  are the rc.7 `startup`, `resume`, `clear`, and `compact` sources plus the
+  adapter-derived `observed` value for late or hot-reloaded attachment. V1
+  remains a nils compatibility input but is not emitted by this bundle.
+- Loads the packaged `policy/dsh-runtime-kit-v1.toml` Task 3.2 through 3.4 rule set
+  during acceptance. Its first eleven `dsh.policy.v1` capabilities implement ownership,
+  semantic-conflict, scope-lock, checkout-lease, project-dev edit admission,
+  Git/worktree/PR/default-delivery, direct-Python, and semantic-commit-body
+  gates inside nils without executing retired Python handlers. Default-branch
+  identity is pinned in private nils state before Bash or native mutation;
+  metadata drift, ambiguous semantic options, state-changing shell sequences,
+  non-literal push/fetch refspecs, and stdin-driven Git ref updates fail closed
+  while exact recovery and governed nils delivery routes remain available.
+  Nine Task 3.3 capabilities block unsafe MCP/project-memory/machine-path
+  writes and emit bounded, generic label, memory-principle, session-health,
+  skill, startup-memory, and pre-PR context without echoing secret-bearing
+  inputs or bundling private memory. Nils resolves quote-concatenated and
+  destination-directory shell targets, treats unknown writers on protected
+  operands as indeterminate, scans MCP documents and edit fragments for
+  structural credentials, and emits recalled memory only as one escaped JSON
+  string. Task 3.4 emits metadata-only activity and maps native Bash/write/edit/
+  `str_replace_editor` calls to one exact `agent-session` operation lease.
+  Managed mutations admit before the tool, complete from the v4 terminal fact,
+  reauthenticate idempotent terminal retries, and let Stop rely only on
+  capability-authenticated broker counts; fully unmanaged sessions are
+  explicitly no-op, while any partial selector set fails closed. Private retry
+  state is content-free, mode-checked, capacity-bounded, and compacted by a
+  durable monotonic terminal sequence.
+  The frozen 101-row parity inventory now has no planned active group: every
+  row resolves to one of 25 implemented groups or the single provider-obsolete
+  retirement. The production policy and package tree contain no retired
+  handler rule or executable.
 - Binds both allow and deny policy evaluations to DSH's opaque execution token,
   exact Agent, Session, and deep-frozen argument object, and live lifecycle
   correlation. Parent execution token and cancellation signal references are
@@ -62,9 +137,104 @@ the remaining policy handlers and reviewer personas are migrated.
   cannot skip policy, a later pre-execute listener cannot substitute an
   unevaluated payload, and an outer pre-execute waterfall cannot reverse an
   authoritative nils denial.
-- Treats `tools/post-execute` as a non-authoritative candidate boundary and
-  `tools/result` as the authoritative final outcome. A stale or mismatched
-  post-tool identity blocks through the public rc.7 `PostToolDecision` contract.
+- Treats `tools/post-execute` as the operation-completion boundary while
+  `tools/result` remains the authoritative model-facing outcome. Before the
+  downstream post waterfall, v4 sends nils only the correlated error bit. A
+  stale, mismatched, or unreconciled identity blocks through the public rc.7
+  `PostToolDecision` contract; no candidate body is forwarded.
+  A nils tool reminder is attached exactly once through the accepted result's
+  native `additionalContexts`; it never alters admission identity.
+- Delivers session health, skill, and startup-memory context only after an
+  accepted rc.7 `agent/pre-step`, with constant-space per-session deduplication.
+  A downstream rejection does not transmit the proposal or prompt to nils.
+  Concurrent proposals for the same position share one provisional decision;
+  a contender retries evaluation if the owner does not enter, so no accepted
+  step can bypass the lifecycle context through an in-flight marker.
+  After finish-line allows a turn to stop, a pre-PR context decision uses
+  `agent.steer()` once for that turn; finish-line denial always wins first.
+- Awaits `agent-hook finish-line begin` before delegating a correlated edit.
+  The edit body remains DSH-native, while nils durably advances the generation
+  without receiving file payload, tool output, or a post-hoc outcome.
+- Routes every foreground `bash` call through a nils-owned runner capability
+  and a non-executing exact-command probe. Exact validation targets return
+  `ready`; every ordinary foreground command returns `ordinary-ready`.
+  `run_in_background` is unsupported and fails closed before execution, while
+  legacy `not-applicable` responses also fail closed.
+- After either ready status, persists the DSH session and prepares the bounded
+  public DSH shell runtime: exact command and repository cwd, timeout and output
+  limits, environment overrides, and the resolved sandbox runner. Any sandbox
+  escalation remains DSH execution authorization. Nils is the only executor
+  and returns the normalized foreground result; DSH neither delegates to the
+  underlying Bash body nor reports an inferred outcome afterward.
+- Accepts a nils-observed execution only when exactly one of `exitCode` and
+  `signal` is non-null, any signal is a canonical `NodeJS.Signals` name from the
+  client's closed runtime allowlist, and `timedOut` and `aborted` are not both
+  true. An unknown signal or impossible outcome combination makes the
+  execution-bearing response invalid, so the client performs authenticated
+  private quiesce before returning the error.
+- Reserves exact targets before execution and records only nils-observed
+  validation evidence. For an ordinary command, nils first advances the shared
+  repository generation, executes once, and returns `ordinary-applied` without
+  creating validation evidence. The generation advance makes older validation
+  evidence stale, so stop requires the exact validations to be rerun.
+- Requires the authoritative execution boundary described by the
+  [nils finish-line contract](https://github.com/sympoies/nils-cli/blob/main/crates/agent-hook/docs/specs/agent-hook-v1.md#native-dsh-finish-line):
+  Linux execution uses a verified systemd transient user cgroup and fails
+  closed when that boundary is unavailable or on non-Linux hosts. This is
+  descendant-lifetime containment, not a claim of an arbitrary network or IPC
+  sandbox.
+- Supplies the contained runner through immutable identities rather than
+  re-resolved paths. Nils seals the bounded runner config in a memfd; systemd
+  `OpenFile` passes that config and the exact current runner inode as read-only
+  descriptors. A verified root-owned dynamic ELF interpreter starts the
+  descriptor-bound runner, which watches its nils supervisor through a pidfd
+  and terminates the command if that supervisor disappears.
+- Every failed execution-bearing run awaits the private nils quiescence
+  boundary before returning its failure to the caller. This includes transport
+  failure, an unexpected agent-hook exit or signal, invalid JSON, envelope,
+  schema, or result fields, cancellation, deadline, and plugin disposal.
+  Recovery completes only after nils proves the exact transient unit inactive
+  with no populated cgroup;
+  failure to obtain that proof permanently degrades the finish-line client
+  closed. This recovery command is internal to the adapter and is not a
+  model-facing lifecycle operation.
+- Binds the first successful finish-line response to its bounded opaque
+  repository/session correlation ID across open, begin, run, stop, and internal
+  release. Missing
+  or changed correlation fails closed. The response-only ID is never added to
+  the strict nils request wire.
+- Calls the typed nils stop boundary directly at awaited
+  `agent/turn-stopping`. Blocks steer a bounded plugin-authored user message
+  into the same turn; persistence, correlation, runner, and process-quiescence
+  failures stay closed.
+- Keeps a private caller-generated open attempt token for the session lifetime.
+  An ambiguous open retries with the same token, recovers the same nils-derived
+  capability, and renews its 24-hour lease; a different attempt cannot replace
+  a live capability. Expired quiescent crash orphans may be conservatively
+  reclaimed by nils. Lease expiry alone never removes pending state: a crash
+  orphan is eligible only after its exact stored systemd units pass bounded,
+  stable stop/status, job, and cgroup quiescence checks. Active, indeterminate,
+  or unbound sessions remain protected.
+- On fire-and-forget rc.7 `agent/disposed`, synchronously registers an
+  authenticated internal release task. Coordinator disposal drains that task
+  after closing normal admission and quiescing active nils runs, then releases
+  every remaining quiescent ledger before closing the nils client.
+  It removes a ledger only after nils durably retires the session. Definitively
+  abandoned edit/open attempts drop their private retry tokens. Release
+  ambiguity is idempotent; an unrecoverable release closes later admission.
+  A release tombstone is scoped to that capability incarnation, so rc.7 may
+  resume the same stable session ID with a fresh open token; retrying the old
+  release remains duplicate and cannot delete the resumed incarnation. The
+  private open token is idempotency material, not a bearer: even if reused
+  after release, nils advances its persisted incarnation sequence and returns
+  a byte-distinct capability, so the old bearer stays invalid after tombstone
+  compaction. Release and resume are serialized by stable repository/session
+  identity, so a replacement DSH Session cannot race the old release.
+- Exposes role selection and bounded review output, but no model-facing
+  reviewer authority, persona text, child identity, continuation handle, or
+  manual evidence-mutation surface. Unknown response fields are not projected,
+  so a capability-shaped field cannot escape through supported lifecycle
+  results.
 - Commits a proposed step only after the rc.7 pre-step waterfall returns
   `enter`, then derives the live open step from public durable events. Initial
   attachment reverse-scans only the recent lifecycle suffix; later boundaries
@@ -72,8 +242,9 @@ the remaining policy handlers and reviewer personas are migrated.
   rescanning content-heavy suffixes. Replacement or truncation makes that
   attachment sticky-invalid until session reattachment. Reject, throw, abort,
   `step/end`, and `turn/end` therefore fail closed without invoking nils.
-- On caller cancellation, deadline, or plugin disposal, terminates the nils
-  child and observes both direct-child settlement and whole-process-tree exit.
+- For the separate pre-tool policy transport, caller cancellation, deadline,
+  or plugin disposal terminates the nils child and observes both direct-child
+  settlement and whole-process-tree exit.
   If a provider cannot establish quiescence by the teardown deadline, the
   current call fails closed and policy admission permanently degrades closed
   for the process; every in-flight sibling is cancelled too. A monotonic
@@ -104,6 +275,24 @@ are `contextMaxBytes`, `contextTimeoutMs`, `contextTeardownTimeoutMs`, and
 10 seconds, and 16. Context-transport degradation closes only context loading
 and never relaxes the independent pre-tool policy gate.
 
+Finish-line control and probe requests default to a 5-second deadline;
+execution-bearing runs use the resolved Bash timeout plus bounded settlement
+and teardown grace. Teardown defaults to 2 seconds, with four active requests
+and two same-turn steering attempts. Configure these bounds with
+`finishLineTimeoutMs`, `finishLineTeardownTimeoutMs`,
+`maxActiveFinishLineRequests`, and `maxSameTurnFinishLineSteers`. No production
+path installs an `EXIT` trap or rewrites shell commands.
+
+Reviewer execution defaults to four concurrent children, at most sixteen
+queued reviewer acquisitions, a 32 KiB task, 64 KiB per result, 128 KiB of
+first-wave context for red-team, a ten-minute tool deadline, and delegation
+depth two. The corresponding configuration fields are
+`maxActiveReviewers`, `maxQueuedReviewers`, `reviewerTaskMaxBytes`, `reviewerOutputMaxBytes`,
+`reviewerRedTeamContextMaxBytes`, `reviewerTimeoutMs`, and
+`reviewerMaxDepth`; hard caps keep every request and collected result bounded.
+Task and result limits are UTF-8 byte limits enforced after DSH schema
+validation; they are not JSON Schema character-count approximations.
+
 The exact supported DSH peer line is `0.1.0-rc.7`; the compatibility adapter is
 not declared compatible with later release candidates or `0.1.x` releases.
 The mutation containment claims above apply to the public pre-execute policy
@@ -113,6 +302,66 @@ public contract permits those wrappers to replace only `signal`, but a plugin
 that deliberately violates other readonly fields is already executing trusted
 code after the guard. This bundle does not use property-descriptor hardening or
 non-public Harness APIs to contain a hostile in-process wrapper.
+
+## Operations
+
+The package executable owns planning and receipts; DSH continues to own the
+profile manifest, dependency installation, lockfile, and bundle reconciliation.
+Targets must be an exact registry version or a local directory whose manifest
+is exactly `@sympoies/dsh-runtime-kit` with an exact version. Local targets are
+packed with lifecycle scripts disabled; the reviewed plan binds the resulting
+tarball SHA-256, and apply installs the matching content-addressed artifact
+rather than the mutable source directory.
+
+```sh
+# Preview only; prints plan_digest.
+dsh-runtime-kit setup --profile work \
+  --package @sympoies/dsh-runtime-kit@1.0.0 --format json
+
+# Apply the unchanged reviewed plan.
+dsh-runtime-kit setup --profile work \
+  --package @sympoies/dsh-runtime-kit@1.0.0 \
+  --apply --expected-plan-digest <digest> --format json
+
+dsh-runtime-kit update --profile work \
+  --package @sympoies/dsh-runtime-kit@1.1.0 --format json
+dsh-runtime-kit rollback --profile work --format json
+dsh-runtime-kit remove --profile work --format json
+dsh-runtime-kit doctor --profile work --format json
+```
+
+`setup`, `update`, `rollback`, and `remove` all use preview then digest-bound
+apply. After a successful setup/update, a digest-only replay may omit
+`--package`; if `--package` is supplied, it must still resolve to the exact
+reviewed target. A global artifact transaction plus a per-profile SQLite
+transaction supply kernel-owned process locks; process exit releases them
+without stale-path reclamation. Replaying the same applied digest succeeds as
+`duplicate` only after those locks are acquired and the installed terminal
+state is revalidated. The receipt records the exact target, artifact digest,
+requested/dependency specs, installed version, installed package-tree digest,
+and bundle index, so source-byte, installed-byte, or unrelated-manifest drift
+invalidates the operation and rollback restores the recorded
+package/configuration pair.
+An unmanaged existing installation is never adopted by version alone. A
+durably renamed pending receipt is written before native mutation. After
+interruption, `doctor --repair` previews the complete recovered receipt and may
+finalize or clear only an internally consistent attempt; every third state
+fails closed.
+
+Doctor also validates the released nils `agent-hook doctor --product dsh`
+contract: DSH dispatch is supported and registration ownership belongs to
+`dsh-runtime-kit`. Remove first asks native DSH to remove the package and bundle
+row, then cleans only a fixed final package entry if pnpm retained it. The
+profile, state, package-parent, and cleanup paths reject symlinks or unsafe
+ownership before any recursive removal. Management subprocesses use resolved
+executable identities, a minimal environment, bounded output, and digest-only
+stderr diagnostics.
+Profile user patches, other dependencies/bundles, and
+`DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR` are never read, written, or removed by the
+operations layer. The private artifact store retains only digests reachable
+from current, previous, pending, or terminal receipts; exact orphan/temp files
+are reclaimed under the global lock, with hard caps of 64 archives, 1 GiB
+total, and 128 MiB per archive.
 
 ## Keyless smoke test
 
@@ -126,22 +375,157 @@ AGENT_DOCS_BIN=/path/to/nils-cli/target/debug/agent-docs \
 npm run test:smoke
 ```
 
+The smoke installs the packed bundle into an unmodified DSH `0.1.0-rc.7`
+checkout. Its primary leg creates a real nils-managed feature worktree, proves
+a raw default-branch merge is denied, and runs the governed
+`semantic-commit default-branch --dry-run` recovery path. It never contacts or
+mutates an external provider.
+
 The acceptance test packs the publishable tarball, installs it into a clean
 temporary `DSH_HOME`, invokes the actual `dsh plugin` and `dsh --dump-config`
 paths, and boots the real DSH composition. It proves the 29-skill catalog plus
 project/private precedence, then drives a scripted public LLM adapter through a
-real Agent and three-step tool loop. It proves the context marker is absent
+real Agent result-driven tool loop. It proves the context marker is absent
 from the initial request, calls `runtime_context({ intent: "project-dev" })`,
-observes the bounded marker only after that result, then observes
-`runtime_kit_plus_one({ value: 41 })` return `42`. It switches policy to
-prove pre-body denial, and exercises cancellation and plugin-disposal drains.
+observes the bounded marker only after that result, commits a filesystem edit,
+opens the nils runner, probes the exact declared validation command, prepares
+the DSH shell runtime, and receives the nils-recorded failure. Stop blocks and
+steers; the same command is then executed and recorded successfully before the
+next stop allows. An ordinary foreground mutation then runs once under nils,
+advances generation, and makes stop demand exact revalidation. After that
+revalidation, the loop observes `runtime_kit_plus_one({ value: 41 })` return
+`42`. It switches policy to prove pre-body denial and rejects replacement of
+the authenticated finish-line correlation. Cancellation, failed-run cleanup,
+and plugin-disposal quiescence remain covered by the package's focused
+lifecycle suites; the independently pinned acceptance controller does not
+import candidate modules to make those assertions.
+
+A separate leg calls the packed `review_specialists` tool through rc.7's real
+`spawn` provider. The scripted quick reviewer deliberately calls `write`;
+the exact child-scoped guard rejects it before the body, the marker file is
+absent, the reviewer completes after observing the denial, emits one non-empty
+finding accepted by nils `review-specialists validate`, and its child is no
+longer live when the parent receives the correlated result.
+
+The independent operations smoke uses an isolated DSH home and the unmodified
+rc.7 `dsh plugin` path for setup, update, exact rollback, and remove. It proves
+two complete packed runtime-kit variants retain their CLI, policy, source, and
+smoke surfaces through setup, update, and rollback. It also proves an unrelated
+installed bundle, the user patch, and private-skill content remain unchanged
+after remove and the upstream DSH checkout remains clean. The acceptance runner
+stages those complete variants; the standalone command therefore requires their
+paths in `DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2`.
+
+```sh
+DSH_SOURCE_ROOT=/path/to/deepseek-harness \
+AGENT_HOOK_BIN=/path/to/nils-cli/target/debug/agent-hook \
+npm run test:operations-smoke
+```
+
+## Acceptance boundary
+
+`npm run acceptance` produces `dsh-runtime-kit.acceptance-summary.v2`. A local
+source rehearsal snapshots and hashes six nils executables (`agent-hook`,
+`agent-docs`, `git-cli`, `review-specialists`, `semantic-commit`, and
+`forge-cli`), clones the manifest-pinned DSH revision without hardlinks,
+installs its frozen lockfile offline, rebuilds the host libraries, packs this
+package, and runs the producer-owned operations and packed-runtime scenarios
+under a disposable HOME/XDG tree and fixed PATH. It requires
+`--acknowledge-trusted-code` because the candidate still has user-systemd and
+network authority. Each scenario runs in its own transient user-systemd control
+group with a hard runtime deadline; before and after each leg the runner
+rechecks the current control program, the packed tarball, every executable, and
+the selected DSH public closure. Operations and runtime each receive a fresh
+extraction of that authenticated tarball, so the second leg never executes a
+package tree that the first leg could mutate. Each scenario owns one stable ID
+and non-empty evidence; failures produce a typed nonzero CLI result.
+
+This local mode proves only the scoped `functional-session` path. Its honest
+result remains `incomplete` with blockers for a released artifact set, a
+disposable OS-isolated environment, and an explicitly authorized live
+semantic-commit plus no-merge PR delivery correlated to the same run and exact
+repository/head. It does not claim that no legacy process exists elsewhere on
+the machine. Final `pass` requires all six hashes to match an independently
+authenticated nils release, exact pinned DSH identity, a clean head bound to the
+tested tarball digest, isolated execution, and direct provider read-back for the
+correlated open PR; caller-supplied legacy receipt flags are rejected. The
+public local runner intentionally has no final-pass mode until that external
+trust root is selected. The selected trust root is the private
+`serenvia/sympoies-infra` manual acceptance workflow. It acquires and verifies
+the exact released nils artifacts without executing candidate code, then runs
+this public runner with a caller-bound `--run-id`, `--package-tarball`, and
+`--package-sha256` under a credentialless, network-denied disposable UID. It
+stops that UID's user manager and proves no process remains before publishing
+candidate evidence. A separate credentialed phase may run only with explicit
+live-delivery authorization; it never executes candidate repository code and
+stops after a correlated draft, no-merge PR plus direct provider read-back.
+That trust root independently pins the seven candidate controller/scenario
+files it permits. The trusted controller imports none of them: it reads them as
+authenticated inputs and executes candidate behavior only in descendant DSH
+processes. Final provider read-back must contain exact standalone
+`Acceptance-Run`, `Acceptance-Trust-Root`, and `Acceptance-Package` markers.
 
 ## Compatibility
 
-The first verified compatibility target is DeepSeek Harness `0.1.0-rc.7` on a
-supported Node.js release. DSH is still prerelease software, so compatibility
-will be guarded by executable acceptance tests rather than by copying upstream
-implementation details.
+The supported compatibility target is DeepSeek Harness `0.1.0-rc.7` with
+Cordis `4.0.1` on Node.js 22.19 or 24. The machine-readable
+[DSH compatibility manifest](compatibility/dsh.json)
+pins the release tag and one reviewed `upstream-next` revision. At the current
+2026-08-19 selection, upstream `master` and the rc.7 tag resolve to the same
+commit; they remain separate blocking CI matrix rows so a later reviewed
+selection can advance without broadening the release peer range.
+
+The compatibility gate reads only a clean, already-built upstream checkout. It
+verifies the selected Git revision, root/package versions, public package
+entrypoint digests, and the name/kind of every runtime export consumed by this
+bundle. Source inspection hashes exact files and never executes checkout bytes.
+The manifest also pins the complete 37-package DeepSeek workspace dependency
+closure by canonical artifact digest. Packing rechecks the selected clean Git
+identity before and after, verifies every package name/version and reachable
+dependency, and emits a receipt containing both the canonical digest and this
+tarball's byte SHA-256. CI stages only those authenticated regular files into
+the consumer after `npm ci --ignore-scripts --omit=peer` installs the five
+exact, lockfile-bound non-DSH runtime dependencies; no DSH package is resolved
+from the registry and no package lifecycle script runs. The Linux stager
+rejects symlinked install ancestors, requires every final package target to be
+absent, and anchors direct extraction beneath retained `O_NOFOLLOW` directory
+descriptors. It never renames or deletes a package pathname: concurrent swaps
+fail closed without touching the replacement, and a failed disposable consumer
+is rebuilt rather than cleaned in place. Plugin
+apply then version-checks every installed public peer before importing any
+runtime module and checks export kinds plus the required rc.7 Context/service
+methods before registering a DSH listener, tool, service, or skill.
+Incompatibility is returned as a typed `DshCompatibilityError` with code
+`DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; no source patch, copied preset, or partial
+plugin registration is used.
+
+```sh
+npm run --silent check:compatibility -- \
+  --source-root /path/to/deepseek-harness \
+  --channel pinned \
+  --format json
+npm run --silent pack:compatibility-peers -- \
+  --source-root /path/to/deepseek-harness \
+  --artifact-root /empty/private/directory \
+  --channel pinned \
+  --pnpm-bin /absolute/path/to/pnpm \
+  --receipt /separate/private/receipt.json
+npm run --silent stage:compatibility-peers -- \
+  --receipt /separate/private/receipt.json \
+  --artifact-root /empty/private/directory \
+  --consumer-root /path/to/dsh-runtime-kit
+npm run benchmark:policy
+```
+
+The promotion benchmark runs 250 warmups and two 1,000-check controlled batches.
+Before disposal it blocks if adapter p95 exceeds 5 ms, a batch retains more
+than 8 MiB, retained growth across batches exceeds 2 MiB, or any policy
+operation/provider handle remains active. Disposal must then return all active
+operations and provider handles to zero. This isolates runtime-kit transport,
+correlation, and long-lived retention overhead; provider process startup and
+host scheduling remain covered by real smoke/acceptance evidence rather than
+hidden inside this deterministic budget.
 
 The machine-readable [nils-cli compatibility manifest](compatibility/nils-cli.json)
 is authoritative for consumed commands and protocols. The DSH ingress is

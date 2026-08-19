@@ -2,11 +2,55 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 
+import { ENV_OVERRIDES } from '@deepseek-ai/dsh-bash-local'
+import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
+import { selectManagedSessionEnvironment } from '../src/policy/nils-transport.js'
 
 const sha256 = `sha256:${'0'.repeat(64)}`
+const dshRuntime = Object.freeze({
+  ENV_OVERRIDES,
+  HarnessError,
+  TOOL_ABORTED,
+  createUserMessage,
+  approveEscalation,
+  canonicalPath,
+  validateEscalationArgs,
+})
+
+test('policy subprocess restores only the managed session path identity', () => {
+  assert.deepEqual(
+    selectManagedSessionEnvironment({
+      AGENT_SESSION_ID: 'managed-session',
+      AGENT_SESSION_RUNTIME_ID: 'runtime-1',
+      AGENT_SESSION_BIN: '/trusted/agent-session',
+      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+      AGENT_SESSION_STATE_DIR: '/private/state',
+      AGENT_SESSION_TOKEN: 'must-not-cross',
+      AGENT_SESSION_CHECKPOINT_FILE: '/must/not/cross',
+      UNRELATED_SECRET: 'must-not-cross',
+    }),
+    {
+      AGENT_SESSION_ID: 'managed-session',
+      AGENT_SESSION_RUNTIME_ID: 'runtime-1',
+      AGENT_SESSION_BIN: '/trusted/agent-session',
+      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+      AGENT_SESSION_STATE_DIR: '/private/state',
+    },
+  )
+  assert.equal(selectManagedSessionEnvironment({}), undefined)
+})
 
 function decision(action = 'allow', overrides = {}) {
+  const disposition = action === 'block'
+    ? 'block'
+    : action === 'context'
+      ? 'context'
+      : action === 'warn'
+        ? 'warn'
+        : undefined
   return {
     schema_version: 'cli.agent-hook.dispatch.v1',
     ok: true,
@@ -16,9 +60,13 @@ function decision(action = 'allow', overrides = {}) {
       product: 'dsh',
       event: 'PreToolUse',
       action,
-      reasons: action === 'block'
-        ? [{ rule_id: 'dsh.block', code: 'blocked', disposition: 'block' }]
-        : [],
+      reasons: disposition === undefined
+        ? []
+        : [{
+            rule_id: `dsh.${action}`,
+            code: action === 'block' ? 'blocked' : action,
+            disposition,
+          }],
       config_digest: sha256,
       policy_digest: sha256,
       recovery_applied: false,
@@ -52,12 +100,18 @@ function harness({
   let service
   const registeredTools = new Map()
   const handles = []
+  const spawnSpecs = []
   const session = {
     id: 'session-1',
     header: { id: 'session-1', cwd: '/tmp' },
     events: [],
   }
-  const agent = { id: 'session-1', session }
+  const steered = []
+  const agent = {
+    id: 'session-1',
+    session,
+    steer(message) { steered.push(message) },
+  }
   const ctx = {
     agents: {
       list: () => [agent],
@@ -107,11 +161,43 @@ function harness({
     },
     subprocess: {
       spawn(spec) {
-        if (throwOnSpawn) throw new Error('spawn failed')
+        if (typeof throwOnSpawn === 'function' ? throwOnSpawn(spec) : throwOnSpawn) {
+          throw new Error('spawn failed')
+        }
+        const dispatchIngress = spec.argv.includes('dispatch')
+          ? JSON.parse(spec.stdio.stdin.data)
+          : undefined
+        const implicitLifecycle = typeof envelope !== 'function'
+          && dispatchIngress !== undefined
+          && dispatchIngress.event !== 'tools/pre-execute'
+        if (implicitLifecycle) {
+          const event = dispatchIngress.event === 'agent/pre-step'
+            ? 'UserPromptSubmit'
+            : dispatchIngress.event === 'agent/turn-stopping'
+              ? 'Stop'
+              : dispatchIngress.result?.is_error === true
+                ? 'PostToolUseFailure'
+                : 'PostToolUse'
+          const response = decision('allow', {
+            event,
+          })
+          const digest = createHash('sha256').update(spec.stdio.stdin.data).digest('hex')
+          response.data.request_id = `request:${digest.slice(0, 32)}`
+          return {
+            done: Promise.resolve({ exitCode: 0, signal: null }),
+            terminate() {},
+            collected: {
+              stdout: { readFrom: () => ({ text: JSON.stringify(response), lossy: false }) },
+            },
+            async waitForExit() { return true },
+          }
+        }
+        spawnSpecs.push(spec)
         spawnCount += 1
         activeHandles += 1
         peakActiveHandles = Math.max(peakActiveHandles, activeHandles)
-        const response = structuredClone(envelope)
+        const selectedEnvelope = typeof envelope === 'function' ? envelope(spec) : envelope
+        const response = structuredClone(selectedEnvelope)
         if (response.data?.request_id === '__CURRENT_REQUEST__') {
           const digest = createHash('sha256').update(spec.stdio.stdin.data).digest('hex')
           response.data.request_id = `request:${digest.slice(0, 32)}`
@@ -127,7 +213,7 @@ function harness({
             rejectDone = reject
           })
           : Promise.resolve(outcome ?? {
-            exitCode: envelope.data?.action === 'block' ? 1 : 0,
+            exitCode: response.data?.action === 'block' ? 1 : 0,
             signal: null,
           })
         void done.then(() => {
@@ -169,7 +255,7 @@ function harness({
         }
         handles.push({
           settle: (result = outcome ?? {
-            exitCode: envelope.data?.action === 'block' ? 1 : 0,
+            exitCode: response.data?.action === 'block' ? 1 : 0,
             signal: null,
           }) => settle?.(result),
           reject: error => rejectDone?.(error),
@@ -179,7 +265,7 @@ function harness({
       },
     },
   }
-  applyPolicy(ctx, { agentHook: '/test/agent-hook', ...config })
+  applyPolicy(ctx, { agentHook: '/test/agent-hook', ...config }, undefined, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
@@ -261,7 +347,7 @@ function harness({
       if (result.kind === 'allow') {
         delegated = true
       }
-      await dispatchWaterfall(
+      const postDecision = await dispatchWaterfall(
         'tools/post-execute',
         [prepared.exec, { isError: result.kind !== 'allow', content: [] }],
         async () => ({ kind: 'accept' }),
@@ -269,7 +355,7 @@ function harness({
       for (const observer of listeners.get('tools/result') ?? []) {
         observer(prepared.exec, { isError: result.kind !== 'allow', content: [] })
       }
-      return { result, delegated, exec: prepared.exec }
+      return { result, delegated, exec: prepared.exec, postDecision }
     },
     prepare,
     guard(exec) { return guard?.(exec) },
@@ -294,11 +380,13 @@ function harness({
     get registeredToolNames() { return [...registeredTools.keys()].sort() },
     tool(name) { return registeredTools.get(name) },
     agent,
+    steered,
     get spawnCount() { return spawnCount },
     get peakActiveHandles() { return peakActiveHandles },
     get terminateCount() { return terminateCount },
     get signal() { return signal },
     get service() { return service },
+    get spawnSpecs() { return spawnSpecs },
   }
 }
 
@@ -317,6 +405,505 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
     required: ['intent'],
     additionalProperties: false,
   })
+})
+
+test('policy ingress v2 binds the exact DSH session position and agent-docs roots', async () => {
+  const subject = harness({
+    config: {
+      agentDocsHome: '/runtime/docs',
+      agentDocsStateHome: '/runtime/state',
+    },
+  })
+
+  const { result } = await subject.invoke({ value: 41 }, { callId: 'call-v2' })
+  assert.equal(result.kind, 'allow')
+  const ingress = JSON.parse(subject.spawnSpecs[0].stdio.stdin.data)
+  assert.deepEqual(ingress, {
+    schema_version: 'agent-hook.dsh-ingress.v2',
+    event: 'tools/pre-execute',
+    call_id: 'call-v2',
+    cwd: '/tmp',
+    subject: {
+      session_id: 'session-1',
+      turn: 1,
+      step: 1,
+      agent_docs_home: '/runtime/docs',
+      agent_docs_state_home: '/runtime/state',
+    },
+    tool: {
+      name: 'runtime_kit_plus_one',
+      arguments: { value: 41 },
+    },
+  })
+})
+
+test('post-tool ingress v4 sends only the terminal fact and blocks before downstream on lifecycle denial', async () => {
+  const seen = []
+  const subject = harness({
+    config: {
+      agentDocsHome: '/runtime/docs',
+      agentDocsStateHome: '/runtime/state',
+    },
+    envelope: (spec) => {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      seen.push(ingress)
+      return ingress.event === 'tools/post-execute'
+        ? decision('block', { event: 'PostToolUse' })
+        : decision('allow', { event: 'PreToolUse' })
+    },
+  })
+  const prepared = await subject.prepare({ value: 41 }, { callId: 'call-v4' })
+  assert.equal(prepared.result.kind, 'allow')
+  let delegated = false
+  const post = await subject.waterfall(
+    'tools/post-execute',
+    [prepared.exec, {
+      isError: false,
+      value: { private: 'must-never-reach-agent-hook' },
+      content: [{ type: 'text', text: 'must-never-reach-agent-hook' }],
+    }],
+    async () => {
+      delegated = true
+      return { kind: 'accept' }
+    },
+  )
+  assert.equal(delegated, false)
+  assert.equal(post.kind, 'block')
+  assert.match(post.feedback[0].text, /agent-hook:blocked/)
+  const postIngress = seen.find(ingress => ingress.event === 'tools/post-execute')
+  assert.deepEqual(postIngress, {
+    schema_version: 'agent-hook.dsh-ingress.v4',
+    event: 'tools/post-execute',
+    call_id: 'call-v4',
+    cwd: '/tmp',
+    subject: {
+      session_id: 'session-1',
+      turn: 1,
+      step: 1,
+      agent_docs_home: '/runtime/docs',
+      agent_docs_state_home: '/runtime/state',
+    },
+    tool: {
+      name: 'runtime_kit_plus_one',
+      arguments: { value: 41 },
+    },
+    result: { is_error: false },
+  })
+  assert.doesNotMatch(JSON.stringify(postIngress), /must-never-reach-agent-hook/)
+})
+
+test('the first accepted pre-step receives one bounded native lifecycle context', async () => {
+  const subject = harness({
+    config: { agentDocsStateHome: '/runtime/state' },
+    envelope: (spec) => {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      assert.equal(ingress.event, 'agent/pre-step')
+      return decision('context', {
+        event: 'UserPromptSubmit',
+        context: 'startup health and memory context',
+      })
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  const userMessage = {
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: 'build a high-impact feature' }],
+  }
+  const payload = {
+    agent: subject.agent,
+    messages: [userMessage],
+    turn: 1,
+    step: 1,
+    signal: new AbortController().signal,
+  }
+  const first = await subject.waterfall(
+    'agent/pre-step',
+    [payload],
+    async () => ({ kind: 'enter', messages: [userMessage] }),
+  )
+  const duplicate = await subject.waterfall(
+    'agent/pre-step',
+    [payload],
+    async () => ({ kind: 'enter', messages: [userMessage] }),
+  )
+
+  assert.equal(first.kind, 'enter')
+  assert.equal(first.messages.length, 2)
+  assert.equal(first.messages[1].source.kind, 'plugin')
+  assert.equal(first.messages[1].source.plugin, 'dsh-runtime-kit')
+  assert.equal(first.messages[1].content[0].text, 'startup health and memory context')
+  assert.deepEqual(duplicate, { kind: 'enter', messages: [userMessage] })
+  assert.equal(subject.spawnCount, 1)
+  assert.deepEqual(JSON.parse(subject.spawnSpecs[0].stdio.stdin.data), {
+    schema_version: 'agent-hook.dsh-ingress.v3',
+    event: 'agent/pre-step',
+    cwd: '/tmp',
+    prompt: 'build a high-impact feature',
+    subject: {
+      session_id: 'session-1',
+      turn: 1,
+      step: 1,
+      session_start_source: 'startup',
+      agent_docs_state_home: '/runtime/state',
+    },
+  })
+})
+
+test('post-tool transport denial blocks before downstream when completion is unobserved', async () => {
+  const subject = harness({
+    throwOnSpawn: (spec) => {
+      if (!spec.argv.includes('dispatch')) return false
+      return JSON.parse(spec.stdio.stdin.data).event === 'tools/post-execute'
+    },
+  })
+  const prepared = await subject.prepare({ value: 41 }, { callId: 'call-v4-transport' })
+  assert.equal(prepared.result.kind, 'allow')
+  let delegated = false
+  const post = await subject.waterfall(
+    'tools/post-execute',
+    [prepared.exec, { isError: false, value: 42, content: [] }],
+    async () => {
+      delegated = true
+      return { kind: 'accept' }
+    },
+  )
+  assert.equal(delegated, false)
+  assert.equal(post.kind, 'block')
+  assert.match(post.feedback[0].text, /policy-unavailable/)
+})
+
+test('a concurrent duplicate waits for an accepted pre-step instead of bypassing lifecycle context', async () => {
+  const subject = harness({
+    pending: true,
+    envelope: () => decision('context', {
+      event: 'UserPromptSubmit',
+      context: 'serialized lifecycle context',
+    }),
+  })
+  const userMessage = {
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: 'build it' }],
+  }
+  const payload = {
+    agent: subject.agent,
+    messages: [userMessage],
+    turn: 1,
+    step: 1,
+    signal: new AbortController().signal,
+  }
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  const first = subject.waterfall(
+    'agent/pre-step',
+    [payload],
+    async () => ({ kind: 'enter', messages: [userMessage] }),
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  const second = subject.waterfall(
+    'agent/pre-step',
+    [payload],
+    async () => ({ kind: 'enter', messages: [userMessage] }),
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(subject.spawnCount, 1)
+
+  subject.release(0)
+  const accepted = await first
+  const duplicate = await second
+  assert.equal(accepted.kind, 'enter')
+  assert.equal(accepted.messages.length, 2)
+  assert.equal(accepted.messages[1].content[0].text, 'serialized lifecycle context')
+  assert.deepEqual(duplicate, { kind: 'enter', messages: [userMessage] })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(subject.spawnCount, 1)
+})
+
+test('lifecycle ingress evaluates only the downstream-accepted user messages', async () => {
+  for (const [acceptedMessages, expectedPrompt] of [
+    [[{
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: 'accepted replacement' }],
+    }], 'accepted replacement'],
+    [[], ''],
+  ]) {
+    const subject = harness({
+      envelope: (spec) => {
+        const ingress = JSON.parse(spec.stdio.stdin.data)
+        assert.equal(ingress.prompt, expectedPrompt)
+        assert.notEqual(ingress.prompt, 'superseded prompt canary')
+        return decision('allow', { event: 'UserPromptSubmit' })
+      },
+    })
+    subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+    const payload = {
+      agent: subject.agent,
+      messages: [{
+        source: { kind: 'user' },
+        content: [{ type: 'text', text: 'superseded prompt canary' }],
+      }],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }
+    const result = await subject.waterfall(
+      'agent/pre-step',
+      [payload],
+      async () => ({ kind: 'enter', messages: acceptedMessages }),
+    )
+    assert.deepEqual(result, { kind: 'enter', messages: acceptedMessages })
+    assert.equal(subject.spawnCount, 1)
+  }
+})
+
+test('same-position deduplication binds the accepted prompt digest sequentially and concurrently', async () => {
+  const makeMessage = text => ({
+    source: { kind: 'user' },
+    content: [{ type: 'text', text }],
+  })
+  const payloadFor = subject => ({
+    agent: subject.agent,
+    messages: [makeMessage('proposal')],
+    turn: 1,
+    step: 1,
+    signal: new AbortController().signal,
+  })
+
+  const sequentialPrompts = []
+  const sequential = harness({
+    envelope: (spec) => {
+      sequentialPrompts.push(JSON.parse(spec.stdio.stdin.data).prompt)
+      return decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  sequential.emit('agent/session-start', { agent: sequential.agent, source: 'startup' })
+  for (const prompt of ['safe accepted text', 'changed accepted text']) {
+    const messages = [makeMessage(prompt)]
+    const result = await sequential.waterfall(
+      'agent/pre-step',
+      [payloadFor(sequential)],
+      async () => ({ kind: 'enter', messages }),
+    )
+    assert.deepEqual(result, { kind: 'enter', messages })
+  }
+  assert.deepEqual(sequentialPrompts, ['safe accepted text', 'changed accepted text'])
+  assert.equal(sequential.spawnCount, 2)
+
+  const concurrentPrompts = []
+  const concurrent = harness({
+    pending: true,
+    envelope: (spec) => {
+      concurrentPrompts.push(JSON.parse(spec.stdio.stdin.data).prompt)
+      return decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  concurrent.emit('agent/session-start', { agent: concurrent.agent, source: 'startup' })
+  const first = concurrent.waterfall(
+    'agent/pre-step',
+    [payloadFor(concurrent)],
+    async () => ({ kind: 'enter', messages: [makeMessage('concurrent safe')] }),
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  const second = concurrent.waterfall(
+    'agent/pre-step',
+    [payloadFor(concurrent)],
+    async () => ({ kind: 'enter', messages: [makeMessage('concurrent changed')] }),
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(concurrent.spawnCount, 1)
+  concurrent.release(0)
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(concurrent.spawnCount, 2)
+  concurrent.release(1)
+  await second
+  assert.deepEqual(concurrentPrompts, ['concurrent safe', 'concurrent changed'])
+})
+
+test('lifecycle prompt projection is UTF-8 bounded and malformed advisory output fails open', async () => {
+  let observedPrompt
+  const subject = harness({
+    envelope: (spec) => {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      observedPrompt = ingress.prompt
+      return decision('context', {
+        event: 'UserPromptSubmit',
+        context: 'x'.repeat(16 * 1024 + 1),
+      })
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  const userMessage = {
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: '好'.repeat(30_000) }],
+  }
+  const result = await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [userMessage],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [userMessage] }),
+  )
+
+  assert.equal(Buffer.byteLength(observedPrompt, 'utf8') <= 64 * 1024, true)
+  assert.doesNotMatch(observedPrompt, /\uFFFD/)
+  assert.deepEqual(result, { kind: 'enter', messages: [userMessage] })
+})
+
+test('native tool advisory context is delivered after the exact tool result', async () => {
+  const subject = harness({
+    envelope: (spec) => {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      return ingress.event === 'tools/pre-execute'
+        ? decision('context', {
+            event: 'PreToolUse',
+            context: 'apply the portable output reminder',
+          })
+        : decision('allow', {
+            event: ingress.event === 'tools/post-execute' ? 'PostToolUse' : 'UserPromptSubmit',
+          })
+    },
+  })
+  const invocation = await subject.invoke({ value: 41 })
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, true)
+  assert.equal(invocation.postDecision.kind, 'accept')
+  assert.equal(invocation.postDecision.additionalContexts.length, 1)
+  assert.deepEqual(invocation.postDecision.additionalContexts[0].content, [
+    { type: 'text', text: 'apply the portable output reminder' },
+  ])
+  assert.deepEqual(invocation.postDecision.additionalContexts[0].source, {
+    kind: 'plugin',
+    plugin: 'dsh-runtime-kit',
+  })
+})
+
+test('stop advisory is steered once only after the authoritative finish-line allows', async () => {
+  const subject = harness({
+    envelope: (spec) => {
+      if (spec.argv.includes('finish-line')) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-stop.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.stop-result.v1',
+            action: 'allow',
+            generation: 0,
+            contract_digest: 'contract-1',
+            correlation_id: 'correlation-1',
+            reason_codes: [],
+            remediation: [],
+          },
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      return ingress.event === 'agent/turn-stopping'
+        ? decision('context', { event: 'Stop', context: 'run the pre-PR check now' })
+        : decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  const stopping = {
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+
+  assert.equal(subject.steered.length, 1)
+  assert.equal(subject.steered[0].content[0].text, 'run the pre-PR check now')
+  const stopIngresses = subject.spawnSpecs
+    .filter(spec => spec.argv.includes('dispatch'))
+    .map(spec => JSON.parse(spec.stdio.stdin.data))
+    .filter(ingress => ingress.event === 'agent/turn-stopping')
+  assert.equal(stopIngresses.length, 1)
+  assert.equal(stopIngresses[0].subject.step, undefined)
+  assert.equal(stopIngresses[0].subject.session_start_source, undefined)
+})
+
+test('stop policy transport denial steers closed and remains retryable in the same turn', async () => {
+  let stopAttempts = 0
+  const subject = harness({
+    throwOnSpawn: (spec) => {
+      if (!spec.argv.includes('dispatch')) return false
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event !== 'agent/turn-stopping') return false
+      stopAttempts += 1
+      return stopAttempts === 1
+    },
+    envelope: (spec) => {
+      if (spec.argv.includes('finish-line')) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-stop.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.stop-result.v1',
+            action: 'allow',
+            generation: 0,
+            contract_digest: 'contract-1',
+            correlation_id: 'correlation-1',
+            reason_codes: [],
+            remediation: [],
+          },
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      return ingress.event === 'agent/turn-stopping'
+        ? decision('context', { event: 'Stop', context: 'retry reached authoritative policy' })
+        : decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  const stopping = {
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }
+
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+
+  assert.equal(stopAttempts, 2)
+  assert.equal(subject.steered.length, 2)
+  assert.match(subject.steered[0].content[0].text, /could not verify the stop boundary/)
+  assert.equal(subject.steered[1].content[0].text, 'retry reached authoritative policy')
 })
 
 test('malformed normalized decisions fail closed without delegating', async () => {
@@ -878,9 +1465,12 @@ test('transport degradation revokes an allow marker awaiting approval', async ()
 test('the rc.7 compatibility seam wires every required public lifecycle extension', async () => {
   const subject = harness()
   assert.deepEqual(subject.listenerNames, [
+    'agent/disposed',
     'agent/pre-step',
     'agent/session-start',
     'agent/turn-stopping',
+    'fs/observed',
+    'tools/execute',
     'tools/post-execute',
     'tools/pre-execute',
     'tools/result',

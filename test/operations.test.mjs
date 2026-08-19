@@ -1,0 +1,638 @@
+import assert from 'node:assert/strict'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
+import { test } from 'node:test'
+
+const projectRoot = resolve(import.meta.dirname, '..')
+const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+
+function writeJson(path, value) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`)
+}
+
+function stageBundle(root, version) {
+  const dir = join(root, `bundle-${version}`)
+  mkdirSync(dir, { recursive: true })
+  writeJson(join(dir, 'package.json'), {
+    name: '@sympoies/dsh-runtime-kit',
+    version,
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  })
+  writeFileSync(join(dir, 'cordis.patch.yml'), '[]\n')
+  return dir
+}
+
+function stageFakeCommands(root) {
+  const dsh = join(root, 'fake-dsh.mjs')
+  writeFileSync(dsh, `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+
+const args = process.argv.slice(2)
+if (args[0] === '--version') {
+  console.log('0.1.0-rc.7')
+  process.exit(0)
+}
+const home = process.env.DSH_HOME
+if (!home) process.exit(90)
+if (args[0] === '--profile' && args[2] === '--dump-default-config') {
+  console.log('[]')
+  process.exit(0)
+}
+if (args[0] !== 'plugin' || args[1] !== '--profile') process.exit(91)
+const profile = args[2]
+const verb = args[3]
+const profileDir = join(home, 'profiles', profile)
+mkdirSync(profileDir, { recursive: true })
+const manifestPath = join(profileDir, 'package.json')
+const manifest = existsSync(manifestPath)
+  ? JSON.parse(readFileSync(manifestPath, 'utf8'))
+  : { name: 'dsh-profile-' + profile, private: true, dependencies: {}, dsh: { profile: { bundles: [] } } }
+manifest.dependencies ??= {}
+manifest.dsh ??= {}
+manifest.dsh.profile ??= {}
+manifest.dsh.profile.bundles ??= []
+const packageName = '@sympoies/dsh-runtime-kit'
+const installed = join(profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit')
+if (verb === 'add') {
+  const spec = args.at(-1)
+  const registry = spec.startsWith(packageName + '@')
+  const source = registry ? null : resolve(spec.replace(/^(?:file|link):/, ''))
+  const packed = source?.endsWith('.tgz') ?? false
+  const packageManifest = registry
+    ? { name: packageName, version: spec.slice((packageName + '@').length) }
+    : packed
+    ? JSON.parse(spawnSync('tar', ['-xOf', source, 'package/package.json'], { encoding: 'utf8' }).stdout)
+    : JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+  manifest.dependencies[packageName] = spec
+  if (!manifest.dsh.profile.bundles.includes(packageName)) manifest.dsh.profile.bundles.push(packageName)
+  mkdirSync(dirname(installed), { recursive: true })
+  rmSync(installed, { recursive: true, force: true })
+  if (!packed && !registry) symlinkSync(source, installed, 'dir')
+  else {
+    mkdirSync(installed, { recursive: true })
+    if (packed) {
+      const extracted = spawnSync('tar', ['-xzf', source, '-C', installed, '--strip-components=1'])
+      if (extracted.status !== 0) process.exit(94)
+    } else writeFileSync(join(installed, 'package.json'), JSON.stringify(packageManifest))
+  }
+  if (packageManifest.name !== packageName) process.exit(92)
+} else if (verb === 'remove') {
+  delete manifest.dependencies[packageName]
+  manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(value => value !== packageName)
+  if (!existsSync(join(home, 'retain-installed-entry'))) {
+    rmSync(installed, { recursive: true, force: true })
+  }
+} else {
+  process.exit(93)
+}
+writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
+if (existsSync(join(home, 'fail-after-mutation'))) process.exit(70)
+`)
+  chmodSync(dsh, 0o755)
+
+  const agentHook = join(root, 'fake-agent-hook.mjs')
+  writeFileSync(agentHook, `#!/usr/bin/env node
+if (process.argv[2] !== 'doctor') process.exit(91)
+process.stdout.write(JSON.stringify({
+  schema_version: 'cli.agent-hook.doctor.v1',
+  ok: true,
+  data: [{ product: 'dsh', registration_owner: 'dsh-runtime-kit', dispatch_supported: true }],
+}) + '\\n')
+`)
+  chmodSync(agentHook, 0o755)
+  return { dsh, agentHook }
+}
+
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-operations-'))
+  const home = join(root, 'dsh-home')
+  const profileDir = join(home, 'profiles', 'work')
+  mkdirSync(profileDir, { recursive: true })
+  writeJson(join(profileDir, 'package.json'), {
+    name: 'dsh-profile-work',
+    private: true,
+    dependencies: { 'unrelated-plugin': '1.0.0' },
+    dsh: { profile: { bundles: ['unrelated-bundle'] } },
+    unrelated: { keep: true },
+  })
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), '# unrelated user config\n[]\n')
+  const privateRoot = join(root, 'private-skills')
+  mkdirSync(privateRoot)
+  writeFileSync(join(privateRoot, 'must-survive.txt'), 'private')
+  const commands = stageFakeCommands(root)
+  return {
+    root,
+    home,
+    profileDir,
+    privateRoot,
+    v1: stageBundle(root, '1.0.0'),
+    v2: stageBundle(root, '2.0.0'),
+    ...commands,
+    cleanup() { rmSync(root, { recursive: true, force: true }) },
+  }
+}
+
+function run(subject, args, extraEnv = {}) {
+  const result = spawnSync(process.execPath, [cli, ...args, '--format', 'json'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DSH_HOME: subject.home,
+      DSH_RUNTIME_KIT_DSH_BIN: subject.dsh,
+      DSH_RUNTIME_KIT_AGENT_HOOK_BIN: subject.agentHook,
+      DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: subject.privateRoot,
+      ...extraEnv,
+    },
+  })
+  let value
+  try { value = JSON.parse(result.stdout) } catch { value = undefined }
+  return { ...result, value }
+}
+
+function applyPlan(subject, args) {
+  const preview = run(subject, args)
+  assert.equal(preview.status, 0, preview.stderr)
+  assert.equal(preview.value.data.mode, 'dry-run')
+  const applied = run(subject, [...args, '--apply', '--expected-plan-digest', preview.value.data.plan_digest])
+  assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+  return { preview: preview.value.data, applied: applied.value.data }
+}
+
+test('setup, update, rollback, and remove preserve unrelated profile and private state', () => {
+  const subject = fixture()
+  try {
+    const before = readFileSync(join(subject.profileDir, 'package.json'), 'utf8')
+    const setupPreview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(setupPreview.status, 0, setupPreview.stderr)
+    assert.equal(setupPreview.value.data.plan.action, 'install')
+    assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), before)
+    assert.equal(run(subject, ['setup', '--profile', 'work', '--package', subject.v1, '--apply']).status, 64)
+
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const setupReplay = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+    ])
+    assert.equal(setupReplay.status, 0)
+    assert.equal(setupReplay.value.data.mode, 'duplicate')
+    assert.deepEqual(setupReplay.value.data.plan, setup.preview.plan)
+
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(JSON.parse(readFileSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit/package.json'))).version, '2.0.0')
+
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    assert.equal(JSON.parse(readFileSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit/package.json'))).version, '1.0.0')
+
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    const after = JSON.parse(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'))
+    assert.deepEqual(after.dependencies, { 'unrelated-plugin': '1.0.0' })
+    assert.deepEqual(after.dsh.profile.bundles, ['unrelated-bundle'])
+    assert.deepEqual(after.unrelated, { keep: true })
+    assert.equal(readFileSync(join(subject.profileDir, 'cordis.patch.yml'), 'utf8'), '# unrelated user config\n[]\n')
+    assert.equal(readFileSync(join(subject.privateRoot, 'must-survive.txt'), 'utf8'), 'private')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('reviewed plans reject profile drift before invoking DSH', () => {
+  const subject = fixture()
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const manifest = JSON.parse(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'))
+    manifest.unrelated.changedAfterPreview = true
+    writeJson(join(subject.profileDir, 'package.json'), manifest)
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.match(rejected.value.error.code, /plan-drift/)
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor plans and finalizes an interrupted native DSH mutation', () => {
+  const subject = fixture()
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], (() => {
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      return {}
+    })())
+    assert.equal(interrupted.status, 70)
+    unlinkSync(join(subject.home, 'fail-after-mutation'))
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 65)
+    assert.equal(doctor.value.data.recovery.action, 'finalize')
+    assert.equal(doctor.value.data.agent_hook.ok, true)
+
+    const repairPreview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repairPreview.status, 0)
+    const repaired = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repairPreview.value.data.plan_digest,
+    ])
+    assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`)
+    assert.equal(repaired.value.data.mode, 'applied')
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, `${healthy.stdout}\n${healthy.stderr}`)
+    assert.equal(healthy.value.data.status, 'healthy')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('duplicate apply rechecks terminal state while holding the profile lock', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const lockPath = join(subject.home, 'runtime-kit', 'state', 'work.lock')
+    mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 })
+    const lock = new DatabaseSync(lockPath)
+    chmodSync(lockPath, 0o600)
+    lock.exec('BEGIN EXCLUSIVE')
+    try {
+      const replay = run(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+        '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+      ])
+      assert.equal(replay.status, 65)
+      assert.equal(replay.value.error.code, 'operations-locked')
+    } finally {
+      lock.exec('ROLLBACK')
+      lock.close()
+    }
+    const afterRelease = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+    ])
+    assert.equal(afterRelease.status, 0, afterRelease.stderr)
+    assert.equal(afterRelease.value.data.mode, 'duplicate')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('digest-only duplicate replay needs neither the original source nor child executables', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    rmSync(subject.v1, { recursive: true, force: true })
+    const replay = run(subject, [
+      'setup', '--profile', 'work',
+      '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+    ], {
+      PATH: subject.root,
+      DSH_RUNTIME_KIT_DSH_BIN: join(subject.root, 'missing-dsh'),
+    })
+    assert.equal(replay.status, 0, `${replay.stdout}\n${replay.stderr}`)
+    assert.equal(replay.value.data.mode, 'duplicate')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('duplicate replay rejects a contradictory supplied package target', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    for (const conflicting of [subject.v2, (() => {
+      writeFileSync(join(subject.v1, 'changed.js'), 'changed\n')
+      return subject.v1
+    })()]) {
+      const replay = run(subject, [
+        'setup', '--profile', 'work', '--package', conflicting,
+        '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+      ])
+      assert.equal(replay.status, 65)
+      assert.equal(replay.value.error.code, 'plan-drift')
+    }
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor rejects mutation-only options before invoking diagnostics', () => {
+  const subject = fixture()
+  try {
+    const unavailable = join(subject.root, 'must-not-run')
+    for (const args of [
+      ['doctor', '--profile', 'work', '--package', subject.v1],
+      ['doctor', '--profile', 'work', '--apply', '--expected-plan-digest', 'a'.repeat(64)],
+    ]) {
+      const rejected = run(subject, args, {
+        DSH_RUNTIME_KIT_DSH_BIN: unavailable,
+        DSH_RUNTIME_KIT_AGENT_HOOK_BIN: unavailable,
+      })
+      assert.equal(rejected.status, 64)
+      assert.equal(rejected.value.ok, false)
+      assert.match(rejected.value.error.code, /^unexpected-/)
+    }
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('invalid exact semantic versions are rejected before plan creation', () => {
+  const subject = fixture()
+  try {
+    for (const version of ['01.0.0', '1.0.0-01', '1.0.0-..']) {
+      const rejected = run(subject, [
+        'setup', '--profile', 'work', '--package', `@sympoies/dsh-runtime-kit@${version}`,
+      ])
+      assert.equal(rejected.status, 64)
+      assert.equal(rejected.value.error.code, 'invalid-package-spec')
+      assert.equal(existsSync(join(subject.home, 'runtime-kit')), false)
+    }
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('local package content is authenticated by the reviewed plan', () => {
+  const subject = fixture()
+  try {
+    writeFileSync(join(subject.v1, 'runtime.js'), 'export const value = 1\n')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(preview.status, 0, preview.stderr)
+    writeFileSync(join(subject.v1, 'runtime.js'), 'export const value = 2\n')
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('an exact registry target is delegated without local artifact staging', () => {
+  const subject = fixture()
+  try {
+    const target = '@sympoies/dsh-runtime-kit@1.2.3'
+    const applied = applyPlan(subject, ['setup', '--profile', 'work', '--package', target])
+    assert.equal(applied.preview.plan.target.kind, 'registry')
+    assert.equal(applied.preview.plan.target.expected_version, '1.2.3')
+    const state = JSON.parse(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'), 'utf8'))
+    assert.equal(state.current.dependency_spec, target)
+    assert.equal(state.current.target.kind, 'registry')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('update on the same local source path installs a newly reviewed artifact', () => {
+  const subject = fixture()
+  try {
+    const runtimePath = join(subject.v1, 'runtime.js')
+    writeFileSync(runtimePath, 'export const value = 1\n')
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const before = JSON.parse(readFileSync(statePath, 'utf8'))
+
+    writeFileSync(runtimePath, 'export const value = 2\n')
+    const updated = applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.equal(updated.preview.plan.action, 'update')
+    const after = JSON.parse(readFileSync(statePath, 'utf8'))
+    assert.notEqual(after.current.target.artifact_sha256, before.current.target.artifact_sha256)
+    assert.equal(after.previous.target.artifact_sha256, before.current.target.artifact_sha256)
+
+    writeFileSync(runtimePath, 'export const value = 3\n')
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    const retained = readdirSync(join(subject.home, 'runtime-kit', 'artifacts'))
+      .filter(name => name.endsWith('.tgz'))
+    assert.equal(retained.length, 2)
+
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    const afterRemove = readdirSync(join(subject.home, 'runtime-kit', 'artifacts'))
+      .filter(name => name.endsWith('.tgz'))
+    assert.deepEqual(afterRemove, [])
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor and duplicate replay reject same-version installed-byte replacement', () => {
+  for (const packageSpec of ['local', 'registry']) {
+    const subject = fixture()
+    try {
+      const target = packageSpec === 'local'
+        ? subject.v1
+        : '@sympoies/dsh-runtime-kit@1.0.0'
+      const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', target])
+      writeFileSync(join(
+        subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'forged.js',
+      ), 'unreviewed bytes\n')
+      const doctor = run(subject, ['doctor', '--profile', 'work'])
+      assert.equal(doctor.status, 65)
+      assert.equal(doctor.value.data.owned_status, 'drift')
+      const replay = run(subject, [
+        'setup', '--profile', 'work',
+        '--apply', '--expected-plan-digest', setup.preview.plan_digest,
+      ])
+      assert.equal(replay.status, 65)
+      assert.equal(replay.value.error.code, 'owned-state-drift')
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('absent profiles cannot escape DSH home through parent or profile symlinks', () => {
+  for (const level of ['profiles', 'profile']) {
+    const subject = fixture()
+    try {
+      rmSync(subject.profileDir, { recursive: true, force: true })
+      const external = join(subject.root, `external-${level}`)
+      mkdirSync(external)
+      if (level === 'profiles') {
+        rmSync(join(subject.home, 'profiles'), { recursive: true, force: true })
+        symlinkSync(external, join(subject.home, 'profiles'), 'dir')
+      } else {
+        symlinkSync(external, subject.profileDir, 'dir')
+      }
+      const rejected = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      assert.equal(rejected.status, 65)
+      assert.equal(rejected.value.error.code, 'unsafe-profile-tree')
+      assert.deepEqual(readdirSync(external), [])
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('remove refuses an intermediate symlink and preserves the external target', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const scope = join(subject.profileDir, 'node_modules', '@sympoies')
+    rmSync(scope, { recursive: true, force: true })
+    const externalScope = join(subject.root, 'external-scope')
+    const externalPackage = join(externalScope, 'dsh-runtime-kit')
+    mkdirSync(externalPackage, { recursive: true })
+    writeJson(join(externalPackage, 'package.json'), {
+      name: '@sympoies/dsh-runtime-kit',
+      version: '1.0.0',
+    })
+    writeFileSync(join(externalPackage, 'must-survive.txt'), 'external')
+    symlinkSync(externalScope, scope, 'dir')
+    writeFileSync(join(subject.home, 'retain-installed-entry'), '')
+
+    const rejected = run(subject, ['remove', '--profile', 'work'])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'unsafe-profile-tree')
+    assert.equal(readFileSync(join(externalPackage, 'must-survive.txt'), 'utf8'), 'external')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor refuses a forged pending receipt instead of adopting it', () => {
+  const subject = fixture()
+  try {
+    writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(interrupted.status, 70)
+    unlinkSync(join(subject.home, 'fail-after-mutation'))
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const original = JSON.parse(readFileSync(statePath, 'utf8'))
+    const forged = structuredClone(original)
+    forged.pending.operation = 'forged-operation'
+    writeJson(statePath, forged)
+    chmodSync(statePath, 0o600)
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 65)
+    assert.equal(doctor.value.error.code, 'invalid-operations-state')
+
+    const mismatchedDigest = structuredClone(original)
+    mismatchedDigest.pending.plan.action = 'noop'
+    writeJson(statePath, mismatchedDigest)
+    chmodSync(statePath, 0o600)
+    const digestRejected = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(digestRejected.status, 65)
+    assert.equal(digestRejected.value.error.code, 'invalid-operations-state')
+
+    const mismatchedTarget = structuredClone(original)
+    mismatchedTarget.pending.target.requested_spec = subject.v2
+    writeJson(statePath, mismatchedTarget)
+    chmodSync(statePath, 0o600)
+    const targetRejected = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(targetRejected.status, 65)
+    assert.equal(targetRejected.value.error.code, 'invalid-operations-state')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('same-version package sources cannot be adopted or recovered as each other', () => {
+  const subject = fixture()
+  try {
+    const other = stageBundle(subject.root, '1.0.0-other')
+    const otherManifest = JSON.parse(readFileSync(join(other, 'package.json'), 'utf8'))
+    otherManifest.version = '1.0.0'
+    writeJson(join(other, 'package.json'), otherManifest)
+
+    const unmanaged = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const installed = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', unmanaged.value.data.plan_digest,
+    ])
+    assert.equal(installed.status, 0)
+    rmSync(join(subject.home, 'runtime-kit'), { recursive: true, force: true })
+    const adopt = run(subject, ['setup', '--profile', 'work', '--package', other])
+    assert.equal(adopt.status, 65)
+    assert.equal(adopt.value.error.code, 'unmanaged-owned-state')
+  } finally {
+    subject.cleanup()
+  }
+
+  const recoverySubject = fixture()
+  try {
+    const other = stageBundle(recoverySubject.root, '1.0.0-other')
+    const otherManifest = JSON.parse(readFileSync(join(other, 'package.json'), 'utf8'))
+    otherManifest.version = '1.0.0'
+    writeJson(join(other, 'package.json'), otherManifest)
+    writeFileSync(join(recoverySubject.home, 'fail-after-mutation'), '')
+    const preview = run(recoverySubject, [
+      'setup', '--profile', 'work', '--package', recoverySubject.v1,
+    ])
+    const interrupted = run(recoverySubject, [
+      'setup', '--profile', 'work', '--package', recoverySubject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(interrupted.status, 70)
+    unlinkSync(join(recoverySubject.home, 'fail-after-mutation'))
+    const manifestPath = join(recoverySubject.profileDir, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.dependencies['@sympoies/dsh-runtime-kit'] = `file:${other}`
+    writeJson(manifestPath, manifest)
+    const doctor = run(recoverySubject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 65)
+    assert.equal(doctor.value.data.recovery.action, 'unknown')
+    const repair = run(recoverySubject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 65)
+    assert.equal(repair.value.error.code, 'recovery-ambiguous')
+  } finally {
+    recoverySubject.cleanup()
+  }
+})
+
+test('subprocesses receive a minimal environment and child stderr cannot echo secrets', () => {
+  const subject = fixture()
+  try {
+    const hostile = join(subject.root, 'hostile-dsh.mjs')
+    writeFileSync(hostile, `#!/usr/bin/env node
+const sentinel = process.env.RUNTIME_KIT_SECRET_SENTINEL ?? '<absent>'
+const proxy = process.env.HTTPS_PROXY ?? '<absent>'
+process.stderr.write('sentinel=' + sentinel + ';proxy=' + proxy)
+process.exit(sentinel === '<absent>' && !proxy.includes('must-not-leak') ? 70 : 71)
+`)
+    chmodSync(hostile, 0o755)
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], {
+      DSH_RUNTIME_KIT_DSH_BIN: hostile,
+      RUNTIME_KIT_SECRET_SENTINEL: 'must-not-leak',
+      HTTPS_PROXY: 'http://must-not-leak:credential@example.invalid',
+    })
+    assert.equal(rejected.status, 70)
+    assert.equal(rejected.value.error.details.exit_code, 70)
+    assert.equal(rejected.stdout.includes('must-not-leak'), false)
+    assert.equal(rejected.stderr.includes('must-not-leak'), false)
+  } finally {
+    subject.cleanup()
+  }
+})
