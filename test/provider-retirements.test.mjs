@@ -89,7 +89,15 @@ test('the shipped DSH runtime has no Claude provider or automatic Claude coautho
     const runtime = await import(pathToFileURL(
       requireFromInstall.resolve('@sympoies/dsh-runtime-kit'),
     ).href)
-    assert.deepEqual(runtime.inject, ['agents', 'skills', 'subprocess', 'tools'])
+    assert.deepEqual(runtime.inject, [
+      'agents',
+      'sessions',
+      'shell',
+      'shellEnv',
+      'skills',
+      'subprocess',
+      'tools',
+    ])
     assert.equal(runtime.inject.includes('llm'), false)
   } finally {
     await rm(temporary, { recursive: true, force: true })

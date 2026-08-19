@@ -18,12 +18,17 @@ import { parse as parseYaml } from 'yaml'
 
 import { applyPolicy, plusOneTool } from './policy.js'
 import { mainAgentMode } from './src/main-agent/index.js'
+import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
+import {
+  createReviewerAuthority,
+  reviewSpecialistsRuntime,
+} from './src/review/index.js'
 
 export { plusOneTool }
 export { applyMainAgentMode, mainAgentMode } from './src/main-agent/index.js'
 
 export const name = 'dsh-runtime-kit'
-export const inject = ['agents', 'skills', 'subprocess', 'tools']
+export const inject = ['agents', 'sessions', 'shell', 'shellEnv', 'skills', 'subprocess', 'tools']
 
 const bundledSkillDir = fileURLToPath(new URL('./skills/', import.meta.url))
 const DEFAULT_PRIVATE_MAX_DEPTH = 32
@@ -33,17 +38,6 @@ const HARD_PRIVATE_MAX_ENTRIES = 20_000
 const MAX_PRIVATE_FILE_BYTES = 4 * 1024 * 1024
 const MAX_PRIVATE_TOTAL_BYTES = 32 * 1024 * 1024
 const PRIVATE_PROVIDER = 'dsh-runtime-kit-private-snapshot'
-
-async function filesystemSkillsApply() {
-  try {
-    return (await import('@deepseek-ai/dsh-skill-filesystem')).apply
-  } catch (error) {
-    const sourceCheckoutWithoutBuild = error?.code === 'ERR_MODULE_NOT_FOUND'
-      && String(error.message).includes('dsh-skill-filesystem/lib/index.js')
-    if (!sourceCheckoutWithoutBuild) throw error
-    return (await import('@deepseek-ai/dsh-skill-filesystem/src/index.ts')).apply
-  }
-}
 
 function configuredPrivateSkillsDir(config) {
   const configured = config.privateSkillsDir
@@ -437,8 +431,9 @@ export async function apply(ctx, config = {}) {
       maxEntries: config.privateSkillMaxEntries,
     })
   try {
-    const applyFilesystemSkills = await filesystemSkillsApply()
-    applyFilesystemSkills(ctx, {
+    assertDshRc7Runtime(ctx)
+    const dshRuntime = await loadDshRc7Runtime()
+    dshRuntime.filesystemSkillsApply(ctx, {
       providerName: 'dsh-runtime-kit',
       includeDefaultRoots: false,
       customSkillDirs: [],
@@ -452,7 +447,17 @@ export async function apply(ctx, config = {}) {
         yield async () => { await privateSnapshot.dispose() }
       }, 'dsh-runtime-kit private skill snapshot')
     }
-    applyPolicy(ctx, config)
+    const reviewers = createReviewerAuthority()
+    applyPolicy(ctx, config, reviewers, dshRuntime)
+    void Promise.resolve(ctx.plugin(reviewSpecialistsRuntime, {
+      authority: reviewers,
+      config,
+    })).catch(error => {
+      ctx.logger?.warn?.(
+        'dsh-runtime-kit: review specialists failed to activate: %s',
+        String(error?.stack ?? error),
+      )
+    })
     // Child fiber: Main Agent Mode activates only where the subagent runtime
     // exists, without gating skills or policy on it. Never awaited — an
     // unmet inject leaves the child pending by design. A rejection is a real

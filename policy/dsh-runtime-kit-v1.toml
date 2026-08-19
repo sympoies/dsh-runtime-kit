@@ -1,0 +1,255 @@
+schema_version = "agent-hook.policy.v1"
+bundle_id = "dsh-runtime-kit"
+version = "2026.08.19.1"
+
+# Tasks 3.2 through 3.4 port admission-critical mutation gates, bounded native
+# lifecycle reminders, metadata-only activity, and authenticated operation
+# leases into typed nils capabilities. DSH consumes allow/block for tool
+# admission and native context at accepted lifecycle boundaries.
+
+[[rules]]
+id = "dsh.owner-unclaimed"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 100
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "owner-unclaimed" }
+
+[[rules]]
+id = "dsh.semantic-conflict"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 110
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "semantic-conflict" }
+
+[[rules]]
+id = "dsh.operation-lifecycle-tool"
+products = ["dsh"]
+events = ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 115
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "operation-lifecycle" }
+
+[[rules]]
+id = "dsh.agent-scope-lock-guard"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 120
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "agent-scope-lock-guard" }
+
+[[rules]]
+id = "dsh.block-direct-git-commit"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 130
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-direct-git-commit" }
+
+[[rules]]
+id = "dsh.block-direct-git-worktree"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 140
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-direct-git-worktree" }
+
+[[rules]]
+id = "dsh.block-direct-pr-create"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 150
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-direct-pr-create" }
+
+[[rules]]
+id = "dsh.block-direct-python"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 160
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-direct-python" }
+
+[[rules]]
+id = "dsh.block-unsafe-default-delivery"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 170
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-unsafe-default-delivery" }
+
+[[rules]]
+id = "dsh.checkout-lease-guard"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 180
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "checkout-lease-guard" }
+
+[[rules]]
+id = "dsh.pre-edit-intent-gate"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 190
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "pre-edit-intent-gate" }
+
+[[rules]]
+id = "dsh.semantic-commit-body-gate"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 200
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "semantic-commit-body-gate" }
+
+[[rules]]
+id = "dsh.block-project-memory-write"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 210
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "block-project-memory-write" }
+
+[[rules]]
+id = "dsh.forge-label-reminder"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 220
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "forge-label-reminder" }
+
+[[rules]]
+id = "dsh.mcp-secret-scan"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 230
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "mcp-secret-scan" }
+
+[[rules]]
+id = "dsh.memory-write-principle-reminder"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 240
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "memory-write-principle-reminder" }
+
+[[rules]]
+id = "dsh.portable-paths-scan"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash|write|edit|str_replace_editor"
+priority = 250
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "portable-paths-scan" }
+
+[[rules]]
+id = "dsh.session-start-healthcheck"
+products = ["dsh"]
+events = ["UserPromptSubmit"]
+priority = 260
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "session-start-healthcheck" }
+
+[[rules]]
+id = "dsh.skill-usage-reminder"
+products = ["dsh"]
+events = ["UserPromptSubmit"]
+priority = 270
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "skill-usage-reminder" }
+
+[[rules]]
+id = "dsh.stop-pre-pr-reminder"
+products = ["dsh"]
+events = ["Stop"]
+priority = 280
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "stop-pre-pr-reminder" }
+
+[[rules]]
+id = "dsh.operation-lifecycle-stop"
+products = ["dsh"]
+events = ["Stop"]
+priority = 285
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "operation-lifecycle" }
+
+[[rules]]
+id = "dsh.user-prompt-agent-memory"
+products = ["dsh"]
+events = ["UserPromptSubmit"]
+priority = 290
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "user-prompt-agent-memory" }
+
+[[rules]]
+id = "dsh.agent-activity"
+products = ["dsh"]
+events = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]
+priority = 300
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "agent-activity" }

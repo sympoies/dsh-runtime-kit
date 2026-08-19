@@ -64,6 +64,13 @@ const EXPECTED_OWNER_REPOSITORIES = {
   },
 }
 
+const TRUSTED_SQUASH_INTEGRATIONS = {
+  [DSH]: {
+    evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
+    merge_commit: 'bfab898fe553db4857bb3aa54c5db102866cf321',
+  },
+}
+
 const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'agent-scope-lock-guard': disposition('policy.edit-scope.v1', PLANNED, `${DSH} + ${NILS}`, [DSH_POLICY, NILS_POLICY]),
   'agent-session.activity.v1': disposition('coordination.activity.v1', PLANNED, `${DSH} + ${NILS}`, [DSH_COORDINATION, NILS_COORDINATION]),
@@ -296,17 +303,23 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
       boundary.identity,
       `repository identity invalid: ${repository}`,
     )
-    await gitOutput(
-      root,
-      ['merge-base', '--is-ancestor', boundary.evidence_commit, 'HEAD'],
-      repository,
-    )
+    const squash = TRUSTED_SQUASH_INTEGRATIONS[repository]
+    if (squash?.evidence_commit === boundary.evidence_commit) {
+      await gitOutput(root, ['cat-file', '-e', `${boundary.evidence_commit}^{commit}`], repository)
+      await gitOutput(root, ['merge-base', '--is-ancestor', squash.merge_commit, 'HEAD'], repository)
+    } else {
+      await gitOutput(
+        root,
+        ['merge-base', '--is-ancestor', boundary.evidence_commit, 'HEAD'],
+        repository,
+      )
+    }
     assert.equal(
       await gitOutput(root, ['for-each-ref', '--format=%(refname)', 'refs/replace'], repository),
       '',
       `repository replacement objects are forbidden: ${repository}`,
     )
-    verifiedRoots.set(repository, { root, boundary })
+    verifiedRoots.set(repository, { root, boundary, squash })
   }
 
   const repositories = new Set()
@@ -315,7 +328,7 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
   ))) {
     const verifiedRoot = verifiedRoots.get(owner.repository)
     assert.ok(verifiedRoot !== undefined, `missing repository root: ${owner.repository}`)
-    const { root, boundary } = verifiedRoot
+    const { root, boundary, squash } = verifiedRoot
     const candidate = resolve(root, owner.path)
     assert.ok(candidate.startsWith(`${root}${sep}`), `test owner escapes repository: ${owner.path}`)
     const metadata = await lstat(candidate)
@@ -328,15 +341,29 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
       `H ${owner.path}`,
       `test owner index flags are unsafe: ${owner.repository}/${owner.path}`,
     )
-    const [evidenceBlob, headBlob, workingBlob] = await Promise.all([
+    const [evidenceBlob, integrationBlob, headBlob, workingBlob] = await Promise.all([
       gitOutput(
         root,
         ['rev-parse', `${boundary.evidence_commit}:${owner.path}`],
         owner.repository,
       ),
+      squash === undefined
+        ? Promise.resolve(undefined)
+        : gitOutput(
+            root,
+            ['rev-parse', `${squash.merge_commit}:${owner.path}`],
+            owner.repository,
+          ),
       gitOutput(root, ['rev-parse', `HEAD:${owner.path}`], owner.repository),
       gitOutput(root, ['hash-object', '--no-filters', '--', owner.path], owner.repository),
     ])
+    if (integrationBlob !== undefined) {
+      assert.equal(
+        evidenceBlob,
+        integrationBlob,
+        `test owner squash evidence drift: ${owner.repository}/${owner.path}`,
+      )
+    }
     assert.equal(evidenceBlob, headBlob, `test owner evidence drift: ${owner.repository}/${owner.path}`)
     assert.equal(workingBlob, headBlob, `test owner working blob drift: ${owner.repository}/${owner.path}`)
     await gitOutput(root, ['diff', '--quiet', '--', owner.path], owner.repository)

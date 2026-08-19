@@ -1,0 +1,97 @@
+name: DSH compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run benchmark:policy
+
+  upstream:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: pinned
+            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+          - channel: upstream-next
+            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: dsh-runtime-kit
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ matrix.revision }}
+          path: deepseek-harness
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: deepseek-harness/pnpm-lock.yaml
+      - name: Build selected unmodified DSH
+        working-directory: deepseek-harness
+        run: pnpm install --frozen-lockfile --ignore-scripts && pnpm run build:lib
+      - name: Install runtime-kit dependencies
+        working-directory: dsh-runtime-kit
+        run: npm ci --ignore-scripts --omit=peer
+      - name: Check selected public DSH contract
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent check:compatibility --
+          --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+          --channel "${{ matrix.channel }}"
+          --format json
+      - name: Pack selected DSH public packages
+        working-directory: dsh-runtime-kit
+        run: |
+          npm run --silent pack:compatibility-peers -- \
+            --source-root "$GITHUB_WORKSPACE/deepseek-harness" \
+            --artifact-root "$RUNNER_TEMP/dsh-compatibility-peers" \
+            --channel "${{ matrix.channel }}" \
+            --pnpm-bin "$(command -v pnpm)" \
+            --receipt "$RUNNER_TEMP/dsh-peer-pack.json"
+      - name: Stage authenticated selected DSH closure into the consumer
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent stage:compatibility-peers --
+          --receipt "$RUNNER_TEMP/dsh-peer-pack.json"
+          --artifact-root "$RUNNER_TEMP/dsh-compatibility-peers"
+          --consumer-root "$GITHUB_WORKSPACE/dsh-runtime-kit"
+      - name: Validate the consumer against selected DSH artifacts
+        working-directory: dsh-runtime-kit
+        run: npm run typecheck && npm test
+      - name: Assert upstream checkout stayed clean
+        working-directory: deepseek-harness
+        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"

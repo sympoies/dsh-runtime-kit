@@ -35,7 +35,8 @@ configuration, policy, skill, reviewer, or workflow responsibility.
   private, and bundled skill precedence through DSH's standard filesystem
   provider.
 - The legacy runtime exposes 29 public skills, eight reviewer personas, 101
-  Codex/Claude policy registrations, and 22 allowlisted file-handler IDs. Some
+  policy rules, 69 handler-capability registrations across 22 handler IDs, and
+  a declared 67-registration/21-handler legacy provider subset. Some
   registrations are provider duplicates or provider-specific compatibility;
   final parity is behavior- and invariant-based, not a requirement to retain
   obsolete provider names or Python processes.
@@ -69,9 +70,10 @@ configuration, policy, skill, reviewer, or workflow responsibility.
 7. Project skills use DSH's native provider. An optional private root is
    loaded at runtime after ownership, mode, ancestor, containment, and symlink
    checks. Project wins over private; private wins over bundled public.
-8. Reviewers are exposed as one `review_specialists` tool selecting one of
-   eight server-side personas. Reviewer mutation denial is enforced by policy,
-   not prompt text or tool filtering alone.
+8. Reviewers are exposed as one `review_specialists` tool selecting one or
+   more of eight server-side personas. Reviewer mutation denial is enforced by
+   exact runtime identity and a monotonic guard, not prompt text or tool
+   filtering alone.
 9. Large delivery is one shared dispatch outcome with independently reviewed
    PR lanes. DSH repository lanes target the plan branch; the nils-cli lane is
    a linked cross-repository dependency PR targeting nils-cli `main`.
@@ -124,8 +126,24 @@ DSH typed lifecycle event
   possible.
 - DSH's `ToolExecution.token` and monotonic guard are used so a later plugin
   cannot reverse an authoritative denial.
-- Authoritative post-tool results replace the legacy shell `EXIT` trap for
-  validation accounting.
+- Nils-supervised foreground Bash execution and nils-observed results replace
+  the legacy shell `EXIT` trap and caller-reported validation accounting.
+- Ordinary foreground Bash advances repository generation without validation
+  evidence; background Bash and unsupported authoritative-execution hosts fail
+  closed.
+- Observed execution requires exactly one non-null `exitCode`/`signal`, a
+  canonical `NodeJS.Signals` value for any signal, and mutually exclusive
+  timeout/abort flags. An impossible combination invalidates the
+  execution-bearing response and enters authenticated private quiesce before
+  failure returns.
+- Contained runner configuration is sealed in-memory and delivered with the
+  exact runner inode through systemd descriptors; a trusted ELF interpreter and
+  pidfd supervisor watch prevent path substitution and orphaned execution.
+- Every failed execution-bearing run, whether from transport, unexpected
+  agent-hook exit or signal, response validation, cancellation, deadline, or
+  disposal, must await private nils quiesce before returning its error.
+  Uncertain exact-unit cleanup degrades
+  future finish-line admission closed.
 - Session state and finish-line records use opaque session identities and do
   not retain prompts, raw tool output, or credentials.
 
@@ -159,8 +177,12 @@ DSH typed lifecycle event
   sessions for bootstrap, inspect, edit, validation, review, private/project
   skill use, semantic commit, and PR delivery.
 - The policy parity matrix has no `pending` active behavior.
-- Finish-line E2E proves edit -> dirty -> failed validation -> blocked stop ->
-  successful validation -> allowed stop.
+- Finish-line E2E proves edit -> failed validation -> blocked stop -> successful
+  validation -> allowed stop -> ordinary mutation -> blocked stop -> exact
+  revalidation -> allowed stop.
+- Failed execution-bearing runs prove private quiesce prevents late mutation
+  before transport, agent-hook exit/signal, response-validation, cancellation,
+  deadline, or disposal failure settles.
 - Eight of eight reviewer personas are selectable; attempted reviewer mutation
   is blocked before the tool body.
 - The upstream DSH checkout remains clean in every compatibility run.
@@ -217,3 +239,13 @@ Retention intent: keep this source and the final plan as historical migration
 evidence after closeout; promote only stable operational contracts into normal
 repository documentation.
 
+## Task 3.4 implementation resolution
+
+The implementation resolves the earlier coordination question without adding a
+DSH fork or a second policy engine. DSH emits strict pre/post/lifecycle ingress;
+nils owns activity normalization and delegates operation authority to the
+same-release `agent-session` show/admit/complete contract. Only exact target and
+lease facts persist in private bounded state. Managed uncertainty blocks Stop,
+fully unmanaged use is explicit, and partial identity fails closed. Production
+still contains no legacy handler execution path; Task 3.5 now proves and freezes
+that removal across every active parity row.

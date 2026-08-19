@@ -3,6 +3,7 @@
   "status": "pending-release",
   "minimum_supported_release": null,
   "validated_release": null,
+  "release": null,
   "commands": [
     {
       "id": "agent-hook.dispatch.dsh",
@@ -11,10 +12,59 @@
       "validation": "source-validated",
       "contracts": [
         "agent-hook.dsh-ingress.v1",
+        "agent-hook.dsh-ingress.v2",
+        "agent-hook.dsh-ingress.v3",
+        "agent-hook.dsh-ingress.v4",
+        "agent-hook.policy.v1",
+        "dsh.policy.v1",
         "cli.agent-hook.dispatch.v1",
         "agent-hook.normalized-decision.v1"
       ],
-      "source_task": "sympoies/nils-cli task 1.3"
+      "source_tasks": [
+        "sympoies/nils-cli task 1.3",
+        "sympoies/nils-cli task 3.2",
+        "sympoies/nils-cli task 3.3",
+        "sympoies/nils-cli task 3.4"
+      ]
+    },
+    {
+      "id": "agent-docs.session.context.dsh",
+      "binary": "agent-docs",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "cli.agent-docs.session.context.v1",
+        "decision.context.v1",
+        "agent-docs.session.v2"
+      ],
+      "source_task": "sympoies/nils-cli task 2.2"
+    },
+    {
+      "id": "agent-hook.finish-line.dsh",
+      "binary": "agent-hook",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "agent-hook.finish-line.open.v1",
+        "cli.agent-hook.finish-line-open.v1",
+        "agent-hook.finish-line.open-result.v1",
+        "agent-hook.finish-line.begin.v1",
+        "cli.agent-hook.finish-line-begin.v1",
+        "agent-hook.finish-line.begin-result.v1",
+        "agent-hook.finish-line.run.v1",
+        "cli.agent-hook.finish-line-run.v1",
+        "agent-hook.finish-line.run-result.v1",
+        "agent-hook.finish-line.stop.v1",
+        "cli.agent-hook.finish-line-stop.v1",
+        "agent-hook.finish-line.stop-result.v1",
+        "agent-hook.finish-line.quiesce.v1",
+        "cli.agent-hook.finish-line-quiesce.v1",
+        "agent-hook.finish-line.quiesce-result.v1",
+        "agent-hook.finish-line.release.v1",
+        "cli.agent-hook.finish-line-release.v1",
+        "agent-hook.finish-line.release-result.v1"
+      ],
+      "source_task": "sympoies/nils-cli task 2.3"
     },
     {
       "id": "main-agent.dsh-external-runtime",

@@ -1,0 +1,620 @@
+import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { mkdtemp, mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { gzipSync } from 'node:zlib'
+
+import {
+  DSH_RC7_OPTIONAL_RUNTIME_SURFACE,
+  DSH_RC7_RUNTIME_SURFACE,
+  DshCompatibilityError,
+  assertDshRc7Runtime,
+  inspectDshSource,
+  loadDshRc7Runtime,
+  validateDshCompatibilityManifest,
+} from '../src/compat/contract.js'
+import { evaluatePolicyPerformanceBudget } from '../src/compat/performance.js'
+import {
+  extractPackageArtifact,
+  inspectCanonicalPackageArtifact,
+  prepareAuthenticatedPackageScope,
+} from '../src/compat/package-artifact.js'
+
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const manifestPath = join(projectRoot, 'compatibility', 'dsh.json')
+const run = promisify(execFile)
+
+const sha256 = value => createHash('sha256').update(value).digest('hex')
+
+function tarHeader(path, size) {
+  const header = Buffer.alloc(512)
+  header.write(path, 0, 100, 'utf8')
+  header.write('0000644\0', 100, 8, 'ascii')
+  header.write(`${size.toString(8).padStart(11, '0')}\0`, 124, 12, 'ascii')
+  header[156] = '0'.charCodeAt(0)
+  return header
+}
+
+function gzipTar(entries) {
+  const parts = []
+  for (const [path, bytes] of entries) {
+    parts.push(tarHeader(path, bytes.length), bytes)
+    const padding = (512 - (bytes.length % 512)) % 512
+    if (padding > 0) parts.push(Buffer.alloc(padding))
+  }
+  parts.push(Buffer.alloc(1024))
+  return gzipSync(Buffer.concat(parts))
+}
+
+function validRuntime() {
+  return {
+    on() {},
+    effect() {},
+    provide() {},
+    get() {},
+    plugin() {},
+    agents: { list() { return [] }, get() {} },
+    sessions: { flush() {} },
+    shell: { resolve() {} },
+    shellEnv: { collect() {} },
+    skills: { register() {} },
+    subprocess: { spawn() {} },
+    tools: { register() {}, guard() {} },
+  }
+}
+
+test('DSH compatibility manifest pins rc.7 and one selected upstream-next revision', () => {
+  const manifest = validateDshCompatibilityManifest(
+    JSON.parse(readFileSync(manifestPath, 'utf8')),
+  )
+  assert.equal(manifest.schema_version, 'dsh-runtime-kit.dsh-compatibility.v1')
+  assert.equal(manifest.repository, 'https://github.com/deepseek-ai/deepseek-harness')
+  assert.deepEqual(Object.keys(manifest.channels).sort(), ['pinned', 'upstream-next'])
+  assert.equal(manifest.channels.pinned.version, '0.1.0-rc.7')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.0-rc.7')
+  assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
+  assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
+  assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
+  assert.equal(
+    manifest.performance.pre_tool.iterations * manifest.performance.pre_tool.batches >= 2_000,
+    true,
+  )
+  assert.equal(manifest.performance.pre_tool.p95_ms > 0, true)
+  assert.equal(manifest.performance.pre_tool.retained_heap_bytes > 0, true)
+  assert.deepEqual(manifest.runtime_surface, DSH_RC7_RUNTIME_SURFACE)
+  assert.deepEqual(manifest.optional_runtime_surface, DSH_RC7_OPTIONAL_RUNTIME_SURFACE)
+
+  const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+  assert.deepEqual(
+    packageManifest.peerDependencies,
+    Object.fromEntries(Object.entries(manifest.public_packages)
+      .map(([name, contract]) => [name, contract.peer])),
+  )
+  for (const [name, contract] of Object.entries(manifest.public_packages)) {
+    assert.equal(packageManifest.peerDependencies[name], contract.peer)
+    assert.equal(
+      contract.peer,
+      contract.version ?? manifest.channels.pinned.version,
+      `${name} must not advertise versions that runtime preflight rejects`,
+    )
+  }
+
+  const exportDrift = structuredClone(manifest)
+  exportDrift.public_packages['@deepseek-ai/dsh-llm'].exports.createUserMessage = 'object'
+  assert.throws(
+    () => validateDshCompatibilityManifest(exportDrift),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+
+  const oneBatch = structuredClone(manifest)
+  oneBatch.performance.pre_tool.batches = 1
+  oneBatch.performance.pre_tool.iterations = 2_000
+  assert.throws(
+    () => validateDshCompatibilityManifest(oneBatch),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+})
+
+test('selected DSH non-workspace runtime dependencies are exact and lockfile-bound', () => {
+  const expected = {
+    '@standard-schema/spec': '1.1.0',
+    chokidar: '5.0.0',
+    'js-yaml': '4.1.0',
+    yaml: '2.9.0',
+    zod: '4.4.3',
+  }
+  const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+  const packageLock = JSON.parse(readFileSync(join(projectRoot, 'package-lock.json'), 'utf8'))
+  assert.deepEqual(packageManifest.dependencies, expected)
+  assert.deepEqual(packageLock.packages[''].dependencies, expected)
+  for (const [name, version] of Object.entries(expected)) {
+    assert.equal(packageLock.packages[`node_modules/${name}`]?.version, version)
+  }
+})
+
+test('peer staging rejects symlinked install ancestors without touching external files', async () => {
+  for (const symlinkedComponent of ['node_modules', '@deepseek-ai']) {
+    const consumerRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-consumer-'))
+    const externalRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-external-'))
+    try {
+      const marker = join(externalRoot, 'must-remain.txt')
+      await writeFile(marker, 'preserved\n')
+      if (symlinkedComponent === 'node_modules') {
+        await symlink(externalRoot, join(consumerRoot, 'node_modules'), 'dir')
+      } else {
+        const nodeModules = join(consumerRoot, 'node_modules')
+        await mkdir(nodeModules)
+        await symlink(externalRoot, join(nodeModules, '@deepseek-ai'), 'dir')
+      }
+
+      await assert.rejects(
+        prepareAuthenticatedPackageScope(consumerRoot, '@deepseek-ai'),
+        error => error instanceof DshCompatibilityError
+          && error.code === 'DSH_RUNTIME_KIT_DSH_PEER_STAGE_FAILED',
+      )
+      assert.equal(readFileSync(marker, 'utf8'), 'preserved\n')
+    } finally {
+      await rm(consumerRoot, { recursive: true, force: true })
+      await rm(externalRoot, { recursive: true, force: true })
+    }
+  }
+})
+
+test('peer staging stays descriptor-anchored across an install-scope swap', async () => {
+  const consumerRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-consumer-'))
+  const externalRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-external-'))
+  let installScope
+  try {
+    const scopeRoot = join(consumerRoot, 'node_modules', '@deepseek-ai')
+    const originalTarget = join(scopeRoot, 'example')
+    const externalTarget = join(externalRoot, 'example')
+    await mkdir(originalTarget, { recursive: true })
+    await mkdir(externalTarget)
+    await writeFile(join(originalTarget, 'old.txt'), 'old\n')
+    await writeFile(join(externalTarget, 'must-remain.txt'), 'preserved\n')
+
+    installScope = await prepareAuthenticatedPackageScope(consumerRoot, '@deepseek-ai')
+    const anchoredTarget = installScope.resolveTarget('example')
+    const displacedScope = join(consumerRoot, 'displaced-scope')
+    await rename(scopeRoot, displacedScope)
+    await symlink(externalRoot, scopeRoot, 'dir')
+
+    await rm(anchoredTarget, { recursive: true })
+    const stagedTarget = join(consumerRoot, 'staged-example')
+    await mkdir(stagedTarget)
+    await writeFile(join(stagedTarget, 'new.txt'), 'new\n')
+    await rename(stagedTarget, anchoredTarget)
+
+    assert.equal(readFileSync(join(externalTarget, 'must-remain.txt'), 'utf8'), 'preserved\n')
+    assert.equal(readFileSync(join(displacedScope, 'example', 'new.txt'), 'utf8'), 'new\n')
+  } finally {
+    if (typeof installScope?.close === 'function') await installScope.close()
+    await rm(consumerRoot, { recursive: true, force: true })
+    await rm(externalRoot, { recursive: true, force: true })
+  }
+})
+
+test('peer staging eliminates the replaceable staging tree', () => {
+  const source = readFileSync(
+    join(projectRoot, 'scripts', 'stage-dsh-compatibility-peers.mjs'),
+    'utf8',
+  )
+  assert.doesNotMatch(source, /\bmkdtemp\b/u)
+  assert.doesNotMatch(source, /\brename\(/u)
+  assert.doesNotMatch(source, /\brm\(/u)
+  assert.doesNotMatch(source, /staged\.push\([^)]*\bbytes\b/su)
+  assert.match(source, /extractPackageArtifact\(bytes, target\)/u)
+})
+
+test('authenticated extraction never follows a swapped package root', async () => {
+  const consumerRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-consumer-'))
+  const packageRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-package-'))
+  const artifactRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-tarball-'))
+  let installScope
+  try {
+    await writeFile(join(packageRoot, 'package.json'), `${JSON.stringify({
+      name: '@deepseek-ai/example',
+      version: '1.0.0',
+    })}\n`)
+    await mkdir(join(packageRoot, 'lib'))
+    await writeFile(join(packageRoot, 'lib', 'index.js'), 'export const value = 1\n')
+    const packed = JSON.parse((await run('npm', [
+      'pack', '--json', '--ignore-scripts', '--pack-destination', artifactRoot,
+    ], { cwd: packageRoot, encoding: 'utf8' })).stdout)
+    const tarball = readFileSync(join(artifactRoot, packed[0].filename))
+
+    installScope = await prepareAuthenticatedPackageScope(consumerRoot, '@deepseek-ai')
+    const anchoredTarget = installScope.resolveTarget('example')
+    const visibleTarget = join(consumerRoot, 'node_modules', '@deepseek-ai', 'example')
+    const displacedTarget = join(consumerRoot, 'displaced-package')
+    await assert.rejects(
+      extractPackageArtifact(tarball, anchoredTarget, {
+        afterTargetOpened: async () => {
+          await rename(visibleTarget, displacedTarget)
+          await mkdir(visibleTarget)
+          await writeFile(join(visibleTarget, 'must-remain.txt'), 'preserved\n')
+        },
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_DSH_PEER_STAGE_FAILED',
+    )
+
+    assert.equal(readFileSync(join(visibleTarget, 'must-remain.txt'), 'utf8'), 'preserved\n')
+    assert.deepEqual(await readdir(visibleTarget), ['must-remain.txt'])
+    assert.equal(
+      readFileSync(join(displacedTarget, 'lib', 'index.js'), 'utf8'),
+      'export const value = 1\n',
+    )
+  } finally {
+    if (typeof installScope?.close === 'function') await installScope.close()
+    await rm(consumerRoot, { recursive: true, force: true })
+    await rm(packageRoot, { recursive: true, force: true })
+    await rm(artifactRoot, { recursive: true, force: true })
+  }
+})
+
+test('runtime public-surface preflight returns a typed report or one typed incompatibility', () => {
+  assert.deepEqual(assertDshRc7Runtime(validRuntime()), {
+    schema_version: 'dsh-runtime-kit.dsh-runtime-report.v1',
+    adapter: 'dsh-rc7',
+    compatible: true,
+  })
+
+  const incompatible = validRuntime()
+  delete incompatible.tools.guard
+  assert.throws(
+    () => assertDshRc7Runtime(incompatible),
+    error => {
+      assert.equal(error instanceof DshCompatibilityError, true)
+      assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+      assert.deepEqual(error.diagnostic.missing, ['tools.guard'])
+      assert.equal(error.diagnostic.compatible, false)
+      return true
+    },
+  )
+
+  const missingPlugin = validRuntime()
+  delete missingPlugin.plugin
+  assert.throws(
+    () => assertDshRc7Runtime(missingPlugin),
+    error => {
+      assert.equal(error instanceof DshCompatibilityError, true)
+      assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+      assert.deepEqual(error.diagnostic.missing, ['plugin'])
+      return true
+    },
+  )
+})
+
+test('DSH core runtime preflight does not require optional subagent services', () => {
+  assert.deepEqual(DSH_RC7_OPTIONAL_RUNTIME_SURFACE, [
+    'subagents.start',
+    'subagents.getProvider',
+  ])
+  assert.equal(DSH_RC7_RUNTIME_SURFACE.some(path => path.startsWith('subagents.')), false)
+  assert.equal(assertDshRc7Runtime(validRuntime()).compatible, true)
+})
+
+test('package artifact parsing rejects expansion bombs, oversized entries, and entry floods', () => {
+  const oneMiB = gzipSync(Buffer.alloc(1024 * 1024))
+  const expansionBomb = Buffer.concat(Array.from({ length: 257 }, () => oneMiB))
+  assert.throws(
+    () => inspectCanonicalPackageArtifact(expansionBomb),
+    /artifact.*limit|bounded artifact/i,
+  )
+
+  const oversized = gzipSync(Buffer.concat([
+    tarHeader('package/huge.bin', 64 * 1024 * 1024 + 1),
+    Buffer.alloc(1024),
+  ]))
+  assert.throws(
+    () => inspectCanonicalPackageArtifact(oversized),
+    /artifact.*limit|bounded artifact/i,
+  )
+
+  const entries = Array.from(
+    { length: 16_385 },
+    (_, index) => [`package/f-${index}`, Buffer.alloc(0)],
+  )
+  assert.throws(
+    () => inspectCanonicalPackageArtifact(gzipTar(entries)),
+    /artifact.*limit|bounded artifact/i,
+  )
+})
+
+test('runtime values are version-bound and missing or wrong-kind exports stay typed', async () => {
+  const modules = {
+    '@deepseek-ai/dsh-bash-local': { ENV_OVERRIDES: {} },
+    '@deepseek-ai/dsh-llm': { HarnessError: class extends Error {}, createUserMessage() {} },
+    '@deepseek-ai/dsh-sandbox': {
+      approveEscalation() {},
+      canonicalPath() {},
+      validateEscalationArgs() {},
+    },
+    '@deepseek-ai/dsh-skill-filesystem': { apply() {} },
+    '@deepseek-ai/dsh-tools': { TOOL_ABORTED: 'ABORTED' },
+  }
+  const options = overrides => ({
+    importModule: async specifier => overrides?.[specifier] ?? modules[specifier],
+    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+      ? '4.0.1'
+      : '0.1.0-rc.7',
+  })
+  const loaded = await loadDshRc7Runtime(options())
+  assert.equal(typeof loaded.createUserMessage, 'function')
+  assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
+
+  await assert.rejects(
+    loadDshRc7Runtime(options({
+      '@deepseek-ai/dsh-llm': { HarnessError: class extends Error {}, createUserMessage: undefined },
+    })),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+      && error.diagnostic.missing.includes('@deepseek-ai/dsh-llm:createUserMessage:function'),
+  )
+  await assert.rejects(
+    loadDshRc7Runtime({
+      ...options(),
+      packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
+        ? '0.1.0-rc.8'
+        : specifier === '@deepseek-ai/cordis'
+          ? '4.0.1'
+          : '0.1.0-rc.7',
+    }),
+    error => error instanceof DshCompatibilityError
+      && error.diagnostic.missing.includes('@deepseek-ai/dsh-tools:version:0.1.0-rc.7'),
+  )
+
+  let importCalls = 0
+  await assert.rejects(
+    loadDshRc7Runtime({
+      importModule: async specifier => {
+        importCalls += 1
+        return modules[specifier]
+      },
+      packageVersion: async specifier => specifier === '@deepseek-ai/dsh-subprocess'
+        ? '0.1.0-rc.8'
+        : specifier === '@deepseek-ai/cordis'
+          ? '4.0.1'
+          : '0.1.0-rc.7',
+    }),
+    error => error instanceof DshCompatibilityError
+      && error.diagnostic.missing.includes('@deepseek-ai/dsh-subprocess:version:0.1.0-rc.7'),
+  )
+  assert.equal(importCalls, 0)
+
+  const installed = await loadDshRc7Runtime()
+  assert.deepEqual(
+    new Set(Object.values(installed.versions)),
+    new Set(['0.1.0-rc.7', '4.0.1']),
+  )
+})
+
+test('source inspection validates package versions and required public runtime exports', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-compat-source-'))
+  const external = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-compat-external-'))
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.channels.pinned.revision = '0'.repeat(40)
+    manifest.channels['upstream-next'].revision = '1'.repeat(40)
+    await writeFile(join(root, 'package.json'), `${JSON.stringify({
+      name: '@deepseek-ai/dsh-root',
+      version: '0.1.0-rc.7',
+    })}\n`)
+    for (const [name, contract] of Object.entries(manifest.public_packages)) {
+      const packageRoot = join(root, contract.path)
+      await mkdir(join(packageRoot, 'lib'), { recursive: true })
+      const version = contract.version ?? '0.1.0-rc.7'
+      await writeFile(join(packageRoot, 'package.json'), `${JSON.stringify({
+        name,
+        version,
+        type: 'module',
+        exports: { '.': { types: './lib/index.d.ts', default: './lib/index.js' } },
+      })}\n`)
+      const entrypoint = `export const identity = ${JSON.stringify(name)}\n`
+      const types = 'export declare const identity: string\n'
+      await writeFile(join(packageRoot, 'lib', 'index.js'), entrypoint)
+      await writeFile(join(packageRoot, 'lib', 'index.d.ts'), types)
+      contract.entrypoint_sha256 = sha256(entrypoint)
+      contract.types_sha256 = sha256(types)
+    }
+
+    const report = await inspectDshSource({
+      sourceRoot: root,
+      channel: 'pinned',
+      revision: '0'.repeat(40),
+      clean: true,
+      manifest,
+    })
+    assert.equal(report.compatible, true)
+    assert.equal(report.packages.length, Object.keys(manifest.public_packages).length)
+    assert.equal('exports' in report.packages[0], false)
+    assert.equal('expected_exports' in report.packages[0], true)
+
+    const targetName = '@deepseek-ai/dsh-llm'
+    const target = manifest.public_packages[targetName]
+    const packageRoot = join(root, target.path)
+    await writeFile(join(packageRoot, 'lib', 'index.js'), 'export const changed = true\n')
+    await assert.rejects(
+      inspectDshSource({
+        sourceRoot: root,
+        channel: 'pinned',
+        revision: '0'.repeat(40),
+        clean: true,
+        manifest,
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+        && error.diagnostic.missing.includes(`${targetName}:built-entrypoint-digest`),
+    )
+
+    await writeFile(join(external, 'package.json'), `${JSON.stringify({
+      name: targetName,
+      version: '0.1.0-rc.7',
+      type: 'module',
+      exports: { '.': { types: './index.d.ts', default: './index.js' } },
+    })}\n`)
+    await writeFile(join(external, 'index.js'), 'export const identity = "external"\n')
+    await writeFile(join(external, 'index.d.ts'), 'export declare const identity: string\n')
+    await rm(packageRoot, { recursive: true, force: true })
+    await symlink(external, packageRoot, 'dir')
+    await assert.rejects(
+      inspectDshSource({
+        sourceRoot: root,
+        channel: 'pinned',
+        revision: '0'.repeat(40),
+        clean: true,
+        manifest,
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_DSH_SOURCE_INVALID',
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(external, { recursive: true, force: true })
+  }
+})
+
+test('performance promotion fails closed on p95, retained heap, or active resources', () => {
+  const budget = {
+    p95_ms: 5,
+    retained_heap_bytes: 1_000,
+    retained_growth_bytes: 100,
+    max_active_after: 0,
+  }
+  assert.deepEqual(
+    evaluatePolicyPerformanceBudget({
+      samplesMs: [1, 2, 2, 3, 4],
+      retainedHeapBytes: 512,
+      activeAfter: 0,
+      liveHandlesAfter: 0,
+    }, budget),
+    {
+      schema_version: 'dsh-runtime-kit.policy-performance.v1',
+      status: 'pass',
+      samples: 5,
+      p95_ms: 4,
+      retained_heap_bytes: 512,
+      active_after: 0,
+      live_handles_after: 0,
+      budget,
+    },
+  )
+  for (const measurement of [
+    { samplesMs: [1, 6], retainedHeapBytes: 0, activeAfter: 0, liveHandlesAfter: 0 },
+    { samplesMs: [1], retainedHeapBytes: 1_001, activeAfter: 0, liveHandlesAfter: 0 },
+    {
+      samplesMs: [1],
+      retainedHeapBytes: 1,
+      retainedGrowthBytes: 101,
+      activeAfter: 0,
+      liveHandlesAfter: 0,
+    },
+    { samplesMs: [1], retainedHeapBytes: 0, activeAfter: 1, liveHandlesAfter: 0 },
+    { samplesMs: [1], retainedHeapBytes: 0, activeAfter: 0, liveHandlesAfter: 1 },
+  ]) {
+    assert.throws(
+      () => evaluatePolicyPerformanceBudget(measurement, budget),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_PERFORMANCE_BUDGET_EXCEEDED',
+    )
+  }
+})
+
+test('compatibility workflow keeps both selected channels promotion-blocking', () => {
+  const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  assert.match(workflow, /channel: pinned/)
+  assert.match(workflow, /channel: upstream-next/)
+  assert.match(workflow, new RegExp(manifest.channels.pinned.revision))
+  assert.match(workflow, new RegExp(manifest.channels['upstream-next'].revision))
+  assert.match(workflow, /npm run --silent check:compatibility/)
+  assert.match(workflow, /npm run --silent pack:compatibility-peers/)
+  assert.match(workflow, /--channel "\$\{\{ matrix\.channel \}\}"/)
+  assert.match(workflow, /--pnpm-bin "\$\(command -v pnpm\)"/)
+  assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
+  assert.match(workflow, /npm run --silent stage:compatibility-peers/)
+  assert.match(workflow, /npm ci --ignore-scripts --omit=peer/)
+  assert.doesNotMatch(workflow, /compatibility-peers\/\*\.tgz/)
+  assert.doesNotMatch(workflow, /npm install --offline/)
+  assert.match(workflow, /npm run typecheck && npm test/)
+  assert.match(workflow, /npm run benchmark:policy/)
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/)
+})
+
+test('peer packer requires an absolute trusted pnpm launcher', async () => {
+  const sourceRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-source-'))
+  const artifactRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-artifacts-'))
+  const receiptRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-receipt-'))
+  try {
+    await assert.rejects(
+      run(process.execPath, [
+        join(projectRoot, 'scripts', 'pack-dsh-compatibility-peers.mjs'),
+        '--source-root', sourceRoot,
+        '--artifact-root', artifactRoot,
+        '--channel', 'pinned',
+        '--pnpm-bin', 'pnpm',
+        '--receipt', join(receiptRoot, 'receipt.json'),
+      ]),
+      error => {
+        const envelope = JSON.parse(error.stdout)
+        return envelope.error?.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_ARGUMENT_INVALID'
+      },
+    )
+  } finally {
+    await rm(sourceRoot, { recursive: true, force: true })
+    await rm(artifactRoot, { recursive: true, force: true })
+    await rm(receiptRoot, { recursive: true, force: true })
+  }
+})
+
+test('advertised silent compatibility command emits exactly one JSON error envelope', async () => {
+  await assert.rejects(
+    run('npm', ['run', '--silent', 'check:compatibility', '--', '--format', 'json'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }),
+    error => {
+      const envelope = JSON.parse(error.stdout)
+      return envelope.schema_version === 'dsh-runtime-kit.compatibility-check.v1'
+        && envelope.ok === false
+        && envelope.error?.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_ARGUMENT_INVALID'
+    },
+  )
+})
+
+test('peer packer rejects an unselected checkout before producing artifacts', async () => {
+  const artifactRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-artifacts-'))
+  const receiptRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-receipt-'))
+  try {
+    await assert.rejects(
+      run(process.execPath, [
+        join(projectRoot, 'scripts', 'pack-dsh-compatibility-peers.mjs'),
+        '--source-root', projectRoot,
+        '--artifact-root', artifactRoot,
+        '--channel', 'pinned',
+        '--pnpm-bin', process.execPath,
+        '--receipt', join(receiptRoot, 'receipt.json'),
+      ]),
+      error => {
+        const envelope = JSON.parse(error.stdout)
+        return [
+          'DSH_RUNTIME_KIT_DSH_SOURCE_INVALID',
+          'DSH_RUNTIME_KIT_UNSELECTED_DSH_REVISION',
+        ].includes(envelope.error?.code)
+      },
+    )
+    assert.deepEqual(await readdir(artifactRoot), [])
+  } finally {
+    await rm(artifactRoot, { recursive: true, force: true })
+    await rm(receiptRoot, { recursive: true, force: true })
+  }
+})
