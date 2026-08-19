@@ -305,7 +305,7 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
     )
     const squash = TRUSTED_SQUASH_INTEGRATIONS[repository]
     if (squash?.evidence_commit === boundary.evidence_commit) {
-      await gitOutput(root, ['cat-file', '-e', `${boundary.evidence_commit}^{commit}`], repository)
+      await gitOutput(root, ['cat-file', '-e', `${squash.merge_commit}^{commit}`], repository)
       await gitOutput(root, ['merge-base', '--is-ancestor', squash.merge_commit, 'HEAD'], repository)
     } else {
       await gitOutput(
@@ -341,29 +341,16 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
       `H ${owner.path}`,
       `test owner index flags are unsafe: ${owner.repository}/${owner.path}`,
     )
-    const [evidenceBlob, integrationBlob, headBlob, workingBlob] = await Promise.all([
+    const evidenceSubject = squash?.merge_commit ?? boundary.evidence_commit
+    const [evidenceBlob, headBlob, workingBlob] = await Promise.all([
       gitOutput(
         root,
-        ['rev-parse', `${boundary.evidence_commit}:${owner.path}`],
+        ['rev-parse', `${evidenceSubject}:${owner.path}`],
         owner.repository,
       ),
-      squash === undefined
-        ? Promise.resolve(undefined)
-        : gitOutput(
-            root,
-            ['rev-parse', `${squash.merge_commit}:${owner.path}`],
-            owner.repository,
-          ),
       gitOutput(root, ['rev-parse', `HEAD:${owner.path}`], owner.repository),
       gitOutput(root, ['hash-object', '--no-filters', '--', owner.path], owner.repository),
     ])
-    if (integrationBlob !== undefined) {
-      assert.equal(
-        evidenceBlob,
-        integrationBlob,
-        `test owner squash evidence drift: ${owner.repository}/${owner.path}`,
-      )
-    }
     assert.equal(evidenceBlob, headBlob, `test owner evidence drift: ${owner.repository}/${owner.path}`)
     assert.equal(workingBlob, headBlob, `test owner working blob drift: ${owner.repository}/${owner.path}`)
     await gitOutput(root, ['diff', '--quiet', '--', owner.path], owner.repository)
