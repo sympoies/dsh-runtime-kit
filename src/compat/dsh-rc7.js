@@ -1,6 +1,11 @@
 // @ts-check
 
 import { isAbsolute } from 'node:path'
+import { loadDshRc7Runtime } from './contract.js'
+
+export async function filesystemSkillsApply() {
+  return (await loadDshRc7Runtime()).filesystemSkillsApply
+}
 
 /** @typedef {import('@deepseek-ai/dsh-agent').Agent} Agent */
 /** @typedef {import('@deepseek-ai/dsh-agent').PreStepDecision} PreStepDecision */
@@ -32,6 +37,7 @@ import { isAbsolute } from 'node:path'
 /**
  * @typedef CallContext
  * @property {ToolExecutionToken} token
+ * @property {ToolExecutionToken | undefined} parent
  * @property {string} sessionId
  * @property {string} cwd
  * @property {number} turn
@@ -42,6 +48,22 @@ import { isAbsolute } from 'node:path'
  */
 
 /** @typedef {{ ok: false, reason: string } | { ok: true, context: Readonly<CallContext> }} BeginToolResult */
+
+/**
+ * @typedef StepContext
+ * @property {string} sessionId
+ * @property {string} cwd
+ * @property {number} turn
+ * @property {number} step
+ * @property {SessionStartSource | 'observed'} sessionStartSource
+ */
+
+/**
+ * @typedef StopContext
+ * @property {string} sessionId
+ * @property {string} cwd
+ * @property {number} turn
+ */
 
 /** @param {unknown} value @returns {value is number} */
 function validPositiveInteger(value) {
@@ -230,6 +252,42 @@ export function createDshRc7Compatibility(ctx) {
     },
 
     /**
+     * Observe the exact proposed rc.7 step without accepting it. This context
+     * is safe to send to an advisory evaluator before the waterfall settles;
+     * callers must attach any returned context only after an `enter` decision.
+     * @param {{ agent: Agent, messages: unknown[], turn: number, step: number, signal: AbortSignal }} payload
+     * @returns {{ok: false, reason: string} | {ok: true, context: Readonly<StepContext>}}
+     */
+    preStepContext(payload) {
+      if (!open) return { ok: false, reason: 'policy-disposed' }
+      const stored = sessions.get(payload.agent)
+      const context = stored === undefined || stored.session !== payload.agent.session
+        ? attach(payload.agent, 'observed')
+        : stored
+      const identity = sessionIdentity(payload.agent)
+      if (context === undefined || identity === undefined
+        || context.sessionId !== identity.sessionId
+        || context.cwd !== identity.cwd
+        || identity.cwd === undefined
+        || !context.historyValid
+        || !validPositiveInteger(payload.turn)
+        || !validPositiveInteger(payload.step)
+        || payload.signal.aborted) {
+        return { ok: false, reason: 'policy-step-context-invalid' }
+      }
+      return {
+        ok: true,
+        context: Object.freeze({
+          sessionId: identity.sessionId,
+          cwd: identity.cwd,
+          turn: payload.turn,
+          step: payload.step,
+          sessionStartSource: context.source === 'attached' ? 'observed' : context.source,
+        }),
+      }
+    },
+
+    /**
      * @param {{ agent: Agent, messages: unknown[], turn: number, step: number, signal: AbortSignal }} payload
      * @param {() => Promise<PreStepDecision>} next
      * @returns {Promise<PreStepDecision>}
@@ -290,6 +348,7 @@ export function createDshRc7Compatibility(ctx) {
       /** @type {Readonly<CallContext>} */
       const call = Object.freeze({
         token: exec.token,
+        parent: exec.parent,
         sessionId: session.sessionId,
         cwd: identity.cwd,
         turn,
@@ -326,6 +385,7 @@ export function createDshRc7Compatibility(ctx) {
         && call.turn === position.turn
         && call.step === position.step
         && call.token === exec.token
+        && call.parent === exec.parent
         && call.callId === exec.callId
         && call.rootCallId === exec.rootCallId
         && call.name === exec.name
@@ -364,6 +424,37 @@ export function createDshRc7Compatibility(ctx) {
         && session.turn === payload.turn
       if (matched) session.step = undefined
       return matched
+    },
+
+    /**
+     * Read the correlated stop identity after `turnStopping()` has refreshed
+     * the durable lifecycle suffix.
+     * @param {{ agent: Agent, turn: number, signal: AbortSignal }} payload
+     * @returns {{ok: false, reason: string} | {ok: true, context: Readonly<StopContext>}}
+     */
+    stopContext(payload) {
+      if (!open || payload.signal.aborted) {
+        return { ok: false, reason: 'policy-stop-context-invalid' }
+      }
+      const session = sessions.get(payload.agent)
+      const identity = sessionIdentity(payload.agent)
+      if (session === undefined || session.session !== payload.agent.session
+        || identity === undefined || identity.cwd === undefined
+        || session.sessionId !== identity.sessionId
+        || session.cwd !== identity.cwd
+        || !session.historyValid
+        || !validPositiveInteger(payload.turn)
+        || session.turn !== payload.turn) {
+        return { ok: false, reason: 'policy-stop-context-invalid' }
+      }
+      return {
+        ok: true,
+        context: Object.freeze({
+          sessionId: identity.sessionId,
+          cwd: identity.cwd,
+          turn: payload.turn,
+        }),
+      }
     },
 
     /** @param {ToolExecutionToken} token */

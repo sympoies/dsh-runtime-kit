@@ -7,13 +7,14 @@
 - Tracking issue: <https://github.com/sympoies/dsh-runtime-kit/issues/1>
 - Profile: dispatch
 - Plan branch: `feat/dsh-runtime-migration-plan`
-- Current sprint: Sprint 2
+- Current sprint: Sprint 6
 - Status: in-progress
-- Current task: 2.1 Add the bounded lifecycle compatibility layer
-- Next task: 2.2 Implement selective runtime context
-- Integration checkout: managed lane `feat/lifecycle-compat`
-- Blockers: none
-- Last updated: 2026-08-18
+- Current task: 6.1 Run complete real-session acceptance matrix
+- Next task: 6.2 Cut over local runtime after Task 6.1 promotion
+- Integration checkout: managed lane `feat/native-runtime-integrated`
+- Blockers: nils-cli release and the final run-correlated external acceptance
+  remain outside the authorized Stage 1 source-delivery boundary
+- Last updated: 2026-08-19
 
 ## Task Ledger
 
@@ -22,21 +23,28 @@
 | 1.1 | Initialize dispatch record and plan branch | done | public `sympoies/dsh-runtime-kit`; local validated bundle pending; plan commit 5f8fb78; public issue #1; run 20260817T230951Z-issue-1 | Validated, published, and initialized |
 | 1.2 | Deliver external bundle and skills baseline | done | dsh-runtime-kit PR #2; squash `aef980293d48eac03e293acfca0d5562041b29e5`; 26/26 tests; packed real DSH rc.7 smoke | External bundle, private loader, and skill precedence integrated |
 | 1.3 | Deliver strict nils-cli DSH ingress | done | nils-cli PR #1465; squash `5937233a87b88f8afa4e00ba550124176be837c2`; exact-head Linux/macOS/coverage/cargo-deny/CodeQL | Strict ingress and native allow/block decision merged to nils-cli `main` |
-| 2.1 | Add bounded lifecycle compatibility layer | in-progress | managed lane `feat/lifecycle-compat`; 53/53 tests; packed real rc.7 smoke; API/performance/security review pass | Validated locally; PR delivery pending |
-| 2.2 | Implement selective runtime context | pending | pending | DSH + nils contract lane |
-| 2.3 | Replace validation wrappers with result-driven finish-line | pending | pending | nils capability plus DSH adapter |
-| 3.1 | Freeze parity inventory and capability groups | review-converged | `policy/rule-parity.yaml`; exact source verifier; 101 unique registrations; 21 legacy handlers plus one relocated capability; authenticated active/planned test ownership; 65/65 tests; packed real DSH rc.7 smoke; API/data/red-team follow-up pass | Every source row maps to an owned DSH/nils capability or evidence-backed provider retirement; draft-only lanes remain planned until integrated |
-| 3.2 | Port Git, delivery, scope, and edit-admission policies | pending | pending | Deterministic nils capability lane |
-| 3.3 | Port privacy, memory, reminder, and portable-output policies | pending | pending | Deterministic nils capability lane |
-| 3.4 | Port coordination and operation lifecycle | pending | pending | Deterministic nils capability lane |
-| 3.5 | Remove legacy handler execution from production | pending | pending | No active parity row pending |
-| 4.1 | Implement reviewer personas and selection tool | pending | pending | One tool, eight personas |
-| 4.2 | Enforce reviewer read-only authority | pending | pending | Policy-enforced, not prompt-only |
-| 5.1 | Add setup, doctor, update, rollback, and remove | pending | pending | Exact owned-state operations |
-| 5.2 | Add upstream compatibility and performance gates | pending | pending | Pinned + upstream-next |
-| 6.1 | Run complete real-session acceptance matrix | pending | pending | No legacy runtime execution |
+| 2.1 | Add bounded lifecycle compatibility layer | done | dsh-runtime-kit PR #3; squash `ba15a9c1e4b14b97091a60bfb927b1b1c5855b65`; 53/53 tests; packed real rc.7 smoke; converged review ledger | Full lifecycle correlation and bounded fail-closed transport integrated |
+| 2.2 | Implement selective runtime context | done | nils-cli PR #1466; dsh-runtime-kit draft PR #4; managed lane `feat/selective-runtime-context`; clean rc.7 smoke; public `Product` remains the compatible three-variant 1.x enum | DSH is an isolated internal catalog view and CLI-private selector; no nils 2.0 boundary is required |
+| 2.3 | Replace validation wrappers with nils-executed finish-line | done | nils 31-test focused finish-line suite; DSH 99/99 plus typecheck; create-dispose-resume packed rc.7 smoke; security, maintainability, and API-contract reviews clean | Every foreground Bash call is nils-supervised; retry-safe sequence-bound incarnations, stable-identity release barriers, trusted crash-orphan recovery, quiesce-before-release teardown, sealed descriptor-bound runner, pidfd supervisor watch, and private failed-run quiesce fail closed before exact evidence may satisfy stop |
+| 3.1 | Freeze parity inventory and capability groups | done | frozen public `policy/rule-parity.yaml`; internal `policy/runtime-rule-parity.yaml`; canonical Git-object verifier; DSH 102/102; nils 23-group schema tests; security, maintainability, and API reviews clean | 101 rules; 69/22 handler-capability surface; 67/21 legacy subset; 26 uniquely owned migration groups |
+| 3.2 | Port Git, delivery, scope, and edit-admission policies | done | nils agent-hook suite; DSH 104/104 plus typecheck; parity verifier; packed unmodified rc.7 smoke | Eleven typed groups, strict ingress v2, no retired handler execution |
+| 3.3 | Port privacy, memory, reminder, and portable-output policies | done | nils 31/31 focused policy suite; DSH 111/111 plus typecheck; parity verifier; packed unmodified rc.7 smoke with native lifecycle context | Nine typed groups, strict lifecycle ingress v3, accepted-prompt digest deduplication, no private payload echo |
+| 3.4 | Port coordination and operation lifecycle | done | nils 37/37 policy, 8/8 ingress, 3/3 parity; DSH 116/116 plus typecheck; packed unmodified rc.7 smoke | Metadata-only activity; exact admit/complete with authenticated broker Stop; unmanaged no-op, any partial identity closed |
+| 3.5 | Remove legacy handler execution from production | done | 101-row source verifier; zero planned active groups; package executable scan; nils DSH handler rejection; packed rc.7 smoke | 25 implemented groups plus one provider-obsolete retirement; no production handler rule or executable |
+| 4.1 | Implement reviewer personas and selection tool | done | 17/17 reviewer tests; skill routing contract; packed unmodified rc.7 smoke; non-empty nils JSONL validation | One strict tool; eight server-owned personas; optional child-plugin activation, bounded runtime-global active/queued admission, validator-compatible structured findings/disposition, cancellation/drain, and automatic critical red-team routing |
+| 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
+| 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
+| 5.2 | Add upstream compatibility and performance gates | done | 16/16 compatibility; 217/217 package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; p95 0.0695 ms and 164,408-byte retained-heap benchmark; packed unmodified rc.7 smoke; security follow-up clean | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | external-tarball rehearsal `acceptance-source-20260819-fixed`: 10 passed, 2 pending, 0 failed; package `7e7df22d...e96f5a`; independently hashed private control source; fresh pinned DSH build; six hashed nils executables; disposable credentialless UID/deny-all-egress design; post-run UID quiescence; stubbed no-merge provider integration | Final pass still requires released nils artifacts and one run-correlated candidate workflow execution |
 | 6.2 | Cut over local runtime | pending | pending | Fresh authorization gates still apply |
 | 6.3 | Retire active old runtime and close dispatch | pending | pending | Zero active references required |
+
+Task 6.1 source closeout gates: DSH 217/217 plus typecheck; nils focused
+agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
+8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
+`agent_run_inspect` tests explicitly skipped; private trust-root `make validate`;
+real packed DSH smoke; and external-tarball rehearsal 10 passed, 2
+authority-pending, 0 failed. Security and maintainability follow-ups are clean.
 
 ## Validation Log
 
@@ -112,6 +120,154 @@
   keep the retirement boundary executable. Declared inventory count and unique
   rule-ID checks also prevent duplicate rows from being collapsed into a false
   public success result; maintainability follow-up reports no finding.
+- 2026-08-18: Task 2.1 PR #3 merged by squash into the retained plan branch as
+  `ba15a9c1`. Task 2.2 started in a fresh managed lane; it will keep the full
+  policy corpus out of session-start and expose only intent-selected, bounded
+  agent-docs content through one DSH-native tool.
+- 2026-08-19: Issue #6 and PR #7 integrated native Main Agent Mode into the
+  retained plan branch at `8c102f8`. Its `src/main-agent/*` controller tools,
+  in-process continuable children, setup/deny-only guard, liveness sidecar,
+  skill protocol, and tests are the authoritative implementation. Later Stage
+  1 integration composes beside that boundary and does not replace it.
+- 2026-08-18: Task 2.2 source converged at 60/60 package tests, strict
+  type-checking, package dry-run inspection, and a packed smoke against the
+  clean upstream `dsh-v0.1.0-rc.7` checkout. The real Agent loop observed no
+  startup marker, loaded `project-dev` only through `runtime_context`, then
+  returned `42` from the independent plus-one tool. The exact nils dependency
+  is PR #1466 head `ec8b6021`, whose focused 67 unit and 206 integration tests
+  and API/security/testing specialist reviews are green; provider CI remains
+  the merge gate.
+- 2026-08-19: The nils 1.x compatibility boundary was restored. Public
+  `Product` remains exactly Codex, Claude, and Hermes; DSH catalog tags are
+  parsed into an isolated internal projection used only by DSH context,
+  integration fingerprinting, and finish-line validation lookup. Malformed
+  excluded entries still fail catalog loading, mixed product arrays preserve
+  their standard members, and the pre-projection private-catalog limit remains
+  enforced. No nils 2.0 boundary is required.
+- 2026-08-18: Security review of DSH PR #4 found that arbitrary model-selected
+  intents could omit phase and cross the workflow-owned review/delivery
+  boundary. The regression now rejects every intent except `project-dev`
+  before process creation and maps every accepted call explicitly to `edit`.
+- 2026-08-18: Task 2.3 reached source-complete. The nils engine passes 31
+  focused Linux tests, six contract tests, 45 library tests, clippy, docs, and
+  formatting. DSH passes 99/99 tests, typecheck, and the packed unmodified rc.7
+  create-dispose-resume smoke. The canonical nils local-fast gate reached the
+  known host-only Bubblewrap loopback limitation in 12 unrelated
+  `agent_run_inspect` cases; the substitute workspace run excluded that group
+  and passed 8,512/8,512 tests with no TMPDIR leak. Security,
+  maintainability, and API-contract follow-ups are clean. Merge, release, and
+  cutover remain unauthorized.
+- 2026-08-18: Task 3.1 froze the exact `agent-runtime-kit` Git object
+  `79d6b93f9df812e9cfd151ee03fc3d0ce44a0081`. The packaged verifier
+  authenticates the repository origin, reads the manifest and 67-row provider
+  snapshot from that commit, derives all five 101/69/22/67/21 counters, and
+  compares every ordered source digest plus explicit legacy membership. The 27
+  source keys map once into 26 migration groups: 23 nils capabilities, two
+  stronger DSH-native seams, and one evidence-backed Claude-only retirement.
+  Nils publishes a strict 23-ID planning schema with unique Task 2.3/3.2/3.3/
+  3.4 ownership; it does not make planned groups dispatchable. DSH passes
+  102/102 tests, typecheck, package inspection, source verification, and diff
+  check; nils passes its complete agent-hook crate tests, all-target clippy,
+  formatting, docs-only gates, and diff check. Security, maintainability, and
+  API-contract follow-ups are clean.
+- 2026-08-18: Task 3.2 implemented the eleven uniquely owned Git, delivery,
+  scope, owner/semantic-conflict, checkout-lease, direct-Python,
+  semantic-commit-body, and project-dev edit-admission groups as strict
+  `dsh.policy.v1` evaluators. DSH now emits strict ingress v2 with exact
+  session/turn/step and agent-docs roots. Nils passes the full agent-hook crate
+  suite; DSH passes 104/104 package tests, typecheck, the canonical parity
+  verifier, and a packed real smoke against unmodified rc.7 using the packaged
+  policy. The smoke preserves project/private/bundled skill precedence and
+  exercises context, edit, finish-line, mutation, denial, replay guards,
+  cancellation, disposal, resume, a real managed worktree, raw default-branch
+  denial, and governed semantic-commit dry-run recovery without a retired
+  handler file or external provider mutation. Merge, release, and cutover
+  remain unauthorized.
+- 2026-08-19: Task 3.3 implemented nine typed privacy, project-memory,
+  machine-path, label, memory-principle, session-health, skill, startup-memory,
+  and pre-PR groups. The first regression failed with
+  `policy-capability-event-unsupported`; green nils binds each group only to
+  `PreToolUse`, `UserPromptSubmit`, or `Stop`. DSH uses v2 for tool ingress and
+  strict v3 for lifecycle ingress, projects at most 64 KiB of accepted
+  downstream user prompt, validates 16 KiB of normalized context, and retains
+  only a digest for concurrent same-position deduplication. Changed, rewritten,
+  or removed accepted prompts are independently evaluated. Nils focused tests
+  pass 31/31; DSH passes 111/111 plus typecheck and parity; the packed bundle on
+  unmodified rc.7 exposes a real nils skill reminder in the first model request
+  while retaining the full context/edit/finish-line/delivery smoke. The nils
+  local-fast docs, artifact, format, and clippy gates pass; workspace nextest
+  stops after 2,520 passes at the known host-only Bubblewrap loopback failure in
+  the same 12 unrelated `agent_run_inspect` tests. The complete agent-hook crate
+  is green, and security, maintainability, and API-contract reviews are clean.
+  Merge, release, and cutover remain unauthorized.
+- 2026-08-19: Task 3.4 implemented metadata-only DSH activity plus exact native
+  operation lifecycle. Strict ingress v4 binds the v2 call identity and carries
+  only the terminal error bit. Managed Bash/write/edit/str_replace operations
+  use one trusted same-release `agent-session` show/admit/complete sequence,
+  preserve idempotency across duplicate or ambiguous calls, and keep Stop
+  closed while active or uncertain. Private state contains no raw call, tool
+  body, or result; terminal retry state compacts to 64 records behind a session
+  lock and hard-fails at conservative capacity. Fully unmanaged sessions are
+  no-op and any partial managed selector set blocks. Local operation state is
+  retry cache only: terminal post retries reauthenticate completion and Stop
+  uses exact-incarnation authenticated broker status. Certain denial removes
+  its whole provisional directory; terminal compaction uses a durable monotonic
+  sequence and checks existing retry identity before reserving capacity. The
+  independent packed smoke strips an
+  invoking agent's ambient session identity and passes on unmodified rc.7;
+  merge, release, and cutover remain unauthorized.
+- 2026-08-19: Task 3.5 closed the legacy execution boundary without removing
+  the compatibility capability still used by supported Codex/Claude policy.
+  All 101 authenticated rows resolve to 25 implemented groups or the single
+  provider-obsolete retirement; the verifier no longer accepts `planned` as a
+  terminal active state. The packaged DSH policy has no handler rule, a scan of
+  every npm package root finds none of the 22 historical `.py`/`.sh` handler
+  basenames, nils rejects `runtime-kit.handler.v1` for product `dsh`, and the
+  packed unmodified rc.7 smoke executes no retired handler. Merge, release, and
+  cutover remain unauthorized.
+- 2026-08-19: Tasks 4.1 and 4.2 implemented one strict
+  `review_specialists({ task, roles })` surface with exactly eight fixed
+  personas. Native rc.7 `spawn` owns fresh children; one runtime-global
+  semaphore preserves input order and disposal across simultaneous calls,
+  while red-team runs only after a preselected or critical first wave. Each
+  child concludes through structured output that becomes deterministic,
+  nils-validated JSONL. Exact child identity is captured during synchronous publication and
+  bound to a final read-only sandbox event plus agent-scoped monotonic guard;
+  event text and role claims carry no authority. The first packed integration
+  run exposed ordinary finish-line steering in the reviewer lifecycle; the
+  corrected exact reviewer path bypasses that broader mutation workflow while
+  retaining the stricter guard. A later packed red exposed rc.7's restricted
+  `outputSchema` keyword subset; the supported schema plus defensive runtime
+  bounds now pass. Review follow-up also bounded queued admission and aligned
+  quick/empty-artifact disposition and trimmed-string semantics. The final package passes 133/133 tests,
+  typecheck, diff check, and a packed smoke on unmodified DSH rc.7 where a
+  scripted quick reviewer attempts `write`, receives a pre-body denial, creates no
+  file, completes through `structured_output`, validates its JSONL with nils,
+  and leaves no live child. Merge, release, and cutover remain unauthorized.
+- 2026-08-19: Task 5.1 added authenticated, digest-bound setup, doctor, update,
+  rollback, and remove operations with dry-run review receipts, kernel profile
+  locking, exact previous-version recovery, bounded artifact reclamation, and
+  no-follow deletion. Seventeen focused operation tests, the 150-test package
+  suite, typechecking, and a setup-update-rollback-remove smoke on unmodified
+  rc.7 pass while unrelated profile/private state and upstream bytes remain
+  unchanged. Merge, release, and cutover remain unauthorized.
+- 2026-08-19: Task 5.2 added an exact DSH manifest for the rc.7 tag and one
+  separately selected upstream-next revision, both currently `99f6f02`. Source
+  inspection hashes declared built entrypoints without executing checkout
+  bytes; runtime loading resolves all ten exact installed peer versions before
+  any import and then checks consumed export kinds. Both CI rows build and pack
+  the complete 37-package selected workspace closure, authenticate canonical
+  artifact digests, stage only receipt-bound regular files without network
+  resolution, run typecheck and the package suite, enforce clean upstream
+  state, and execute a controlled two-batch pre-tool performance budget. The
+  local selected-artifact rehearsal passes 164/164 package tests plus
+  typechecking with no upstream mutation. Exact peer and external-dependency
+  declarations, silent JSON CLI output, absence-only descriptor-anchored
+  extraction, and rebuild-on-failure disposable consumers close the final API,
+  maintainability, and path-race review findings. Security follow-up is clean,
+  and the packed bundle passes the unmodified rc.7 smoke with finish-line resume,
+  native reviewer denial, skill precedence, cancellation, and disposal. Merge,
+  release, and cutover remain unauthorized.
 
 ## Decision Log
 
@@ -128,6 +284,10 @@
 
 ## Handoff
 
-Deliver the validated Task 2.1 `feat/lifecycle-compat` lane to the plan branch,
-then begin Task 2.2 in a fresh managed lane. Keep model-facing selective context
-and `decision.context.v1` outside the strict Task 2.1 ingress contract.
+Continue Task 6.1 from the successful external-tarball source rehearsal and
+completed external trust-root source. Preserve the tested reviewer, operations,
+compatibility, DSH catalog-projection, and acceptance-v2 contracts. Final
+promotion still needs released nils artifacts and explicit authorization for
+one run-correlated semantic commit plus disposable isolated execution and
+no-merge draft-PR delivery. Do not commit, open a PR, merge, release, or cut
+over either lane without fresh maintainer authorization.

@@ -27,6 +27,7 @@ function execution(agent, token, {
   return {
     agent,
     token,
+    parent: undefined,
     callId,
     rootCallId,
     name,
@@ -40,6 +41,23 @@ test('all rc.7 lifecycle boundaries share content-free session, step, and call c
   const subject = createDshRc7Compatibility({ agents: { list: () => [] } })
   const messages = [{ role: 'user', content: [{ type: 'text', text: 'prompt-secret' }] }]
   subject.sessionStart({ agent, source: 'startup' })
+
+  assert.deepEqual(subject.preStepContext({
+    agent,
+    messages,
+    turn: 2,
+    step: 3,
+    signal: new AbortController().signal,
+  }), {
+    ok: true,
+    context: {
+      sessionId: 'session-1',
+      cwd: '/workspace/project',
+      turn: 2,
+      step: 3,
+      sessionStartSource: 'startup',
+    },
+  })
 
   const expected = { kind: 'enter', messages }
   const actual = await subject.preStep({
@@ -65,6 +83,7 @@ test('all rc.7 lifecycle boundaries share content-free session, step, and call c
   assert.equal(started.ok, true)
   assert.deepEqual(started.context, {
     token,
+    parent: undefined,
     sessionId: 'session-1',
     cwd: '/workspace/project',
     turn: 2,
@@ -88,6 +107,18 @@ test('all rc.7 lifecycle boundaries share content-free session, step, and call c
     turn: 2,
     signal: new AbortController().signal,
   }), true)
+  assert.deepEqual(subject.stopContext({
+    agent,
+    turn: 2,
+    signal: new AbortController().signal,
+  }), {
+    ok: true,
+    context: {
+      sessionId: 'session-1',
+      cwd: '/workspace/project',
+      turn: 2,
+    },
+  })
 })
 
 test('opaque tokens keep parallel calls distinct even when visible call facts match', async () => {

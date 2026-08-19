@@ -159,22 +159,58 @@ the shell EXIT-wrapper validation mechanism.
   - context contract and cross-repository replay tests
   - token-size comparison against the old injected baseline
 
-### Task 2.3: Replace validation wrappers with result-driven finish-line state
+### Task 2.3: Replace validation wrappers with nils-executed finish-line state
 
-- **Location**: nils-cli finish-line capability and DSH post-tool/turn-stop adapter
-- **Description**: record edit generations and declared validation results from
-  authoritative DSH outcomes, then enforce the stop boundary without rewriting
-  shell commands.
+- **Location**: nils-cli finish-line capability and DSH execute/turn-stop adapter
+- **Description**: record edit generations, classify every foreground Bash
+  command with a non-executing probe, and let nils execute and durably record
+  the observed result through DSH's prepared shell and sandbox runtime. Exact
+  targets may create validation evidence; ordinary commands advance generation
+  without evidence. Enforce stop without model-reported outcomes or
+  shell-command rewriting.
 - **Dependencies**: Task 2.1
 - **Complexity**: 10
 - **Acceptance criteria**:
-  - Edit, pending, failure, retry, success, waiver, session, and concurrent
+  - Edit, pending, failure, retry, success, session, compaction, and concurrent
     generation semantics are deterministic and crash-safe.
+  - No public caller-reported outcome or manual evidence-mutation path can
+    manufacture validation evidence.
+  - Every foreground Bash command executes exactly once through nils. Exact
+    probes return `ready`; ordinary probes return `ordinary-ready`, advance the
+    repository generation before execution, and finish as `ordinary-applied`
+    without evidence, making stop require exact revalidation.
+  - Background Bash fails closed before execution.
+  - DSH sandbox runner failure is infrastructure failure, while a classified
+    sandbox denial is a failed observed validation.
+  - An observed execution has exactly one non-null `exitCode`/`signal`, a
+    canonical `NodeJS.Signals` value for any signal, and mutually exclusive
+    `timedOut`/`aborted` flags. An impossible combination invalidates the
+    execution-bearing response and awaits authenticated private quiesce before
+    the error returns.
+  - Authoritative execution follows the Linux/systemd containment and non-Linux
+    fail-closed boundary in the
+    [nils finish-line contract](https://github.com/sympoies/nils-cli/blob/main/crates/agent-hook/docs/specs/agent-hook-v1.md#native-dsh-finish-line),
+    without claiming a general network or IPC sandbox.
+  - The contained runner receives a sealed memfd config and exact runner inode
+    through systemd `OpenFile`; a verified root-owned ELF interpreter launches
+    it, and a pidfd binds runner lifetime to the nils supervisor.
+  - Every transport, unexpected agent-hook exit/signal, response-validation,
+    cancellation, deadline, or disposal failure after a run becomes
+    execution-bearing invokes private nils quiesce for the same operation
+    before returning the original error. Missing
+    proof that the transient unit is inactive and unpopulated permanently
+    degrades the client.
   - The old EXIT trap is absent from DSH production behavior.
   - Stop blocks until the exact required validation state is satisfied.
 - **Validation**:
-  - edit -> dirty -> failed validation -> blocked stop -> success -> allowed stop
-  - crash, stale completion, multi-contract, and cross-session tests
+  - edit -> failed validation -> blocked stop -> exact success -> allowed stop
+    -> ordinary mutation -> blocked stop -> exact revalidation -> allowed stop
+  - crash, stale/superseded execution, sandbox classification, compaction,
+    multi-contract, and cross-session tests
+  - failed execution transport, agent-hook exit/signal, or response validation
+    awaits private quiesce
+  - 31-test focused nils finish-line suite, including killed-supervisor
+    quiesce, trusted expired crash-orphan recovery, and late-mutation containment
 
 ## Sprint 3: Deterministic policy parity
 
@@ -182,8 +218,9 @@ the shell EXIT-wrapper validation mechanism.
 **Execution Profile**: `parallel-x3`
 
 **Goal**: move every active legacy policy behavior into typed nils-cli
-capabilities and prove an explicit disposition for all 101 registrations and 22
-handler IDs.
+capabilities and prove an explicit disposition for all 101 rules, including 69
+handler-capability registrations across 22 handler IDs and the declared
+67-registration/21-handler legacy subset.
 
 **Demo/Validation**:
 
@@ -217,12 +254,19 @@ handler IDs.
   - Task 3.1
 - **Complexity**: 10
 - **Acceptance criteria**:
-  - Known mutation and unknown effects fail closed without exact preparation.
+  - Known mutation forms and shell shapes the bounded classifier cannot model
+    fail closed without exact preparation; arbitrary native executable
+    internals remain outside this transcript guardrail's threat boundary.
   - Managed worktree and delivery recovery paths remain usable.
   - Cross-repository and nested command forms cannot spoof cwd or intent.
 - **Validation**:
   - adversarial argv/path/worktree/session fixtures
   - real DSH managed-worktree delivery rehearsal
+- **Source evidence (2026-08-18)**:
+  - strict ingress v2 binds session/turn/step and agent-docs roots
+  - eleven typed groups validate in the packaged policy with no file handler
+  - nils agent-hook suite, DSH package tests/typecheck, parity verifier, and the
+    packed unmodified rc.7 smoke pass
 
 ### Task 3.3: Port privacy, memory, reminder, and portable-output policies
 
@@ -243,13 +287,19 @@ handler IDs.
 - **Validation**:
   - privacy corpus and package scans
   - context deduplication and malformed-input tests
+- **Source evidence (2026-08-19)**:
+  - nine groups validate only on their exact tool, pre-step, or stop event
+  - strict lifecycle ingress v3 carries bounded user text and first-step source
+  - nils 31/31 focused tests, DSH 111/111 plus typecheck/parity, and the packed
+    unmodified rc.7 smoke with native skill-reminder context pass
 
 ### Task 3.4: Port coordination and operation lifecycle
 
 - **Location**: nils-cli agent-session capabilities and DSH lifecycle adapter
-- **Description**: implement activity, semantic conflict, owner liveness,
-  admission/complete/failure reconciliation, and managed/unmanaged session
-  behavior on DSH identities.
+- **Description**: implement activity and operation lifecycle, consume Task
+  3.2's semantic-conflict and owner-liveness admission results, and provide
+  admit/complete/failure reconciliation plus managed/unmanaged session behavior
+  on DSH identities.
 - **Dependencies**:
   - Task 2.1
   - Task 3.1
@@ -262,6 +312,14 @@ handler IDs.
 - **Validation**:
   - concurrent agent/session/checkout integration matrix
   - crash and terminal reconciliation tests
+- **Source evidence (2026-08-19)**:
+  - strict post ingress v4 carries only the correlated terminal error bit
+  - metadata-only activity and one exact native operation admit/complete once
+    across duplicate requests; active or uncertain state blocks Stop
+  - unmanaged identity is a no-op, partial identity fails closed, and private
+    terminal retry state is content-free and bounded to 64 records
+  - nils passes 37/37 policy, 8/8 ingress, and 3/3 parity tests; DSH passes
+    116/116 plus typecheck and the packed unmodified rc.7 smoke
 
 ### Task 3.5: Remove legacy handler execution from production
 
@@ -281,6 +339,13 @@ handler IDs.
 - **Validation**:
   - package/reference scans
   - full policy and real-session regression suite
+- **Source evidence (2026-08-19)**:
+  - all 101 frozen source rows resolve to 25 implemented groups or the one
+    evidence-backed provider-obsolete retirement; no `planned` state remains
+  - the packaged policy contains only `dsh.policy.v1` rules and the package tree
+    contains none of the 22 retired handler executable basenames
+  - nils rejects `runtime-kit.handler.v1` for product `dsh`; the packed
+    unmodified rc.7 smoke executes no legacy handler
 
 ## Sprint 4: Native specialist reviewers
 
@@ -405,7 +470,12 @@ all active old-runtime responsibility only after evidence is complete.
 - **Complexity**: 10
 - **Acceptance criteria**:
   - Every scenario has exact command/runtime evidence and expected state.
-  - No scenario invokes Codex, Claude Code, Hermes, or old runtime handlers.
+  - The functional-session receipt contains no dependency on Codex, Claude
+    Code, Hermes, or old runtime handlers; the host-wide active-reference audit
+    remains a Task 6.3 cutover gate.
+  - Final pass binds a disposable isolated environment, exact released nils
+    artifacts, and authorized semantic commit plus no-merge PR delivery to one
+    run, repository, and head with provider read-back.
   - Security and failure-path scenarios fail closed as specified.
 - **Validation**:
   - full acceptance runner and retained summary
