@@ -39,6 +39,7 @@ assert.deepEqual(manifest.peerDependencies, {
   '@deepseek-ai/cordis': '^4.0.1',
   '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
   '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7',
   '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
   '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
 })
@@ -731,6 +732,17 @@ export function apply(ctx) {
   assert.equal(receipt.pendingPolicyMarkers, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
+  for (const laneTool of [
+    'main_agent_worker_launch',
+    'main_agent_worker_interrupt',
+    'main_agent_lane_close',
+  ]) {
+    assert.ok(
+      receipt.tools.includes(laneTool),
+      `Main Agent Mode did not activate in real DSH: ${laneTool} is unregistered `
+        + `(tools: ${receipt.tools.join(', ')})`,
+    )
+  }
   assert.equal(
     [...receipt.providers, ...receipt.tools]
       .some(name => /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i.test(name)),
