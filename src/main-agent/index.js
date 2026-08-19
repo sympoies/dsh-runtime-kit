@@ -1,10 +1,10 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
-import { isAbsolute } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
 
 import { createCliClient } from './cli-client.js'
-import { createLaneRegistry, publishLivenessSidecar } from './lanes.js'
+import { LIVENESS_SCHEMA, createLaneRegistry, publishLivenessSidecar } from './lanes.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
@@ -45,6 +45,77 @@ function requireNonEmptyString(value, code) {
   return value
 }
 
+const LIVENESS_FILE_NAME = 'dsh-runtime-liveness.json'
+const AGENT_SESSION_BASENAME = 'agent-session'
+const WORKER_ENV_KEY = /^[A-Z][A-Z0-9_]*$/
+
+/**
+ * The sidecar must be the conventional file inside the session state
+ * directory the payload itself declares, so a malformed or hostile envelope
+ * cannot redirect the rename-publish onto an unrelated file.
+ *
+ * @param {Record<string, any>} externalLaunch
+ */
+function containedLivenessFile(externalLaunch) {
+  const stateDir = externalLaunch.worker_env?.AGENT_SESSION_STATE_DIR
+  const sessionId = externalLaunch.worker_env?.AGENT_SESSION_ID
+  if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) return false
+  if (typeof sessionId !== 'string' || sessionId.length === 0) return false
+  return resolve(externalLaunch.liveness_file)
+    === resolve(stateDir, 'sessions', sessionId, LIVENESS_FILE_NAME)
+}
+
+/**
+ * Worker environment values are replayed verbatim by the lane worker and
+ * interpolated into its instruction section, so every entry must be a plain
+ * single-line string under a conventional key.
+ *
+ * @param {unknown} workerEnv
+ */
+function validWorkerEnv(workerEnv) {
+  if (workerEnv === null || typeof workerEnv !== 'object' || Array.isArray(workerEnv)) return false
+  const entries = Object.entries(/** @type {Record<string, unknown>} */ (workerEnv))
+  return entries.length > 0 && entries.every(([key, value]) => WORKER_ENV_KEY.test(key)
+    && typeof value === 'string'
+    && value.length > 0
+    // No control characters and no backtick: the value is rendered inside a
+    // single-line code span in the lane instruction section, so either would
+    // break out of it and inject directive text into the worker prompt.
+    && ![...value].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0
+      return character === '`' || codePoint < 0x20 || codePoint === 0x7f
+    }))
+}
+
+/**
+ * Map an rc.7 subagent stop reason onto the sidecar contract's documented
+ * `completed | failed | interrupted` vocabulary. An unknown or absent reason
+ * is never vouched as success.
+ *
+ * @param {unknown} stopReason
+ */
+function laneTurnOutcome(stopReason) {
+  switch (stopReason) {
+    case 'completed':
+      return 'completed'
+    case 'aborted':
+      return 'interrupted'
+    case 'error':
+    case 'max-tokens':
+    case 'refusal':
+      return 'failed'
+    default:
+      return 'failed'
+  }
+}
+
+/** @param {readonly string[]} argv */
+function brokerArgvIsAgentSession(argv) {
+  const [command] = argv
+  if (typeof command !== 'string' || command.length === 0) return false
+  return basename(command) === AGENT_SESSION_BASENAME
+}
+
 /** @param {Record<string, any>} externalLaunch */
 function validExternalLaunch(externalLaunch) {
   return externalLaunch !== null
@@ -58,6 +129,15 @@ function validExternalLaunch(externalLaunch) {
     && typeof externalLaunch.worker_env === 'object'
     && typeof externalLaunch.liveness_file === 'string'
     && isAbsolute(externalLaunch.liveness_file)
+    // The sidecar is published by renaming over this path, so it must be the
+    // conventional file inside the payload's own session state directory: an
+    // envelope must never be able to name an arbitrary write target.
+    && containedLivenessFile(externalLaunch)
+    // The producer declares which sidecar schema it will read; refuse rather
+    // than publish a document the CLI would reject as invalid evidence.
+    && (externalLaunch.liveness_schema === undefined
+      || externalLaunch.liveness_schema === LIVENESS_SCHEMA)
+    && validWorkerEnv(externalLaunch.worker_env)
     && Array.isArray(externalLaunch.broker_heartbeat_argv)
     && externalLaunch.broker_heartbeat_argv.length > 0
     && externalLaunch.broker_heartbeat_argv.every(
@@ -67,6 +147,11 @@ function validExternalLaunch(externalLaunch) {
     && externalLaunch.broker_stop_argv.every(
       (/** @type {unknown} */ value) => typeof value === 'string' && value.length > 0,
     )
+    // argv[0] is executed verbatim, so it must be the coordination binary this
+    // module is contracted to run, not an arbitrary payload-named program.
+    && brokerArgvIsAgentSession(externalLaunch.broker_heartbeat_argv)
+    && (externalLaunch.broker_stop_argv.length === 0
+      || brokerArgvIsAgentSession(externalLaunch.broker_stop_argv))
 }
 
 /** @param {Lane} lane */
@@ -131,11 +216,14 @@ export function applyMainAgentMode(ctx, config = {}) {
     && config.workerSubagentProvider.length > 0
     ? config.workerSubagentProvider
     : DEFAULT_WORKER_SUBAGENT_PROVIDER
-  const laneDeniedTools = new Set(
-    Array.isArray(config.laneDeniedTools) && config.laneDeniedTools.length > 0
-      ? config.laneDeniedTools
-      : DEFAULT_LANE_DENIED_TOOLS,
-  )
+  // Deny sets are monotonic: configuration extends the mandatory core, it can
+  // never remove a tool a managed lane must not reach.
+  const laneDeniedTools = new Set([
+    ...DEFAULT_LANE_DENIED_TOOLS,
+    ...Array.isArray(config.laneDeniedTools)
+      ? config.laneDeniedTools.filter(name => typeof name === 'string' && name.length > 0)
+      : [],
+  ])
   const maxLanes = typeof config.maxLanes === 'number'
     && Number.isInteger(config.maxLanes)
     && config.maxLanes > 0
@@ -147,6 +235,9 @@ export function applyMainAgentMode(ctx, config = {}) {
   const lanesByAnchor = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const launching = new Map()
+  // Capacity is reserved across the launch awaits so concurrent launches of
+  // distinct assignments cannot all pass a stale registry-size check.
+  let reservedLanes = 0
   let closing = false
 
   ctx.effect(() => () => {
@@ -197,17 +288,16 @@ export function applyMainAgentMode(ctx, config = {}) {
   // Lane turn evidence: fold child run boundaries into the sidecar. The
   // evidence is optional in the CLI contract, so unknown payload shapes stay
   // silent rather than guessing.
-  /** @param {unknown} payload */
+  /**
+   * rc.7 publishes the child session id as `id` on SubagentRunInfo and
+   * SubagentRunEndInfo; that is the contract field, not a defensive guess.
+   *
+   * @param {unknown} payload
+   */
   const laneForRunPayload = (payload) => {
     if (payload === null || typeof payload !== 'object') return undefined
-    const record = /** @type {Record<string, any>} */ (payload)
-    for (const candidate of [record.childSessionId, record.sessionId, record.id]) {
-      if (typeof candidate === 'string') {
-        const lane = lanes.byChild(candidate)
-        if (lane !== undefined) return lane
-      }
-    }
-    return undefined
+    const candidate = /** @type {Record<string, any>} */ (payload).id
+    return typeof candidate === 'string' ? lanes.byChild(candidate) : undefined
   }
   const nowEpoch = () => String(Math.floor(Date.now() / 1000))
   ctx.on('subagent/start', (payload) => {
@@ -231,9 +321,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       currentTurn: undefined,
       lastTurn: {
         completedAt: nowEpoch(),
-        outcome: typeof record.stopReason === 'string' && record.stopReason.length > 0
-          ? record.stopReason
-          : 'completed',
+        outcome: laneTurnOutcome(record.stopReason),
       },
     }
     void publishLivenessSidecar(lane).catch(() => {})
@@ -277,6 +365,27 @@ export function applyMainAgentMode(ctx, config = {}) {
     return cwd
   }
 
+  /**
+   * Lane management is a controller-only surface. Tool visibility is not
+   * authority, so refuse any caller that is one of this registry's anchors or
+   * lane children rather than relying on the per-child deny filter alone.
+   *
+   * @param {any} exec
+   */
+  const requireControllerCaller = (exec) => {
+    const sessionId = exec?.agent?.session?.header?.id
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw laneError('main-agent-controller-identity-unavailable')
+    }
+    if (lanesByAnchor.has(sessionId) || lanes.byChild(sessionId) !== undefined) {
+      throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
+    }
+    const parentSession = exec?.agent?.session?.header?.parentSession
+    if (typeof parentSession === 'string' && lanesByAnchor.has(parentSession)) {
+      throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
+    }
+  }
+
   /** @param {readonly string[]} argv @param {any} exec @param {string} cwd */
   const runEnvelope = async (argv, exec, cwd) => {
     const result = await client.run(argv, { cwd, signal: exec.signal })
@@ -318,6 +427,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     },
     async execute(args, exec) {
       if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
       const record = /** @type {Record<string, unknown>} */ (args)
       const assignmentFile = requireNonEmptyString(
         record.assignment_file,
@@ -368,13 +478,22 @@ export function applyMainAgentMode(ctx, config = {}) {
           await publishLivenessSidecar(existing)
           return launchSummary(existing, 'reattached')
         }
-        if (lanes.size >= maxLanes) {
+        if (lanes.size + reservedLanes >= maxLanes) {
           throw laneError('main-agent-lane-capacity', {
             assignment_id: assignmentId,
             max_lanes: maxLanes,
           })
         }
+        // Hold the slot across every await below; the registry only counts it
+        // once the lane is fully launched.
+        reservedLanes += 1
+        try {
+          return await launchLane()
+        } finally {
+          reservedLanes -= 1
+        }
 
+        async function launchLane() {
         const worktree = data.assignment?.worktree
         const anchorCwd = typeof worktree === 'string' && isAbsolute(worktree) ? worktree : cwd
         const provider = config.workerProvider ?? exec?.agent?.options?.provider
@@ -402,10 +521,14 @@ export function applyMainAgentMode(ctx, config = {}) {
           childId: '',
           anchorId,
           state: 'open',
+          // The bootstrap prompt is submitted as the child's first turn and
+          // rc.7 publishes that turn's start edge before startContinuable
+          // resolves, so the lane would otherwise advertise `waiting` for the
+          // whole bootstrap turn. Seed `working` at launch instead.
           turn: {
-            phase: 'waiting',
+            phase: 'working',
             phaseChangedAt: nowEpoch(),
-            currentTurn: undefined,
+            currentTurn: { startedAt: nowEpoch() },
             lastTurn: undefined,
           },
           workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
@@ -459,6 +582,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           lane.disposeAnchor?.()
           throw error
         }
+        }
       })
     },
   }
@@ -480,13 +604,14 @@ export function applyMainAgentMode(ctx, config = {}) {
       schema: { type: 'object' },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
     },
-    async execute(args) {
+    async execute(args, exec) {
       const record = /** @type {Record<string, unknown>} */ (args)
       const assignmentId = requireNonEmptyString(
         record.assignment_id,
         'main-agent-assignment-id-invalid',
       )
       if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
       ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
@@ -530,6 +655,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         'main-agent-assignment-id-invalid',
       )
       if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
       try {
@@ -540,7 +666,10 @@ export function applyMainAgentMode(ctx, config = {}) {
       }
       lane.state = 'terminated'
       lane.turn = undefined
-      await publishLivenessSidecar(lane)
+      // Publishing the terminated sidecar is best effort: releasing the
+      // heartbeat, broker, and anchor must not depend on a filesystem write,
+      // or a failed publish would leave a half-closed lane no retry can fix.
+      const published = await publishLivenessSidecar(lane).then(() => true, () => false)
       lane.stopHeartbeat?.()
       if (lane.brokerStopArgv.length > 0) {
         // Best-effort broker release; the heartbeat's own shutdown also stops
@@ -553,7 +682,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       lane.disposeAnchor?.()
       lanes.remove(lane)
       lanesByAnchor.delete(lane.anchorId)
-      return { ...launchSummary(lane, 'reattached'), closed: true }
+      return { ...launchSummary(lane, 'reattached'), closed: true, sidecar_published: published }
     },
   }
 
