@@ -114,6 +114,26 @@ store's fenced receipt; a service method that mutated the run would be an
 unlogged second write path onto the same durable state. The pre-service name
 `dshRuntimeKitMainAgent` stays bound to the same object.
 
+## Acceptance evidence
+
+`npm run test:main-agent-e2e` (with `NILS_BIN_DIR` pointing at a nils-cli build)
+runs three scenarios against a real store, real worker sessions, real
+coordination brokers, real worktrees, and real CLI calls — asserting every
+transition from the store rather than from this runtime's return values:
+
+- **two-lane lifecycle** — launch two lanes, bootstrap both, submit lane one
+  through its own checkpoint tool, supervise, request changes, resubmit, accept,
+  and close the run out.
+- **overlapping scope refused** — a third lane declaring a path another lane
+  already claims is refused when it tries to acquire that claim at bootstrap.
+- **stopped lane unproven while the harness lives** — a plugin-closed lane reads
+  `unknown`, not `stopped`, and the store-side reconcile path stays closed.
+
+The subagent seam is the one substituted part: the lane child and anchor are
+doubles there, while `npm run test:smoke` covers the real-DSH half (activation,
+tool surface, provided service). A model-driven lane child issuing its own
+checkpoint inside a live DSH session is not yet covered by either.
+
 ## Known limitations (v1)
 
 - A harness restart ends every lane runtime with it. The sidecar's pinned
@@ -126,6 +146,16 @@ unlogged second write path onto the same durable state. The pre-service name
   starting the heartbeat with the lane and terminating it at lane close.
 - Concurrent lanes are bounded by the `maxLanes` config (default 8, hard cap
   64); a launch beyond capacity refuses with `main-agent-lane-capacity`.
+- A lane can authenticate only once its coordination broker is ready, which its
+  own heartbeat establishes on the first beat — about one heartbeat interval
+  after launch returns. A worker call in that window fails
+  `coordination-unauthorized`; the launch tool does not currently wait for
+  readiness before returning.
+- Closing a lane while this harness is still alive leaves its runtime evidence
+  *unproven*, not stopped: a plugin-asserted termination is corroborated only by
+  a harness proven gone, so `worker reconcile-stopped` and record deletion stay
+  refused until the harness exits. Corroborating the assertion with the lane's
+  released broker heartbeat instead would open that path while the harness runs.
 - Coordination is not an OS security boundary: lane isolation is worktree
   scoping plus in-process tool authority, matching the caveat the managed-CLI
   design carries.

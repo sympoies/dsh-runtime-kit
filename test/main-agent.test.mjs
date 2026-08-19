@@ -89,8 +89,27 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
           AGENT_SESSION_CAPABILITY_FILE: join(stateDir, 'sessions', sessionId, 'coordination', 'capability-x'),
           AGENT_SESSION_CHECKPOINT_FILE: join(stateDir, 'sessions', sessionId, 'coordination', 'main-agent-checkpoint-x.json'),
         },
-        broker_heartbeat_argv: [AGENT_SESSION_CLI, 'broker', 'heartbeat'],
-        broker_stop_argv: [AGENT_SESSION_CLI, 'broker', 'stop'],
+        // The real producer emits its global options before the verb, so the
+        // fixture carries that shape: a fixture without `--state-dir` let a
+        // fixed-index verb check pass here and reject every real payload.
+        broker_heartbeat_argv: [
+          AGENT_SESSION_CLI,
+          '--state-dir',
+          stateDir,
+          'broker',
+          'heartbeat',
+          '--session',
+          sessionId,
+        ],
+        broker_stop_argv: [
+          AGENT_SESSION_CLI,
+          '--state-dir',
+          stateDir,
+          'broker',
+          'stop',
+          '--session',
+          sessionId,
+        ],
         liveness_file: livenessFile,
         liveness_schema: 'main-agent.dsh-runtime-liveness.v1',
         ...overrides.external_launch,
@@ -268,7 +287,10 @@ test('worker launch executes the external-launch contract without duplicating la
   assert.equal(cliSpawn.spec.cwd, '/controller/checkout')
 
   const heartbeat = harness.spawned[1]
-  assert.deepEqual(heartbeat.spec.argv, ['/bin/agent-session', 'broker', 'heartbeat'])
+  // The payload's argv is run verbatim, global options and all.
+  assert.equal(heartbeat.spec.argv[0], '/bin/agent-session')
+  assert.deepEqual(heartbeat.spec.argv.slice(1, 3), ['--state-dir', scratch])
+  assert.deepEqual(heartbeat.spec.argv.slice(3, 5), ['broker', 'heartbeat'])
 
   assert.equal(harness.anchors.length, 1, 'one anchor per lane')
   assert.equal(

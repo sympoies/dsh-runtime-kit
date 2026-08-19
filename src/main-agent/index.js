@@ -158,16 +158,34 @@ function laneTurnOutcome(stopReason) {
 /**
  * argv[0] is executed verbatim, so a basename match is not enough: any
  * writable directory could hold a file called `agent-session`, including a
- * lane's own worktree. Require the exact trusted binary path and a known verb.
+ * lane's own worktree. Require the exact trusted binary path and the `broker`
+ * verb.
+ *
+ * The verb is not at a fixed index: the producer emits global options first
+ * (`--state-dir <path>`, and `--host <name>` where a host label applies), so
+ * this walks past option/value pairs instead of indexing. Assuming index 1 is
+ * what made a real payload look hostile.
  *
  * @param {readonly string[]} argv
  * @param {string} agentSessionCli
  */
 function brokerArgvIsTrusted(argv, agentSessionCli) {
-  const [command, verb] = argv
+  const [command] = argv
   if (typeof command !== 'string' || command.length === 0) return false
   if (resolve(command) !== resolve(agentSessionCli)) return false
-  return verb === 'broker'
+  for (let index = 1; index < argv.length; index += 1) {
+    const token = argv[index]
+    if (typeof token !== 'string' || token.length === 0) return false
+    // Every global option this CLI accepts before a verb takes one value, so a
+    // flag consumes the next token; the first bare token must be the verb.
+    if (token.startsWith('-')) {
+      if (token.includes('=')) continue
+      index += 1
+      continue
+    }
+    return token === 'broker'
+  }
+  return false
 }
 
 /** @param {Record<string, any>} externalLaunch @param {string} agentSessionCli */
@@ -883,8 +901,14 @@ export function applyMainAgentMode(ctx, config = {}) {
         }
         lanesByAnchor.set(anchorId, lane)
         try {
-          // The heartbeat must be live before the child bootstraps: worker
-          // authentication reads the capability file the heartbeat maintains.
+          // Publish the sidecar before the heartbeat starts. The heartbeat's
+          // first act is to read this lane's runtime evidence, and it is what
+          // establishes the lane's broker readiness — so the evidence must
+          // already be there rather than arriving inside the heartbeat's
+          // startup retry window.
+          await publishLivenessSidecar(lane)
+          // The heartbeat must then be live before the child bootstraps: the
+          // worker's authenticated CLI calls require a ready broker.
           const heartbeat = ctx.subprocess.spawn({
             argv: [...externalLaunch.broker_heartbeat_argv],
             cwd,
@@ -898,7 +922,6 @@ export function applyMainAgentMode(ctx, config = {}) {
           lane.stopHeartbeat = () => {
             try { heartbeat.terminate() } catch {}
           }
-          await publishLivenessSidecar(lane)
           const started = await ctx.subagents.startContinuable({
             provider: workerSubagentProvider,
             label: `main-agent:${assignmentId}`,

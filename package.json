@@ -61,7 +61,8 @@
     "acceptance": "node scripts/run-acceptance.mjs",
     "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
     "verify:policy-source": "node scripts/verify-policy-parity.mjs",
-    "typecheck": "tsc -p jsconfig.json"
+    "typecheck": "tsc -p jsconfig.json",
+    "test:main-agent-e2e": "node test/main-agent-e2e.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
