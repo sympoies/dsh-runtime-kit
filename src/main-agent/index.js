@@ -614,7 +614,14 @@ export function applyMainAgentMode(ctx, config = {}) {
       requireControllerCaller(exec)
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
-      ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+      // Same policy as lane close: a settled or already-drained child has
+      // nothing to interrupt, and that is a lane state, not a transport error.
+      let interrupted = true
+      try {
+        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+      } catch {
+        interrupted = false
+      }
       lane.turn = {
         phase: 'waiting',
         phaseChangedAt: nowEpoch(),
@@ -625,7 +632,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         },
       }
       await publishLivenessSidecar(lane)
-      return { ...launchSummary(lane, 'reattached'), interrupted: true }
+      return { ...launchSummary(lane, 'reattached'), interrupted }
     },
   }
 

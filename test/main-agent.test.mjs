@@ -838,3 +838,29 @@ test('lane capacity holds across concurrent launches of distinct assignments', a
   )
   assert.equal(harness.continuations.length, 1, 'only the admitted lane spawns a child')
 })
+
+test('interrupting a settled lane reports it instead of throwing', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
+  harness.ctx.subagents.interrupt = () => {
+    throw new Error('child already settled')
+  }
+  applyMainAgentMode(harness.ctx, {})
+  await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  const result = await harness.registeredTools.get('main_agent_worker_interrupt').execute(
+    { assignment_id: 'assignment-one' },
+    controllerExec(),
+  )
+  assert.equal(
+    result.interrupted,
+    false,
+    'a settled child is a lane state, not a transport error',
+  )
+  const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  assert.equal(sidecar.turn.last_turn.outcome, 'interrupted')
+})

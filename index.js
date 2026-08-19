@@ -455,8 +455,15 @@ export async function apply(ctx, config = {}) {
     applyPolicy(ctx, config)
     // Child fiber: Main Agent Mode activates only where the subagent runtime
     // exists, without gating skills or policy on it. Never awaited — an
-    // unmet inject leaves the child pending by design.
-    void ctx.plugin(mainAgentMode, config)
+    // unmet inject leaves the child pending by design. A rejection is a real
+    // failure rather than intentional non-activation, so surface it instead of
+    // letting both cases look like silently missing tools.
+    void Promise.resolve(ctx.plugin(mainAgentMode, config)).catch(error => {
+      ctx.logger?.warn?.(
+        "dsh-runtime-kit: Main Agent Mode failed to activate: %s",
+        String(error?.stack ?? error),
+      )
+    })
   } catch (error) {
     await privateSnapshot?.dispose()
     throw error
