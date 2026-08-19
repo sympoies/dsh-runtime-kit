@@ -1,11 +1,20 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, resolve, sep } from 'node:path'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 import { createCliClient } from './cli-client.js'
 import { LIVENESS_SCHEMA, createLaneRegistry, publishLivenessSidecar } from './lanes.js'
+import {
+  CLOSEOUT_SCHEMA,
+  REVIEW_SCHEMA,
+  checkpointDocument,
+  laneChildActivity,
+  supervisionEnvelope,
+  writePrivateJson,
+} from './orchestration.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
@@ -32,7 +41,18 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
   'main_agent_worker_launch',
   'main_agent_worker_interrupt',
   'main_agent_lane_close',
+  'main_agent_worker_supervise',
+  'main_agent_worker_request_changes',
+  'main_agent_worker_accept',
+  'main_agent_run_closeout',
 ])
+
+/**
+ * The one orchestration tool a lane child owns: its own fenced checkpoint. It
+ * is registered per child inside that child's context, never globally, so no
+ * other session can reach another lane's checkpoint authority.
+ */
+const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 
 /** @param {string} code @param {unknown} [details] */
 function laneError(code, details) {
@@ -486,6 +506,16 @@ export function applyMainAgentMode(ctx, config = {}) {
         ? 'dsh-runtime-kit:main-agent-lane-tool-denied'
         : undefined),
     ))
+    // The checkpoint tool is scoped to this child's context, so a lane can only
+    // ever checkpoint its own assignment: there is no argument through which it
+    // could name another lane.
+    const checkpointFile = laneCheckpointFile(lane)
+    if (checkpointFile !== undefined && typeof childCtx.tools.register === 'function') {
+      const disposeCheckpoint = childCtx.tools.register(
+        Object.freeze(laneCheckpointTool(lane, checkpointFile)),
+      )
+      if (typeof disposeCheckpoint === 'function') disposers.push(disposeCheckpoint)
+    }
     const systemPrompt = /** @type {any} */ (childCtx).systemPrompt
     if (systemPrompt !== undefined && typeof systemPrompt.section === 'function') {
       const disposeSection = systemPrompt.section({
@@ -534,9 +564,114 @@ export function applyMainAgentMode(ctx, config = {}) {
     }
   }
 
-  /** @param {readonly string[]} argv @param {any} exec @param {string} cwd */
-  const runEnvelope = async (argv, exec, cwd) => {
-    const result = await client.run(argv, { cwd, signal: exec.signal })
+  /**
+   * The lane's declared checkpoint file, or undefined when the launch payload
+   * did not name one inside this lane's own coordination directory. A lane
+   * without a contained checkpoint path gets no checkpoint tool at all: it is
+   * better for the worker to fall back to its documented CLI call than for
+   * this runtime to write to a path it cannot prove belongs to the lane.
+   *
+   * @param {Lane} lane
+   */
+  const laneCheckpointFile = (lane) => {
+    const declared = lane.workerEnv.AGENT_SESSION_CHECKPOINT_FILE
+    const stateDir = lane.workerEnv.AGENT_SESSION_STATE_DIR
+    const sessionId = lane.workerEnv.AGENT_SESSION_ID
+    if (typeof declared !== 'string' || !isAbsolute(declared)) return undefined
+    if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) return undefined
+    if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return undefined
+    const coordination = resolve(stateDir, 'sessions', sessionId, 'coordination')
+    return isProperDescendant(resolve(declared), coordination) ? resolve(declared) : undefined
+  }
+
+  /**
+   * The lane child's own fenced checkpoint, as a native tool.
+   *
+   * The worker used to write this private file itself — through a file tool in
+   * one composition and a shell `printf` in another — and a hook had to admit
+   * exactly one path to keep that write honest. Registering the write here
+   * removes both: the tool owns the path, the mode, and the CLI invocation,
+   * and the worker only supplies the fields the store validates.
+   *
+   * @param {Lane} lane
+   * @param {string} checkpointFile
+   * @returns {ToolDefinition}
+   */
+  const laneCheckpointTool = (lane, checkpointFile) => ({
+    name: LANE_CHECKPOINT_TOOL,
+    description: 'Record this worker lane\'s revision-fenced Main Agent checkpoint. '
+      + 'Supply the current assignment revision; a stale revision fails closed and '
+      + 'reports the current one.',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'One-line durable summary of what changed.' },
+        next_action: { type: 'string', description: 'One-line next action for this assignment.' },
+        state: {
+          type: 'string',
+          enum: ['working', 'blocked', 'submitted'],
+          description: 'Assignment state this checkpoint declares.',
+        },
+        result_summary: { type: 'string', description: 'One-line result summary when submitting.' },
+        blocker_summary: { type: 'string', description: 'One-line blocker summary when blocked.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this checkpoint write.' },
+      },
+      required: ['summary', 'next_action', 'if_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      const record = /** @type {Record<string, unknown>} */ (args)
+      if (lane.state !== 'open') {
+        throw laneError('main-agent-lane-closed', { assignment_id: lane.assignmentId })
+      }
+      const ifRevision = record.if_revision
+      if (typeof ifRevision !== 'number' || !Number.isInteger(ifRevision) || ifRevision < 0) {
+        throw laneError('main-agent-revision-invalid')
+      }
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const document = checkpointDocument({
+        summary: /** @type {string} */ (record.summary),
+        nextAction: /** @type {string} */ (record.next_action),
+        state: /** @type {string | undefined} */ (record.state),
+        resultSummary: /** @type {string | undefined} */ (record.result_summary),
+        blockerSummary: /** @type {string | undefined} */ (record.blocker_summary),
+      })
+      await writePrivateJson(checkpointFile, document)
+      // The worker principal is established by its own environment, so the
+      // call carries the lane's env and runs in the lane's worktree rather
+      // than inheriting whatever the controller process happens to hold.
+      return await runEnvelope([
+        mainAgentCli,
+        'checkpoint',
+        '--file',
+        checkpointFile,
+        '--if-revision',
+        String(ifRevision),
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, lane.worktree, lane.workerEnv)
+    },
+  })
+
+  /**
+   * @param {readonly string[]} argv
+   * @param {any} exec
+   * @param {string} cwd
+   * @param {Readonly<Record<string, string>>} [env]
+   */
+  const runEnvelope = async (argv, exec, cwd, env) => {
+    const result = await client.run(argv, { cwd, signal: exec.signal, env })
     if (!result.ok) throw laneError('main-agent-cli-failed', { code: result.code })
     if (result.envelope.ok !== true) {
       throw laneError('main-agent-cli-refused', {
@@ -725,6 +860,8 @@ export function applyMainAgentMode(ctx, config = {}) {
           livenessFile: externalLaunch.liveness_file,
           childId: '',
           anchorId,
+          anchor,
+          worktree: anchorCwd,
           state: 'open',
           // The bootstrap prompt is submitted as the child's first turn and
           // rc.7 publishes that turn's start edge before startContinuable
@@ -878,62 +1015,448 @@ export function applyMainAgentMode(ctx, config = {}) {
       )
       if (closing) throw laneError('main-agent-mode-disposed')
       requireControllerCaller(exec)
-      const lane = lanes.byAssignment(assignmentId)
-      if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
+      const lane = requireLane(assignmentId)
       // Resolve every exec-derived input before mutating lane state: a throw
       // after the mutation would strand the lane in the registry with its
       // capacity slot held and no retry able to get past the same point.
       const brokerCwd = controllerCwd(exec)
-      let published = false
+      const closed = await closeLane(lane, exec, brokerCwd)
+      return closed.summary
+    },
+  }
+
+  /**
+   * Terminate one lane completely: interrupt the child, publish the terminated
+   * sidecar, release the heartbeat and broker, dispose the anchor, and drop the
+   * registry entry. Shared by explicit lane close and run closeout so both
+   * release in exactly the same order.
+   *
+   * `disposeAnchor: false` keeps the anchor Agent alive for a caller that still
+   * needs it as a drain authority; that caller owns disposing it afterwards.
+   *
+   * @param {Lane} lane
+   * @param {any} exec
+   * @param {string} brokerCwd
+   * @param {{ disposeAnchor?: boolean }} [options]
+   */
+  const closeLane = async (lane, exec, brokerCwd, options = {}) => {
+    const anchor = lane.anchor
+    const disposeAnchor = lane.disposeAnchor
+    let published = false
+    try {
       try {
+        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+      } catch {
+        // A settled or already-drained child has nothing to interrupt; close
+        // must still release the heartbeat, sidecar, and anchor.
+      }
+      lane.state = 'terminated'
+      lane.turn = undefined
+      // Publishing the terminated sidecar is best effort: releasing the
+      // heartbeat, broker, and anchor must not depend on a filesystem write,
+      // or a failed publish would leave a half-closed lane no retry can fix.
+      published = await publishLivenessSidecar(lane).then(() => true, () => false)
+      lane.stopHeartbeat?.()
+      if (lane.brokerStopArgv.length > 0) {
+        // Best-effort broker release; the heartbeat's own shutdown also stops
+        // the broker, and stale broker state reconciles CLI-side.
+        await client.run(lane.brokerStopArgv, {
+          cwd: brokerCwd,
+          signal: exec.signal,
+        }).catch(() => undefined)
+      }
+    } finally {
+      // Release is unconditional once close starts: the lane is terminated,
+      // so leaving it registered would report it as live to the controller.
+      lane.stopHeartbeat?.()
+      if (options.disposeAnchor !== false) disposeAnchor?.()
+      lanes.remove(lane)
+      lanesByAnchor.delete(lane.anchorId)
+    }
+    return {
+      anchor,
+      disposeAnchor,
+      summary: { ...launchSummary(lane, 'reattached'), closed: true, sidecar_published: published },
+    }
+  }
+
+  /**
+   * Resolve the lane a controller verb names, or refuse. Store-side verbs stay
+   * available through the CLI for assignments this runtime never launched; the
+   * lane-bound verbs below deliberately require the lane, because their whole
+   * purpose is the transport half.
+   *
+   * @param {string} assignmentId
+   */
+  const requireLane = (assignmentId) => {
+    const lane = lanes.byAssignment(assignmentId)
+    if (lane === undefined) {
+      throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
+    }
+    return lane
+  }
+
+  /** @param {Record<string, unknown>} record */
+  const requireRevision = (record) => {
+    const value = record.if_revision
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw laneError('main-agent-revision-invalid')
+    }
+    return value
+  }
+
+  /** @type {ToolDefinition} */
+  const superviseTool = {
+    name: 'main_agent_worker_supervise',
+    description: 'Supervise one managed worker lane: run the store-side bounded '
+      + 'supervision macro and fold this runtime\'s lane transport facts (child '
+      + 'activity, turn phase, lane state) onto its typed classification.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Assignment to supervise.' },
+      },
+      required: ['assignment_id'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = /** @type {Record<string, unknown>} */ (args)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const cwd = controllerCwd(exec)
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'supervise',
+        assignmentId,
+        '--format',
+        'json',
+      ], exec, cwd)
+      const lane = lanes.byAssignment(assignmentId)
+      // Enumeration is read-only and never resumes a child. A listing failure
+      // is reported as unknown activity rather than failing supervision: the
+      // store's classification is the authoritative half of this envelope.
+      let childActivity
+      if (lane !== undefined) {
         try {
-          ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+          const entries = await ctx.subagents.listChildren(
+            /** @type {any} */ (lane.anchorId),
+            exec.signal,
+          )
+          childActivity = laneChildActivity(entries, lane.childId)
         } catch {
-          // A settled or already-drained child has nothing to interrupt; close
-          // must still release the heartbeat, sidecar, and anchor.
+          childActivity = { activity: 'unknown', diagnostic: 'listing-unavailable' }
         }
-        lane.state = 'terminated'
-        lane.turn = undefined
-        // Publishing the terminated sidecar is best effort: releasing the
-        // heartbeat, broker, and anchor must not depend on a filesystem write,
-        // or a failed publish would leave a half-closed lane no retry can fix.
-        published = await publishLivenessSidecar(lane).then(() => true, () => false)
-        lane.stopHeartbeat?.()
-        if (lane.brokerStopArgv.length > 0) {
-          // Best-effort broker release; the heartbeat's own shutdown also stops
-          // the broker, and stale broker state reconciles CLI-side.
-          await client.run(lane.brokerStopArgv, {
-            cwd: brokerCwd,
+      }
+      return supervisionEnvelope({ assignmentId, store, lane, childActivity })
+    },
+  }
+
+  /** @type {ToolDefinition} */
+  const requestChangesTool = {
+    name: 'main_agent_worker_request_changes',
+    description: 'Return one submitted assignment to its exact worker lane for bounded '
+      + 'revisions: record the fenced store-side request-changes decision, then deliver '
+      + 'it into that lane\'s inbox. Never sends raw terminal input.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Submitted assignment to return.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        reason: { type: 'string', description: 'Bounded durable reason recorded for the worker.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this decision.' },
+      },
+      required: ['assignment_id', 'if_revision', 'reason', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = /** @type {Record<string, unknown>} */ (args)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const reason = requireNonEmptyString(record.reason, 'main-agent-reason-invalid')
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const ifRevision = requireRevision(record)
+      const lane = requireLane(assignmentId)
+      const cwd = controllerCwd(exec)
+      // The store decision comes first: delivering a revision request the store
+      // refused would tell the lane to redo work under a fence that never moved.
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'request-changes',
+        assignmentId,
+        '--if-revision',
+        String(ifRevision),
+        '--reason',
+        reason,
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd)
+      let delivered = false
+      let deliveryError
+      try {
+        await ctx.subagents.followup(
+          /** @type {any} */ (lane.anchor),
+          /** @type {any} */ (lane.childId),
+          [{
+            type: 'text',
+            text: [
+              `Main Agent requested changes for assignment ${assignmentId}.`,
+              `Reason: ${reason}`,
+              'Address it in this worktree, then record a fenced checkpoint with'
+              + ` \`${LANE_CHECKPOINT_TOOL}\` using the assignment's current revision.`,
+            ].join('\n'),
+          }],
+          {
+            source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
             signal: exec.signal,
-          }).catch(() => undefined)
+          },
+        )
+        delivered = true
+      } catch (error) {
+        // The durable decision already landed, so a delivery failure is a
+        // reportable transport fact, not a reason to unwind the store. The
+        // worker also reads the decision from its own rehydrate path.
+        deliveryError = error instanceof Error ? error.message : String(error)
+      }
+      return {
+        schema_version: REVIEW_SCHEMA,
+        assignment_id: assignmentId,
+        decision: 'request-changes',
+        store,
+        delivered,
+        ...deliveryError === undefined ? {} : { delivery_error: deliveryError },
+        lane: launchSummary(lane, 'reattached'),
+      }
+    },
+  }
+
+  /** @type {ToolDefinition} */
+  const acceptTool = {
+    name: 'main_agent_worker_accept',
+    description: 'Accept one submitted worker result after Main Agent review, recording '
+      + 'the fenced store-side acceptance. The lane stays live until it is closed '
+      + 'explicitly, so its worktree and inbox remain inspectable.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Submitted assignment to accept.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this decision.' },
+      },
+      required: ['assignment_id', 'if_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = /** @type {Record<string, unknown>} */ (args)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const ifRevision = requireRevision(record)
+      const cwd = controllerCwd(exec)
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'accept',
+        assignmentId,
+        '--if-revision',
+        String(ifRevision),
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd)
+      const lane = lanes.byAssignment(assignmentId)
+      return {
+        schema_version: REVIEW_SCHEMA,
+        assignment_id: assignmentId,
+        decision: 'accept',
+        store,
+        delivered: false,
+        lane: lane === undefined ? null : launchSummary(lane, 'reattached'),
+      }
+    },
+  }
+
+  /** @type {ToolDefinition} */
+  const closeoutTool = {
+    name: 'main_agent_run_closeout',
+    description: 'Close out the run: terminate every remaining lane, record the fenced '
+      + 'final run checkpoint through the store closeout macro, then drain this '
+      + 'runtime\'s lane descendants. The controller session survives to deliver the '
+      + 'final answer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'One-line durable summary of the run.' },
+        next_action: { type: 'string', description: 'One-line next action after closeout.' },
+        result_summary: { type: 'string', description: 'One-line result summary for the run.' },
+        if_run_revision: { type: 'integer', minimum: 0, description: 'Expected current run revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this closeout.' },
+      },
+      required: ['summary', 'next_action', 'if_run_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = /** @type {Record<string, unknown>} */ (args)
+      const ifRunRevision = record.if_run_revision
+      if (typeof ifRunRevision !== 'number'
+        || !Number.isInteger(ifRunRevision)
+        || ifRunRevision < 0) {
+        throw laneError('main-agent-revision-invalid')
+      }
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const document = checkpointDocument({
+        summary: /** @type {string} */ (record.summary),
+        nextAction: /** @type {string} */ (record.next_action),
+        resultSummary: /** @type {string | undefined} */ (record.result_summary),
+      })
+      const cwd = controllerCwd(exec)
+      // Every lane must be terminal before the store retires its worker: a lane
+      // left `open` would keep the pinned harness identity vouching for a
+      // runtime the store already considers retired.
+      // Anchors stay alive through the drain: they are the parent authority
+      // `drainContinuableDescendants` needs, so each one is disposed only after
+      // its forest is released.
+      const closedLanes = []
+      for (const lane of lanes.list()) {
+        closedLanes.push(await closeLane(lane, exec, cwd, { disposeAnchor: false }))
+      }
+      const anchors = closedLanes
+        .map(entry => entry.anchor)
+        .filter(anchor => anchor !== undefined)
+      const directory = await realpath(
+        await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-')),
+      )
+      const checkpointFile = join(directory, 'closeout.json')
+      try {
+        await writePrivateJson(checkpointFile, document)
+        const store = await runEnvelope([
+          mainAgentCli,
+          'closeout',
+          '--if-run-revision',
+          String(ifRunRevision),
+          '--checkpoint-file',
+          checkpointFile,
+          '--idempotency-key',
+          idempotencyKey,
+          '--format',
+          'json',
+        ], exec, cwd)
+        // Drain after the store closed the run: admission below these anchors
+        // is closed and every descendant Activation is released child-first.
+        let drained = true
+        try {
+          await ctx.subagents.drainContinuableDescendants(/** @type {any} */ (anchors))
+        } catch {
+          drained = false
+        } finally {
+          // The anchors have no purpose once their forests are released, and a
+          // failed drain must not leak them either.
+          for (const entry of closedLanes) entry.disposeAnchor?.()
+        }
+        return {
+          schema_version: CLOSEOUT_SCHEMA,
+          store,
+          lanes_closed: closedLanes.map(entry => entry.summary),
+          drained,
         }
       } finally {
-        // Release is unconditional once close starts: the lane is terminated,
-        // so leaving it registered would report it as live to the controller.
-        lane.stopHeartbeat?.()
-        lane.disposeAnchor?.()
-        lanes.remove(lane)
-        lanesByAnchor.delete(lane.anchorId)
+        await rm(directory, { recursive: true, force: true }).catch(() => {})
       }
-      return { ...launchSummary(lane, 'reattached'), closed: true, sidecar_published: published }
     },
   }
 
   ctx.tools.register(Object.freeze(launchTool))
   ctx.tools.register(Object.freeze(interruptTool))
   ctx.tools.register(Object.freeze(closeTool))
+  ctx.tools.register(Object.freeze(superviseTool))
+  ctx.tools.register(Object.freeze(requestChangesTool))
+  ctx.tools.register(Object.freeze(acceptTool))
+  ctx.tools.register(Object.freeze(closeoutTool))
 
-  ctx.provide('dshRuntimeKitMainAgent', Object.freeze({
+  /**
+   * The versioned orchestration service. It is deliberately read-only: every
+   * mutation is a tool, so each one carries a model-visible call, an argument
+   * record, and the store's fenced receipt. A service method that mutated the
+   * run would be an unlogged second write path onto the same durable state.
+   */
+  const orchestrationService = Object.freeze({
     apiVersion: 1,
     get laneCount() { return lanes.size },
     get cliDegraded() { return client.degraded },
+    get maxLanes() { return maxLanes },
     lanes() {
       return lanes.list().map(lane => launchSummary(
         lane,
         /** @type {const} */ ('reattached'),
       ))
     },
-  }))
+    /** @param {string} assignmentId */
+    lane(assignmentId) {
+      const lane = lanes.byAssignment(assignmentId)
+      return lane === undefined ? undefined : launchSummary(lane, /** @type {const} */ ('reattached'))
+    },
+    /** The tool names this runtime owns, so a composition can audit its surface. */
+    tools: Object.freeze({
+      controller: Object.freeze([
+        launchTool.name,
+        interruptTool.name,
+        closeTool.name,
+        superviseTool.name,
+        requestChangesTool.name,
+        acceptTool.name,
+        closeoutTool.name,
+      ]),
+      lane: Object.freeze([LANE_CHECKPOINT_TOOL]),
+    }),
+  })
+  ctx.provide('mainAgentOrchestration', orchestrationService)
+  // The pre-service name stays bound to the same object: it shipped in the
+  // lane-runtime milestone and renaming a provided service is a breaking
+  // change for any composition that already injects it.
+  ctx.provide('dshRuntimeKitMainAgent', orchestrationService)
 }
 
 /**

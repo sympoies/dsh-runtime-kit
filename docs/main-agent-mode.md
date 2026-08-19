@@ -21,8 +21,11 @@ Tracking: sympoies/dsh-runtime-kit#6. The nils-cli side of the contract is
 | Spawning the lane child, prompt delivery       | this bundle (`src/main-agent/`)              |
 | Per-lane broker heartbeat process              | this bundle (spawns `agent-session broker heartbeat`) |
 | Liveness/turn evidence sidecar                 | this bundle (schema `main-agent.dsh-runtime-liveness.v1`) |
-| Worker-side bootstrap/checkpoint               | the worker runs `main-agent bootstrap` / `main-agent checkpoint` |
-| Lane interrupt/close                           | this bundle's tools; CLI stop verbs refuse dsh lanes |
+| Worker-side bootstrap                          | the worker runs `main-agent bootstrap`       |
+| Worker-side checkpoint                         | this bundle's per-lane `main_agent_checkpoint` tool, which writes the private input and runs the fenced CLI |
+| Review decision (what to change, what to accept) | the controller agent and its review skills |
+| Review-loop transport (record the decision, deliver it into the lane) | this bundle's tools |
+| Lane interrupt/close, run closeout, descendant drain | this bundle's tools; CLI stop verbs refuse dsh lanes |
 
 ## Runtime shape
 
@@ -62,6 +65,54 @@ Mode simply never activates and the rest of the bundle is unaffected.
 - `main_agent_lane_close({assignment_id})` — terminal lane cleanup after the
   assignment reached a terminal store state: interrupt, heartbeat stop,
   best-effort broker stop, sidecar marked `terminated`.
+- `main_agent_worker_supervise({assignment_id})` — runs the store-side
+  `worker supervise` macro and folds this runtime's lane facts onto it. The
+  store's classification and next action pass through untouched; lane facts
+  (child activity from `listChildren`, turn phase, lane state) live in a
+  separate `lane` object, so transport observation can never be mistaken for
+  durable store truth. A listing failure degrades to `child_activity:
+  "unknown"` rather than failing supervision.
+- `main_agent_worker_request_changes({assignment_id, if_revision, reason,
+  idempotency_key})` — records the fenced store decision **first**, then
+  delivers it into that lane's inbox through `followup()`. A delivery failure
+  is reported (`delivered: false` plus `delivery_error`) and never unwinds the
+  durable decision; the worker can still read it through its own rehydrate
+  path. No raw terminal input is involved.
+- `main_agent_worker_accept({assignment_id, if_revision, idempotency_key})` —
+  records the fenced acceptance. The lane stays live so its worktree and inbox
+  remain inspectable; closing it is a separate explicit step.
+- `main_agent_run_closeout({summary, next_action, result_summary?,
+  if_run_revision, idempotency_key})` — terminates every remaining lane,
+  writes the private final checkpoint, runs the store `closeout` macro, then
+  `drainContinuableDescendants()` on the lane anchors and disposes them. The
+  controller session survives to deliver the final answer.
+
+## Lane tool
+
+- `main_agent_checkpoint({summary, next_action, state?, result_summary?,
+  blocker_summary?, if_revision, idempotency_key})` — registered **inside each
+  lane child's own context**, never globally, so a lane can only ever
+  checkpoint its own assignment: there is no argument through which it could
+  name another. It writes the `main-agent.checkpoint-input.v1` document to the
+  path the launch payload declared (owner-only, atomic rename, verified real
+  directory) and runs the fenced `main-agent checkpoint` with the lane's own
+  environment and worktree.
+
+  This replaces the worker writing that file itself — a file tool in one
+  composition, a shell `printf` in another — and with it the checkpoint-file
+  admission hook that existed to keep those writes honest. A lane whose payload
+  names no checkpoint path inside its own coordination directory gets no
+  checkpoint tool at all rather than one pointed somewhere unproven.
+
+## Service
+
+`ctx.provide('mainAgentOrchestration', …)` exposes a versioned, **read-only**
+view: `apiVersion`, `laneCount`, `maxLanes`, `cliDegraded`, `lanes()`,
+`lane(assignmentId)`, and the tool names this runtime owns. Every mutation is a
+tool, so each one carries a model-visible call, an argument record, and the
+store's fenced receipt; a service method that mutated the run would be an
+unlogged second write path onto the same durable state. The pre-service name
+`dshRuntimeKitMainAgent` stays bound to the same object.
 
 ## Known limitations (v1)
 

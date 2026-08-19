@@ -90,6 +90,21 @@
       "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
     },
     {
+      "id": "main-agent.lane-orchestration",
+      "binary": "main-agent",
+      "status": "released",
+      "validation": "source-validated",
+      "contracts": [
+        "main-agent.checkpoint-input.v1",
+        "main-agent checkpoint --file --if-revision --idempotency-key",
+        "main-agent worker supervise",
+        "main-agent worker request-changes --if-revision --reason --idempotency-key",
+        "main-agent worker accept --if-revision --idempotency-key",
+        "main-agent closeout --if-run-revision --checkpoint-file --idempotency-key"
+      ],
+      "source_task": "sympoies/dsh-runtime-kit#6 Phase 4 orchestration verbs"
+    },
+    {
       "id": "forge-cli.pr-deliver",
       "binary": "forge-cli",
       "status": "released",

@@ -23,6 +23,10 @@ export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
  * @property {string} livenessFile
  * @property {string} childId
  * @property {string} anchorId
+ * @property {unknown} anchor the live anchor Agent, the parent authority every
+ *   `followup` and drain call needs; the id alone cannot carry it
+ * @property {string} worktree the lane's real worktree, which is both the
+ *   anchor session cwd and the cwd every worker-principal CLI call runs in
  * @property {'open' | 'terminated'} state
  * @property {LaneTurnEvidence | undefined} turn
  * @property {Readonly<Record<string, string>>} workerEnv

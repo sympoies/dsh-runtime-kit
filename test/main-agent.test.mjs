@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -50,6 +50,10 @@ function laneWorktree(stateDir) {
 function laneSidecarPath(stateDir, sessionId) {
   const directory = join(stateDir, 'sessions', sessionId)
   mkdirSync(directory, { recursive: true })
+  // `main-agent worker start` owns this directory — it is where the capability
+  // and checkpoint files live — so the fixture mirrors that, and nothing in the
+  // runtime creates store-owned structure of its own.
+  mkdirSync(join(directory, 'coordination'), { recursive: true, mode: 0o700 })
   return join(directory, 'dsh-runtime-liveness.json')
 }
 
@@ -96,7 +100,14 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
   }
 }
 
-function createContext({ envelope, spawnFailure = false, startContinuable } = {}) {
+function createContext({
+  envelope,
+  spawnFailure = false,
+  startContinuable,
+  children = [],
+  followupFailure = false,
+  drainFailure = false,
+} = {}) {
   const listeners = new Map()
   const effects = []
   const provided = new Map()
@@ -105,6 +116,9 @@ function createContext({ envelope, spawnFailure = false, startContinuable } = {}
   const anchors = []
   const continuations = []
   const interrupts = []
+  const followups = []
+  const drains = []
+  const listings = []
   let setupContribution
   const ctx = {
     on(event, listener) {
@@ -177,6 +191,19 @@ function createContext({ envelope, spawnFailure = false, startContinuable } = {}
         setupContribution = contribution
         return () => { setupContribution = undefined }
       },
+      async listChildren(parentSessionId, signal) {
+        listings.push({ parentSessionId, signal })
+        return typeof children === 'function' ? children(parentSessionId) : children
+      },
+      async followup(parent, childId, content, options) {
+        followups.push({ parent, childId, content, options })
+        if (followupFailure) throw new Error('inbox rejected the message')
+        return 'message-2'
+      },
+      async drainContinuableDescendants(parents) {
+        drains.push(parents)
+        if (drainFailure) throw new Error('drain failed')
+      },
     },
   }
   return {
@@ -189,6 +216,9 @@ function createContext({ envelope, spawnFailure = false, startContinuable } = {}
     anchors,
     continuations,
     interrupts,
+    followups,
+    drains,
+    listings,
     setup: () => setupContribution,
   }
 }
@@ -886,4 +916,297 @@ test('interrupting a settled lane reports it instead of throwing', async (t) => 
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
   assert.equal(sidecar.turn.phase, 'working')
   assert.equal(sidecar.turn.last_turn, undefined)
+})
+
+/**
+ * Drive a launched lane plus the per-child setup contribution, returning the
+ * lane's own registered tools. Every orchestration test below needs the same
+ * shape: a live lane and the child context that owns its checkpoint tool.
+ */
+async function launchedLane(scratch, options = {}) {
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const harness = createContext({
+    envelope: options.envelope ?? workerStartEnvelope(livenessFile),
+    children: options.children,
+    followupFailure: options.followupFailure,
+    drainFailure: options.drainFailure,
+  })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+  const laneTools = new Map()
+  const disposeChild = harness.setup()({
+    agent: { session: { header: { id: 'child-1', parentSession: harness.anchors[0].session.header.id } } },
+    tools: {
+      guard() { return () => {} },
+      register(definition) {
+        laneTools.set(definition.name, definition)
+        return () => laneTools.delete(definition.name)
+      },
+    },
+  })
+  return { harness, launched, livenessFile, laneTools, disposeChild }
+}
+
+test('the lane checkpoint tool owns the private write and runs as the worker principal', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const start = workerStartEnvelope(laneSidecarPath(scratch, 'worker-one'))
+  const { harness, laneTools } = await launchedLane(scratch, {
+    envelope: (spec) => (spec.argv.includes('checkpoint')
+      ? {
+        schema_version: 'cli.main-agent.checkpoint.v1',
+        ok: true,
+        data: { schema_version: 'main-agent.checkpoint-result.v1', assignment: { revision: 4 } },
+      }
+      : start),
+  })
+
+  const checkpoint = laneTools.get('main_agent_checkpoint')
+  assert.ok(checkpoint, 'the lane child owns a checkpoint tool')
+  assert.ok(
+    !harness.registeredTools.has('main_agent_checkpoint'),
+    'the checkpoint tool is never registered globally: it carries lane authority',
+  )
+
+  const before = harness.spawned.length
+  const outcome = await checkpoint.execute({
+    summary: 'implemented the lane runtime',
+    next_action: 'run the gates',
+    state: 'working',
+    if_revision: 3,
+    idempotency_key: 'checkpoint-1',
+  }, { signal: new AbortController().signal })
+  assert.equal(
+    outcome.schema_version,
+    'main-agent.checkpoint-result.v1',
+    'the store receipt passes through unmodified',
+  )
+  assert.equal(outcome.assignment.revision, 4)
+
+  const call = harness.spawned[before]
+  const checkpointFile = join(scratch, 'sessions', 'worker-one', 'coordination', 'main-agent-checkpoint-x.json')
+  assert.deepEqual(call.spec.argv, [
+    '/bin/main-agent',
+    'checkpoint',
+    '--file',
+    checkpointFile,
+    '--if-revision',
+    '3',
+    '--idempotency-key',
+    'checkpoint-1',
+    '--format',
+    'json',
+  ])
+  // The worker principal comes from the lane's own environment, and the call
+  // runs in the lane worktree rather than the controller checkout.
+  assert.equal(call.spec.env.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(call.spec.env.AGENT_SESSION_CAPABILITY_FILE.length > 0, true)
+  assert.equal(call.spec.cwd, realpathSync(laneWorktree(scratch)))
+
+  const written = JSON.parse(readFileSync(checkpointFile, 'utf8'))
+  assert.deepEqual(written, {
+    schema_version: 'main-agent.checkpoint-input.v1',
+    summary: 'implemented the lane runtime',
+    next_action: 'run the gates',
+    state: 'working',
+  })
+  assert.equal(statSync(checkpointFile).mode & 0o077, 0, 'the private file stays owner-only')
+
+  await assert.rejects(
+    checkpoint.execute({
+      summary: 'x',
+      next_action: 'y',
+      if_revision: -1,
+      idempotency_key: 'checkpoint-2',
+    }, { signal: new AbortController().signal }),
+    /main-agent-revision-invalid/,
+  )
+})
+
+test('a lane whose payload names no contained checkpoint file gets no checkpoint tool', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const envelope = workerStartEnvelope(livenessFile)
+  // A checkpoint path outside the lane's own coordination directory is not
+  // this lane's to write, so the tool is withheld rather than pointed at it.
+  envelope.data.external_launch.worker_env.AGENT_SESSION_CHECKPOINT_FILE = join(scratch, 'elsewhere.json')
+  const { laneTools } = await launchedLane(scratch, { envelope })
+  assert.equal(laneTools.has('main_agent_checkpoint'), false)
+})
+
+test('supervision folds lane transport facts onto the store classification', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  const envelope = (spec) => (spec.argv.includes('supervise')
+    ? {
+      schema_version: 'cli.main-agent.worker-supervise.v1',
+      ok: true,
+      data: {
+        schema_version: 'main-agent.worker-supervise-result.v2',
+        classification: 'healthy_progress',
+        next_action: 'continue bounded supervision',
+      },
+    }
+    : start)
+  const { harness } = await launchedLane(scratch, {
+    envelope,
+    children: [{
+      kind: 'child',
+      id: 'child-1',
+      activity: 'running',
+      mode: 'continuable',
+      label: 'main-agent:assignment-one',
+      hasChildren: false,
+    }],
+  })
+
+  const supervised = await harness.registeredTools.get('main_agent_worker_supervise').execute(
+    { assignment_id: 'assignment-one' },
+    controllerExec(),
+  )
+  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v1')
+  assert.equal(supervised.store.classification, 'healthy_progress')
+  assert.equal(supervised.lane.child_activity, 'running')
+  assert.equal(supervised.lane.turn_phase, 'working')
+  assert.equal(harness.listings[0].parentSessionId, harness.anchors[0].session.header.id)
+})
+
+test('request-changes records the fenced decision first, then delivers it into the lane', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  const envelope = (spec) => (spec.argv.includes('request-changes')
+    ? {
+      schema_version: 'cli.main-agent.worker-request-changes.v1',
+      ok: true,
+      data: { schema_version: 'main-agent.worker-request-changes-result.v1', assignment: { revision: 5 } },
+    }
+    : start)
+  const { harness } = await launchedLane(scratch, { envelope })
+
+  const returned = await harness.registeredTools.get('main_agent_worker_request_changes').execute(
+    {
+      assignment_id: 'assignment-one',
+      if_revision: 4,
+      reason: 'the diff misses the regression test',
+      idempotency_key: 'changes-1',
+    },
+    controllerExec(),
+  )
+  assert.equal(returned.schema_version, 'dsh-runtime-kit.main-agent-review.v1')
+  assert.equal(returned.decision, 'request-changes')
+  assert.equal(returned.delivered, true)
+
+  const cliCall = harness.spawned.find(entry => entry.spec.argv.includes('request-changes'))
+  assert.deepEqual(cliCall.spec.argv, [
+    '/bin/main-agent',
+    'worker',
+    'request-changes',
+    'assignment-one',
+    '--if-revision',
+    '4',
+    '--reason',
+    'the diff misses the regression test',
+    '--idempotency-key',
+    'changes-1',
+    '--format',
+    'json',
+  ])
+  assert.equal(harness.followups.length, 1)
+  const delivery = harness.followups[0]
+  assert.equal(delivery.childId, 'child-1')
+  assert.equal(delivery.parent, harness.anchors[0])
+  assert.match(delivery.content[0].text, /the diff misses the regression test/)
+  assert.match(delivery.content[0].text, /main_agent_checkpoint/)
+  assert.deepEqual(delivery.options.source, { kind: 'plugin', plugin: 'dsh-runtime-kit' })
+})
+
+test('a failed delivery reports the transport gap without unwinding the durable decision', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  const envelope = (spec) => (spec.argv.includes('request-changes')
+    ? { schema_version: 'cli.main-agent.worker-request-changes.v1', ok: true, data: { revision: 5 } }
+    : start)
+  const { harness } = await launchedLane(scratch, { envelope, followupFailure: true })
+
+  const returned = await harness.registeredTools.get('main_agent_worker_request_changes').execute(
+    {
+      assignment_id: 'assignment-one',
+      if_revision: 4,
+      reason: 'needs the failing test first',
+      idempotency_key: 'changes-1',
+    },
+    controllerExec(),
+  )
+  assert.equal(returned.delivered, false)
+  assert.match(returned.delivery_error, /inbox rejected the message/)
+  assert.ok(returned.store, 'the recorded store decision is still reported')
+})
+
+test('closeout terminates every lane, fences the final checkpoint, then drains the anchors', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  let closeoutFile
+  const envelope = (spec) => {
+    if (spec.argv.includes('closeout')) {
+      closeoutFile = spec.argv[spec.argv.indexOf('--checkpoint-file') + 1]
+      return {
+        schema_version: 'cli.main-agent.closeout.v1',
+        ok: true,
+        data: { schema_version: 'main-agent.closeout-result.v1', run: { state: 'closed' } },
+      }
+    }
+    return start
+  }
+  const { harness } = await launchedLane(scratch, { envelope })
+  // Capture the anchor before closeout: disposal removes it from the harness.
+  const anchor = harness.anchors[0]
+
+  const closed = await harness.registeredTools.get('main_agent_run_closeout').execute(
+    {
+      summary: 'delivered both lanes',
+      next_action: 'report to the user',
+      result_summary: 'two assignments accepted',
+      if_run_revision: 7,
+      idempotency_key: 'closeout-1',
+    },
+    controllerExec(),
+  )
+  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v1')
+  assert.equal(closed.store.run.state, 'closed')
+  assert.equal(closed.lanes_closed.length, 1)
+  assert.equal(closed.lanes_closed[0].closed, true)
+  assert.equal(closed.drained, true)
+
+  // The lane is terminal before the store retires it, and its sidecar says so.
+  const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  assert.equal(sidecar.lane.state, 'terminated')
+  assert.equal(harness.drains.length, 1)
+  assert.deepEqual(harness.drains[0], [anchor])
+  assert.equal(harness.anchors.length, 0, 'anchors are disposed after the drain')
+
+  // The private closeout checkpoint is removed with its temporary directory.
+  assert.ok(closeoutFile, 'closeout passed a checkpoint file')
+  assert.equal(existsSync(closeoutFile), false)
+
+  assert.equal(
+    harness.provided.get('mainAgentOrchestration'),
+    harness.provided.get('dshRuntimeKitMainAgent'),
+    'the versioned service and its pre-service name are the same object',
+  )
+  assert.deepEqual(
+    harness.provided.get('mainAgentOrchestration').tools.lane,
+    ['main_agent_checkpoint'],
+  )
 })
