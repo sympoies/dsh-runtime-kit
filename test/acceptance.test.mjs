@@ -37,7 +37,11 @@ function runtimeReceipt() {
       scenario('edit', 'packed-runtime'),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
-      scenario('private-project-skill', 'packed-runtime'),
+      scenario('private-project-skill', 'packed-runtime', [
+        'skills:private-project-precedence',
+        'coexistence:no-cross-loaded-hooks-skills-session-state',
+        'coexistence:dsh-hook-docs-state-isolated',
+      ]),
       scenario('resume', 'packed-runtime'),
       scenario('subagent', 'packed-runtime'),
       scenario('finish-line', 'packed-runtime'),
@@ -53,7 +57,12 @@ function operationsReceipt() {
     producer: 'operations',
     scenarios: [
       scenario('bootstrap', 'operations'),
-      scenario('inspect', 'operations'),
+      scenario('inspect', 'operations', [
+        'doctor:healthy',
+        'upstream:clean',
+        'coexistence:dsh-agent-runtime-kit-zero-dependency',
+        'coexistence:codex-claude-wiring-untouched',
+      ]),
     ],
   }
 }
@@ -224,6 +233,34 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   )
   assert.equal(summary.execution_scope, 'functional-session')
   assert.equal('no_legacy_runtime_execution' in summary, false)
+})
+
+test('hosted acceptance rejects receipts that do not prove runtime coexistence isolation', () => {
+  const input = baseInput()
+  const inspect = input.operations.scenarios.find(item => item.id === 'inspect')
+  const skills = input.runtime.scenarios.find(item => item.id === 'private-project-skill')
+  inspect.evidence = ['doctor:healthy', 'upstream:clean']
+  skills.evidence = ['skills:private-project-precedence']
+
+  assert.throws(
+    () => buildAcceptanceSummary(input),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
+})
+
+test('hosted acceptance rejects ambient provider hook, docs, or state fallback', () => {
+  const input = baseInput()
+  const skills = input.runtime.scenarios.find(item => item.id === 'private-project-skill')
+  skills.evidence = skills.evidence.filter(
+    item => item !== 'coexistence:dsh-hook-docs-state-isolated',
+  )
+
+  assert.throws(
+    () => buildAcceptanceSummary(input),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
 })
 
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {

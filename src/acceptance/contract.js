@@ -33,6 +33,32 @@ const PRODUCERS = Object.freeze({
   ]),
 })
 
+const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
+  operations: Object.freeze({
+    inspect: Object.freeze([
+      'coexistence:dsh-agent-runtime-kit-zero-dependency',
+      'coexistence:codex-claude-wiring-untouched',
+    ]),
+  }),
+  'packed-runtime': Object.freeze({
+    'private-project-skill': Object.freeze([
+      'coexistence:no-cross-loaded-hooks-skills-session-state',
+      'coexistence:dsh-hook-docs-state-isolated',
+    ]),
+  }),
+})
+
+/** @param {'operations'|'packed-runtime'} producer @param {string} id */
+function requiredScenarioEvidence(producer, id) {
+  if (producer === 'operations' && id === 'inspect') {
+    return REQUIRED_SCENARIO_EVIDENCE.operations.inspect
+  }
+  if (producer === 'packed-runtime' && id === 'private-project-skill') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['private-project-skill']
+  }
+  return []
+}
+
 const SCENARIO_ORDER = Object.freeze([
   'bootstrap',
   'inspect',
@@ -152,13 +178,15 @@ function scenariosFrom(input, producer) {
   const seen = new Set()
   const scenarios = receipt.scenarios.map(raw => {
     const item = record(raw, producer + ' scenario')
+    const requiredEvidence = requiredScenarioEvidence(producer, item.id)
     if (!expected.includes(item.id)
       || seen.has(item.id)
       || !['passed', 'failed'].includes(item.status)
       || item.producer !== producer
       || !Array.isArray(item.evidence)
       || item.evidence.length === 0
-      || item.evidence.some(value => typeof value !== 'string' || value.length === 0)) {
+      || item.evidence.some(value => typeof value !== 'string' || value.length === 0)
+      || requiredEvidence.some(value => !item.evidence.includes(value))) {
       throw new AcceptanceError(
         'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
         producer + ' scenario evidence is invalid',

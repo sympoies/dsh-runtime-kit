@@ -1,11 +1,10 @@
 # Migration status
 
-The replacement is staged behind executable gates:
+The additive DSH runtime is staged behind executable gates:
 
 1. Complete: external bundle installation and real DSH boot without a fork.
-2. Source complete, release pending: strict nils-cli DSH ingress and fail-closed
-   allow/block bridge. The package release floor remains unset until the
-   matching nils-cli capability is published and artifact-validated.
+2. Complete: strict nils-cli DSH ingress and fail-closed allow/block bridge are
+   published and artifact-validated in nils-cli v1.27.0.
 3. Complete: 29 public skills plus project/private discovery and precedence.
 4. Complete: rc.7 lifecycle compatibility, content-free request correlation,
    monotonic pre-tool denial, bounded cancellation-aware nils transport, and
@@ -13,10 +12,10 @@ The replacement is staged behind executable gates:
    `0.1.0-rc.7`; unknown subprocess quiescence permanently degrades policy
    admission closed, revokes approval-waiting allow markers, and lifecycle
    refresh is append-incremental with sticky invalidation on history rewrite.
-5. Source complete, release pending: model-facing selective context through an
+5. Complete: model-facing selective context through an
    atomic nils `decision.context.v1` contract and a native DSH tool. No corpus
    is injected at startup; project-dev/edit is bounded and replay-bound.
-6. Source complete, release pending: durable edit begin, exact-command
+6. Complete: durable edit begin, exact-command
    validation probe, DSH-prepared shell runtime, nils-authoritative execution
    and recording, and turn-stop steering. Every foreground Bash command is
    supervised: exact targets may create evidence, while ordinary commands
@@ -44,24 +43,24 @@ The replacement is staged behind executable gates:
    -> blocked stop -> successful exact validation -> ordinary mutation -> blocked
    stop -> exact revalidation -> allowed stop, without a shell wrapper, `EXIT`
    trap, or deferred result queue.
-7. Source complete, release pending: the eleven Task 3.2 Git, delivery, scope,
+7. Complete: the eleven Task 3.2 Git, delivery, scope,
    ownership, checkout-lease, direct-Python, semantic-commit, and project-dev
    edit-admission groups are typed `dsh.policy.v1` evaluators. The packed policy
    uses strict ingress v2. The unmodified rc.7 smoke exercises it without a
    retired handler file, creates a real managed feature worktree, denies raw
    default-branch delivery, and completes the governed dry-run recovery path.
-8. Source complete, release pending: nine Task 3.3 privacy, memory, portable
+8. Complete: nine Task 3.3 privacy, memory, portable
    output, session-health, skill, label, and pre-PR groups use strict lifecycle
    v3 plus native pre-step/post-tool/steering context. Inputs and context are
    bounded, duplicate lifecycle delivery is constant-space, and secret or
    machine-local payload fragments are never echoed in decisions.
-9. Source complete, release pending: Task 3.4 metadata-only activity and exact
+9. Complete: Task 3.4 metadata-only activity and exact
    operation lifecycle use strict post ingress v4 plus native
    `agent-session` admit/complete reconciliation and authenticated broker
    status. Fully unmanaged sessions are no-op, any partial managed selector set
    fails closed, uncertain operations block Stop, and content-free terminal
    retry state is sequence-ordered and capacity-bounded.
-10. Source complete, release pending: the runtime migration projection has no
+10. Complete: the runtime migration projection has no
     planned active group, the DSH policy and package tree contain no retired
     handler rule or executable, and nils rejects `runtime-kit.handler.v1` for
     DSH while retaining that compatibility capability for supported
@@ -104,11 +103,16 @@ The replacement is staged behind executable gates:
     fresh extraction of the authenticated tarball inside a bounded user-systemd
     control group, and the runner rechecks its control program, tested tarball
     digest, executable closure, and DSH closure between legs. The retained local
-    result is honestly `incomplete`: released nils artifacts, disposable
-    OS-isolated execution, and authorized run/repository/head-correlated
-    semantic commit plus no-merge PR delivery remain required. Local cutover
-    remains pending.
+    result is honestly `incomplete`: disposable OS-isolated execution and
+    authorized run/repository/head-correlated
+    semantic commit plus no-merge PR delivery remain required. Reversible local
+    DSH-profile activation remains pending.
 
-The previous runtime remains untouched until the new path passes every gate
-and no active configuration points to it. At that point it can be marked
-read-only and retained only as migration history.
+DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to use
+agent-runtime-kit plus nils-cli. Local activation is limited to an isolated DSH
+native `headless` profile, preserves a DSH-only rollback point, and must leave
+existing provider wiring and hook/skill/session state unchanged. The activation
+must copy the packaged DSH policy and agent-docs catalog into owner-only DSH
+roots, set the five mandatory absolute hook/docs config-policy-state variables,
+and prove no ambient Codex/Claude/XDG fallback was selected. Private skill
+loading remains optional and never auto-enrolls an existing provider bundle.

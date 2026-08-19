@@ -1,8 +1,9 @@
 # dsh-runtime-kit
 
 `@sympoies/dsh-runtime-kit` is the public, out-of-tree DeepSeek Harness runtime
-layer that will replace `agent-runtime-kit`. It is a DSH bundle, not a fork and
-not a copied preset.
+layer. DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to
+use agent-runtime-kit plus nils-cli. It is a DSH bundle, not a fork and not a
+copied preset.
 
 The current implementation contributes one Cordis plugin, the 29 public
 workflow skills, optional private-skill loading, one selective
@@ -343,6 +344,66 @@ that deliberately violates other readonly fields is already executing trusted
 code after the guard. This bundle does not use property-descriptor hardening or
 non-public Harness APIs to contain a hostile in-process wrapper.
 
+## Isolated DSH activation contract
+
+Production activation uses DSH's native `headless` profile. A new arbitrary
+profile name is not equivalent: DSH initializes unknown names with only
+`@deepseek-ai/dsh-base`, while `headless` composes both the base and headless
+agent bundles. Save the complete pre-activation `headless` profile and
+`$DSH_HOME/.env` as the rollback point before applying the reviewed package.
+
+The package ships a compact DSH-only `agent-docs/` catalog and the
+`policy/dsh-runtime-kit-v1.toml` policy source. Activation copies both into an
+owner-only DSH runtime root; it must not point at a Codex or Claude Code runtime
+home. Copy the policy rather than hard-linking or using the pnpm-installed file:
+`agent-hook` requires the selected config and policy to be owner-only regular
+files with `nlink` equal to 1. Hash the copied policy, record that digest in a
+strict `agent-hook.config.v1` config, and create separate owner-only hook and
+agent-docs state directories.
+
+Every live DSH launch must set these absolute paths, normally in the
+user-owned `$DSH_HOME/.env` layer read by DSH:
+
+```dotenv
+DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG=/absolute/dsh-runtime/agent-hook/config.toml
+DSH_RUNTIME_KIT_AGENT_HOOK_POLICY=/absolute/dsh-runtime/agent-hook/policy.toml
+DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR=/absolute/dsh-runtime/agent-hook/state
+DSH_RUNTIME_KIT_AGENT_DOCS_HOME=/absolute/dsh-runtime/agent-docs
+DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME=/absolute/dsh-runtime/agent-docs-state
+```
+
+`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may also
+pin the released v1.27.0 executables. The runtime passes the config, policy, and
+state paths literally on every dispatch, finish-line request, and doctor call;
+missing or non-absolute isolation paths fail plugin activation. Ambient
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `~/.codex/AGENTS.md`, and
+`~/.claude/CLAUDE.md` are never fallback sources for DSH.
+
+Initialize or update only the native profile with the ordinary digest-reviewed
+operations flow, then inspect and boot that same profile:
+
+```sh
+# Preview and retain the returned plan_digest.
+dsh-runtime-kit setup --profile headless \
+  --package @sympoies/dsh-runtime-kit@<approved-version> --format json
+
+# Apply the unchanged reviewed plan.
+dsh-runtime-kit setup --profile headless \
+  --package @sympoies/dsh-runtime-kit@<approved-version> \
+  --apply --expected-plan-digest <digest> --format json
+
+dsh --profile headless --dump-config
+dsh --profile headless "run the requested task"
+```
+
+The optional private loader remains opt-in. No Codex or Claude Code private
+bundle is auto-enrolled. Leave `DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR` unset, point
+it at an empty owner-only DSH directory, or select an explicit DSH-only
+projection that satisfies the loader's no-symlink and permission checks.
+Rollback restores only the saved `headless` profile, DSH `.env`, and DSH runtime
+root; Codex and Claude Code configuration, hooks, skills, and sessions remain
+unchanged throughout activation and rollback.
+
 ## Operations
 
 The package executable owns planning and receipts; DSH continues to own the
@@ -498,14 +559,17 @@ package tree that the first leg could mutate. Each scenario owns one stable ID
 and non-empty evidence; failures produce a typed nonzero CLI result.
 
 This local mode proves only the scoped `functional-session` path. Its honest
-result remains `incomplete` with blockers for a released artifact set, a
-disposable OS-isolated environment, and an explicitly authorized live
-semantic-commit plus no-merge PR delivery correlated to the same run and exact
-repository/head. It does not claim that no legacy process exists elsewhere on
-the machine. Final `pass` requires all six hashes to match an independently
-authenticated nils release, exact pinned DSH identity, a clean head bound to the
-tested tarball digest, isolated execution, and direct provider read-back for the
-correlated open PR; caller-supplied legacy receipt flags are rejected. The
+result remains `incomplete` until a disposable OS-isolated environment and an
+explicitly authorized live semantic-commit plus no-merge PR delivery are
+correlated to the same run and exact repository/head. It does not make a
+host-wide process claim. Final `pass` requires all six hashes to match the
+independently authenticated nils-cli v1.27.0 release, exact pinned DSH identity,
+a clean head bound to the tested tarball digest, isolated execution, and direct
+provider read-back for the correlated open PR. Its `inspect` and
+`private-project-skill` evidence must also prove that the DSH profile has zero
+`agent-runtime-kit` dependency, Codex/Claude wiring is untouched, and DSH did
+not cross-load their hooks, skills, or session state. Caller-supplied legacy
+receipt flags are rejected. The
 public local runner intentionally has no final-pass mode until that external
 trust root is selected. The selected trust root is the private
 `serenvia/sympoies-infra` manual acceptance workflow. It acquires and verifies
@@ -584,7 +648,8 @@ host scheduling remain covered by real smoke/acceptance evidence rather than
 hidden inside this deterministic budget.
 
 The machine-readable [nils-cli compatibility manifest](compatibility/nils-cli.json)
-is authoritative for consumed commands and protocols. The DSH ingress is
-currently source-validated but still `pending-release`, so this package does
-not yet declare a minimum or validated nils-cli release. A local checkout or
-ambient prototype binary must not be treated as release compatibility.
+is authoritative for consumed commands and protocols. The first supported and
+currently validated DSH-capable release is nils-cli `1.27.0`. The manifest pins
+the official `v1.27.0` source commit, Linux x86-64 release archive, and exact
+hashes of all six acceptance binaries. A local checkout or ambient prototype
+binary must not be treated as release compatibility.

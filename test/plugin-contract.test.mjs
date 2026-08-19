@@ -265,7 +265,15 @@ function harness({
       },
     },
   }
-  applyPolicy(ctx, { agentHook: '/test/agent-hook', ...config }, undefined, dshRuntime)
+  applyPolicy(ctx, {
+    agentHook: '/test/agent-hook',
+    agentHookConfig: '/runtime/agent-hook/config.toml',
+    agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
+    agentHookStateDir: '/runtime/agent-hook/state',
+    agentDocsHome: '/runtime/docs',
+    agentDocsStateHome: '/runtime/state',
+    ...config,
+  }, undefined, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
@@ -410,6 +418,9 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
 test('policy ingress v2 binds the exact DSH session position and agent-docs roots', async () => {
   const subject = harness({
     config: {
+      agentHookConfig: '/runtime/agent-hook/config.toml',
+      agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
+      agentHookStateDir: '/runtime/agent-hook/state',
       agentDocsHome: '/runtime/docs',
       agentDocsStateHome: '/runtime/state',
     },
@@ -435,6 +446,13 @@ test('policy ingress v2 binds the exact DSH session position and agent-docs root
       arguments: { value: 41 },
     },
   })
+  assert.deepEqual(subject.spawnSpecs[0].argv, [
+    '/test/agent-hook',
+    '--config', '/runtime/agent-hook/config.toml',
+    '--policy', '/runtime/agent-hook/dsh-policy.toml',
+    '--state-dir', '/runtime/agent-hook/state',
+    'dispatch', '--product', 'dsh', '--format', 'json',
+  ])
 })
 
 test('post-tool ingress v4 sends only the terminal fact and blocks before downstream on lifecycle denial', async () => {
@@ -544,6 +562,7 @@ test('the first accepted pre-step receives one bounded native lifecycle context'
       turn: 1,
       step: 1,
       session_start_source: 'startup',
+      agent_docs_home: '/runtime/docs',
       agent_docs_state_home: '/runtime/state',
     },
   })

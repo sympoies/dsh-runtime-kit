@@ -1,13 +1,15 @@
-# Plan: Replace agent-runtime-kit with DSH Runtime Kit
+# Plan: Add DSH Runtime Kit Alongside Existing Provider Runtimes
 
 ## Overview
 
-Deliver the complete replacement through one shared dispatch issue and a
+Deliver the complete DSH runtime through one shared dispatch issue and a
 sequence of independently reviewable PR lanes. Land the proven external bundle
 and strict nils-cli ingress first, then add DSH lifecycle and deterministic
-policy parity, reviewer agents, operations/compatibility, and finally local
-cutover. No lane may claim completion by preserving a legacy Python handler or
-an active `agent-runtime-kit` runtime dependency.
+policy parity, reviewer agents, operations/compatibility, and finally reversible
+local DSH-profile activation. DSH uses `dsh-runtime-kit` plus nils-cli; Codex and
+Claude Code continue to use `agent-runtime-kit` plus nils-cli. No DSH lane may
+claim completion while it executes a legacy Python handler or depends on
+`agent-runtime-kit`.
 
 ## Read First
 
@@ -25,10 +27,10 @@ an active `agent-runtime-kit` runtime dependency.
 - In scope: public bundle and package, 29 skills, private/project loading,
   strict nils DSH transport, all active runtime policies and finish-line
   behavior, runtime context, eight reviewers, setup/update/rollback,
-  compatibility CI, real-session acceptance, local cutover, and old-runtime
-  active-reference retirement.
+  compatibility CI, real-session acceptance, reversible local DSH activation,
+  and coexistence isolation.
 - Out of scope: a DSH fork, a copied standard preset, private skill contents,
-  Codex/Claude/Hermes support, raw reimplementation of nils workflow commands,
+  changes to Codex/Claude/Hermes support, raw reimplementation of nils workflow commands,
   deletion of historical audit records, and live nils-cli release or local
   cutover before its owning gate is satisfied.
 
@@ -444,19 +446,21 @@ breakage observable and repeatable without maintaining a DSH fork.
   - compatibility CI matrix and clean-upstream assertion
   - controlled latency and resource benchmark
 
-## Sprint 6: Real-session acceptance and retirement
+## Sprint 6: Real-session acceptance and coexistence activation
 
 **PR grouping intent**: `group`
 **Execution Profile**: `serial`
 
-**Goal**: prove the replacement in real work, switch this machine, and retire
-all active old-runtime responsibility only after evidence is complete.
+**Goal**: prove the DSH runtime in real work, activate it reversibly on this
+machine, and close only after DSH isolation and existing-provider preservation
+are both proven.
 
 **Demo/Validation**:
 
-- Command: full acceptance matrix followed by active-reference audit
-- Verify: DSH alone completes the user's workflows and old runtime references
-  are zero
+- Command: full acceptance matrix followed by DSH-profile and provider-wiring
+  coexistence audits
+- Verify: DSH completes the user's workflows without `agent-runtime-kit`, while
+  Codex and Claude Code still use `agent-runtime-kit` plus nils-cli unchanged
 
 ### Task 6.1: Run the complete real-session acceptance matrix
 
@@ -470,9 +474,9 @@ all active old-runtime responsibility only after evidence is complete.
 - **Complexity**: 10
 - **Acceptance criteria**:
   - Every scenario has exact command/runtime evidence and expected state.
-  - The functional-session receipt contains no dependency on Codex, Claude
-    Code, Hermes, or old runtime handlers; the host-wide active-reference audit
-    remains a Task 6.3 cutover gate.
+  - The functional-session receipt proves the DSH profile has zero dependency
+    on `agent-runtime-kit`, does not load Codex/Claude hooks, skills, or session
+    state, and leaves existing provider wiring unchanged.
   - Final pass binds a disposable isolated environment, exact released nils
     artifacts, and authorized semantic commit plus no-merge PR delivery to one
     run, repository, and head with provider read-back.
@@ -481,37 +485,51 @@ all active old-runtime responsibility only after evidence is complete.
   - full acceptance runner and retained summary
   - specialist review across all required lenses
 
-### Task 6.2: Cut over the local runtime
+### Task 6.2: Activate the local DSH profile reversibly
 
 - **Location**: user-owned DSH configuration and machine-local runtime surfaces
-- **Description**: install the approved package/released nils-cli, enable the
-  private loader path, disable old sync/install/runtime wiring, and verify from
-  a fresh DSH process.
+- **Description**: save an exact rollback point for the native `headless` profile,
+  install the approved package and released nils-cli, copy the DSH-only
+  hook policy and agent-docs catalog into owner-only roots, bind every
+  hook/docs config-policy-state path explicitly, optionally enable a separately
+  selected DSH private loader path, and verify from a fresh DSH process without
+  changing Codex or Claude Code wiring.
 - **Dependencies**: Task 6.1
 - **Complexity**: 8
 - **Acceptance criteria**:
-  - Fresh DSH sessions load the intended public, project, and private surfaces.
-  - No active process/configuration resolves old runtime hooks or products.
-  - Rollback evidence exists before cutover and remains usable until final
-    retirement.
+  - Fresh DSH sessions load the intended public and project surfaces, plus a
+    private surface only when an explicit DSH-only projection is configured.
+  - The DSH process/configuration resolves no `agent-runtime-kit` hook, skill,
+    session state, package, or product.
+  - Every agent-hook dispatch, finish-line, and doctor call resolves the copied
+    DSH config/policy/state, and agent-docs resolves the copied DSH catalog/state;
+    ambient provider/XDG fallback is rejected.
+  - No Codex/Claude private bundle is implicitly migrated; the DSH private root
+    may remain absent or empty until an explicit DSH projection is selected.
+  - Codex and Claude Code configuration and runtime sentinels are unchanged.
+  - Rollback evidence exists before activation and can restore only the DSH
+    profile without affecting another runtime.
 - **Validation**:
   - post-cutover doctor and fresh-process smoke
-  - exact active configuration and symlink inventory
+  - exact DSH configuration plus Codex/Claude preservation inventory
 
-### Task 6.3: Retire active agent-runtime-kit usage and close dispatch
+### Task 6.3: Prove coexistence isolation and close dispatch
 
-- **Location**: old repository metadata, active-reference audit, dispatch issue
-- **Description**: remove remaining active CI/docs/config/env/symlink references,
-  mark the old repository historical/read-only, then run strict close-ready,
-  provider read-back, and archive handoff.
+- **Location**: DSH profile, provider-wiring audit, and dispatch issue
+- **Description**: prove DSH has zero dependency on `agent-runtime-kit`, prove
+  Codex/Claude wiring and state remain active and unchanged, then run strict
+  close-ready, provider read-back, and archive handoff for this dispatch only.
 - **Dependencies**: Task 6.2
 - **Complexity**: 7
 - **Acceptance criteria**:
-  - Active-reference audit returns zero dependencies on the old runtime.
-  - Historical evidence remains available and is clearly non-operational.
+  - DSH-profile active-reference audit returns zero `agent-runtime-kit`
+    dependencies.
+  - Codex and Claude Code continue to resolve `agent-runtime-kit` plus nils-cli.
+  - Hooks, skills, sessions, and runtime homes do not cross-load across DSH,
+    Codex, and Claude Code.
   - Every task, PR, review, validation, acceptance, and integration gate is
     visible and close-ready reports no blocker.
 - **Validation**:
-  - active-reference and old-runtime no-execution audits
+  - DSH zero-dependency and three-runtime cross-loading audits
   - `plan-issue tracking close-ready --profile dispatch --expect-visible`
   - closeout provider read-back and record audit

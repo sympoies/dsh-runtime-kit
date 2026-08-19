@@ -3,6 +3,8 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
+import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
 
@@ -288,12 +290,10 @@ function runExecution(value, command) {
 
 /**
  * @param {Context} ctx
- * @param {{agentHook?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number}} config
+ * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number}} config
  */
 export function createNilsFinishLineClient(ctx, config = {}) {
-  const command = typeof config.agentHook === 'string' && config.agentHook.length > 0
-    ? config.agentHook
-    : 'agent-hook'
+  const agentHook = resolveAgentHookRuntime(config)
   const timeoutMs = positiveInteger(config.finishLineTimeoutMs, DEFAULT_TIMEOUT_MS, HARD_TIMEOUT_MS)
   const teardownTimeoutMs = positiveInteger(
     config.finishLineTeardownTimeoutMs,
@@ -361,7 +361,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     let handle
     try {
       handle = ctx.subprocess.spawn({
-        argv: [command, 'finish-line', 'quiesce', '--format', 'json'],
+        argv: agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
         cwd: /** @type {string} */ (request.cwd),
         stdio: {
           stdin: { data: payload },
@@ -481,7 +481,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       if (operation.cause !== undefined) throw new Error('dsh-runtime-kit: finish-line request cancelled')
       try {
         operation.handle = ctx.subprocess.spawn({
-          argv: [command, 'finish-line', action, '--format', 'json'],
+          argv: agentHook.argv(['finish-line', action, '--format', 'json']),
           cwd: /** @type {string} */ (request.cwd),
           stdio: {
             stdin: { data: payload },

@@ -875,3 +875,69 @@ The DSH package suite passes 217/217 plus typecheck, the real packed smoke and
 external-tarball rehearsal pass, and the private trust root passes its full
 `make validate` gate. Security and maintainability follow-ups report no
 remaining material findings.
+
+## Task 6.1 released-nils and coexistence correction evidence
+
+The retained contract first added two focused regressions before changing the
+manifest or acceptance code. The focused command
+`node --test test/acceptance.test.mjs test/coexistence-contract.test.mjs`
+reported 9 passed and 3 failed: the old summary accepted receipts without
+coexistence markers, the compatibility manifest remained `pending-release`,
+and the source/plan/state/README terminal contract still required retirement of
+agent-runtime-kit. These are behavioral and retained-contract failures, not a
+module-absence setup result.
+
+The correction authenticates the official nils-cli `v1.27.0` tag and peeled
+source commit, downloads the official Linux x86-64 release archive, verifies
+its published SHA-256, and independently hashes the six acceptance binaries
+extracted from that archive. The exact evidence is checked into
+`compatibility/nils-cli.json`; no ambient nils checkout or installed binary is
+used as release proof. Because v1.27.0 is the first published DSH-capable
+contract, both the supported minimum and validated release are `1.27.0`.
+
+Green acceptance now requires the existing 12-scenario receipt to carry three
+additional assertions without inventing a synthetic scenario: DSH has zero
+agent-runtime-kit dependency, Codex/Claude wiring remains untouched, and the
+DSH run did not cross-load their hooks, skills, or session state. Operations and
+packed-smoke programs prove those claims with isolated provider sentinels. The
+focused suite then passed 37/37. Hosted isolated execution and its correlated
+no-merge live delivery remain the final Task 6.1 promotion boundary; this source
+evidence does not claim that hosted acceptance has run.
+
+## Task 6.1 live-root isolation follow-up
+
+Cutover preflight found that the prior smoke's temporary XDG roots concealed two
+ambient fallbacks. Without an explicit docs home, `agent-docs` could derive its
+catalog from the Codex or Claude Code home. Bare `agent-hook` dispatch,
+finish-line, and doctor calls could likewise select the shared provider config,
+policy, and state even though DSH engine support was installed. The first
+focused regression run reported 50 passed and 3 failed: the package lacked a
+DSH-only docs catalog, context construction accepted an absent docs home, and
+policy dispatch omitted literal hook config/policy/state arguments. A separate
+acceptance regression failed because a receipt without explicit hook/docs/state
+isolation was still accepted.
+
+The correction ships a compact DSH-only `agent-docs/` catalog, requires absolute
+hook config/policy/state plus docs catalog/state paths at activation, and passes
+the hook paths on every dispatch, finish-line, and doctor invocation. The
+activation contract copies policy and catalog sources into owner-only DSH roots,
+requires config/policy regular files with link count one, uses DSH's native
+`headless` profile, and never implicitly migrates a Codex or Claude Code private
+bundle. Packed smoke installs an invalid ambient hook config and provider-only
+docs markers, then proves neither was selected.
+
+The real operations smoke initially exposed a distinct store mismatch: its
+bootstrap and managed mutations changed `HOME`, so pnpm rejected the second
+installation with `ERR_PNPM_UNEXPECTED_STORE`. The smoke now preserves the
+acceptance runner's single HOME for both phases. The standalone operations
+matrix and packed rc.7 smoke pass with released nils-cli v1.27.0 binaries.
+
+The final local source rehearsal, run ID
+`issue1-coexistence-source-20260820b`, is `released` mode and binds runtime
+package SHA-256
+`af1c71a1205f5fd99cbc291a59ea0e2df679733859a5c26e54ad255f9433c1b6`.
+It reports 10 passed, 2 pending, and 0 failed with exactly two honest promotion
+blockers: disposable isolated execution and authorized live delivery. Its
+private-project-skill scenario carries both zero-cross-loading and explicit
+DSH hook/docs/state isolation evidence. This remains a local trusted-code
+rehearsal, not the final hosted pass.

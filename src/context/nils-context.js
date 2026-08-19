@@ -1,10 +1,10 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute } from 'node:path'
 
 import { runtimeContextPhase } from './intents.js'
+import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -179,9 +179,8 @@ function executionScope(exec) {
  */
 export function createNilsContextClient(ctx, config = {}) {
   const command = commandName(config.agentDocs, 'agent-docs', 'agentDocs')
-  const docsHome = optionalAbsolutePath(config.agentDocsHome, 'agentDocsHome')
-  const configuredStateHome = optionalAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
-  const stateHome = configuredStateHome ?? join(homedir(), '.local/state/dsh-runtime-kit')
+  const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
+  const stateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
   const maxBytes = boundedPositiveInteger(config.contextMaxBytes, DEFAULT_CONTEXT_BYTES, MAX_CONTEXT_BYTES)
   const timeoutMs = boundedPositiveInteger(
     config.contextTimeoutMs,

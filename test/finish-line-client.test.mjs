@@ -6,6 +6,16 @@ import { createNilsFinishLineClient } from '../src/finish-line/nils-client.js'
 const digest = `sha256:${'0'.repeat(64)}`
 const correlationId = 'correlation:opaque'
 
+function agentHookArgs(...args) {
+  return [
+    '/test/agent-hook',
+    '--config', '/runtime/agent-hook/config.toml',
+    '--policy', '/runtime/agent-hook/dsh-policy.toml',
+    '--state-dir', '/runtime/agent-hook/state',
+    ...args,
+  ]
+}
+
 function responseFor(action, request, overrides = {}) {
   const data = {
     open: {
@@ -86,7 +96,8 @@ function fixture({
     effect(execute) { effects.push(execute()) },
     subprocess: {
       spawn(spec) {
-        const action = spec.argv[2]
+        const finishLineIndex = spec.argv.indexOf('finish-line')
+        const action = spec.argv[finishLineIndex + 1]
         const request = JSON.parse(spec.stdio.stdin.data)
         spawns.push({ spec, request })
         let settle
@@ -128,6 +139,9 @@ function fixture({
   }
   const client = createNilsFinishLineClient(ctx, {
     agentHook: '/test/agent-hook',
+    agentHookConfig: '/runtime/agent-hook/config.toml',
+    agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
+    agentHookStateDir: '/runtime/agent-hook/state',
     finishLineTimeoutMs: 100,
     finishLineTeardownTimeoutMs: 20,
     maxActiveFinishLineRequests: 4,
@@ -164,9 +178,10 @@ test('open carries one private retry token without exposing it in the result', a
     runnerCapability: 'finish-line-runner:opaque',
     correlationId,
   })
-  assert.deepEqual(subject.spawns[0].spec.argv, [
-    '/test/agent-hook', 'finish-line', 'open', '--format', 'json',
-  ])
+  assert.deepEqual(
+    subject.spawns[0].spec.argv,
+    agentHookArgs('finish-line', 'open', '--format', 'json'),
+  )
   assert.deepEqual(subject.spawns[0].request, {
     schema_version: 'agent-hook.finish-line.open.v1',
     product: 'dsh',
@@ -267,9 +282,10 @@ test('release authenticates and retires one exact session capability', async () 
     ...identity,
     runnerCapability: 'finish-line-runner:opaque',
   }), { correlationId })
-  assert.deepEqual(subject.spawns[0].spec.argv, [
-    '/test/agent-hook', 'finish-line', 'release', '--format', 'json',
-  ])
+  assert.deepEqual(
+    subject.spawns[0].spec.argv,
+    agentHookArgs('finish-line', 'release', '--format', 'json'),
+  )
   assert.deepEqual(subject.spawns[0].request, {
     schema_version: 'agent-hook.finish-line.release.v1',
     product: 'dsh',
@@ -290,7 +306,10 @@ test('drain closes ordinary admission but leaves authenticated release available
     ...identity,
     runnerCapability: 'finish-line-runner:opaque',
   }), { correlationId })
-  assert.deepEqual(subject.spawns.map(spawn => spawn.spec.argv[2]), ['release'])
+  assert.deepEqual(
+    subject.spawns.map(spawn => spawn.spec.argv[spawn.spec.argv.indexOf('finish-line') + 1]),
+    ['release'],
+  )
 
   await subject.client.dispose()
   await assert.rejects(subject.client.release({
@@ -326,9 +345,10 @@ test('run sends no outcome and preserves exact command bytes and observed execut
     },
     environment,
   })
-  assert.deepEqual(subject.spawns[0].spec.argv, [
-    '/test/agent-hook', 'finish-line', 'run', '--format', 'json',
-  ])
+  assert.deepEqual(
+    subject.spawns[0].spec.argv,
+    agentHookArgs('finish-line', 'run', '--format', 'json'),
+  )
   assert.deepEqual(subject.spawns[0].request, {
     schema_version: 'agent-hook.finish-line.run.v1',
     product: 'dsh',
@@ -589,9 +609,10 @@ test('an invalid execution response is quiesced before the client returns failur
     execution: dangerFullAccessExecution,
   }), /finish-line response invalid/)
   assert.equal(subject.spawns.length, 2)
-  assert.deepEqual(subject.spawns[1].spec.argv, [
-    '/test/agent-hook', 'finish-line', 'quiesce', '--format', 'json',
-  ])
+  assert.deepEqual(
+    subject.spawns[1].spec.argv,
+    agentHookArgs('finish-line', 'quiesce', '--format', 'json'),
+  )
   assert.equal(subject.spawns[1].request.operation_id, 'operation:failed-run')
 })
 
@@ -691,9 +712,10 @@ test('caller cancellation and disposal terminate plugin-owned subprocess work', 
   await disposed.dispose()
   await assert.rejects(running, /finish-line request cancelled/)
   assert.equal(disposed.terminateCount, 1)
-  assert.deepEqual(disposed.spawns[1].spec.argv, [
-    '/test/agent-hook', 'finish-line', 'quiesce', '--format', 'json',
-  ])
+  assert.deepEqual(
+    disposed.spawns[1].spec.argv,
+    agentHookArgs('finish-line', 'quiesce', '--format', 'json'),
+  )
   assert.deepEqual(disposed.spawns[1].request, {
     schema_version: 'agent-hook.finish-line.quiesce.v1',
     product: 'dsh',

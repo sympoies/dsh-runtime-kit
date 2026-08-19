@@ -203,13 +203,13 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
   }
 })
 
-test('nils-cli compatibility is machine-readable and honest about pending DSH ingress release', () => {
+test('nils-cli compatibility is machine-readable and pinned to the first DSH-capable release', () => {
   const path = join(projectRoot, 'compatibility', 'nils-cli.json')
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
-  assert.equal(manifest.status, 'pending-release')
-  assert.equal(manifest.minimum_supported_release, null)
-  assert.equal(manifest.validated_release, null)
+  assert.equal(manifest.status, 'released')
+  assert.equal(manifest.minimum_supported_release, '1.27.0')
+  assert.equal(manifest.validated_release, '1.27.0')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -225,8 +225,8 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
   assert.deepEqual(ingress, {
     id: 'agent-hook.dispatch.dsh',
     binary: 'agent-hook',
-    status: 'pending-release',
-    validation: 'source-validated',
+    status: 'released',
+    validation: 'release-artifact-validated',
     contracts: [
       'agent-hook.dsh-ingress.v1',
       'agent-hook.dsh-ingress.v2',
@@ -249,8 +249,8 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
     {
       id: 'agent-docs.session.context.dsh',
       binary: 'agent-docs',
-      status: 'pending-release',
-      validation: 'source-validated',
+      status: 'released',
+      validation: 'release-artifact-validated',
       contracts: [
         'cli.agent-docs.session.context.v1',
         'decision.context.v1',
@@ -264,8 +264,8 @@ test('nils-cli compatibility is machine-readable and honest about pending DSH in
     {
       id: 'agent-hook.finish-line.dsh',
       binary: 'agent-hook',
-      status: 'pending-release',
-      validation: 'source-validated',
+      status: 'released',
+      validation: 'release-artifact-validated',
       contracts: [
         'agent-hook.finish-line.open.v1',
         'cli.agent-hook.finish-line-open.v1',

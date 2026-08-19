@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
+import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
 const STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v1'
@@ -1314,9 +1315,12 @@ function recoveryFor(actual, state, paths) {
   return { action: 'unknown', pending }
 }
 
-/** @param {string} agentHookBin @param {string} home */
-function agentHookDoctor(agentHookBin, home) {
-  const result = spawn(agentHookBin, ['doctor', '--product', 'dsh', '--format', 'json'], home, {
+/** @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook @param {string} home */
+function agentHookDoctor(agentHook, home) {
+  const [agentHookBin, ...args] = agentHook.argv([
+    'doctor', '--product', 'dsh', '--format', 'json',
+  ])
+  const result = spawn(agentHookBin, args, home, {
     timeoutMs: HEALTH_COMMAND_TIMEOUT_MS,
   })
   if (result.status !== 0) return { ok: false, ...commandFailure(result), error: 'agent-hook doctor failed' }
@@ -1352,8 +1356,8 @@ function dshVersion(dshBin, home) {
     : { ok: false, error: 'DSH version is not the supported 0.1.0-rc.7 release' }
 }
 
-/** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {string} agentHookBin @param {string} dshBin */
-function diagnose(profile, paths, agentHookBin, dshBin) {
+/** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook @param {string} dshBin */
+function diagnose(profile, paths, agentHook, dshBin) {
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
   const state = stateRead.value
@@ -1364,7 +1368,7 @@ function diagnose(profile, paths, agentHookBin, dshBin) {
     ownedStatus = snapshotMatches(actual, validateSnapshot(state.current), paths) ? 'installed' : 'drift'
   } else if (!actualAbsent(actual)) ownedStatus = 'unmanaged'
   else if (state !== null) ownedStatus = 'removed'
-  const hook = agentHookDoctor(agentHookBin, paths.home)
+  const hook = agentHookDoctor(agentHook, paths.home)
   const dsh = dshVersion(dshBin, paths.home)
   const healthy = recovery === null && !['drift', 'unmanaged'].includes(ownedStatus) && hook.ok && dsh.ok
   return {
@@ -1557,8 +1561,21 @@ export function main(argv = process.argv.slice(2)) {
       }
       assertOperationsTree(paths)
       const dshBin = resolveExecutable(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh')
-      const agentHookBin = resolveExecutable(process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook')
-      const diagnostic = diagnose(profile, paths, agentHookBin, dshBin)
+      let agentHook
+      try {
+        agentHook = resolveAgentHookRuntime({
+          agentHook: resolveExecutable(process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'),
+          agentHookConfig: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG,
+          agentHookPolicy: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY,
+          agentHookStateDir: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR,
+        })
+      } catch (error) {
+        throw new OperationsError(
+          'agent-hook-isolation-invalid',
+          error instanceof Error ? error.message : 'agent-hook isolation is invalid',
+        )
+      }
+      const diagnostic = diagnose(profile, paths, agentHook, dshBin)
       if (!parsed.values.repair) {
         print(envelope(diagnostic, diagnostic.status === 'healthy'), format)
         return diagnostic.status === 'healthy' ? 0 : 65

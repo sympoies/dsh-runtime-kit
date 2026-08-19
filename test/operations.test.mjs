@@ -179,7 +179,12 @@ if (existsSync(join(home, 'corrupt-after-success'))) writeFileSync(join(installe
 
   const agentHook = join(root, 'fake-agent-hook.mjs')
   writeFileSync(agentHook, `#!/usr/bin/env node
-if (process.argv[2] !== 'doctor') process.exit(91)
+import { isAbsolute } from 'node:path'
+if (!process.argv.includes('doctor')) process.exit(91)
+for (const flag of ['--config', '--policy', '--state-dir']) {
+  const index = process.argv.indexOf(flag)
+  if (index < 0 || !isAbsolute(process.argv[index + 1] ?? '')) process.exit(92)
+}
 process.stdout.write(JSON.stringify({
   schema_version: 'cli.agent-hook.doctor.v1',
   ok: true,
@@ -228,6 +233,9 @@ function run(subject, args, extraEnv = {}) {
       DSH_HOME: subject.home,
       DSH_RUNTIME_KIT_DSH_BIN: subject.dsh,
       DSH_RUNTIME_KIT_AGENT_HOOK_BIN: subject.agentHook,
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(subject.root, 'agent-hook', 'config.toml'),
+      DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(subject.root, 'agent-hook', 'policy.toml'),
+      DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(subject.root, 'agent-hook', 'state'),
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: subject.privateRoot,
       PATH: `${subject.commandDir}${delimiter}${process.env.PATH ?? ''}`,
       ...extraEnv,
@@ -279,6 +287,20 @@ test('setup, update, rollback, and remove preserve unrelated profile and private
     assert.deepEqual(after.unrelated, { keep: true })
     assert.equal(readFileSync(join(subject.profileDir, 'cordis.patch.yml'), 'utf8'), '# unrelated user config\n[]\n')
     assert.equal(readFileSync(join(subject.privateRoot, 'must-survive.txt'), 'utf8'), 'private')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor rejects missing DSH-only agent-hook isolation paths before execution', () => {
+  const subject = fixture()
+  try {
+    const result = run(subject, ['doctor', '--profile', 'work'], {
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: '',
+    })
+    assert.equal(result.status, 65)
+    assert.equal(result.value.error.code, 'agent-hook-isolation-invalid')
+    assert.match(result.value.error.message, /agentHookConfig is required/)
   } finally {
     subject.cleanup()
   }

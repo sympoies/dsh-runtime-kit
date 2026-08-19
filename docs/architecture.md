@@ -12,6 +12,15 @@ Responsibilities are intentionally split:
 - nils-cli owns deterministic policy evaluation, repository lifecycle
   commands, and machine-readable contracts.
 
+Live composition has an explicit runtime-root boundary. The package requires
+absolute DSH-only agent-hook config, policy, and state paths and passes them on
+every dispatch, finish-line, and doctor invocation. It likewise requires an
+absolute DSH-only agent-docs catalog and state root. There is no ambient XDG,
+Codex, or Claude Code fallback. The packaged `agent-docs/` directory is the
+source catalog for a copied owner-only activation root; the policy is copied to
+an owner-only regular file with link count one before its digest is recorded in
+the DSH-only hook config.
+
 `policy/rule-parity.yaml` is the frozen public source inventory, not a
 JavaScript rule engine. It authenticates the exact legacy source and exposes
 the stable 101-row, 27-capability compatibility contract implemented by the
@@ -485,7 +494,10 @@ it therefore cannot promote. A final pass additionally requires a disposable
 OS-isolated runner, exact released nils provenance and six artifact hashes, and
 authorized semantic-commit/forge-cli evidence bound to the same random run ID,
 canonical repository, exact head, ordered no-merge delivery steps, and provider
-read-back. Invalid matrices are typed failures with a nonzero exit.
+read-back. The scenario receipts additionally bind a DSH-profile zero-dependency
+check for `agent-runtime-kit`, unchanged Codex/Claude wiring sentinels, and no
+cross-loaded provider hooks, skills, or session state. Invalid matrices are
+typed failures with a nonzero exit.
 
 The candidate repository is not allowed to attest its own isolation or nils
 release provenance. Consequently the checked-in runner exposes only the

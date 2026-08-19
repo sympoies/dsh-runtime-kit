@@ -196,6 +196,17 @@ test('the context client invokes one bounded atomic agent-docs command for the e
   assert.equal(spec.env, undefined)
 })
 
+test('the context client rejects ambient Codex or Claude agent-docs fallback', () => {
+  const subject = contextTransportHarness()
+
+  assert.throws(
+    () => createNilsContextClient(subject.ctx, {
+      agentDocsStateHome: '/runtime/state',
+    }),
+    /agentDocsHome is required/,
+  )
+})
+
 test('context output from another repo, session, request, or intent cannot be replayed', async () => {
   let captured
   const subject = contextTransportHarness({
@@ -204,7 +215,10 @@ test('context output from another repo, session, request, or intent cannot be re
       return captured
     },
   })
-  const client = createNilsContextClient(subject.ctx, { agentDocsStateHome: '/runtime/state' })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
   await client.prepare(execution(), 'project-dev')
   const other = execution({
     agent: {
@@ -247,7 +261,10 @@ test('context transport rejects malformed, lossy, and exit-mismatched results wi
   ]
   for (const candidate of cases) {
     const subject = contextTransportHarness(candidate)
-    const client = createNilsContextClient(subject.ctx, { agentDocsStateHome: '/runtime/state' })
+    const client = createNilsContextClient(subject.ctx, {
+      agentDocsHome: '/runtime/policies',
+      agentDocsStateHome: '/runtime/state',
+    })
     await assert.rejects(client.prepare(execution(), 'project-dev'), candidate.error)
   }
 })
@@ -255,6 +272,7 @@ test('context transport rejects malformed, lossy, and exit-mismatched results wi
 test('caller cancellation joins the context process tree before rejecting', async () => {
   const subject = contextTransportHarness({ pending: true, quiescent: false })
   const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
     agentDocsStateHome: '/runtime/state',
     contextTeardownTimeoutMs: 1_000,
   })
@@ -300,7 +318,10 @@ test('runtime_context rejects ambiguous args and invalid execution identity befo
   })
 
   const subject = contextTransportHarness()
-  const client = createNilsContextClient(subject.ctx, { agentDocsStateHome: '/runtime/state' })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
   await assert.rejects(
     client.prepare(execution({ agent: undefined }), 'project-dev'),
     /runtime-context-identity-invalid/,

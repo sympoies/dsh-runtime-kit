@@ -19,6 +19,7 @@
     "bin",
     "policy.js",
     "src",
+    "agent-docs",
     "agents",
     "cordis.patch.yml",
     "compatibility",

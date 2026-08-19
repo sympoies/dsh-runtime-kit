@@ -24,8 +24,8 @@ test('the main-agent external-runtime compatibility rows are pinned', () => {
   assert.deepEqual(mainAgent, {
     id: 'main-agent.dsh-external-runtime',
     binary: 'main-agent',
-    status: 'pending-release',
-    validation: 'source-validated',
+    status: 'released',
+    validation: 'release-bundle-validated',
     contracts: [
       'main-agent.capabilities.v1',
       'main-agent.worker-start-result.v1',
@@ -38,7 +38,8 @@ test('the main-agent external-runtime compatibility rows are pinned', () => {
     command => command.id === 'agent-session.broker-heartbeat',
   )
   assert.equal(broker?.binary, 'agent-session')
-  assert.equal(broker?.status, 'pending-release')
+  assert.equal(broker?.status, 'released')
+  assert.equal(broker?.validation, 'release-bundle-validated')
 })
 
 function laneWorktree(stateDir) {

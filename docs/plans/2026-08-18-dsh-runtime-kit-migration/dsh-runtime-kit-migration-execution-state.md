@@ -1,4 +1,4 @@
-# Execution State: Replace agent-runtime-kit with DSH Runtime Kit
+# Execution State: Add DSH Runtime Kit Alongside Existing Provider Runtimes
 
 ## Execution State
 
@@ -7,14 +7,16 @@
 - Tracking issue: <https://github.com/sympoies/dsh-runtime-kit/issues/1>
 - Profile: dispatch
 - Plan branch: `feat/dsh-runtime-migration-plan`
+- Coexistence boundary: agent-runtime-kit remains active for Codex and Claude
+  Code; only the DSH profile uses dsh-runtime-kit
 - Current sprint: Sprint 6
 - Status: in-progress
 - Current task: 6.1 Run complete real-session acceptance matrix
-- Next task: 6.2 Cut over local runtime after Task 6.1 promotion
+- Next task: 6.2 Activate the local DSH profile after Task 6.1 promotion
 - Integration checkout: managed lane `feat/native-runtime-integrated`
-- Blockers: nils-cli release and the final run-correlated external acceptance
-  remain outside the authorized Stage 1 source-delivery boundary
-- Last updated: 2026-08-19
+- Blockers: final run-correlated hosted acceptance remains; nils-cli v1.27.0 is
+  released and artifact-pinned
+- Last updated: 2026-08-20
 
 ## Task Ledger
 
@@ -35,11 +37,11 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | 16/16 compatibility; 217/217 package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; p95 0.0695 ms and 164,408-byte retained-heap benchmark; packed unmodified rc.7 smoke; security follow-up clean | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | external-tarball rehearsal `acceptance-source-20260819-fixed`: 10 passed, 2 pending, 0 failed; package `7e7df22d...e96f5a`; independently hashed private control source; fresh pinned DSH build; six hashed nils executables; disposable credentialless UID/deny-all-egress design; post-run UID quiescence; stubbed no-merge provider integration | Final pass still requires released nils artifacts and one run-correlated candidate workflow execution |
-| 6.2 | Cut over local runtime | pending | pending | Fresh authorization gates still apply |
-| 6.3 | Retire active old runtime and close dispatch | pending | pending | Zero active references required |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | released-mode source rehearsal `issue1-coexistence-source-20260820b`: 10 passed, 2 pending, 0 failed; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
+| 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
-Task 6.1 source closeout gates: DSH 217/217 plus typecheck; nils focused
+Task 6.1 source closeout gates: DSH 224/224 plus typecheck; nils focused
 agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
 8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
 `agent_run_inspect` tests explicitly skipped; private trust-root `make validate`;
@@ -49,8 +51,9 @@ authority-pending, 0 failed. Security and maintainability follow-ups are clean.
 ## Validation Log
 
 - 2026-08-18: The maintainer selected a public repository, private loader-only
-  boundary, no DSH fork, complete old-runtime replacement, phased PR delivery,
-  and subagent delegation.
+  boundary, no DSH fork, phased PR delivery, and subagent delegation. The
+  2026-08-20 correction below supersedes the original total-replacement terminal
+  requirement.
 - 2026-08-18: `sympoies/dsh-runtime-kit` was created as a public GitHub
   repository with `main` as its default branch.
 - 2026-08-18: A prototype package installed and booted on unmodified DSH
@@ -268,6 +271,18 @@ authority-pending, 0 failed. Security and maintainability follow-ups are clean.
   and the packed bundle passes the unmodified rc.7 smoke with finish-line resume,
   native reviewer denial, skill precedence, cancellation, and disposal. Merge,
   release, and cutover remain unauthorized.
+- 2026-08-19: Stage 2A integrated dsh-runtime-kit PR #10 into the retained plan
+  branch and nils-cli PR #1468 into nils-cli `main`. Stage 2B released and
+  deployed nils-cli v1.27.0 from source tag `v1.27.0`.
+- 2026-08-19: agent-runtime-kit PR #40 validated nils-cli v1.27.0 for the
+  existing Codex/Claude runtime while preserving its v1.26.4 supported minimum.
+  This is coexistence evidence, not authority to remove that runtime.
+- 2026-08-20: The maintainer corrected the terminal architecture in
+  [Issue #1](https://github.com/sympoies/dsh-runtime-kit/issues/1#issuecomment-5346938699):
+  DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to use
+  agent-runtime-kit plus nils-cli. Tasks 6.2 and 6.3 now activate only an
+  isolated DSH profile and prove zero cross-loading; agent-runtime-kit remains
+  active and is neither archived nor made read-only.
 
 ## Decision Log
 
@@ -279,15 +294,19 @@ authority-pending, 0 failed. Security and maintainability follow-ups are clean.
   lifecycle composition only.
 - Do not retain Python handler execution in production. Parity fixtures may
   compare old outcomes until the typed replacement is complete.
-- Keep the old runtime active until complete acceptance and cutover evidence;
-  archive it only after an active-reference audit returns zero.
+- Keep agent-runtime-kit active for Codex and Claude Code. DSH activation is
+  additive and reversible, and its zero-dependency audit is scoped to the DSH
+  profile rather than the machine's supported provider runtimes.
 
 ## Handoff
 
-Continue Task 6.1 from the successful external-tarball source rehearsal and
-completed external trust-root source. Preserve the tested reviewer, operations,
-compatibility, DSH catalog-projection, and acceptance-v2 contracts. Final
-promotion still needs released nils artifacts and explicit authorization for
-one run-correlated semantic commit plus disposable isolated execution and
-no-merge draft-PR delivery. Do not commit, open a PR, merge, release, or cut
-over either lane without fresh maintainer authorization.
+Continue Task 6.1 from the successful external-tarball source rehearsal,
+completed external trust-root source, and published nils-cli v1.27.0 artifacts.
+Preserve the tested reviewer, operations, compatibility, DSH
+catalog-projection, and acceptance-v2 contracts. Final promotion still needs
+one run-correlated hosted execution plus explicitly authorized semantic commit
+and no-merge PR delivery. After promotion, Task 6.2 may activate only the
+native `headless` profile behind an exact rollback point. It must bind the five
+DSH-only hook/docs paths explicitly, keep private loading absent/empty unless a
+DSH projection is explicitly selected, and must not change Codex or Claude Code
+agent-runtime-kit wiring.

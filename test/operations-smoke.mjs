@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -33,19 +34,49 @@ const packageV1 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1)
 const packageV2 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2)
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-operations-smoke-'))
+const userHome = join(temporaryRoot, 'home')
 const dshHome = join(temporaryRoot, 'dsh-home')
+const codexHome = join(userHome, '.codex')
+const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
 mkdirSync(dshHome, { mode: 0o700 })
 
+function stageProviderSentinel(root, provider) {
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    mkdirSync(join(root, directory), { recursive: true, mode: 0o700 })
+    writeFileSync(
+      join(root, directory, `${provider}-only.txt`),
+      `${provider}:${directory}:must-remain-untouched\n`,
+      { mode: 0o600 },
+    )
+  }
+}
+
+function assertProviderSentinel(root, provider) {
+  assert.deepEqual(readdirSync(root).sort(), ['hooks', 'sessions', 'skills'])
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    assert.deepEqual(readdirSync(join(root, directory)), [`${provider}-only.txt`])
+    assert.equal(
+      readFileSync(join(root, directory, `${provider}-only.txt`), 'utf8'),
+      `${provider}:${directory}:must-remain-untouched\n`,
+    )
+  }
+}
+
+stageProviderSentinel(codexHome, 'codex')
+stageProviderSentinel(claudeHome, 'claude')
+
 const policy = readFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml'), 'utf8')
 const policyPath = join(temporaryRoot, 'policy.toml')
+const agentHookConfig = join(configHome, 'agent-hook', 'config.toml')
+const agentHookStateDir = join(stateHome, 'agent-hook-dsh')
 const policyDigest = createHash('sha256').update(policy).digest('hex')
 mkdirSync(join(configHome, 'agent-hook'), { recursive: true })
 mkdirSync(stateHome, { recursive: true })
 writeFileSync(policyPath, policy, { mode: 0o600 })
-writeFileSync(join(configHome, 'agent-hook', 'config.toml'), `schema_version = "agent-hook.config.v1"
+writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 
 [policy]
 path = ${JSON.stringify(policyPath)}
@@ -100,13 +131,26 @@ function upstreamStatus() {
 function operation(args) {
   const result = run(process.execPath, [cli, ...args, '--format', 'json'], {
     DSH_HOME: dshHome,
+    CODEX_HOME: codexHome,
+    CLAUDE_CONFIG_DIR: claudeHome,
     DSH_RUNTIME_KIT_DSH_BIN: wrapper,
     DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
+    DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
+    DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
+    DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
     DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
     XDG_CONFIG_HOME: configHome,
     XDG_STATE_HOME: stateHome,
   })
   return JSON.parse(result.stdout).data
+}
+
+function assertDshProfileIsolation() {
+  const profileManifest = readFileSync(
+    join(dshHome, 'profiles', 'operations-smoke', 'package.json'),
+    'utf8',
+  )
+  assert.doesNotMatch(profileManifest, /agent-runtime-kit/u)
 }
 
 function apply(args) {
@@ -144,6 +188,7 @@ try {
   writeFileSync(userPatch, '# user-owned marker\n[]\n')
 
   apply(['setup', '--profile', 'operations-smoke', '--package', packageV1])
+  assertDshProfileIsolation()
   const installedRuntime = join(
     dshHome,
     'profiles',
@@ -159,9 +204,11 @@ try {
   assert.match(doctor.dsh.version, /0\.1\.0-rc\.7/)
 
   apply(['update', '--profile', 'operations-smoke', '--package', packageV2])
+  assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.2')
 
   apply(['rollback', '--profile', 'operations-smoke'])
+  assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
 
   apply(['remove', '--profile', 'operations-smoke'])
@@ -172,6 +219,8 @@ try {
   assert.equal(manifest.dsh.profile.bundles.includes('@sympoies/dsh-runtime-kit'), false)
   assert.equal(readFileSync(userPatch, 'utf8'), '# user-owned marker\n[]\n')
   assert.equal(readFileSync(join(privateRoot, 'must-survive.txt'), 'utf8'), 'private')
+  assertProviderSentinel(codexHome, 'codex')
+  assertProviderSentinel(claudeHome, 'claude')
 
   const upstreamAfter = upstreamStatus()
   assert.equal(upstreamBefore, '')
@@ -182,7 +231,17 @@ try {
     producer: 'operations',
     scenarios: [
       { id: 'bootstrap', status: 'passed', producer: 'operations', evidence: ['operations:full-package-setup-update-rollback-remove'] },
-      { id: 'inspect', status: 'passed', producer: 'operations', evidence: ['doctor:healthy', 'upstream:clean'] },
+      {
+        id: 'inspect',
+        status: 'passed',
+        producer: 'operations',
+        evidence: [
+          'doctor:healthy',
+          'upstream:clean',
+          'coexistence:dsh-agent-runtime-kit-zero-dependency',
+          'coexistence:codex-claude-wiring-untouched',
+        ],
+      },
     ],
     dshVersion: doctor.dsh.version,
     setupUpdateRollbackRemove: true,

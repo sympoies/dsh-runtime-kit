@@ -7,6 +7,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -56,13 +57,14 @@ const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
-assert.equal(nilsCompatibility.status, 'pending-release')
-assert.equal(nilsCompatibility.minimum_supported_release, null)
+assert.equal(nilsCompatibility.status, 'released')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.27.0')
+assert.equal(nilsCompatibility.validated_release, '1.27.0')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
-assert.equal(dshIngressCompatibility?.status, 'pending-release')
-assert.equal(dshIngressCompatibility?.validation, 'source-validated')
+assert.equal(dshIngressCompatibility?.status, 'released')
+assert.equal(dshIngressCompatibility?.validation, 'release-artifact-validated')
 assert.deepEqual(dshIngressCompatibility?.contracts, [
   'agent-hook.dsh-ingress.v1',
   'agent-hook.dsh-ingress.v2',
@@ -78,11 +80,17 @@ assert.equal(dshManifest.name, '@deepseek-ai/dsh-root')
 assert.equal(dshManifest.version, '0.1.0-rc.7')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
-const dshHome = join(temporaryRoot, 'home')
+const userHome = join(temporaryRoot, 'home')
+const dshHome = join(temporaryRoot, 'dsh-home')
+const codexHome = join(userHome, '.codex')
+const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
-const policyPath = join(temporaryRoot, 'policy.toml')
-const agentDocsHome = join(temporaryRoot, 'agent-docs-home')
+const agentHookRoot = join(temporaryRoot, 'dsh-agent-hook')
+const agentHookConfig = join(agentHookRoot, 'config.toml')
+const agentHookPolicy = join(agentHookRoot, 'policy.toml')
+const agentHookStateDir = join(agentHookRoot, 'state')
+const agentDocsHome = join(projectRoot, 'agent-docs')
 const agentDocsStateHome = join(temporaryRoot, 'agent-docs-state')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
@@ -98,12 +106,51 @@ const privateIdentityPattern = new RegExp(
   `\\b${'ter' + 'ry'}\\b|${'ter' + 'ry'}-ai-tech`,
   'i',
 )
+
+function stageProviderSentinel(root, provider) {
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    mkdirSync(join(root, directory), { recursive: true, mode: 0o700 })
+    writeFileSync(
+      join(root, directory, `${provider}-only.txt`),
+      `${provider}:${directory}:must-remain-untouched\n`,
+      { mode: 0o600 },
+    )
+  }
+  writeFileSync(
+    join(root, provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'),
+    '# Provider-only runtime docs\n\nARK_PROVIDER_DOCS_MUST_NOT_LOAD\n',
+    { mode: 0o600 },
+  )
+}
+
+function assertProviderSentinel(root, provider) {
+  assert.deepEqual(
+    readdirSync(root).sort(),
+    [provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md', 'hooks', 'sessions', 'skills'],
+  )
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    assert.deepEqual(readdirSync(join(root, directory)), [`${provider}-only.txt`])
+    assert.equal(
+      readFileSync(join(root, directory, `${provider}-only.txt`), 'utf8'),
+      `${provider}:${directory}:must-remain-untouched\n`,
+    )
+  }
+}
+
+stageProviderSentinel(codexHome, 'codex')
+stageProviderSentinel(claudeHome, 'claude')
 const environment = {
   ...process.env,
+  HOME: userHome,
+  CODEX_HOME: codexHome,
+  CLAUDE_CONFIG_DIR: claudeHome,
   DSH_HOME: dshHome,
   DSH_AGENTS_HOME: join(temporaryRoot, 'empty-agents-home'),
   DSH_TELEMETRY_DISABLED: '1',
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
+  DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
+  DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: agentHookPolicy,
+  DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
   DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
   DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
   DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
@@ -155,16 +202,28 @@ override_class = "locked"
 capability = { id = "decision.allow.v1", reason_code = "runtime-context-allowed" }
 `
   const digest = `sha256:${createHash('sha256').update(policy).digest('hex')}`
-  const configDir = join(configHome, 'agent-hook')
-  mkdirSync(configDir, { recursive: true })
+  mkdirSync(agentHookRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(agentHookStateDir, { recursive: true, mode: 0o700 })
+  mkdirSync(join(configHome, 'agent-hook'), { recursive: true, mode: 0o700 })
   mkdirSync(stateHome, { recursive: true })
-  writeFileSync(policyPath, policy, { mode: 0o600 })
-  writeFileSync(join(configDir, 'config.toml'), `schema_version = "agent-hook.config.v1"
+  writeFileSync(agentHookPolicy, policy, { mode: 0o600 })
+  writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 
 [policy]
-path = ${JSON.stringify(policyPath)}
+path = ${JSON.stringify(agentHookPolicy)}
 digest = "${digest}"
 `, { mode: 0o600 })
+  writeFileSync(
+    join(configHome, 'agent-hook', 'config.toml'),
+    'schema_version = "ambient-provider-config-must-not-load"\n',
+    { mode: 0o600 },
+  )
+  for (const path of [agentHookConfig, agentHookPolicy]) {
+    const metadata = statSync(path)
+    assert.equal(metadata.isFile(), true)
+    assert.equal(metadata.nlink, 1)
+    assert.equal(metadata.mode & 0o077, 0)
+  }
 }
 
 function installSkill(root, name, markerText) {
@@ -250,21 +309,7 @@ try {
     timeout: 10_000,
   })
   assert.equal(initializedProject.status, 0, initializedProject.stderr)
-  mkdirSync(agentDocsHome, { recursive: true })
   mkdirSync(agentDocsStateHome, { recursive: true })
-  writeFileSync(join(agentDocsHome, 'AGENT_DOCS.toml'), `
-[[document]]
-context = "project-dev"
-scope = "home"
-path = "PROJECT_DEV_EDIT.md"
-product = "dsh"
-phase = "edit"
-required = true
-`)
-  writeFileSync(
-    join(agentDocsHome, 'PROJECT_DEV_EDIT.md'),
-    '# DSH selective context\n\nDSH_RUNTIME_CONTEXT_SMOKE_MARKER\n',
-  )
   writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), `
 [[validation]]
 context = "project-dev"
@@ -344,6 +389,7 @@ description = "packed rc.7 finish-line smoke"
   assert.equal(packed.status, 0, `${packed.stdout}\n${packed.stderr}`)
   const packReceipt = JSON.parse(packed.stdout)[0]
   const packedFiles = new Set(packReceipt.files.map(file => file.path))
+  assert.equal(manifest.dependencies?.['agent-runtime-kit'], undefined)
   const tarball = join(temporaryRoot, packReceipt.filename)
   for (const required of [
     'package.json',
@@ -365,6 +411,8 @@ description = "packed rc.7 finish-line smoke"
     'agents/reviewers/reviewer-red-team.md',
     'agents/reviewers/reviewer-security.md',
     'agents/reviewers/reviewer-testing.md',
+    'agent-docs/AGENT_DOCS.toml',
+    'agent-docs/PROJECT_DEV_EDIT.md',
     'cordis.patch.yml',
     'compatibility/dsh.json',
     'compatibility/nils-cli.json',
@@ -435,6 +483,7 @@ description = "packed rc.7 finish-line smoke"
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
+  assert.doesNotMatch(dump, /agent-runtime-kit/u)
   assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
 
   const driverPath = join(temporaryRoot, 'smoke-driver.mjs')
@@ -480,6 +529,7 @@ class SmokeAdapter extends LlmAdapter {
   parentCalls = 0
   reviewerCalls = 0
   contextVisibility = []
+  providerContextVisibility = []
   policyContextVisibility = []
   resolveModel(provider, model) {
     return Promise.resolve({ provider, id: model, name: model })
@@ -521,7 +571,8 @@ class SmokeAdapter extends LlmAdapter {
       for (const chunk of textResponse('smoke title')) yield chunk
       return
     }
-    this.contextVisibility.push(JSON.stringify(options.messages).includes('DSH_RUNTIME_CONTEXT_SMOKE_MARKER'))
+    this.contextVisibility.push(JSON.stringify(options.messages).includes('# DSH project development'))
+    this.providerContextVisibility.push(JSON.stringify(options.messages).includes('ARK_PROVIDER_DOCS_MUST_NOT_LOAD'))
     this.policyContextVisibility.push(JSON.stringify(options.messages).includes('skill-backed workflow'))
     const call = this.parentCalls++
     const sequence = process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
@@ -781,6 +832,7 @@ export function apply(ctx) {
         reviewerCalls: adapter.reviewerCalls,
         validationResults,
         contextVisibility: adapter.contextVisibility,
+        providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
         lifecycle,
         errors,
@@ -804,7 +856,7 @@ export function apply(ctx) {
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
         if (reviewResult?.value?.status !== 'completed') process.exitCode = 1
         if (reviewerMutationResult?.isError !== true) process.exitCode = 1
-      } else if (contextResult?.value?.documents?.[0]?.content?.includes('DSH_RUNTIME_CONTEXT_SMOKE_MARKER') !== true) {
+      } else if (contextResult?.value?.documents?.[0]?.content?.includes('# DSH project development') !== true) {
         process.exitCode = 1
       }
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
@@ -868,10 +920,11 @@ exec "$@"
   assert.equal(contextResult.value.intent, 'project-dev')
   assert.equal(contextResult.value.status, 'prepared')
   assert.equal(contextResult.value.document_count, 1)
-  assert.match(contextResult.value.documents[0].content, /DSH_RUNTIME_CONTEXT_SMOKE_MARKER/)
+  assert.match(contextResult.value.documents[0].content, /# DSH project development/)
   assert.equal(receipt.contextVisibility[0], false)
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
+  assert.ok(receipt.providerContextVisibility.every(value => value === false))
   assert.equal(receipt.policyContextVisibility[0], true)
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, 6)
@@ -1025,6 +1078,8 @@ exec "$@"
   assert.match(skillReceipt.privateOverrideContent, /private-topic-radar-marker/)
   assert.equal(skillReceipt.bundledSource, 'bundled')
   assert.match(skillReceipt.bundledContent, /# Daily Brief/)
+  assert.equal(skillReceipt.names.includes('codex-only'), false)
+  assert.equal(skillReceipt.names.includes('claude-only'), false)
 
   resetCheckoutLease()
   const reviewerBoot = runDsh(
@@ -1270,6 +1325,8 @@ exec "$@"
   assert.equal(replacedTokenReceipt.activePolicyChecks, 0)
   assert.equal(replacedTokenReceipt.pendingPolicyMarkers, 0)
   assert.equal(replacedTokenReceipt.pendingCorrelations, 0)
+  assertProviderSentinel(codexHome, 'codex')
+  assertProviderSentinel(claudeHome, 'claude')
 
   process.stdout.write(JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
@@ -1279,7 +1336,16 @@ exec "$@"
       { id: 'edit', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:edit-generation-recorded'] },
       { id: 'validate', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:exact-validation-executed'] },
       { id: 'review', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:mutation-denied-before-body'] },
-      { id: 'private-project-skill', status: 'passed', producer: 'packed-runtime', evidence: ['skills:private-project-precedence'] },
+      {
+        id: 'private-project-skill',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'skills:private-project-precedence',
+          'coexistence:no-cross-loaded-hooks-skills-session-state',
+          'coexistence:dsh-hook-docs-state-isolated',
+        ],
+      },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
       { id: 'finish-line', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:result-driven-stop-satisfied'] },
