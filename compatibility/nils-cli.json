@@ -17,6 +17,29 @@
       "source_task": "sympoies/nils-cli task 1.3"
     },
     {
+      "id": "main-agent.dsh-external-runtime",
+      "binary": "main-agent",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "main-agent.capabilities.v1",
+        "main-agent.worker-start-result.v1",
+        "main-agent.external-launch.v1",
+        "main-agent.dsh-runtime-liveness.v1"
+      ],
+      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
+    },
+    {
+      "id": "agent-session.broker-heartbeat",
+      "binary": "agent-session",
+      "status": "pending-release",
+      "validation": "source-validated",
+      "contracts": [
+        "per-lane broker heartbeat and stop argv from main-agent.external-launch.v1"
+      ],
+      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
+    },
+    {
       "id": "forge-cli.pr-deliver",
       "binary": "forge-cli",
       "status": "released",

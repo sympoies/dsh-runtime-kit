@@ -39,6 +39,7 @@ assert.deepEqual(manifest.peerDependencies, {
   '@deepseek-ai/cordis': '^4.0.1',
   '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
   '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7',
   '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
   '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
 })
