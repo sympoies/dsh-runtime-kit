@@ -188,6 +188,7 @@ if (verb === 'add') {
   process.exit(93)
 }
 if (existsSync(join(home, 'collateral-profile-mutation'))) {
+  manifest.unrelated = { forged: true }
   writeFileSync(join(profileDir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\\nimporters:\\n  .: {}\\npackages:\\n  unrelated@1.0.0:\\n    resolution: {integrity: forged}\\nsnapshots:\\n  unrelated@1.0.0: {}\\n")
 }
 writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
@@ -235,7 +236,7 @@ if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(9
 process.stdout.write('agent-docs 1.27.0 (v1.27.0, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
-  return { commandDir, dsh, agentHook, agentDocs }
+  return { commandDir, dsh, pnpm, agentHook, agentDocs }
 }
 
 function fixture() {
@@ -404,21 +405,24 @@ test('operations bind toolchain and activate the exact versioned policy and docs
 })
 
 test('apply rejects DSH or pnpm tool replacement after preview before profile mutation', () => {
-  const subject = fixture()
-  try {
-    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    const original = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, `${original}\n// toolchain replacement\n`)
-    chmodSync(subject.dsh, 0o755)
-    const rejected = run(subject, [
-      'setup', '--profile', 'work', '--package', subject.v1,
-      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
-    ])
-    assert.equal(rejected.status, 65)
-    assert.equal(rejected.value.error.code, 'plan-drift')
-    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
-  } finally {
-    subject.cleanup()
+  for (const executable of ['dsh', 'pnpm']) {
+    const subject = fixture()
+    try {
+      const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const original = readFileSync(subject[executable], 'utf8')
+      const comment = executable === 'dsh' ? '// toolchain replacement' : '# toolchain replacement'
+      writeFileSync(subject[executable], `${original}\n${comment}\n`)
+      chmodSync(subject[executable], 0o755)
+      const rejected = run(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(rejected.status, 65, `${executable}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, 'plan-drift')
+      assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+    } finally {
+      subject.cleanup()
+    }
   }
 })
 
@@ -671,6 +675,51 @@ test('doctor finalizes exact registry setup and update after supervisor loss bef
     const state = JSON.parse(readFileSync(statePath, 'utf8'))
     assert.equal(state.current.installed_version, '2.0.0')
     assert.equal(state.previous.installed_version, '1.2.3')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor restores and rejects supervisor-loss recovery with unrelated profile collateral', () => {
+  const subject = fixture()
+  try {
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    writeFileSync(lockfile, `lockfileVersion: '9.0'
+importers:
+  .: {}
+packages:
+  unrelated@1.0.0:
+    resolution: {integrity: preserved}
+snapshots:
+  unrelated@1.0.0: {}
+`)
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'), 'utf8')
+    const lockfileBefore = readFileSync(lockfile, 'utf8')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+    writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.notEqual(interrupted.status, 0)
+    unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+    unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
+    assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), manifestBefore)
+    assert.equal(readFileSync(lockfile, 'utf8'), lockfileBefore)
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+    assert.equal(JSON.parse(readFileSync(join(subject.home, 'runtime-kit/state/work.json'))).pending, null)
   } finally {
     subject.cleanup()
   }
@@ -981,6 +1030,44 @@ test('absent profiles cannot escape DSH home through parent or profile symlinks'
     } finally {
       subject.cleanup()
     }
+  }
+})
+
+test('all operations reject DSH homes overlapping provider homes without provider mutation', () => {
+  const subject = fixture()
+  const providerRoot = join(subject.root, 'provider-home')
+  const providerChild = join(providerRoot, 'nested-dsh')
+  const dshParent = join(subject.root, 'dsh-parent')
+  const nestedProvider = join(dshParent, 'provider-child')
+  const userHome = join(subject.root, 'user-home')
+  const defaultClaude = join(userHome, '.claude')
+  const alias = join(subject.root, 'provider-alias')
+  for (const path of [providerRoot, providerChild, dshParent, nestedProvider, userHome, defaultClaude]) {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  }
+  symlinkSync(defaultClaude, alias, 'dir')
+  const sentinel = join(providerRoot, 'sentinel')
+  writeFileSync(sentinel, 'unchanged')
+  const cases = [
+    ['setup', providerRoot, { CODEX_HOME: providerRoot }],
+    ['update', providerChild, { CLAUDE_CONFIG_DIR: providerRoot }],
+    ['remove', dshParent, { CODEX_HOME: nestedProvider }],
+    ['doctor', join(alias, 'intermediate'), { HOME: userHome }],
+    ['setup', join(userHome, '.codex'), { HOME: userHome }],
+  ]
+  try {
+    for (const [operation, dshHome, environment] of cases) {
+      const args = operation === 'setup'
+        ? [operation, '--profile', 'work', '--package', subject.v1]
+        : [operation, '--profile', 'work']
+      const rejected = run(subject, args, { ...environment, DSH_HOME: dshHome })
+      assert.equal(rejected.status, 65, `${operation}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, 'unsafe-dsh-home')
+    }
+    assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged')
+    assert.deepEqual(readdirSync(providerRoot).sort(), ['nested-dsh', 'sentinel'])
+  } finally {
+    subject.cleanup()
   }
 })
 

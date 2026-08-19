@@ -996,3 +996,28 @@ official nils-cli v1.27.0 source/archive/binary identities, versioned operations
 activation, and three structured provider zero-loading results. Follow-up
 specialist disposition remains a provider gate; this source evidence does not
 claim those reviews clean or authorize cutover.
+
+The final-head recovery and isolation follow-up added four narrowly scoped
+contracts. The first focused run passed only the already-enforced launcher
+nesting case and failed three cases: supervisor-loss recovery proposed
+`finalize` despite retained unrelated manifest and lockfile mutation, operations
+accepted a `DSH_HOME` overlapping a provider home, and the first dual-tool test
+used one invalid comment syntax for two different executable formats. After
+correcting that test construction, independent DSH and pnpm byte replacement
+both proved the existing plan-drift boundary before mutation; that finding was
+coverage-only. The launcher's provider-home nesting in both directions was
+also already enforced and was coverage-only.
+
+The production repair canonicalizes missing DSH paths through the nearest
+existing ancestor and rejects equality, nesting, or symlink aliases against
+explicit and default Codex and Claude homes before preview, doctor, repair, or
+mutation. Interrupted collateral recovery now compares the retained
+`profile_before` snapshot before proposing finalize, restores the prior
+package, activation, manifest, lockfile, and state through the shared recovery
+path, then rejects the contaminated operation fail closed. The exact focused
+rerun passes 4/4, the affected operations-plus-launcher suite passes 34/34, the
+operations suite passes 30/30 on both Node 22 and Node 24, and the full package
+suite passes 237/237 plus strict typechecking. The final packed source
+acceptance, run ID `issue1-finalhead-20260820d`, remains released mode with 10
+passed, 2 authorization-pending, and 0 failed. Follow-up specialist disposition
+and hosted acceptance remain promotion gates; no merge or cutover is claimed.

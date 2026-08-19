@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const DIGEST = /^[a-f0-9]{64}$/
 
@@ -25,7 +25,50 @@ function overlaps(left, right) {
 
 /** @param {string} path */
 function canonicalMaybe(path) {
-  try { return realpathSync(path) } catch { return resolve(path) }
+  const absolute = resolve(path)
+  let cursor = absolute
+  const suffix = []
+  while (true) {
+    try {
+      return resolve(realpathSync(cursor), ...suffix.reverse())
+    } catch (error) {
+      if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'ENOENT') throw error
+      const parent = dirname(cursor)
+      if (parent === cursor) return absolute
+      suffix.push(basename(cursor))
+      cursor = parent
+    }
+  }
+}
+
+/**
+ * Canonicalize one DSH-owned root and reject every direct, nested, or aliased
+ * overlap with explicit and default Codex or Claude homes.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @param {NodeJS.ProcessEnv} [environment]
+ */
+export function resolveProviderDisjointPath(value, label, environment = process.env) {
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || !isAbsolute(value)) {
+    throw new TypeError(`${label} is required and must be an absolute path`)
+  }
+  const root = canonicalMaybe(value)
+  const providerCandidates = [
+    environment.CODEX_HOME,
+    environment.CLAUDE_CONFIG_DIR,
+    join(environment.HOME ?? homedir(), '.codex'),
+    join(environment.HOME ?? homedir(), '.claude'),
+  ]
+  const providerHomes = new Set(providerCandidates.flatMap(path => (
+    typeof path === 'string' && path.length > 0 ? [canonicalMaybe(path)] : []
+  )))
+  for (const providerHome of providerHomes) {
+    if (overlaps(root, providerHome)) {
+      throw new TypeError(`${label} must be disjoint from Codex and Claude runtime homes`)
+    }
+  }
+  return root
 }
 
 /** @param {string} path @param {'directory' | 'file'} kind @param {boolean} [privateOnly] */
@@ -62,22 +105,7 @@ export function resolveActivationRoot(value, environment = process.env) {
     }
     throw error
   }
-  const root = realpathSync(value)
-  const providerCandidates = [
-    environment.CODEX_HOME,
-    environment.CLAUDE_CONFIG_DIR,
-    join(environment.HOME ?? homedir(), '.codex'),
-    join(environment.HOME ?? homedir(), '.claude'),
-  ]
-  const providerHomes = new Set(providerCandidates.flatMap(path => (
-    typeof path === 'string' && path.length > 0 ? [canonicalMaybe(path)] : []
-  )))
-  for (const providerHome of providerHomes) {
-    if (overlaps(root, providerHome)) {
-      throw new TypeError('runtime root must be disjoint from Codex and Claude runtime homes')
-    }
-  }
-  return root
+  return resolveProviderDisjointPath(realpathSync(value), 'runtime root', environment)
 }
 
 /** @param {unknown} value */

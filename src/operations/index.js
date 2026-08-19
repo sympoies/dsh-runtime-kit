@@ -34,6 +34,7 @@ import {
   activationSha256,
   readActivation,
   resolveActivationRoot,
+  resolveProviderDisjointPath,
 } from '../activation/index.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
@@ -201,7 +202,15 @@ function validateProfile(profile) {
 
 function resolveHome() {
   const configured = process.env.DSH_HOME
-  return configured === undefined ? join(homedir(), '.dsh') : resolve(configured)
+  const requested = configured === undefined ? join(homedir(), '.dsh') : configured
+  try {
+    return resolveProviderDisjointPath(requested, 'DSH home')
+  } catch (error) {
+    throw new OperationsError(
+      'unsafe-dsh-home',
+      error instanceof Error ? error.message : 'DSH home overlaps a provider runtime home',
+    )
+  }
 }
 
 /** @param {string} home @param {string} profile */
@@ -1665,17 +1674,20 @@ function removeActivation(runtimeRoot) {
  * @param {ReturnType<typeof captureProfileSnapshot>} profileBefore
  * @param {ReturnType<typeof readState>} stateRead
  * @param {string} npmBin
+ * @param {string} runtimeRoot
  */
-function restoreAfterCollateral(dshBin, paths, profile, priorState, profileBefore, stateRead, npmBin) {
+function restoreAfterCollateral(dshBin, paths, profile, priorState, profileBefore, stateRead, npmBin, runtimeRoot) {
   const previous = priorState?.current === null || priorState?.current === undefined
     ? null
     : validateSnapshot(priorState.current)
   if (previous === null) {
     runDshMutation(dshBin, paths.home, profile, 'remove', null)
     if (lstatMaybe(paths.installedPackage) !== null) cleanupInstalledEntry(paths)
+    removeActivation(runtimeRoot)
   } else {
     const installSpec = installSpecForTarget(previous.target, paths, npmBin)
     runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
+    stageActivation(paths, previous.target, previous.runtime_root, profile)
   }
   restoreProfileSnapshot(profileBefore, paths)
   if (stateRead.raw === null) {
@@ -1817,7 +1829,16 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     const profileAfter = captureProfileSnapshot(paths)
     if (profileHasCollateralMutation(profileBefore, profileAfter)) {
       try {
-        restoreAfterCollateral(dshBin, paths, profile, state, profileBefore, stateRead, npmBin)
+        restoreAfterCollateral(
+          dshBin,
+          paths,
+          profile,
+          state,
+          profileBefore,
+          stateRead,
+          npmBin,
+          reviewed.plan.runtime_root,
+        )
       } catch {
         throw new OperationsError(
           'native-dsh-collateral-recovery-failed',
@@ -1886,6 +1907,12 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
 function recoveryFor(actual, state, paths) {
   if (state?.pending === null || state?.pending === undefined) return null
   const pending = validatePending(state.pending, state.profile)
+  if (profileHasCollateralMutation(
+    validateProfileSnapshot(pending.profile_before),
+    captureProfileSnapshot(paths),
+  )) {
+    return { action: 'restore-collateral', pending }
+  }
   if (pending.operation === 'remove') {
     if (actual.dependency_spec === null && actual.bundle_indexes.length === 0) return { action: 'finalize', pending }
   } else {
@@ -2060,7 +2087,7 @@ function repairPlan(profile, paths, diagnostic) {
   const state = /** @type {any} */ (stateRead.value)
   const pending = validatePending(diagnostic.recovery.pending, profile)
   let proposed
-  if (diagnostic.recovery.action === 'clear') {
+  if (diagnostic.recovery.action === 'clear' || diagnostic.recovery.action === 'restore-collateral') {
     proposed = {
       current: state.current,
       previous: state.previous,
@@ -2123,6 +2150,58 @@ function applyRepair(profile, paths, reviewed) {
     const current = repairPlan(profile, paths, /** @type {any} */ (currentDiagnostic))
     if (current.plan_digest !== reviewed.plan_digest) {
       throw new OperationsError('plan-drift', 'recovery state changed after preview')
+    }
+    if (recovery.action === 'restore-collateral') {
+      const pending = validatePending(recovery.pending, profile)
+      const plan = /** @type {any} */ (validatePlan(pending.plan, profile))
+      const plannedToolchain = validateToolchain(plan.toolchain)
+      const toolchain = resolveToolchain(plannedToolchain.dsh.executable, paths.home)
+      if (stableJson(toolchain) !== stableJson(plannedToolchain)) {
+        throw new OperationsError('plan-drift', 'recovery toolchain changed after the interrupted operation')
+      }
+      const recoveredState = /** @type {any} */ (state)
+      const restoredState = { ...recoveredState, pending: null }
+      const restoredStateRead = {
+        raw: `${JSON.stringify(restoredState, undefined, 2)}\n`,
+        digest: sha256(stableJson(restoredState)),
+        value: restoredState,
+      }
+      try {
+        restoreAfterCollateral(
+          toolchain.dsh.executable,
+          paths,
+          profile,
+          recoveredState,
+          validateProfileSnapshot(pending.profile_before),
+          restoredStateRead,
+          resolveExecutable('npm'),
+          plan.runtime_root,
+        )
+      } catch {
+        throw new OperationsError(
+          'native-dsh-collateral-recovery-failed',
+          'interrupted DSH collateral could not be restored to the exact prior package and profile state',
+        )
+      }
+      const restoredActual = readActual(paths)
+      const prior = recoveredState.current === null ? null : validateSnapshot(recoveredState.current)
+      const profileRestored = !profileHasCollateralMutation(
+        validateProfileSnapshot(pending.profile_before),
+        captureProfileSnapshot(paths),
+      )
+      const packageRestored = prior === null
+        ? actualAbsent(restoredActual)
+        : snapshotMatches(restoredActual, prior, paths)
+      if (!profileRestored || !packageRestored) {
+        throw new OperationsError(
+          'native-dsh-collateral-recovery-failed',
+          'interrupted DSH collateral restoration did not reach the exact prior package and profile state',
+        )
+      }
+      throw new OperationsError(
+        'native-dsh-collateral-mutation',
+        'interrupted DSH mutation changed unrelated profile state; the exact prior state was restored',
+      )
     }
     if (recovery.action === 'clear') {
       atomicWriteJson(paths.state, { ...state, pending: null })

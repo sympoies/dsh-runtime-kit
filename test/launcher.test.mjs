@@ -120,3 +120,23 @@ test('owner launcher rejects provider-home aliases and nested asset/state activa
     rmSync(temporary, { recursive: true, force: true })
   }
 })
+
+test('owner launcher rejects provider-home nesting in both directions', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const providerParent = join(temporary, 'provider-parent')
+  const runtimeChild = join(providerParent, 'runtime')
+  const runtimeParent = join(temporary, 'runtime-parent')
+  const providerChild = join(runtimeParent, 'provider-child')
+  for (const path of [runtimeChild, providerChild]) mkdirSync(path, { recursive: true, mode: 0o700 })
+  try {
+    const underProvider = invoke(runtimeChild, { CODEX_HOME: providerParent })
+    assert.equal(underProvider.status, 64)
+    assert.match(underProvider.stderr, /disjoint from Codex and Claude runtime homes/u)
+
+    const containsProvider = invoke(runtimeParent, { CLAUDE_CONFIG_DIR: providerChild })
+    assert.equal(containsProvider.status, 64)
+    assert.match(containsProvider.stderr, /disjoint from Codex and Claude runtime homes/u)
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
