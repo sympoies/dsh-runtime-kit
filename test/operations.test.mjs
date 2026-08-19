@@ -108,6 +108,13 @@ process.exit(result.status ?? 70)
 `)
   chmodSync(npm, 0o755)
 
+  // The package-only CI jobs intentionally install npm dependencies without
+  // provisioning pnpm. Operations binds the selected pnpm identity, so keep
+  // this unit fixture hermetic instead of inheriting a developer-host binary.
+  const pnpm = join(commandDir, 'pnpm')
+  writeFileSync(pnpm, '#!/bin/sh\nprintf \'11.7.0\\n\'\n')
+  chmodSync(pnpm, 0o755)
+
   const dsh = join(root, 'fake-dsh.mjs')
   writeFileSync(dsh, `#!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process'
