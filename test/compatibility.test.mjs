@@ -548,6 +548,11 @@ test('compatibility workflow keeps both selected channels promotion-blocking', (
   assert.match(workflow, /npm run typecheck && npm test/)
   assert.match(workflow, /npm run benchmark:policy/)
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/)
+  assert.equal(
+    workflow.match(/fetch-depth: 0/g)?.length,
+    2,
+    'both dsh-runtime-kit checkouts must retain parity evidence history',
+  )
 })
 
 test('peer packer requires an absolute trusted pnpm launcher', async () => {
@@ -594,14 +599,17 @@ test('advertised silent compatibility command emits exactly one JSON error envel
 test('peer packer rejects an unselected checkout before producing artifacts', async () => {
   const artifactRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-artifacts-'))
   const receiptRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-receipt-'))
+  const launcherRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-launcher-'))
+  const launcher = join(launcherRoot, 'pnpm')
   try {
+    await writeFile(launcher, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
     await assert.rejects(
       run(process.execPath, [
         join(projectRoot, 'scripts', 'pack-dsh-compatibility-peers.mjs'),
         '--source-root', projectRoot,
         '--artifact-root', artifactRoot,
         '--channel', 'pinned',
-        '--pnpm-bin', process.execPath,
+        '--pnpm-bin', launcher,
         '--receipt', join(receiptRoot, 'receipt.json'),
       ]),
       error => {
@@ -616,5 +624,6 @@ test('peer packer rejects an unselected checkout before producing artifacts', as
   } finally {
     await rm(artifactRoot, { recursive: true, force: true })
     await rm(receiptRoot, { recursive: true, force: true })
+    await rm(launcherRoot, { recursive: true, force: true })
   }
 })
