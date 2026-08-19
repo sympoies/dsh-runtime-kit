@@ -2,8 +2,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join } from 'node:path'
+import { mkdir, realpath, rename, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
 
@@ -80,11 +80,28 @@ export function createLaneRegistry() {
   const byAssignment = new Map()
   /** @type {Map<string, Lane>} */
   const byChild = new Map()
+  // A sidecar path and a worker session each belong to exactly one lane: two
+  // lanes sharing either would overwrite each other's runtime evidence, and
+  // the per-lane publication chain gives no ordering across lanes.
+  /** @type {Map<string, Lane>} */
+  const byLivenessFile = new Map()
+  /** @type {Map<string, Lane>} */
+  const byWorkerSession = new Map()
   return Object.freeze({
     /** @param {Lane} lane */
     add(lane) {
       byAssignment.set(lane.assignmentId, lane)
       byChild.set(lane.childId, lane)
+      byLivenessFile.set(resolve(lane.livenessFile), lane)
+      byWorkerSession.set(lane.workerSessionId, lane)
+    },
+    /** @param {string} livenessFile */
+    byLivenessFile(livenessFile) {
+      return byLivenessFile.get(resolve(livenessFile))
+    },
+    /** @param {string} workerSessionId */
+    byWorkerSession(workerSessionId) {
+      return byWorkerSession.get(workerSessionId)
     },
     /** @param {string} assignmentId */
     byAssignment(assignmentId) {
@@ -98,10 +115,14 @@ export function createLaneRegistry() {
     remove(lane) {
       byAssignment.delete(lane.assignmentId)
       byChild.delete(lane.childId)
+      byLivenessFile.delete(resolve(lane.livenessFile))
+      byWorkerSession.delete(lane.workerSessionId)
     },
     clear() {
       byAssignment.clear()
       byChild.clear()
+      byLivenessFile.clear()
+      byWorkerSession.clear()
     },
     list() {
       return [...byAssignment.values()]
@@ -169,7 +190,14 @@ export async function writeLivenessSidecar(lane) {
   }
   const directory = dirname(lane.livenessFile)
   await mkdir(directory, { recursive: true, mode: 0o700 })
-  const temporary = join(directory, `.dsh-runtime-liveness-${randomUUID()}.tmp`)
+  // A lexical path check cannot see a symlinked component, so verify the real
+  // directory before writing: the publish must land where the lane's own
+  // session directory is, never wherever a link redirects it.
+  const realDirectory = await realpath(directory)
+  if (realDirectory !== resolve(directory)) {
+    throw new Error('dsh-runtime-kit: lane liveness directory is not a real path')
+  }
+  const temporary = join(realDirectory, `.dsh-runtime-liveness-${randomUUID()}.tmp`)
   await writeFile(temporary, `${JSON.stringify(document)}\n`, { mode: 0o600 })
-  await rename(temporary, lane.livenessFile)
+  await rename(temporary, join(realDirectory, basename(lane.livenessFile)))
 }

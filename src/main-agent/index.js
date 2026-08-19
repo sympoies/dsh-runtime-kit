@@ -1,7 +1,8 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
-import { basename, isAbsolute, resolve } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { dirname, isAbsolute, resolve, sep } from 'node:path'
 
 import { createCliClient } from './cli-client.js'
 import { LIVENESS_SCHEMA, createLaneRegistry, publishLivenessSidecar } from './lanes.js'
@@ -48,11 +49,29 @@ function requireNonEmptyString(value, code) {
 const LIVENESS_FILE_NAME = 'dsh-runtime-liveness.json'
 const AGENT_SESSION_BASENAME = 'agent-session'
 const WORKER_ENV_KEY = /^[A-Z][A-Z0-9_]*$/
+/**
+ * A session id names one path segment. Rejecting separators and dots here is
+ * what makes the sidecar containment check a containment check: without it the
+ * declared id can carry `..` and both sides of a derived-path comparison
+ * normalize identically.
+ */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+
+/** @param {string} candidate @param {string} root */
+function isProperDescendant(candidate, root) {
+  const resolvedRoot = resolve(root)
+  const resolvedCandidate = resolve(candidate)
+  return resolvedCandidate !== resolvedRoot
+    && resolvedCandidate.startsWith(`${resolvedRoot}${sep}`)
+}
 
 /**
  * The sidecar must be the conventional file inside the session state
- * directory the payload itself declares, so a malformed or hostile envelope
- * cannot redirect the rename-publish onto an unrelated file.
+ * directory the payload declares, so a malformed or hostile envelope cannot
+ * redirect the rename-publish onto an unrelated file. The declared session id
+ * must be a single safe path segment, and the resolved target must be a proper
+ * descendant of the resolved state directory — a derived-path equality alone
+ * would accept a traversing id on both sides.
  *
  * @param {Record<string, any>} externalLaunch
  */
@@ -60,15 +79,18 @@ function containedLivenessFile(externalLaunch) {
   const stateDir = externalLaunch.worker_env?.AGENT_SESSION_STATE_DIR
   const sessionId = externalLaunch.worker_env?.AGENT_SESSION_ID
   if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) return false
-  if (typeof sessionId !== 'string' || sessionId.length === 0) return false
-  return resolve(externalLaunch.liveness_file)
-    === resolve(stateDir, 'sessions', sessionId, LIVENESS_FILE_NAME)
+  if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return false
+  const expected = resolve(stateDir, 'sessions', sessionId, LIVENESS_FILE_NAME)
+  return resolve(externalLaunch.liveness_file) === expected
+    && isProperDescendant(expected, resolve(stateDir, 'sessions'))
 }
 
 /**
- * Worker environment values are replayed verbatim by the lane worker and
- * interpolated into its instruction section, so every entry must be a plain
- * single-line string under a conventional key.
+ * Worker environment values are replayed by the lane worker as a shell command
+ * prefix, so they must be shell-safe as well as single-line: a space alone
+ * breaks a legitimate path, and a metacharacter would inject a command. The
+ * rendered section quotes every value too, but validation refuses rather than
+ * relying on the renderer alone.
  *
  * @param {unknown} workerEnv
  */
@@ -78,12 +100,16 @@ function validWorkerEnv(workerEnv) {
   return entries.length > 0 && entries.every(([key, value]) => WORKER_ENV_KEY.test(key)
     && typeof value === 'string'
     && value.length > 0
-    // No control characters and no backtick: the value is rendered inside a
-    // single-line code span in the lane instruction section, so either would
-    // break out of it and inject directive text into the worker prompt.
-    && ![...value].some((character) => {
+    && [...value].every((character) => {
       const codePoint = character.codePointAt(0) ?? 0
-      return character === '`' || codePoint < 0x20 || codePoint === 0x7f
+      // Control characters, DEL, unicode line and bidi separators, and every
+      // shell metacharacter (quotes, whitespace, expansion, redirection,
+      // separators) are refused.
+      if (codePoint < 0x20 || codePoint === 0x7f) return false
+      if ([0x85, 0x2028, 0x2029].includes(codePoint)) return false
+      if (codePoint >= 0x202a && codePoint <= 0x202e) return false
+      if (codePoint >= 0x2066 && codePoint <= 0x2069) return false
+      return /^[A-Za-z0-9_@%+=:,./~-]$/.test(character)
     }))
 }
 
@@ -109,15 +135,23 @@ function laneTurnOutcome(stopReason) {
   }
 }
 
-/** @param {readonly string[]} argv */
-function brokerArgvIsAgentSession(argv) {
-  const [command] = argv
+/**
+ * argv[0] is executed verbatim, so a basename match is not enough: any
+ * writable directory could hold a file called `agent-session`, including a
+ * lane's own worktree. Require the exact trusted binary path and a known verb.
+ *
+ * @param {readonly string[]} argv
+ * @param {string} agentSessionCli
+ */
+function brokerArgvIsTrusted(argv, agentSessionCli) {
+  const [command, verb] = argv
   if (typeof command !== 'string' || command.length === 0) return false
-  return basename(command) === AGENT_SESSION_BASENAME
+  if (resolve(command) !== resolve(agentSessionCli)) return false
+  return verb === 'broker'
 }
 
-/** @param {Record<string, any>} externalLaunch */
-function validExternalLaunch(externalLaunch) {
+/** @param {Record<string, any>} externalLaunch @param {string} agentSessionCli */
+function validExternalLaunch(externalLaunch, agentSessionCli) {
   return externalLaunch !== null
     && typeof externalLaunch === 'object'
     && externalLaunch.schema_version === EXTERNAL_LAUNCH_SCHEMA
@@ -147,24 +181,29 @@ function validExternalLaunch(externalLaunch) {
     && externalLaunch.broker_stop_argv.every(
       (/** @type {unknown} */ value) => typeof value === 'string' && value.length > 0,
     )
-    // argv[0] is executed verbatim, so it must be the coordination binary this
-    // module is contracted to run, not an arbitrary payload-named program.
-    && brokerArgvIsAgentSession(externalLaunch.broker_heartbeat_argv)
+    // argv[0] is executed verbatim, so it must be the exact coordination
+    // binary this module is contracted to run.
+    && brokerArgvIsTrusted(externalLaunch.broker_heartbeat_argv, agentSessionCli)
     && (externalLaunch.broker_stop_argv.length === 0
-      || brokerArgvIsAgentSession(externalLaunch.broker_stop_argv))
+      || brokerArgvIsTrusted(externalLaunch.broker_stop_argv, agentSessionCli))
 }
 
 /** @param {Lane} lane */
 function laneEnvironmentSection(lane) {
+  // Every value is shell-quoted and rendered on its own line inside a fenced
+  // block: a value is a path, so an unquoted single-line prefix would break on
+  // whitespace and would make any metacharacter executable.
   const rows = Object.entries(lane.workerEnv)
-    .map(([key, value]) => `${key}=${value}`)
-    .join(' ')
+    .map(([key, value]) => `${key}='${value.replaceAll("'", `'\\''`)}'`)
+    .join('\n')
   return [
     `You are the managed worker lane for assignment ${lane.assignmentId}.`,
-    'For every `main-agent` or `agent-session` command you run, prefix the',
-    'exact session environment (single command line, no substitutions):',
+    'Export this exact session environment before running any `main-agent` or',
+    '`agent-session` command (copy verbatim, no substitutions):',
     '',
-    `\`${rows}\``,
+    '```sh',
+    rows,
+    '```',
     '',
     'Without this environment the coordination CLI cannot authenticate you.',
     'Never invent, reorder, or omit any of these values.',
@@ -198,6 +237,8 @@ function launchSummary(lane, disposition) {
  * @param {Context} ctx
  * @param {{
  *   mainAgentCli?: string,
+ *   agentSessionCli?: string,
+ *   laneWorktreeRoot?: string,
  *   workerSubagentProvider?: string,
  *   workerProvider?: string,
  *   workerModel?: string,
@@ -212,6 +253,22 @@ export function applyMainAgentMode(ctx, config = {}) {
   const mainAgentCli = typeof config.mainAgentCli === 'string' && config.mainAgentCli.length > 0
     ? config.mainAgentCli
     : 'main-agent'
+  // The trusted coordination binary. Defaults to the sibling of an absolute
+  // `mainAgentCli` (the released package ships them together) so the argv the
+  // envelope proposes can be compared against a path this module chose.
+  const agentSessionCli = typeof config.agentSessionCli === 'string'
+    && config.agentSessionCli.length > 0
+    ? config.agentSessionCli
+    : isAbsolute(mainAgentCli)
+      ? resolve(dirname(mainAgentCli), AGENT_SESSION_BASENAME)
+      : AGENT_SESSION_BASENAME
+  // When configured, every lane worktree must live under this root; the
+  // worktree becomes the lane worker's shell workdir and sandbox root, so an
+  // unconstrained value is a lane-isolation hole.
+  const laneWorktreeRoot = typeof config.laneWorktreeRoot === 'string'
+    && isAbsolute(config.laneWorktreeRoot)
+    ? resolve(config.laneWorktreeRoot)
+    : undefined
   const workerSubagentProvider = typeof config.workerSubagentProvider === 'string'
     && config.workerSubagentProvider.length > 0
     ? config.workerSubagentProvider
@@ -233,20 +290,42 @@ export function applyMainAgentMode(ctx, config = {}) {
   const lanes = createLaneRegistry()
   /** @type {Map<string, Lane>} */
   const lanesByAnchor = new Map()
+  /**
+   * Every session in a lane's subtree, so authority and per-child hardening
+   * are transitive: a grandchild of a lane child is still inside that lane.
+   * @type {Map<string, Lane>}
+   */
+  const laneMembers = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const launching = new Map()
+  // Run boundaries published before `startContinuable` resolves cannot be
+  // matched yet (rc.7 emits the first start edge during materialization), so
+  // they are buffered and replayed once the lane binds its child id.
+  /** @type {Array<{ kind: 'start' | 'end', payload: Record<string, any> }>} */
+  const pendingRunEvents = []
+  const MAX_PENDING_RUN_EVENTS = 64
   // Capacity is reserved across the launch awaits so concurrent launches of
   // distinct assignments cannot all pass a stale registry-size check.
   let reservedLanes = 0
   let closing = false
 
   ctx.effect(() => () => {
-    // Heartbeat subprocesses are ctx-owned and die with the fiber; lane
-    // sidecars intentionally stay `open` so the nils CLI proves harness
-    // death through the pinned process identity, not through a claim this
-    // teardown could not verify.
     closing = true
+    // A fiber teardown or plugin reload leaves the process alive, so the
+    // pinned harness identity would keep vouching for every `open` lane and
+    // the CLI could never classify a stop. Mark each lane terminated and
+    // publish best effort before dropping the bookkeeping, and release the
+    // heartbeats explicitly rather than relying on ctx ownership alone.
+    for (const lane of lanes.list()) {
+      lane.state = 'terminated'
+      lane.turn = undefined
+      void publishLivenessSidecar(lane).catch(() => {})
+      lane.stopHeartbeat?.()
+      lane.disposeAnchor?.()
+    }
     lanesByAnchor.clear()
+    laneMembers.clear()
+    pendingRunEvents.length = 0
     lanes.clear()
   }, 'dsh-runtime-kit main-agent lanes')
 
@@ -300,9 +379,15 @@ export function applyMainAgentMode(ctx, config = {}) {
     return typeof candidate === 'string' ? lanes.byChild(candidate) : undefined
   }
   const nowEpoch = () => String(Math.floor(Date.now() / 1000))
-  ctx.on('subagent/start', (payload) => {
-    const lane = laneForRunPayload(payload)
-    if (lane === undefined || lane.state !== 'open') return
+
+  /** @param {unknown} payload @returns {Record<string, any> | undefined} */
+  const runEventRecord = (payload) => (payload !== null && typeof payload === 'object'
+    ? /** @type {Record<string, any>} */ (payload)
+    : undefined)
+
+  /** @param {Lane} lane */
+  const applyRunStart = (lane) => {
+    if (lane.state !== 'open') return
     lane.turn = {
       phase: 'working',
       phaseChangedAt: nowEpoch(),
@@ -310,11 +395,11 @@ export function applyMainAgentMode(ctx, config = {}) {
       lastTurn: lane.turn?.lastTurn,
     }
     void publishLivenessSidecar(lane).catch(() => {})
-  })
-  ctx.on('subagent/end', (payload) => {
-    const lane = laneForRunPayload(payload)
-    if (lane === undefined || lane.state !== 'open') return
-    const record = /** @type {Record<string, any>} */ (payload ?? {})
+  }
+
+  /** @param {Lane} lane @param {Record<string, any>} record */
+  const applyRunEnd = (lane, record) => {
+    if (lane.state !== 'open') return
     lane.turn = {
       phase: 'waiting',
       phaseChangedAt: nowEpoch(),
@@ -325,6 +410,53 @@ export function applyMainAgentMode(ctx, config = {}) {
       },
     }
     void publishLivenessSidecar(lane).catch(() => {})
+  }
+
+  /**
+   * Replay the run boundaries that arrived while this lane was still binding
+   * its child id, so a lane whose first turn settled before `startContinuable`
+   * resolved never advertises a turn that is already over.
+   *
+   * @param {Lane} lane
+   */
+  const replayPendingRunEvents = (lane) => {
+    const mine = pendingRunEvents.filter(event => event.payload.id === lane.childId)
+    if (mine.length === 0) return
+    for (let index = pendingRunEvents.length - 1; index >= 0; index -= 1) {
+      if (pendingRunEvents[index].payload.id === lane.childId) pendingRunEvents.splice(index, 1)
+    }
+    for (const event of mine) {
+      if (event.kind === 'start') applyRunStart(lane)
+      else applyRunEnd(lane, event.payload)
+    }
+  }
+
+  /** @param {'start' | 'end'} kind @param {Record<string, any>} record */
+  const bufferRunEvent = (kind, record) => {
+    if (typeof record.id !== 'string' || record.id.length === 0) return
+    if (pendingRunEvents.length >= MAX_PENDING_RUN_EVENTS) pendingRunEvents.shift()
+    pendingRunEvents.push({ kind, payload: record })
+  }
+
+  ctx.on('subagent/start', (payload) => {
+    const record = runEventRecord(payload)
+    if (record === undefined) return
+    const lane = laneForRunPayload(payload)
+    if (lane === undefined) {
+      bufferRunEvent('start', record)
+      return
+    }
+    applyRunStart(lane)
+  })
+  ctx.on('subagent/end', (payload) => {
+    const record = runEventRecord(payload)
+    if (record === undefined) return
+    const lane = laneForRunPayload(payload)
+    if (lane === undefined) {
+      bufferRunEvent('end', record)
+      return
+    }
+    applyRunEnd(lane, record)
   })
 
   // Per-child lane hardening: a monotonic deny-only guard (authority) plus the
@@ -333,10 +465,22 @@ export function applyMainAgentMode(ctx, config = {}) {
   ctx.subagents.registerContinuableSetup((childCtx) => {
     const agent = /** @type {any} */ (childCtx).agent
     const parentSession = agent?.session?.header?.parentSession
-    const lane = typeof parentSession === 'string' ? lanesByAnchor.get(parentSession) : undefined
+    // Lane membership is transitive: a child of an anchor, of a lane child, or
+    // of any deeper lane descendant is inside that lane and gets the same
+    // authority guard. Anything else is outside every lane.
+    const lane = typeof parentSession === 'string'
+      ? lanesByAnchor.get(parentSession) ?? laneMembers.get(parentSession)
+      : undefined
     if (lane === undefined) return () => {}
+    const childSession = agent?.session?.header?.id
+    if (typeof childSession === 'string' && childSession.length > 0) {
+      laneMembers.set(childSession, lane)
+    }
     /** @type {Array<() => void>} */
     const disposers = []
+    if (typeof childSession === 'string' && childSession.length > 0) {
+      disposers.push(() => { laneMembers.delete(childSession) })
+    }
     disposers.push(childCtx.tools.guard(
       (/** @type {{ name: string }} */ exec) => (laneDeniedTools.has(exec.name)
         ? 'dsh-runtime-kit:main-agent-lane-tool-denied'
@@ -377,11 +521,15 @@ export function applyMainAgentMode(ctx, config = {}) {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw laneError('main-agent-controller-identity-unavailable')
     }
-    if (lanesByAnchor.has(sessionId) || lanes.byChild(sessionId) !== undefined) {
-      throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
-    }
     const parentSession = exec?.agent?.session?.header?.parentSession
-    if (typeof parentSession === 'string' && lanesByAnchor.has(parentSession)) {
+    const insideALane = lanesByAnchor.has(sessionId)
+      || laneMembers.has(sessionId)
+      || lanes.byChild(sessionId) !== undefined
+      || (typeof parentSession === 'string'
+        && (lanesByAnchor.has(parentSession)
+          || laneMembers.has(parentSession)
+          || lanes.byChild(parentSession) !== undefined))
+    if (insideALane) {
       throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
     }
   }
@@ -439,38 +587,54 @@ export function applyMainAgentMode(ctx, config = {}) {
         'main-agent-idempotency-key-invalid',
       )
       const cwd = controllerCwd(exec)
-      const data = await runEnvelope([
-        mainAgentCli,
-        'worker',
-        'start',
-        '--assignment-file',
-        assignmentFile,
-        '--await-ready',
-        '0',
-        '--idempotency-key',
-        idempotencyKey,
-        '--format',
-        'json',
-      ], exec, cwd)
-      if (data?.schema_version !== WORKER_START_RESULT_SCHEMA
-        || !validExternalLaunch(data.external_launch)) {
-        throw laneError('main-agent-external-launch-invalid')
-      }
-      const externalLaunch = data.external_launch
-      const assignmentId = requireNonEmptyString(
-        data.assignment?.assignment_id,
-        'main-agent-assignment-id-invalid',
-      )
-      const workerSessionId = requireNonEmptyString(
-        data.worker?.session_id,
-        'main-agent-worker-session-invalid',
-      )
-
-      return withLaunchLock(assignmentId, async () => {
+      // The CLI call itself allocates a store-side worker incarnation and its
+      // broker, so it belongs inside the lock: two concurrent launches of one
+      // assignment would otherwise allocate two incarnations and abandon the
+      // loser. The assignment file is the stable pre-call identity.
+      return withLaunchLock(assignmentFile, async () => {
         if (closing) throw laneError('main-agent-mode-disposed')
+        const data = await runEnvelope([
+          mainAgentCli,
+          'worker',
+          'start',
+          '--assignment-file',
+          assignmentFile,
+          '--await-ready',
+          '0',
+          '--idempotency-key',
+          idempotencyKey,
+          '--format',
+          'json',
+        ], exec, cwd)
+        if (data?.schema_version !== WORKER_START_RESULT_SCHEMA
+          || !validExternalLaunch(data.external_launch, agentSessionCli)) {
+          throw laneError('main-agent-external-launch-invalid')
+        }
+        const externalLaunch = data.external_launch
+        const assignmentId = requireNonEmptyString(
+          data.assignment?.assignment_id,
+          'main-agent-assignment-id-invalid',
+        )
+        const workerSessionId = requireNonEmptyString(
+          data.worker?.session_id,
+          'main-agent-worker-session-invalid',
+        )
+
+        /**
+         * Release a store-side incarnation this runtime is refusing to adopt,
+         * so a refused envelope never leaves a broker with no heartbeat, no
+         * stop, and no lane.
+         */
+        const releaseRefusedIncarnation = async () => {
+          const stopArgv = externalLaunch.broker_stop_argv
+          if (!Array.isArray(stopArgv) || stopArgv.length === 0) return
+          await client.run(stopArgv, { cwd, signal: exec.signal }).catch(() => undefined)
+        }
+
         const existing = lanes.byAssignment(assignmentId)
         if (existing !== undefined) {
           if (existing.launchId !== externalLaunch.launch_id) {
+            await releaseRefusedIncarnation()
             throw laneError('main-agent-lane-incarnation-conflict', {
               assignment_id: assignmentId,
             })
@@ -478,7 +642,19 @@ export function applyMainAgentMode(ctx, config = {}) {
           await publishLivenessSidecar(existing)
           return launchSummary(existing, 'reattached')
         }
+        // One sidecar path and one worker session belong to exactly one lane:
+        // sharing either would let one lane erase the other's evidence.
+        const collision = lanes.byLivenessFile(externalLaunch.liveness_file)
+          ?? lanes.byWorkerSession(workerSessionId)
+        if (collision !== undefined) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-identity-conflict', {
+            assignment_id: assignmentId,
+            conflicting_assignment_id: collision.assignmentId,
+          })
+        }
         if (lanes.size + reservedLanes >= maxLanes) {
+          await releaseRefusedIncarnation()
           throw laneError('main-agent-lane-capacity', {
             assignment_id: assignmentId,
             max_lanes: maxLanes,
@@ -494,8 +670,37 @@ export function applyMainAgentMode(ctx, config = {}) {
         }
 
         async function launchLane() {
+        // The worktree becomes the lane worker's shell workdir and sandbox
+        // root, so it is validated like every other envelope-supplied path:
+        // it must be a real existing directory, and when a lane worktree root
+        // is configured it must live under it. Never silently fall back to the
+        // controller checkout — that would hand the lane the controller's own
+        // tree.
         const worktree = data.assignment?.worktree
-        const anchorCwd = typeof worktree === 'string' && isAbsolute(worktree) ? worktree : cwd
+        if (typeof worktree !== 'string' || !isAbsolute(worktree)) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-invalid', { assignment_id: assignmentId })
+        }
+        let anchorCwd
+        try {
+          anchorCwd = await realpath(worktree)
+        } catch {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-unavailable', { assignment_id: assignmentId })
+        }
+        if (laneWorktreeRoot !== undefined && !isProperDescendant(anchorCwd, laneWorktreeRoot)) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-uncontained', {
+            assignment_id: assignmentId,
+          })
+        }
+        if (resolve(anchorCwd) === resolve(anchorCwd, '..')) {
+          // The filesystem root is never an isolated lane worktree.
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-uncontained', {
+            assignment_id: assignmentId,
+          })
+        }
         const provider = config.workerProvider ?? exec?.agent?.options?.provider
         const model = config.workerModel ?? exec?.agent?.options?.model
         if (typeof provider !== 'string' || typeof model !== 'string') {
@@ -569,6 +774,10 @@ export function applyMainAgentMode(ctx, config = {}) {
           })
           lane.childId = started.childId
           lanes.add(lane)
+          // Run boundaries published during materialization arrive before the
+          // child id exists, so replay them now: a first turn that already
+          // settled must not leave the lane advertising `working` forever.
+          replayPendingRunEvents(lane)
           return launchSummary(lane, 'launched')
         } catch (error) {
           // Roll the half-launched lane back completely: without a child the
@@ -622,16 +831,22 @@ export function applyMainAgentMode(ctx, config = {}) {
       } catch {
         interrupted = false
       }
-      lane.turn = {
-        phase: 'waiting',
-        phaseChangedAt: nowEpoch(),
-        currentTurn: undefined,
-        lastTurn: {
-          completedAt: nowEpoch(),
-          outcome: 'interrupted',
-        },
+      // Only a verified interrupt writes a terminal turn record. Recording an
+      // `interrupted` turn for a child that was never stopped would let the CLI
+      // conclude the turn ended and reassign the lane while the original child
+      // keeps writing to the same worktree.
+      if (interrupted) {
+        lane.turn = {
+          phase: 'waiting',
+          phaseChangedAt: nowEpoch(),
+          currentTurn: undefined,
+          lastTurn: {
+            completedAt: nowEpoch(),
+            outcome: 'interrupted',
+          },
+        }
+        await publishLivenessSidecar(lane)
       }
-      await publishLivenessSidecar(lane)
       return { ...launchSummary(lane, 'reattached'), interrupted }
     },
   }
@@ -665,30 +880,41 @@ export function applyMainAgentMode(ctx, config = {}) {
       requireControllerCaller(exec)
       const lane = lanes.byAssignment(assignmentId)
       if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
+      // Resolve every exec-derived input before mutating lane state: a throw
+      // after the mutation would strand the lane in the registry with its
+      // capacity slot held and no retry able to get past the same point.
+      const brokerCwd = controllerCwd(exec)
+      let published = false
       try {
-        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
-      } catch {
-        // A settled or already-drained child has nothing to interrupt; close
-        // must still release the heartbeat, sidecar, and anchor.
+        try {
+          ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+        } catch {
+          // A settled or already-drained child has nothing to interrupt; close
+          // must still release the heartbeat, sidecar, and anchor.
+        }
+        lane.state = 'terminated'
+        lane.turn = undefined
+        // Publishing the terminated sidecar is best effort: releasing the
+        // heartbeat, broker, and anchor must not depend on a filesystem write,
+        // or a failed publish would leave a half-closed lane no retry can fix.
+        published = await publishLivenessSidecar(lane).then(() => true, () => false)
+        lane.stopHeartbeat?.()
+        if (lane.brokerStopArgv.length > 0) {
+          // Best-effort broker release; the heartbeat's own shutdown also stops
+          // the broker, and stale broker state reconciles CLI-side.
+          await client.run(lane.brokerStopArgv, {
+            cwd: brokerCwd,
+            signal: exec.signal,
+          }).catch(() => undefined)
+        }
+      } finally {
+        // Release is unconditional once close starts: the lane is terminated,
+        // so leaving it registered would report it as live to the controller.
+        lane.stopHeartbeat?.()
+        lane.disposeAnchor?.()
+        lanes.remove(lane)
+        lanesByAnchor.delete(lane.anchorId)
       }
-      lane.state = 'terminated'
-      lane.turn = undefined
-      // Publishing the terminated sidecar is best effort: releasing the
-      // heartbeat, broker, and anchor must not depend on a filesystem write,
-      // or a failed publish would leave a half-closed lane no retry can fix.
-      const published = await publishLivenessSidecar(lane).then(() => true, () => false)
-      lane.stopHeartbeat?.()
-      if (lane.brokerStopArgv.length > 0) {
-        // Best-effort broker release; the heartbeat's own shutdown also stops
-        // the broker, and stale broker state reconciles CLI-side.
-        await client.run(lane.brokerStopArgv, {
-          cwd: controllerCwd(exec),
-          signal: exec.signal,
-        }).catch(() => undefined)
-      }
-      lane.disposeAnchor?.()
-      lanes.remove(lane)
-      lanesByAnchor.delete(lane.anchorId)
       return { ...launchSummary(lane, 'reattached'), closed: true, sidecar_published: published }
     },
   }

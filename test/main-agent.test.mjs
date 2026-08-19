@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -9,6 +9,10 @@ import test from 'node:test'
 import { applyMainAgentMode } from '../src/main-agent/index.js'
 
 const projectRoot = dirname(fileURLToPath(new URL('.', import.meta.url)))
+// The module derives the trusted coordination binary from an absolute
+// mainAgentCli, so tests pin both to the same directory.
+const MAIN_AGENT_CLI = '/bin/main-agent'
+const AGENT_SESSION_CLI = '/bin/agent-session'
 
 test('the main-agent external-runtime compatibility rows are pinned', () => {
   const manifest = JSON.parse(
@@ -37,6 +41,12 @@ test('the main-agent external-runtime compatibility rows are pinned', () => {
   assert.equal(broker?.status, 'pending-release')
 })
 
+function laneWorktree(stateDir) {
+  const directory = join(stateDir, 'worktrees', 'lane')
+  mkdirSync(directory, { recursive: true })
+  return directory
+}
+
 function laneSidecarPath(stateDir, sessionId) {
   const directory = join(stateDir, 'sessions', sessionId)
   mkdirSync(directory, { recursive: true })
@@ -56,7 +66,7 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
       schema_version: 'main-agent.worker-start-result.v1',
       assignment: {
         assignment_id: 'assignment-one',
-        worktree: '/lane/worktree',
+        worktree: laneWorktree(stateDir),
       },
       worker: {
         session_id: 'worker-one',
@@ -75,8 +85,8 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
           AGENT_SESSION_CAPABILITY_FILE: join(stateDir, 'sessions', sessionId, 'coordination', 'capability-x'),
           AGENT_SESSION_CHECKPOINT_FILE: join(stateDir, 'sessions', sessionId, 'coordination', 'main-agent-checkpoint-x.json'),
         },
-        broker_heartbeat_argv: ['/bin/agent-session', 'broker', 'heartbeat'],
-        broker_stop_argv: ['/bin/agent-session', 'broker', 'stop'],
+        broker_heartbeat_argv: [AGENT_SESSION_CLI, 'broker', 'heartbeat'],
+        broker_stop_argv: [AGENT_SESSION_CLI, 'broker', 'stop'],
         liveness_file: livenessFile,
         liveness_schema: 'main-agent.dsh-runtime-liveness.v1',
         ...overrides.external_launch,
@@ -198,7 +208,7 @@ test('worker launch executes the external-launch contract without duplicating la
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: '/bin/main-agent' })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
 
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   assert.ok(launch, 'launch tool is registered')
@@ -231,7 +241,11 @@ test('worker launch executes the external-launch contract without duplicating la
   assert.deepEqual(heartbeat.spec.argv, ['/bin/agent-session', 'broker', 'heartbeat'])
 
   assert.equal(harness.anchors.length, 1, 'one anchor per lane')
-  assert.equal(harness.anchors[0].session.header.cwd, '/lane/worktree')
+  assert.equal(
+    harness.anchors[0].session.header.cwd,
+    realpathSync(laneWorktree(scratch)),
+    'the anchor cwd is the real lane worktree',
+  )
   assert.equal(harness.continuations.length, 1)
   const continuation = harness.continuations[0]
   assert.equal(continuation.label, 'main-agent:assignment-one')
@@ -274,7 +288,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const refused = createContext({
     envelope: { schema_version: 'cli.main-agent.worker-start.v1', ok: false, error: { code: 'claim-not-active', message: 'no claim' } },
   })
-  applyMainAgentMode(refused.ctx, {})
+  applyMainAgentMode(refused.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     refused.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -287,7 +301,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const invalid = createContext({
     envelope: workerStartEnvelope(livenessFile, { external_launch: { schema_version: 'main-agent.external-launch.v999' } }),
   })
-  applyMainAgentMode(invalid.ctx, {})
+  applyMainAgentMode(invalid.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     invalid.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -297,7 +311,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   )
 
   const relative = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(relative.ctx, {})
+  applyMainAgentMode(relative.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     relative.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: 'relative/path.json', idempotency_key: 'key-1' },
@@ -312,7 +326,7 @@ test('lane children get the deny guard and environment section; foreign children
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -344,8 +358,14 @@ test('lane children get the deny guard and environment section; foreign children
   )
   assert.equal(guards[0]({ name: 'bash' }), undefined)
   assert.equal(sections.length, 1, 'lane child gets the environment section')
-  assert.match(sections[0].text, /AGENT_SESSION_ID=worker-one/)
-  assert.match(sections[0].text, /AGENT_SESSION_CAPABILITY_FILE=/)
+  // Values are shell-quoted, one per line inside a fenced block, so a path
+  // containing whitespace or a metacharacter can never become a command.
+  assert.match(sections[0].text, /AGENT_SESSION_ID='worker-one'/)
+  assert.match(sections[0].text, /AGENT_SESSION_CAPABILITY_FILE='/)
+  assert.ok(
+    sections[0].text.includes('```sh'),
+    'the environment renders inside a fenced shell block',
+  )
   dispose()
   assert.equal(guards.length, 0)
   assert.equal(sections.length, 0)
@@ -366,7 +386,7 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -456,7 +476,7 @@ test('concurrent launches of one assignment serialize to a single lane', async (
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -490,7 +510,7 @@ test('a failed launch rolls back completely and terminates its sidecar', async (
       throw new Error('child refused to start')
     },
   })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     harness.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -521,7 +541,7 @@ test('a registered lane refuses a foreign launch incarnation', async (t) => {
       external_launch: { launch_id: launchId },
     }),
   })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -552,7 +572,7 @@ test('lane capacity is bounded with a typed refusal', async (t) => {
       return envelope
     },
   })
-  applyMainAgentMode(harness.ctx, { maxLanes: 1 })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -574,7 +594,7 @@ test('disposal closes the runtime: tools refuse and lane bookkeeping empties', a
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -610,7 +630,7 @@ test('lane close still releases the heartbeat when the interrupt throws', async 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -631,7 +651,7 @@ test('synchronous run boundaries publish the last transition, not the last renam
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -682,7 +702,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const harness = createContext({
       envelope: workerStartEnvelope(livenessFile, { external_launch: override }),
     })
-    applyMainAgentMode(harness.ctx, {})
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -700,7 +720,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const envelope = workerStartEnvelope(livenessFile)
     envelope.data.external_launch.worker_env.AGENT_SESSION_RUNTIME_ID = hostileValue
     const harness = createContext({ envelope })
-    applyMainAgentMode(harness.ctx, {})
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -718,7 +738,7 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
   // A partial override must extend, never replace, the mandatory core.
-  applyMainAgentMode(harness.ctx, { laneDeniedTools: ['custom_tool'] })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, laneDeniedTools: ['custom_tool'] })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -766,7 +786,7 @@ test('run outcomes map onto the sidecar contract vocabulary', async (t) => {
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -818,7 +838,7 @@ test('lane capacity holds across concurrent launches of distinct assignments', a
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, { maxLanes: 1 })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -847,7 +867,7 @@ test('interrupting a settled lane reports it instead of throwing', async (t) => 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, {})
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -861,6 +881,9 @@ test('interrupting a settled lane reports it instead of throwing', async (t) => 
     false,
     'a settled child is a lane state, not a transport error',
   )
+  // An unverified interrupt must not write a terminal turn record: claiming
+  // the turn ended would let the CLI reassign a lane whose child still runs.
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
-  assert.equal(sidecar.turn.last_turn.outcome, 'interrupted')
+  assert.equal(sidecar.turn.phase, 'working')
+  assert.equal(sidecar.turn.last_turn, undefined)
 })
