@@ -27,7 +27,10 @@ import {
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 import { extractFreshPackage } from '../src/acceptance/package-staging.js'
-import { createToolPath } from '../src/acceptance/tool-path.js'
+import {
+  createToolPath,
+  discoverPreparedPnpmStore,
+} from '../src/acceptance/tool-path.js'
 import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
 import {
   inspectSelectedDshCheckout,
@@ -357,17 +360,14 @@ async function prepareDsh(root, sourceRoot, revision, tools, env) {
     env,
     label: 'pinned DSH source checkout',
   })
-  const store = runChecked(tools.pnpm.path, ['store', 'path', '--silent'], {
-    env: { ...env, HOME: process.env.HOME ?? env.HOME },
-    label: 'pnpm store discovery',
-  }).stdout.trim()
-  if (!isAbsolute(store)) {
-    throw new AcceptanceError(
-      'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
-      'pnpm store path is invalid',
-    )
-  }
-  const canonicalStore = await realpath(store)
+  const canonicalStore = await discoverPreparedPnpmStore({
+    cwd: destination,
+    env,
+    home: process.env.HOME ?? env.HOME,
+    pnpmBin: tools.pnpm.path,
+    maxBuffer: MAX_OUTPUT,
+    timeout: SCENARIO_TIMEOUT_MS,
+  })
   env.NPM_CONFIG_STORE_DIR = canonicalStore
   env.npm_config_store_dir = canonicalStore
   runChecked(tools.pnpm.path, [

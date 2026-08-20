@@ -1370,3 +1370,28 @@ children. The 133-entry package preview and diff check also pass. The frozen
 package is assigned source rehearsal `issue1-finalhead-20260820t`; its terminal
 receipt remains external. Exact-head specialist and hosted acceptance remain
 promotion gates; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32367478998` completed content-addressed acquisition but
+the credentialless candidate stopped before any functional scenario with
+`pnpm store discovery failed`. The downloaded run artifact contained the
+expected pnpm v11 store and passed its top-level digest checks. Replaying the
+pnpm 11.7 action-style package-relative launcher against that extracted store
+also succeeded when acquisition's explicit store root was retained. The
+source runner was the divergent leg: it discarded acquisition's explicit
+`--store-dir`, `XDG_DATA_HOME`, and `PNPM_HOME` binding and asked pnpm to infer
+the store after HOME/XDG isolation changed.
+
+The regression began RED 0/1 because no prepared-store binding existed. Its
+fixture models pnpm/action-setup's package-relative launcher and accepts only
+the exact acquired store root and environment. Source acceptance now reuses
+that root, validates pnpm's canonical versioned result, and includes only a
+bounded exit status when discovery fails. The focused acceptance, tool-path,
+and store-binding suite passes 17/17; the first complete package run passes
+277/277, and the frozen rerun passes 277/277 plus typechecking. Deterministic
+policy performance passes 2,000 samples at 0.134611 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 6.078499 ms p95 with zero active resources or live children. The
+134-entry package preview, plan validation, and diff check also pass. The
+frozen package is assigned source rehearsal
+`issue1-pnpm-store-20260820u`; its terminal receipt remains external. A new
+exact-head hosted run remains required; no merge or cutover is claimed.
