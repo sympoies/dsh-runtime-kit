@@ -793,6 +793,117 @@ test('one runtime root cannot be shared by different DSH homes', () => {
   }
 })
 
+test('doctor adopts an exact ownerless v2 runtime root only for its originating DSH home', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    const rootLockPath = join(subject.runtimeRoot, '.dsh-runtime-kit.lock')
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const unrelatedArtifact = join(
+      subject.home, 'runtime-kit', 'artifacts', `${'0'.repeat(64)}.tgz`,
+    )
+    writeFileSync(unrelatedArtifact, 'must remain untouched', { mode: 0o600 })
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      activation: readFileSync(activationPath, 'utf8'),
+      assets: activationAssetSets(subject),
+      unrelatedArtifact: readFileSync(unrelatedArtifact, 'utf8'),
+    }
+    unlinkSync(ownerPath)
+    unlinkSync(rootLockPath)
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(existsSync(rootLockPath), false)
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.status, 65)
+    assert.equal(diagnosed.value.data.recovery.action, 'adopt-owner')
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.equal(preview.value.data.plan.action, 'adopt-owner')
+    const adopted = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(adopted.status, 0, `${adopted.stdout}\n${adopted.stderr}`)
+    assert.deepEqual(JSON.parse(readFileSync(ownerPath, 'utf8')), {
+      schema_version: 'dsh-runtime-kit.runtime-root-owner.v1',
+      dsh_home: realpathSync(subject.home),
+    })
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+    assert.deepEqual(activationAssetSets(subject), before.assets)
+    assert.equal(readFileSync(unrelatedArtifact, 'utf8'), before.unrelatedArtifact)
+    assert.equal(lstatSync(rootLockPath).isFile(), true)
+    assert.equal(lstatSync(rootLockPath).mode & 0o077, 0)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(JSON.parse(readFileSync(join(
+      subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json',
+    ), 'utf8')).version, '2.0.0')
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    const removedState = JSON.parse(readFileSync(statePath, 'utf8'))
+    assert.equal(removedState.current, null)
+    assert.equal(removedState.pending, null)
+    assert.equal(existsSync(activationPath), false)
+    assert.deepEqual(activationAssetSets(subject), [])
+    assert.equal(existsSync(ownerPath), true)
+    assert.equal(existsSync(rootLockPath), true)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('ownerless runtime-root adoption rejects cross-home and inexact candidates', () => {
+  for (const scenario of [
+    'cross-home', 'unmanaged', 'drifted', 'missing-set', 'extra-set', 'staging-set',
+  ]) {
+    const subject = fixture()
+    const contender = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+      unlinkSync(ownerPath)
+      let operator = subject
+      if (scenario === 'cross-home') {
+        contender.runtimeRoot = subject.runtimeRoot
+        operator = contender
+      } else if (scenario === 'unmanaged') {
+        rmSync(join(subject.home, 'runtime-kit', 'state'), { recursive: true, force: true })
+      } else if (scenario === 'drifted') {
+        const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+        writeFileSync(
+          join(subject.runtimeRoot, activation.agent_hook.policy),
+          '# activation drift\n',
+          { mode: 0o600 },
+        )
+      } else {
+        const assetSet = JSON.parse(
+          readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'),
+        ).asset_set_sha256
+        const assetsRoot = join(subject.runtimeRoot, 'assets')
+        if (scenario === 'missing-set') {
+          rmSync(join(assetsRoot, assetSet), { recursive: true, force: true })
+        } else if (scenario === 'extra-set') {
+          mkdirSync(join(assetsRoot, '0'.repeat(64)), { mode: 0o700 })
+        } else {
+          mkdirSync(join(assetsRoot, `.${assetSet}.interrupted`), { mode: 0o700 })
+        }
+      }
+      const before = readdirSync(subject.runtimeRoot).sort()
+      const rejected = run(operator, ['doctor', '--profile', 'work', '--repair'])
+      assert.equal(rejected.status, 65, `${scenario}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(existsSync(ownerPath), false, scenario)
+      assert.deepEqual(readdirSync(subject.runtimeRoot).sort(), before, scenario)
+    } finally {
+      subject.cleanup()
+      contender.cleanup()
+    }
+  }
+})
+
 test('a drifted apply cannot claim an unowned runtime root', () => {
   const first = fixture()
   const rightful = fixture()
@@ -856,6 +967,47 @@ test('activation asset retention rejects more than the configured live-set bound
     assert.equal(JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version, '1.0.0')
   } finally {
     subject.cleanup()
+  }
+})
+
+test('activation retention rejects oversized and malformed retained sets without receipt drift', () => {
+  for (const scenario of ['oversized', 'malformed']) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const activationPath = join(subject.runtimeRoot, 'activation.json')
+      const stateBefore = readFileSync(statePath, 'utf8')
+      const activationBefore = readFileSync(activationPath, 'utf8')
+      const assetSet = JSON.parse(activationBefore).asset_set_sha256
+      const retainedRoot = join(subject.runtimeRoot, 'assets', assetSet)
+      if (scenario === 'oversized') {
+        writeFileSync(
+          join(retainedRoot, 'oversized'),
+          Buffer.alloc((4 * 1024 * 1024) + (64 * 1024) + 1),
+          { mode: 0o600 },
+        )
+      } else {
+        symlinkSync(join(subject.privateRoot, 'must-survive.txt'), join(retainedRoot, 'malformed'))
+      }
+      const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      assert.equal(preview.status, 0, preview.stderr)
+      const rejected = run(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(rejected.status, 65, `${scenario}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(
+        rejected.value.error.code,
+        scenario === 'oversized'
+          ? 'activation-asset-retention-limit'
+          : 'activation-asset-inventory-invalid',
+      )
+      assert.equal(readFileSync(statePath, 'utf8'), stateBefore, scenario)
+      assert.equal(readFileSync(activationPath, 'utf8'), activationBefore, scenario)
+    } finally {
+      subject.cleanup()
+    }
   }
 })
 
@@ -1953,6 +2105,67 @@ test('doctor refuses a forged pending receipt instead of adopting it', () => {
     assert.equal(targetRejected.value.error.code, 'invalid-operations-state')
   } finally {
     subject.cleanup()
+  }
+})
+
+test('doctor repair rejects malformed and foreign-home pending roots without mutation', () => {
+  for (const scenario of ['malformed', 'foreign-home']) {
+    const subject = fixture()
+    const foreign = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      applyPlan(foreign, ['setup', '--profile', 'work', '--package', foreign.v1])
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      const interrupted = run(subject, [
+        'update', '--profile', 'work', '--package', subject.v2,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(interrupted.status, 70)
+      unlinkSync(join(subject.home, 'fail-after-mutation'))
+
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const activationPath = join(subject.runtimeRoot, 'activation.json')
+      const foreignActivationPath = join(foreign.runtimeRoot, 'activation.json')
+      const state = JSON.parse(readFileSync(statePath, 'utf8'))
+      if (scenario === 'malformed') {
+        state.pending.plan_digest = 'invalid'
+      } else {
+        state.pending.plan.runtime_root = realpathSync(foreign.runtimeRoot)
+        state.pending.plan_digest = sha256(stableJson(state.pending.plan))
+      }
+      writeJson(statePath, state)
+      chmodSync(statePath, 0o600)
+      const before = {
+        state: readFileSync(statePath, 'utf8'),
+        activation: readFileSync(activationPath, 'utf8'),
+        foreignActivation: readFileSync(foreignActivationPath, 'utf8'),
+        owner: readFileSync(join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json'), 'utf8'),
+        foreignOwner: readFileSync(join(foreign.runtimeRoot, '.dsh-runtime-kit-owner.json'), 'utf8'),
+      }
+      const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      assert.equal(rejected.status, 65, `${scenario}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(
+        rejected.value.error.code,
+        scenario === 'malformed' ? 'invalid-operations-state' : 'unsafe-repair-runtime-root',
+      )
+      assert.equal(readFileSync(statePath, 'utf8'), before.state, scenario)
+      assert.equal(readFileSync(activationPath, 'utf8'), before.activation, scenario)
+      assert.equal(readFileSync(foreignActivationPath, 'utf8'), before.foreignActivation, scenario)
+      assert.equal(
+        readFileSync(join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json'), 'utf8'),
+        before.owner,
+        scenario,
+      )
+      assert.equal(
+        readFileSync(join(foreign.runtimeRoot, '.dsh-runtime-kit-owner.json'), 'utf8'),
+        before.foreignOwner,
+        scenario,
+      )
+    } finally {
+      subject.cleanup()
+      foreign.cleanup()
+    }
   }
 })
 

@@ -366,11 +366,24 @@ of the activation contract.
 The first authenticated mutation binds that runtime root to one canonical
 `DSH_HOME` in an owner-only record and serializes every activation mutation and
 collection pass with a root-scoped kernel lock. Reusing the root from another
-DSH home fails closed. Activation storage retains only asset sets referenced by
-current, rollback, pending, or active receipts, admits at most 16 live sets and
-the corresponding bounded byte budget, and removes unreferenced digest sets
-plus interrupted pre-receipt staging directories. Remove collects all sets
-after the final receipt no longer references them.
+DSH home fails closed. A valid version 2 installation created before root
+ownership existed can be adopted only through digest-reviewed `doctor
+--repair`: the selected canonical root must match every current, rollback,
+pending, and last-applied reference in that DSH home's authenticated state;
+the installed and active targets must match its current-or-pending targets;
+and every retained set must be present with no extra, staging, oversized, or
+malformed entry. Apply revalidates those bytes under the root lock, writes only
+the atomic owner record, and leaves state, activation, and assets unchanged.
+Ordinary setup/update/remove never adopt an ownerless tree.
+
+Activation storage retains only asset sets referenced by current, rollback,
+pending, or active receipts, admits at most 16 live sets, and removes
+unreferenced digest sets plus interrupted pre-receipt staging directories.
+Each set is independently bounded to 4 MiB of package assets plus 64 KiB of
+generated activation overhead, so the total storage ceiling is derived as the
+live-set count multiplied by the per-set ceiling rather than a separate
+unreachable aggregate branch. Remove collects all sets after the final receipt
+no longer references them.
 
 Every setup, doctor, and live DSH launch uses the packaged owner launcher with
 one absolute owner-only runtime root:
@@ -492,11 +505,13 @@ closed with instructions to use the exact base CLI or an authenticated backup.
 Source-byte, installed-byte, activation-asset, toolchain, or unrelated-profile
 drift invalidates the operation; rollback and interrupted-operation recovery
 restore the recorded package, profile, and activation-asset set together.
-An unmanaged existing installation is never adopted by version alone. A
-durably renamed pending receipt is written before native mutation. After
-interruption, `doctor --repair` previews the complete recovered receipt and may
-finalize or clear only an internally consistent attempt; every third state
-fails closed.
+An unmanaged existing installation is never adopted by version alone. The
+only legacy version 2 adoption is the root-owner migration described above;
+cross-home, unbound, drifted, foreign-owner, malformed-pending, or incomplete
+asset candidates remain closed. A durably renamed pending receipt is written
+before native mutation. After interruption, `doctor --repair` previews the
+complete recovered receipt and may finalize or clear only an internally
+consistent attempt; every third state fails closed.
 
 Doctor validates both released nils boundaries. `agent-hook doctor --product
 dsh` must report DSH dispatch support and registration ownership by

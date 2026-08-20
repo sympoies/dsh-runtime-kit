@@ -1151,3 +1151,37 @@ Operations passes 38/38 on Node 22 and Node 24, and the full suite passes
 `issue1-finalhead-20260820j` remains released mode with 10 passed, 2
 authorization-pending, and 0 failed. Follow-up review and hosted acceptance
 remain promotion gates; no merge or cutover is claimed.
+
+The final ownership ledger follow-up first ran four focused contracts. Both
+owner-adoption tests failed 0/2: a valid ownerless version 2 root exposed no
+recovery action, while a different DSH home fell through to
+`repair-not-required`. The pending contract rejected a malformed digest but
+incorrectly accepted a pending plan whose root was owned by a foreign DSH home
+as a `finalize` repair. Oversized and symlinked retained-set cases were
+coverage-only GREEN 1/1 and already preserved state and activation bytes while
+returning their typed retention/inventory failures.
+
+A final no-other-mutation audit added an unreferenced authenticated-store
+sentinel to the positive adoption case and produced a second meaningful RED
+0/1: apply deleted that artifact before entering the adoption branch, and the
+postcondition failed with `ENOENT`. Artifact reconciliation now begins only
+after the adoption early return. The isolated sentinel regression passes 1/1,
+proving adoption leaves the complete pre-existing operations artifact store as
+well as state, activation, and retained assets byte-identical.
+
+`doctor --repair` now owns the only legacy version 2 adoption path. Its plan
+binds canonical DSH home/root topology, exact state and activation digests,
+installed and active current-or-pending target provenance, and every retained
+asset-set digest and size. Apply revalidates under the root lock and atomically
+writes only the owner record; ordinary mutations, cross-home/unmanaged/drifted
+candidates, malformed or foreign pending roots, and any missing, extra,
+staging, oversized, or malformed retained entry remain closed. The unreachable
+aggregate byte branch is removed: admission is derived from at most 16 sets,
+each with a 4 MiB package-asset plus 64 KiB activation-overhead ceiling. The
+focused suite passes 4/4, launcher passes 4/4, operations passes 51/51 on Node
+22 and Node 24, and the full package suite passes 258/258 plus typechecking.
+Both policy benchmarks, the 133-entry package preview, plan validation, and
+diff checks pass. Packed source acceptance `issue1-finalhead-20260820m`
+remains released mode with 10 passed, 2 authorization-pending, and 0 failed.
+Exact-head specialist and hosted acceptance remain promotion gates; no merge
+or cutover is claimed.

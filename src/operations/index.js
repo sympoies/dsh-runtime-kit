@@ -54,7 +54,6 @@ const MAX_ARTIFACT_COUNT = 64
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_SETS = 16
-const MAX_ACTIVATION_ASSET_STORAGE_BYTES = MAX_ACTIVATION_ASSET_SETS * (MAX_ACTIVATION_ASSET_BYTES + 64 * 1024)
 const RUNTIME_ROOT_OWNER_SCHEMA = 'dsh-runtime-kit.runtime-root-owner.v1'
 const DSH_SOURCE_REVISION = '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca'
 const HEALTH_COMMAND_TIMEOUT_MS = 30_000
@@ -1570,8 +1569,13 @@ function assertRuntimeRootClaimable(paths, runtimeRoot) {
 
 /** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
 function ensureRuntimeRootOwner(paths, runtimeRoot) {
-  const ownerPath = join(runtimeRoot, '.dsh-runtime-kit-owner.json')
   assertRuntimeRootClaimable(paths, runtimeRoot)
+  writeRuntimeRootOwner(paths, runtimeRoot)
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function writeRuntimeRootOwner(paths, runtimeRoot) {
+  const ownerPath = join(runtimeRoot, '.dsh-runtime-kit-owner.json')
   if (lstatMaybe(ownerPath) === null) {
     atomicWriteJson(ownerPath, {
       schema_version: RUNTIME_ROOT_OWNER_SCHEMA,
@@ -1581,11 +1585,16 @@ function ensureRuntimeRootOwner(paths, runtimeRoot) {
   assertRuntimeRootOwner(paths, runtimeRoot)
 }
 
-/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot @param {() => unknown} body */
-function withRuntimeRootLock(paths, runtimeRoot, body) {
+/**
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} runtimeRoot
+ * @param {() => unknown} body
+ * @param {{allowOwnerless?: boolean}} [options]
+ */
+function withRuntimeRootLock(paths, runtimeRoot, body, options = {}) {
   const lock = join(runtimeRoot, '.dsh-runtime-kit.lock')
   return withLock(lock, () => {
-    assertRuntimeRootClaimable(paths, runtimeRoot)
+    if (options.allowOwnerless !== true) assertRuntimeRootClaimable(paths, runtimeRoot)
     return body()
   })
 }
@@ -2061,6 +2070,53 @@ function activationAssetSetBytes(root) {
 }
 
 /**
+ * Validate an ownerless pre-ownership asset store without collecting or
+ * staging anything. Every authoritative retained set must be present, every
+ * present set must be authoritative, and interrupted staging entries are not
+ * adoptable provenance.
+ *
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} runtimeRoot
+ */
+function validateExactRetainedActivationAssets(paths, runtimeRoot) {
+  const retained = retainedActivationAssetSets(paths, runtimeRoot)
+  if (retained.size === 0 || retained.size > MAX_ACTIVATION_ASSET_SETS) {
+    throw new OperationsError(
+      'activation-asset-retention-limit',
+      retained.size === 0
+        ? 'ownerless runtime root has no retained activation asset set'
+        : 'runtime root retains too many activation asset sets',
+    )
+  }
+  const assetsRoot = join(runtimeRoot, 'assets')
+  assertOwnedPath(assetsRoot, 'directory', true)
+  const present = new Map()
+  for (const entry of readdirSync(assetsRoot, { withFileTypes: true })) {
+    if (!/^[0-9a-f]{64}$/.test(entry.name) || !retained.has(entry.name)) {
+      throw new OperationsError(
+        'activation-asset-inventory-invalid',
+        'ownerless runtime asset root contains an unmanaged or staging entry',
+      )
+    }
+    const path = join(assetsRoot, entry.name)
+    assertOwnedPath(path, 'directory', true)
+    present.set(entry.name, activationAssetSetBytes(path))
+  }
+  for (const digest of retained) {
+    if (!present.has(digest)) {
+      throw new OperationsError(
+        'activation-asset-inventory-invalid',
+        'ownerless runtime root is missing a retained activation asset set',
+      )
+    }
+  }
+  return [...present].sort(([left], [right]) => left.localeCompare(right)).map(([digest, bytes]) => ({
+    digest,
+    bytes,
+  }))
+}
+
+/**
  * Reconcile only asset sets owned by this DSH home while the root lock is
  * held. Current, rollback, pending, and active sets are authoritative; all
  * other digest directories and interrupted staging temporaries are orphans.
@@ -2079,8 +2135,6 @@ function reconcileActivationAssets(paths, runtimeRoot, projectedAssetSet) {
   if (lstatMaybe(assetsRoot) === null) return
   assertOwnedPath(assetsRoot, 'directory', true)
   let removed = false
-  let retainedBytes = 0
-  const present = new Set()
   for (const entry of readdirSync(assetsRoot, { withFileTypes: true })) {
     const path = join(assetsRoot, entry.name)
     if (/^[0-9a-f]{64}$/.test(entry.name)) {
@@ -2090,8 +2144,7 @@ function reconcileActivationAssets(paths, runtimeRoot, projectedAssetSet) {
         removed = true
         continue
       }
-      present.add(entry.name)
-      retainedBytes += activationAssetSetBytes(path)
+      activationAssetSetBytes(path)
       continue
     }
     if (/^\.[0-9a-f]{64}\.[0-9A-Za-z_-]+$/.test(entry.name)) {
@@ -2101,12 +2154,6 @@ function reconcileActivationAssets(paths, runtimeRoot, projectedAssetSet) {
       continue
     }
     throw new OperationsError('activation-asset-inventory-invalid', 'runtime asset root contains an unmanaged entry')
-  }
-  for (const digest of retained) {
-    if (!present.has(digest)) retainedBytes += MAX_ACTIVATION_ASSET_BYTES + 64 * 1024
-  }
-  if (retainedBytes > MAX_ACTIVATION_ASSET_STORAGE_BYTES) {
-    throw new OperationsError('activation-asset-retention-limit', 'runtime root activation assets exceed the storage limit')
   }
   if (removed) fsyncDirectory(assetsRoot)
 }
@@ -2520,9 +2567,13 @@ function recoveryFor(actual, state, paths) {
  *
  * @param {any} state
  * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} selectedRuntimeRoot
+ * @param {{allowOwnerless?: boolean}} [options]
  */
-function repairRuntimeRootTopology(state, profile) {
+function repairRuntimeRootTopology(state, profile, paths, selectedRuntimeRoot, options = {}) {
   try {
+    const selected = resolveActivationRoot(selectedRuntimeRoot)
     const pending = state?.pending === null || state?.pending === undefined
       ? null
       : validatePending(state.pending, profile)
@@ -2533,12 +2584,34 @@ function repairRuntimeRootTopology(state, profile) {
     const previous = state?.previous === null || state?.previous === undefined
       ? null
       : validateSnapshot(state.previous)
+    const lastApplied = state?.last_applied === null || state?.last_applied === undefined
+      ? null
+      : validateAppliedReceipt(state.last_applied, profile)
+    const roots = {
+      pending: pendingPlan === null ? null : resolveActivationRoot(pendingPlan.runtime_root),
+      current: current === null ? null : resolveActivationRoot(current.runtime_root),
+      previous: previous === null ? null : resolveActivationRoot(previous.runtime_root),
+      last_applied: lastApplied === null
+        ? null
+        : resolveActivationRoot(/** @type {any} */ (lastApplied).plan.runtime_root),
+    }
+    for (const root of Object.values(roots)) {
+      if (root !== null && root !== selected) {
+        throw new TypeError('persisted runtime root does not match the selected DSH runtime root')
+      }
+    }
+    const managed = Object.values(roots).some(root => root !== null)
+      || lstatMaybe(join(selected, 'activation.json')) !== null
+      || lstatMaybe(join(selected, 'assets')) !== null
+    if (managed && lstatMaybe(join(selected, '.dsh-runtime-kit-owner.json')) === null) {
+      if (options.allowOwnerless !== true) {
+        throw new OperationsError('runtime-root-owner-missing', 'runtime root ownership record is missing')
+      }
+    } else if (managed) {
+      assertRuntimeRootOwner(paths, selected)
+    }
     return {
-      roots: {
-        pending: pendingPlan === null ? null : resolveActivationRoot(pendingPlan.runtime_root),
-        current: current === null ? null : resolveActivationRoot(current.runtime_root),
-        previous: previous === null ? null : resolveActivationRoot(previous.runtime_root),
-      },
+      roots,
       provider_homes: resolveProviderHomeTopology(),
     }
   } catch (error) {
@@ -2548,6 +2621,80 @@ function repairRuntimeRootTopology(state, profile) {
         ? `persisted recovery runtime root is unsafe: ${error.message}`
         : 'persisted recovery runtime root is unsafe for the current provider topology',
     )
+  }
+}
+
+/**
+ * Produce immutable evidence for one ownerless pre-ownership v2 runtime root.
+ * This reads but does not reconcile: every retained set and reference must be
+ * exact before the ownership record can be reviewed or written.
+ *
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} runtimeRoot
+ * @param {string} profile
+ */
+function ownerlessRuntimeRootAdoption(paths, runtimeRoot, profile) {
+  if (lstatMaybe(join(runtimeRoot, '.dsh-runtime-kit-owner.json')) !== null) {
+    throw new OperationsError('runtime-root-owner-invalid', 'runtime root already has an ownership record')
+  }
+  const stateRead = readState(paths.state, profile)
+  if (stateRead.version !== 2 || stateRead.value === null) {
+    throw new OperationsError(
+      'runtime-root-owner-missing',
+      'ownerless runtime root has no exact version 2 state in the selected DSH home',
+    )
+  }
+  const state = /** @type {any} */ (stateRead.value)
+  const topology = repairRuntimeRootTopology(state, profile, paths, runtimeRoot, { allowOwnerless: true })
+  let activation
+  try {
+    activation = readActivation(runtimeRoot)
+  } catch (error) {
+    throw new OperationsError(
+      'runtime-root-owner-missing',
+      error instanceof Error
+        ? `ownerless runtime activation is invalid: ${error.message}`
+        : 'ownerless runtime activation is invalid',
+    )
+  }
+  const activationDigest = sha256(readFileSync(join(runtimeRoot, 'activation.json')))
+  const candidates = []
+  if (state.current !== null) {
+    const current = validateSnapshot(state.current)
+    candidates.push({
+      target: current.target,
+      activation_digest: current.activation_digest,
+    })
+  }
+  if (state.pending !== null) {
+    const pending = validatePending(state.pending, profile)
+    if (pending.target !== null) {
+      const target = validateTarget(pending.target)
+      candidates.push({
+        target,
+        activation_digest: sha256(`${JSON.stringify(activationManifest(target, profile), undefined, 2)}\n`),
+      })
+    }
+  }
+  if (candidates.length === 0
+    || !candidates.some(candidate => targetMatchesActual(readActual(paths), candidate.target, paths))
+    || !candidates.some(candidate => activationMatches(candidate.target, runtimeRoot, profile)
+      && activationDigest === candidate.activation_digest)) {
+    throw new OperationsError(
+      'runtime-root-owner-missing',
+      'ownerless runtime root does not match the authenticated current or pending v2 target',
+    )
+  }
+  const assetSets = validateExactRetainedActivationAssets(paths, runtimeRoot)
+  return {
+    schema_version: 'dsh-runtime-kit.runtime-root-adoption.v1',
+    dsh_home: realpathSync(paths.home),
+    runtime_root: runtimeRoot,
+    state_digest: stateRead.digest,
+    activation_digest: activationDigest,
+    active_asset_set_sha256: activation.manifest.asset_set_sha256,
+    retained_asset_sets: assetSets,
+    runtime_root_topology: topology,
   }
 }
 
@@ -2634,7 +2781,7 @@ function dshVersion(dshBin, home) {
  * @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook
  * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} agentDocs
  * @param {string} dshBin
- * @param {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string}} activationInput
+ * @param {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}} activationInput
  */
 function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput) {
   const actual = readActual(paths)
@@ -2661,8 +2808,28 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
       dsh: dshVersion(dshBin, paths.home),
     }
   }
-  repairRuntimeRootTopology(state, profile)
-  const recovery = recoveryFor(actual, state, paths)
+  if (state !== null && activationInput.runtimeRoot === undefined) {
+    throw new OperationsError('unsafe-repair-runtime-root', 'selected DSH runtime root is unavailable')
+  }
+  if (activationInput.runtimeRoot !== undefined) {
+    repairRuntimeRootTopology(
+      state,
+      profile,
+      paths,
+      activationInput.runtimeRoot,
+      { allowOwnerless: activationInput.ownerMissing === true },
+    )
+  }
+  const recovery = activationInput.ownerMissing === true
+    ? {
+        action: 'adopt-owner',
+        adoption: ownerlessRuntimeRootAdoption(
+          paths,
+          /** @type {string} */ (activationInput.runtimeRoot),
+          profile,
+        ),
+      }
+    : recoveryFor(actual, state, paths)
   let ownedStatus = 'absent'
   if (recovery !== null) ownedStatus = 'recovery-required'
   else if (state?.current !== null && state?.current !== undefined) {
@@ -2722,6 +2889,22 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
   }
 }
 
+/** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function ownerlessAdoptionPlan(profile, paths, runtimeRoot) {
+  const adoption = ownerlessRuntimeRootAdoption(paths, runtimeRoot, profile)
+  const plan = {
+    schema_version: PLAN_SCHEMA,
+    operation: 'doctor-repair',
+    profile,
+    package_name: PACKAGE_NAME,
+    action: 'adopt-owner',
+    observed_manifest_digest: readActual(paths).manifest_digest,
+    state_digest: adoption.state_digest,
+    adoption,
+  }
+  return { plan, plan_digest: sha256(stableJson(plan)) }
+}
+
 /** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof diagnose>} diagnostic */
 function repairPlan(profile, paths, diagnostic) {
   const recovery = /** @type {any} */ (diagnostic.recovery)
@@ -2745,12 +2928,24 @@ function repairPlan(profile, paths, diagnostic) {
       runtimeRoot,
     )
   }
+  if (recovery.action === 'adopt-owner') {
+    return ownerlessAdoptionPlan(
+      profile,
+      paths,
+      resolveActivationRoot(recovery.adoption.runtime_root),
+    )
+  }
   if (recovery.action === 'unknown') {
     throw new OperationsError('recovery-ambiguous', 'interrupted operation does not match either reviewed terminal state')
   }
   const stateRead = readState(paths.state, profile)
   const state = /** @type {any} */ (stateRead.value)
-  const runtimeRootTopology = repairRuntimeRootTopology(state, profile)
+  const runtimeRootTopology = repairRuntimeRootTopology(
+    state,
+    profile,
+    paths,
+    resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT),
+  )
   const pending = validatePending(recovery.pending, profile)
   let proposed
   if (recovery.action === 'clear' || recovery.action === 'restore-collateral') {
@@ -2802,16 +2997,27 @@ function repairPlan(profile, paths, diagnostic) {
 function applyRepair(profile, paths, reviewed) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
-    reconcileArtifacts(paths)
     const stateRead = readState(paths.state, profile)
     const state = stateRead.value
-    const runtimeRoot = stateRead.version === 1
+    const adoption = /** @type {any} */ (reviewed.plan).action === 'adopt-owner'
+    const runtimeRoot = adoption
+      ? resolveActivationRoot(/** @type {any} */ (reviewed.plan).adoption.runtime_root)
+      : stateRead.version === 1
       ? resolveActivationRoot(/** @type {any} */ (reviewed.plan).runtime_root)
       : resolveActivationRoot(/** @type {any} */ (validatePlan(
           validatePending(/** @type {any} */ (state)?.pending, profile).plan,
           profile,
         )).runtime_root)
     return withRuntimeRootLock(paths, runtimeRoot, () => {
+    if (adoption) {
+      const current = ownerlessAdoptionPlan(profile, paths, runtimeRoot)
+      if (current.plan_digest !== reviewed.plan_digest) {
+        throw new OperationsError('plan-drift', 'ownerless runtime root changed after preview')
+      }
+      writeRuntimeRootOwner(paths, runtimeRoot)
+      return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
+    }
+    reconcileArtifacts(paths)
     reconcileActivationAssets(paths, runtimeRoot)
     try {
     if (stateRead.version === 1) {
@@ -2838,7 +3044,7 @@ function applyRepair(profile, paths, reviewed) {
       )
     }
     const actual = readActual(paths)
-    repairRuntimeRootTopology(state, profile)
+    repairRuntimeRootTopology(state, profile, paths, runtimeRoot)
     const recovery = recoveryFor(actual, state, paths)
     if (recovery === null || recovery.action === 'unknown') {
       throw new OperationsError('recovery-drift', 'recovery state changed after preview')
@@ -2932,7 +3138,7 @@ function applyRepair(profile, paths, reviewed) {
     } finally {
       reconcileActivationAssets(paths, runtimeRoot)
     }
-    })
+    }, { allowOwnerless: adoption })
   })
 }
 
@@ -3009,14 +3215,15 @@ export function main(argv = process.argv.slice(2)) {
       }
       assertOperationsTree(paths)
       const dshBin = resolveExecutable(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh')
-      /** @type {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string}} */
+      /** @type {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}} */
       const activationInput = {}
       try {
         activationInput.runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
-        if (existsSync(join(activationInput.runtimeRoot, '.dsh-runtime-kit-owner.json'))
-          || existsSync(join(activationInput.runtimeRoot, 'activation.json'))
-          || existsSync(join(activationInput.runtimeRoot, 'assets'))) {
+        if (existsSync(join(activationInput.runtimeRoot, '.dsh-runtime-kit-owner.json'))) {
           assertRuntimeRootOwner(paths, activationInput.runtimeRoot)
+        } else if (existsSync(join(activationInput.runtimeRoot, 'activation.json'))
+          || existsSync(join(activationInput.runtimeRoot, 'assets'))) {
+          activationInput.ownerMissing = true
         }
         if (existsSync(join(activationInput.runtimeRoot, 'activation.json'))) {
           activationInput.data = readActivation(activationInput.runtimeRoot)

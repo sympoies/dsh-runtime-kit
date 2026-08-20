@@ -399,15 +399,23 @@ also pre-extraction admission limits.
 
 Activation assets have a separate root-scoped inventory. The first mutation
 atomically binds the canonical runtime root to one canonical `DSH_HOME`; a
-SQLite root lock serializes activation and collection, and a different home or
-an ownerless pre-existing activation tree is rejected. Reconciliation scans
-strict v2 receipts from that home and the active manifest, retains only
-current, previous, pending, active, and currently projected sets, and deletes
-unreferenced digest directories plus hidden pre-pending staging orphans. At
-most 16 live sets and 16 bounded-set byte budgets may be retained. Every member
-is owner-only, single-link, depth/count/size bounded, and free of symlinks or
-special entries; inventory ambiguity fails closed rather than collecting an
-unknown path.
+SQLite root lock serializes activation and collection, and a different home is
+rejected. One compatibility seam admits an ownerless pre-ownership v2 tree only
+through digest-bound `doctor --repair`. It ties the selected root to every
+current, previous, pending, and last-applied reference from the same canonical
+DSH home, authenticates the installed and active current-or-pending targets,
+and requires an exact retained-set inventory before atomically writing the
+owner record. Cross-home, unmanaged, drifted, missing, extra, staging,
+oversized, or malformed candidates cannot be adopted.
+
+Reconciliation scans strict v2 receipts from that home and the active manifest,
+retains only current, previous, pending, active, and currently projected sets,
+and deletes unreferenced digest directories plus hidden pre-pending staging
+orphans. At most 16 live sets may be retained; each set has its independent
+4 MiB package-asset plus 64 KiB generated-overhead bound, which derives the
+complete count-times-per-set ceiling. Every member is owner-only, single-link,
+depth/count/size bounded, and free of symlinks or special entries; inventory
+ambiguity fails closed rather than collecting an unknown path.
 
 The pending marker precedes the DSH subprocess. A failed or interrupted native
 command therefore leaves a diagnosable transaction. Doctor compares the exact
