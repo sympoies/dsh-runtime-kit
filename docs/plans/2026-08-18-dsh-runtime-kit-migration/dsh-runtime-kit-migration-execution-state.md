@@ -582,6 +582,16 @@ until the repaired head is re-reviewed.
   validation, and diff check. Frozen source rehearsal
   `issue1-operations-profile-20260820w` remains external. Task 6.1 still
   requires a new exact-head hosted run; no merge or cutover is authorized.
+- 2026-08-20: The executable-mode portability repair at PR #17 exact head
+  `cf6685db7dbc2f1b600c078858014717c9a6e49b` passed all four DSH
+  compatibility checks in run `32385920089` and was squash-integrated into the
+  Task 6.1 candidate branch as
+  `9ec7ef6d2cb5a784969f8abc78e23d5a4716d9c4`. This retained integration
+  record becomes the next semantic candidate boundary: its exact signed
+  receipt and the private trust root must bind the same eight acceptance
+  control files before hosted execution resumes. Task 6.1 remains in progress
+  until the disposable hosted candidate completes all 12 scenarios and the
+  correlated delivery receipt verifies; no cutover is claimed by this record.
 
 ## Decision Log
 
@@ -600,9 +610,8 @@ until the repaired head is re-reviewed.
 ## Handoff
 
 Continue Task 6.1 from the successful external-tarball source rehearsal,
-integrated PR #16 authenticated-lockfile portability repair, the pending
-executable-mode portability repair for hosted run `32380603036`, completed
-external trust-root source, and published nils-cli v1.27.0 artifacts.
+integrated PR #17 executable-mode portability repair, completed external
+trust-root source, and published nils-cli v1.27.0 artifacts.
 Preserve the tested reviewer, operations, compatibility, DSH
 catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit
