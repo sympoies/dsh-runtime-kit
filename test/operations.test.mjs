@@ -131,8 +131,17 @@ process.exit(result.status ?? 70)
   const dsh = join(root, 'fake-dsh.mjs')
   writeFileSync(dsh, `#!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+
+function normalizeExecutableModes(root) {
+  const stat = lstatSync(root)
+  if (stat.isDirectory()) {
+    for (const name of readdirSync(root)) normalizeExecutableModes(join(root, name))
+  } else if (stat.isFile() && (stat.mode & 0o111) !== 0) {
+    chmodSync(root, 0o755)
+  }
+}
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -188,6 +197,9 @@ if (verb === 'add') {
     if (packed) {
       const extracted = spawnSync('tar', ['-xzf', source, '-C', installed, '--strip-components=1'])
       if (extracted.status !== 0) process.exit(94)
+      if (existsSync(join(home, 'normalize-installed-executable-modes'))) {
+        normalizeExecutableModes(installed)
+      }
     } else writeFileSync(join(installed, 'package.json'), JSON.stringify(packageManifest))
   }
   if (packageManifest.name !== packageName) process.exit(92)
@@ -696,6 +708,24 @@ test('setup, update, rollback, and remove preserve unrelated profile and private
     assert.deepEqual(after.unrelated, { keep: true })
     assert.equal(readFileSync(join(subject.profileDir, 'cordis.patch.yml'), 'utf8'), '# unrelated user config\n[]\n')
     assert.equal(readFileSync(join(subject.privateRoot, 'must-survive.txt'), 'utf8'), 'private')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('setup accepts package-manager normalization of owner-only executable modes', () => {
+  const subject = fixture()
+  try {
+    const executable = join(subject.v1, 'runtime-command.sh')
+    writeFileSync(executable, '#!/bin/sh\nexit 0\n', { mode: 0o700 })
+    writeFileSync(join(subject.home, 'normalize-installed-executable-modes'), '')
+
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+
+    const installed = join(subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'runtime-command.sh')
+    assert.equal(lstatSync(executable).mode & 0o777, 0o700)
+    assert.equal(lstatSync(installed).mode & 0o777, 0o755)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
   } finally {
     subject.cleanup()
   }

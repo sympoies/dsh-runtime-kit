@@ -557,6 +557,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(operationsSmoke, /apps', 'cli', 'lib', 'bin\.js/u)
   assert.match(operationsSmoke, /spawnSync\(process\.execPath, \[dshCli/u)
   assert.match(operationsSmoke, /DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1/u)
+  assert.match(operationsSmoke, /DSH_OPERATIONS_/u)
   assert.match(operationsSmoke, /operations:full-package-setup-update-rollback-remove/u)
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
   assert.doesNotMatch(

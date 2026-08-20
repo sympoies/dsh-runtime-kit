@@ -411,7 +411,10 @@ function packageTreeDigest(packagePath, containmentPath) {
     if (bytes > MAX_INSTALLED_PACKAGE_BYTES) {
       throw new OperationsError('installed-package-limit', 'installed package exceeds the byte limit')
     }
-    hash.update(`F\0${logical}\0${stat.mode & 0o111}\0${stat.size}\0`)
+    // npm/pnpm preserve whether a file is executable but may normalize an
+    // owner-only 0700 source entry to 0755 while installing it. Bind the
+    // executable role, not the caller's umask-specific distribution bits.
+    hash.update(`F\0${logical}\0${(stat.mode & 0o111) === 0 ? 0 : 1}\0${stat.size}\0`)
     hash.update(readFileSync(absolute))
   }
   visit(packageRoot, '', 0)

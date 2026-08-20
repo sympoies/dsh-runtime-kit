@@ -144,28 +144,53 @@ function upstreamStatus() {
   return result.stdout
 }
 
+/** @param {ReturnType<typeof spawnSync>} result */
+function operationFailureCode(result) {
+  let parsed
+  try { parsed = JSON.parse(typeof result.stdout === 'string' ? result.stdout : '') } catch {}
+  const code = parsed !== null
+    && typeof parsed === 'object'
+    && parsed.ok === false
+    && parsed.error !== null
+    && typeof parsed.error === 'object'
+    && typeof parsed.error.code === 'string'
+    && /^[a-z][a-z0-9-]{0,47}$/u.test(parsed.error.code)
+    ? `DSH_OPERATIONS_${parsed.error.code.replaceAll('-', '_').toUpperCase()}`
+    : 'DSH_OPERATIONS_COMMAND_FAILED'
+  return /^[A-Z][A-Z0-9_]{1,63}$/u.test(code) ? code : 'DSH_OPERATIONS_COMMAND_FAILED'
+}
+
 function operation(args) {
-  const result = run(process.execPath, [
+  const result = spawnSync(process.execPath, [
     launcher,
     '--runtime-root', runtimeRoot,
     '--',
     process.execPath, cli, ...args, '--format', 'json',
   ], {
-    DSH_HOME: dshHome,
-    CODEX_HOME: codexHome,
-    CLAUDE_CONFIG_DIR: claudeHome,
-    DSH_RUNTIME_KIT_DSH_BIN: wrapper,
-    DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
-    DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
-    DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
-    DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
-    DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
-    DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
-    DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
-    DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
-    XDG_CONFIG_HOME: configHome,
-    XDG_STATE_HOME: stateHome,
+    env: {
+      ...process.env,
+      DSH_HOME: dshHome,
+      CODEX_HOME: codexHome,
+      CLAUDE_CONFIG_DIR: claudeHome,
+      DSH_RUNTIME_KIT_DSH_BIN: wrapper,
+      DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
+      DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
+      DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
+      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
+      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
+      DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
+      XDG_CONFIG_HOME: configHome,
+      XDG_STATE_HOME: stateHome,
+    },
+    encoding: 'utf8',
   })
+  if (result.status !== 0) {
+    const error = /** @type {Error & {code:string}} */ (new Error('runtime-kit operation failed'))
+    error.code = operationFailureCode(result)
+    throw error
+  }
   return JSON.parse(result.stdout).data
 }
 

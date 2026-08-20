@@ -568,6 +568,20 @@ until the repaired head is re-reviewed.
   control files before hosted execution resumes. Task 6.1 remains in progress
   until the disposable hosted candidate completes all 12 scenarios and the
   correlated delivery receipt verifies; no cutover is claimed by this record.
+- 2026-08-20: Hosted run `32380603036` passed acquisition, pinned DSH offline
+  preparation, and the credentialless/network-denied boundary before
+  operations `profile-setup` returned a generic assertion. Exact-artifact
+  replay exposed exit 65 `native-dsh-verification-failed`: owner-only 0700
+  executable package entries were installed by pnpm as 0755, while tree
+  identity incorrectly bound the full execute-bit distribution. The RED 0/1
+  regression now passes because identity binds executable role plus exact
+  path/type/size/content, and operations smoke preserves a bounded typed
+  `DSH_OPERATIONS_*` cause. Focused contracts pass 2/2, the affected suite
+  80/80, operations 63/63 on Node 22 and Node 24, full package 278/278,
+  typecheck, both performance gates, a 134-entry package preview, plan
+  validation, and diff check. Frozen source rehearsal
+  `issue1-operations-profile-20260820w` remains external. Task 6.1 still
+  requires a new exact-head hosted run; no merge or cutover is authorized.
 
 ## Decision Log
 
@@ -586,8 +600,9 @@ until the repaired head is re-reviewed.
 ## Handoff
 
 Continue Task 6.1 from the successful external-tarball source rehearsal,
-integrated PR #16 authenticated-lockfile portability repair, completed external
-trust-root source, and published nils-cli v1.27.0 artifacts.
+integrated PR #16 authenticated-lockfile portability repair, the pending
+executable-mode portability repair for hosted run `32380603036`, completed
+external trust-root source, and published nils-cli v1.27.0 artifacts.
 Preserve the tested reviewer, operations, compatibility, DSH
 catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit
