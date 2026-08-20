@@ -37,11 +37,11 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | 16/16 compatibility; 217/217 package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; p95 0.0695 ms and 164,408-byte retained-heap benchmark; packed unmodified rc.7 smoke; security follow-up clean | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | final-head released-mode source rehearsal `issue1-finalhead-20260820h`: 10 passed, 2 pending, 0 failed; DSH 244/244; operations 37/37 on Node 22 and 24; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | final-head released-mode source rehearsal `issue1-finalhead-20260820i`: 10 passed, 2 pending, 0 failed; DSH 245/245; operations 38/38 on Node 22 and 24; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
 | 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
 | 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
-Task 6.1 source closeout gates: DSH 244/244 plus typecheck; operations 37/37
+Task 6.1 source closeout gates: DSH 245/245 plus typecheck; operations 38/38
 on both Node 22 and Node 24; nils focused
 agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
 8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
@@ -321,8 +321,8 @@ until the repaired head is re-reviewed.
   durable profile temporary and final state temporary prove that the retained
   receipt remains parseable, orphan temporaries remain owner-only with one
   link, and a subsequent doctor repair converges exactly. Focused tests pass
-  2/2, operations pass 37/37 on Node 22 and 24, the full suite passes 244/244
-  plus typecheck, and released source rehearsal `issue1-finalhead-20260820h`
+  3/3, operations pass 38/38 on Node 22 and 24, the full suite passes 245/245
+  plus typecheck, and released source rehearsal `issue1-finalhead-20260820i`
   passes 10 with 2 authorization-pending and 0 failed. Specialist follow-up and
   hosted acceptance remain required; no merge or cutover is authorized.
 

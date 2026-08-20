@@ -241,9 +241,28 @@ function atomicRemoveOwnedFile(path, options = {}) {
   cleanupAtomicReplaceTemporaries(path, privateOnly)
   if (lstatMaybe(path) === null) return
   assertOwnedPath(path, 'file', privateOnly)
-  if (options.faultPoint !== undefined) injectTestFault(options.faultPoint)
-  unlinkSync(path)
-  fsyncDirectory(dirname(path))
+  const temporary = join(
+    dirname(path),
+    `.${basename(path)}${ATOMIC_REPLACE_MARKER}${process.pid}.${randomUUID()}.tmp`,
+  )
+  let fd
+  try {
+    fd = openSync(temporary, 'wx', 0o600)
+    fsyncSync(fd)
+    closeSync(fd)
+    fd = undefined
+    fsyncDirectory(dirname(path))
+    if (options.faultPoint !== undefined) injectTestFault(options.faultPoint)
+    unlinkSync(path)
+    fsyncDirectory(dirname(path))
+    unlinkSync(temporary)
+    fsyncDirectory(dirname(path))
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd) } catch {}
+    }
+    try { unlinkSync(temporary) } catch {}
+  }
 }
 
 /** @param {string} path @param {unknown} value */
@@ -561,6 +580,13 @@ function restoreProfileSnapshot(snapshot, paths) {
       /** @type {number} */ (file.mode),
       { faultPoint: `restore-profile:${file.name}` },
     )
+  }
+}
+
+/** @param {ReturnType<typeof captureProfileSnapshot>} snapshot @param {ReturnType<typeof pathsFor>} paths */
+function cleanupProfileRestoreTemporaries(snapshot, paths) {
+  for (const file of snapshot.files) {
+    cleanupAtomicReplaceTemporaries(join(paths.profileDir, file.name), false)
   }
 }
 
@@ -2264,9 +2290,16 @@ function applyRepair(profile, paths, reviewed) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
     reconcileArtifacts(paths)
-    const actual = readActual(paths)
     const stateRead = readState(paths.state, profile)
     const state = stateRead.value
+    if (state?.pending !== null && state?.pending !== undefined) {
+      const pending = validatePending(state.pending, profile)
+      cleanupProfileRestoreTemporaries(
+        validateProfileSnapshot(pending.profile_before),
+        paths,
+      )
+    }
+    const actual = readActual(paths)
     repairRuntimeRootTopology(state, profile)
     const recovery = recoveryFor(actual, state, paths)
     if (recovery === null || recovery.action === 'unknown') {
