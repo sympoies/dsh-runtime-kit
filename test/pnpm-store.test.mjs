@@ -74,6 +74,11 @@ exec node "$basedir/../pnpm/bin/pnpm.mjs" "$@"
     })
     const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
     assert.match(runner, /discoverPreparedPnpmStore/u)
+    assert.match(
+      runner,
+      /'--offline',\s*'--frozen-lockfile',\s*'--trust-lockfile',\s*'--ignore-scripts'/u,
+      'the authenticated DSH lockfile must not trigger registry policy lookups offline',
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

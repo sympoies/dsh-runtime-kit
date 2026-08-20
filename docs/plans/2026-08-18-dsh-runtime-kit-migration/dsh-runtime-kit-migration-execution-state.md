@@ -37,7 +37,7 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | compatibility contract; package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; deterministic heap benchmark plus packed real released-agent-hook subprocess p95/teardown gate; packed unmodified rc.7 smoke | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | frozen final-head source candidate assigned rehearsal `issue1-finalhead-20260820p`; predecessor `o` reported 10 passed, 2 pending, 0 failed; DSH 262/262; operations 55/55 on Node 22 and 24; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | latest frozen source repair assigned rehearsal `issue1-pnpm-offline-20260820v`; full DSH package 277/277; focused acceptance/store 16/16 on Node 22 and 24; exact pnpm 11.7 hosted-store replay completes network-denied with zero downloads; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design | Hosted run `32374056631` authenticated acquisition but exposed pnpm lockfile-policy metadata retries during the offline DSH install; final pass still requires a new exact-head run-correlated hosted execution and receipt proving DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
 | 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
 | 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
@@ -542,6 +542,22 @@ until the repaired head is re-reviewed.
   hosted execution resumes. Task 6.1 remains in progress until the disposable
   hosted candidate completes all 12 scenarios and the correlated delivery
   receipt verifies; no cutover is claimed by this integration record.
+- 2026-08-20: Hosted run `32374056631` authenticated every acquired input and
+  entered the credentialless candidate, then hit the five-minute deadline in
+  the pinned DSH dependency installation. Its downloaded 536 MiB artifact
+  passed all SHA-256 checks. Exact-cache replay showed the install completed in
+  4.9 seconds with registry access, while network denial caused pnpm 11.7's
+  lockfile supply-chain verifier to attempt registry metadata requests despite
+  `--offline` and enter retry backoff. The regression began RED 0/1. Because
+  the selected DSH revision and lockfile are authenticated before preparation,
+  source acceptance now adds `--trust-lockfile` to the existing offline,
+  frozen, ignored-script, and exact-store contract. The same denied-network
+  replay completes 923 packages with zero downloads in 2.4 seconds. Focused
+  acceptance/store tests pass 16/16 on Node 22 and Node 24, full package
+  277/277, typecheck, both performance gates, a 134-entry package preview, plan
+  validation, and diff check. Frozen source rehearsal
+  `issue1-pnpm-offline-20260820v` remains external. Task 6.1 still requires a
+  new exact-head hosted run; no merge or cutover is authorized.
 
 ## Decision Log
 

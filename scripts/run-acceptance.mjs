@@ -374,6 +374,7 @@ async function prepareDsh(root, sourceRoot, revision, tools, env) {
     'install',
     '--offline',
     '--frozen-lockfile',
+    '--trust-lockfile',
     '--ignore-scripts',
     '--store-dir', canonicalStore,
   ], {

@@ -668,7 +668,12 @@ acquisition prepares `$HOME/.local/share/pnpm/store`, and source acceptance
 invokes the authenticated pnpm launcher with that exact `--store-dir` plus the
 matching `XDG_DATA_HOME` and `PNPM_HOME`. It does not ask a package-relative
 GitHub Actions launcher to infer a different store after the credentialless
-runtime changes HOME/XDG scope.
+runtime changes HOME/XDG scope. Because the selected DSH commit and its
+lockfile are authenticated before installation, the frozen offline install
+also uses pnpm's `--trust-lockfile` mode; this prevents supply-chain policy
+metadata checks from attempting registry access inside the network-denied
+candidate without weakening the pinned source or content-addressed store
+bindings.
 
 This local mode proves only the scoped `functional-session` path. Its honest
 result remains `incomplete` until a disposable OS-isolated environment and an

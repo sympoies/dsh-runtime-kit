@@ -1395,3 +1395,28 @@ samples at 6.078499 ms p95 with zero active resources or live children. The
 frozen package is assigned source rehearsal
 `issue1-pnpm-store-20260820u`; its terminal receipt remains external. A new
 exact-head hosted run remains required; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32374056631` authenticated every acquired input and
+entered the credentialless, network-denied source runner, then stopped during
+the pinned DSH dependency install after the five-minute command deadline. The
+downloaded 536 MiB acquisition artifact passed every recorded SHA-256 check.
+With its exact pnpm v11 store, pnpm 11.7, Node 22, and DSH revision `99f6f02`,
+the frozen install completed in 4.9 seconds when registry access was available.
+The same install under a denied network namespace reproduced the failure:
+pnpm's lockfile supply-chain verifier attempted registry metadata requests
+despite `--offline`, then entered its 10-second and one-minute retry schedule.
+
+The focused regression began RED 0/1 because source acceptance did not require
+the authenticated-lockfile mode. The selected DSH commit and lockfile are
+verified before preparation, so the install now combines `--offline`,
+`--frozen-lockfile`, and `--trust-lockfile` without relaxing the exact revision
+or content-addressed store. The exact network-denied replay then completed 923
+packages with zero downloads in 2.4 seconds. Focused acceptance/store coverage
+passes 16/16 on Node 22 and Node 24, the full package suite passes 277/277, and
+typechecking passes. Deterministic policy performance passes 2,000 samples at
+0.137433 ms p95 with zero active resources; the packed released agent-hook gate
+passes 25 samples at 4.583915 ms p95 with zero active resources or live
+children. The 134-entry package preview, plan validation, and diff check pass.
+The frozen package is assigned source rehearsal
+`issue1-pnpm-offline-20260820v`; its terminal receipt remains external. A new
+exact-head hosted run remains required; no merge or cutover is claimed.
