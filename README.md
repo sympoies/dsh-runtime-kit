@@ -372,8 +372,12 @@ ownership existed can be adopted only through digest-reviewed `doctor
 pending, and last-applied reference in that DSH home's authenticated state;
 the installed and active targets must match its current-or-pending targets;
 and every retained set must be present with no extra, staging, oversized, or
-malformed entry. Apply revalidates those bytes under the root lock, writes only
-the atomic owner record, and leaves state, activation, and assets unchanged.
+malformed entry. Every global current, previous, or pending reference must map
+to one authenticated target whose policy, catalog, document, and root-specific
+hook configuration match the retained set. The receipt binds each set's byte
+count and canonical tree digest; apply revalidates that evidence under the root
+lock, writes only the atomic owner record, and leaves state, activation, and
+assets unchanged.
 Ordinary setup/update/remove never adopt an ownerless tree.
 
 Adoption binds one explicit actual/activation provenance pair to the pending
@@ -384,7 +388,8 @@ the selected root, and zero asset-set references across every authenticated
 profile receipt. It may retain up to 16 reviewed unreferenced digest
 directories from the pre-ownership remove: every directory must satisfy the
 same owner, mode, link, depth, count, and per-set byte limits as a live set,
-and its digest and byte count are bound into the adoption receipt. Adoption
+and its digest, byte count, and canonical tree digest are bound into the
+adoption receipt. Adoption
 preserves those orphan bytes; the next authenticated setup or update collects
 them through ordinary reconciliation. During an
 update or rollback, `prepared` permits `current/current` or `pending/current`,

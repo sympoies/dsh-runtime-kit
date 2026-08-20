@@ -428,6 +428,14 @@ function makeAssetTreeOwnerOnly(root) {
   }
 }
 
+function mutateFileSameLength(path) {
+  const mutated = Buffer.from(readFileSync(path))
+  assert.ok(mutated.length > 0)
+  mutated[0] ^= 1
+  writeFileSync(path, mutated, { mode: 0o600 })
+  return mutated
+}
+
 function activationForTarget(target, profile = 'work') {
   return {
     schema_version: 'dsh-runtime-kit.activation.v1',
@@ -1062,6 +1070,118 @@ test('ownerless adoption rejects authenticated asset drift after preview before 
   }
 })
 
+test('ownerless adoption rejects an inactive retained asset changed before preview', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    const retainedPolicy = join(
+      subject.runtimeRoot,
+      'assets',
+      state.previous.target.assets.asset_set_sha256,
+      'agent-hook',
+      'policy.toml',
+    )
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+    const mutated = mutateFileSameLength(retainedPolicy)
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      activation: readFileSync(activationPath, 'utf8'),
+    }
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(rejected.status, 65, rejected.stdout)
+    assert.equal(rejected.value.error.code, 'activation-asset-inventory-invalid')
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+    assert.deepEqual(readFileSync(retainedPolicy), mutated)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('ownerless adoption apply rejects inactive retained asset drift after preview', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    const retainedDigest = state.previous.target.assets.asset_set_sha256
+    const retainedRoot = join(
+      subject.runtimeRoot,
+      'assets',
+      retainedDigest,
+    )
+    const reviewedExtra = join(retainedRoot, 'reviewed-extra')
+    writeFileSync(reviewedExtra, 'tree-digest-a', { mode: 0o600 })
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    const retainedEvidence = preview.value.data.plan.adoption.retained_asset_sets
+      .find(entry => entry.digest === retainedDigest)
+    assert.match(retainedEvidence.tree_sha256, /^[0-9a-f]{64}$/)
+    const mutated = mutateFileSameLength(reviewedExtra)
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      activation: readFileSync(activationPath, 'utf8'),
+    }
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65, rejected.stdout)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+    assert.deepEqual(readFileSync(reviewedExtra), mutated)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('ownerless adoption preserves an authenticated previous set for rollback', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    const adopted = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(adopted.status, 0, adopted.stderr)
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    const state = JSON.parse(readFileSync(
+      join(subject.home, 'runtime-kit', 'state', 'work.json'),
+      'utf8',
+    ))
+    assert.equal(state.current.target.expected_version, '1.0.0')
+    assert.equal(
+      JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).asset_set_sha256,
+      state.current.target.assets.asset_set_sha256,
+    )
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('ownerless adoption enumerates exact terminal and interrupted remove states', () => {
   const removed = fixture()
   try {
@@ -1091,11 +1211,14 @@ test('ownerless adoption enumerates exact terminal and interrupted remove states
     assert.equal(repair.value.data.plan.adoption.observed_activation_source, 'absent')
     assert.equal(repair.value.data.plan.adoption.pending_phase, null)
     assert.equal(repair.value.data.plan.adoption.pending_action, 'remove')
+    const [orphanEvidence] = repair.value.data.plan.adoption.reviewed_orphan_asset_sets
     assert.deepEqual(repair.value.data.plan.adoption.reviewed_orphan_asset_sets, [{
       digest: orphanDigest,
-      bytes: repair.value.data.plan.adoption.reviewed_orphan_asset_sets[0].bytes,
+      bytes: orphanEvidence.bytes,
+      tree_sha256: orphanEvidence.tree_sha256,
     }])
-    assert.ok(repair.value.data.plan.adoption.reviewed_orphan_asset_sets[0].bytes > 0)
+    assert.ok(orphanEvidence.bytes > 0)
+    assert.match(orphanEvidence.tree_sha256, /^[0-9a-f]{64}$/)
     const adopted = run(removed, [
       'doctor', '--profile', 'work', '--repair', '--apply',
       '--expected-plan-digest', repair.value.data.plan_digest,

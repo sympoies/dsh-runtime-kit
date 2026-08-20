@@ -1274,3 +1274,30 @@ children. The 133-entry package preview and diff check also pass. The frozen
 package is assigned source rehearsal `issue1-finalhead-20260820q`; its terminal
 receipt remains external. Exact-head specialist and hosted acceptance remain
 promotion gates; no merge or cutover is claimed.
+
+The inactive-retained-set review began RED 0/2. After setup v1 and update v2,
+a same-length mutation of the inactive v1 policy before preview still produced
+a valid `adopt-owner` plan. A separate valid preview followed by the same
+mutation applied successfully and wrote the owner instead of returning
+`plan-drift`. The positive pre-owner v1/v2 fixture already retained a usable
+rollback target and was preserved as an explicit adoption-to-rollback check.
+
+Ownerless adoption now builds one authenticated digest-to-target catalog from
+every strict version 2 current, previous, and pending receipt in the DSH home.
+Every globally retained or active digest must resolve without conflict and its
+policy, catalog, document, and root-specific hook configuration must match the
+retained directory. Bounded traversal hashes sorted relative
+path/type/mode/link/size/file-digest rows into a canonical tree digest and
+binds that digest plus bytes in the adoption receipt. Terminal unreferenced
+orphans remain untrusted and unexecuted, but their canonical tree digests also
+make preview/apply changes fail as `plan-drift`. The two original regressions
+and positive rollback case pass 3/3; complete ownerless audit passes 11/11.
+Operations passes 60/60 on Node 22 and Node 24, and the full package suite
+passes 267/267. Typechecking and plan validation pass. Deterministic policy
+performance passes 2,000 samples at 0.138592 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 5.805533 ms p95 with zero active resources or live children. The
+133-entry package preview and diff check also pass. The frozen package is
+assigned source rehearsal `issue1-finalhead-20260820r`; its terminal receipt
+remains external. Exact-head specialist and hosted acceptance remain promotion
+gates; no merge or cutover is claimed.

@@ -405,8 +405,13 @@ through digest-bound `doctor --repair`. It ties the selected root to every
 current, previous, pending, and last-applied reference from the same canonical
 DSH home, authenticates the installed and active current-or-pending targets,
 and requires an exact retained-set inventory before atomically writing the
-owner record. Cross-home, unmanaged, drifted, missing, extra, staging,
-oversized, or malformed candidates cannot be adopted.
+owner record. Each retained digest must resolve to one authenticated target
+from a strict version 2 current, previous, or pending receipt; its policy,
+catalog, document, and root-specific hook configuration must match on disk.
+The receipt binds the bounded tree's sorted path/type/mode/link/size/file-hash
+digest plus its byte count. Cross-home, unmanaged, drifted, missing, extra,
+staging, oversized, malformed, targetless, or conflicting candidates cannot
+be adopted.
 
 The adoption receipt also binds one protocol-consistent provenance row:
 installed terminal state is `current/current`; removed terminal state is
@@ -416,7 +421,8 @@ authenticated profile inventory retains zero references to activation sets.
 The owner-only asset directory may contain up to 16 reviewed unreferenced
 digest directories left by the pre-ownership remove; each is subject to the
 normal owner, link, topology, count, and per-set byte bounds, and its digest
-and byte count are adoption evidence. Adoption leaves those bytes untouched,
+byte count, and canonical tree digest are adoption evidence. Adoption leaves
+those bytes untouched,
 while the next authenticated setup or update removes them through ordinary
 reconciliation. Update and rollback `prepared` state may be
 `current/current` or `pending/current`; update and rollback `native-applied`

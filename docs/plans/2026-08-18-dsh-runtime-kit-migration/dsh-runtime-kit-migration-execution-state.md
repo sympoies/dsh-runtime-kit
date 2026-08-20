@@ -449,6 +449,23 @@ until the repaired head is re-reviewed.
   frozen package is assigned source rehearsal `issue1-finalhead-20260820q`;
   external terminal evidence remains required before promotion. No merge or
   cutover is authorized.
+- 2026-08-20: Inactive retained-set authentication follow-up first failed 0/2:
+  a same-length previous-policy mutation before preview was accepted, and the
+  same mutation after a valid preview applied and wrote ownership. Adoption
+  now catalogs authenticated asset targets from every strict version 2
+  current, previous, and pending receipt across the DSH home. Every retained
+  or active digest must resolve without conflict and its policy, catalog,
+  document, and root-specific hook configuration must match. Bounded traversal
+  binds bytes plus a canonical digest of sorted path/type/mode/link/size/file-
+  hash rows for each referenced set and reviewed terminal orphan; locked
+  recomputation makes later drift `plan-drift`. Orphans remain untrusted and
+  unexecuted. Both negative regressions and positive adoption-to-rollback pass
+  3/3, complete ownerless audit 11/11, operations 60/60 on Node 22 and Node 24,
+  and full package 267/267 plus typecheck, both performance gates, a 133-entry
+  package preview, plan validation, and diff check. The frozen package is
+  assigned source rehearsal `issue1-finalhead-20260820r`; external terminal
+  evidence remains required before promotion. No merge or cutover is
+  authorized.
 
 ## Decision Log
 

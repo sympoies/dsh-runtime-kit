@@ -2033,44 +2033,78 @@ function stageActivation(paths, target, runtimeRoot, profile) {
   return activateStagedAssets(target, runtimeRoot, profile)
 }
 
-/** @param {Set<string>} retained @param {unknown} value @param {string} runtimeRoot */
-function retainSnapshotAssetSet(retained, value, runtimeRoot) {
+/**
+ * @param {Map<string,ReturnType<typeof validateTarget>>} targets
+ * @param {ReturnType<typeof validateTarget>} target
+ */
+function retainActivationTarget(targets, target) {
+  const digest = target.assets.asset_set_sha256
+  const existing = targets.get(digest)
+  if (existing !== undefined && stableJson(existing.assets) !== stableJson(target.assets)) {
+    throw new OperationsError(
+      'activation-asset-inventory-invalid',
+      'retained activation asset digest has conflicting authenticated targets',
+    )
+  }
+  if (existing === undefined) targets.set(digest, target)
+}
+
+/**
+ * @param {Set<string>} retained
+ * @param {Map<string,ReturnType<typeof validateTarget>>} targets
+ * @param {unknown} value
+ * @param {string} runtimeRoot
+ */
+function retainSnapshotAssetSet(retained, targets, value, runtimeRoot) {
   if (value === null || value === undefined) return
   const snapshot = validateSnapshot(value)
-  if (snapshot.runtime_root === runtimeRoot) retained.add(snapshot.target.assets.asset_set_sha256)
+  if (snapshot.runtime_root === runtimeRoot) {
+    retained.add(snapshot.target.assets.asset_set_sha256)
+    retainActivationTarget(targets, snapshot.target)
+  }
 }
 
 /** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
-function retainedActivationAssetSets(paths, runtimeRoot) {
+function retainedActivationAssets(paths, runtimeRoot) {
   const retained = new Set()
+  const targets = new Map()
   for (const name of readdirSync(dirname(paths.state)).sort()) {
     if (!name.endsWith('.json')) continue
     const profile = validateProfile(name.slice(0, -'.json'.length))
     const stateRead = readState(join(dirname(paths.state), name), profile)
     const state = stateRead.value
     if (stateRead.version !== 2 || state === null) continue
-    retainSnapshotAssetSet(retained, state.current, runtimeRoot)
-    retainSnapshotAssetSet(retained, state.previous, runtimeRoot)
+    retainSnapshotAssetSet(retained, targets, state.current, runtimeRoot)
+    retainSnapshotAssetSet(retained, targets, state.previous, runtimeRoot)
     if (state.pending !== null) {
       const pending = validatePending(state.pending, profile)
       const plan = /** @type {any} */ (validatePlan(pending.plan, profile))
       if (plan.runtime_root === runtimeRoot && pending.target !== null) {
-        retained.add(validateTarget(pending.target).assets.asset_set_sha256)
+        const target = validateTarget(pending.target)
+        retained.add(target.assets.asset_set_sha256)
+        retainActivationTarget(targets, target)
       }
     }
   }
   if (lstatMaybe(join(runtimeRoot, 'activation.json')) !== null) {
     retained.add(readActivation(runtimeRoot).manifest.asset_set_sha256)
   }
-  return retained
+  return { retained, targets }
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function retainedActivationAssetSets(paths, runtimeRoot) {
+  return retainedActivationAssets(paths, runtimeRoot).retained
 }
 
 /** @param {string} root */
-function activationAssetSetBytes(root) {
+function activationAssetSetEvidence(root) {
   let entries = 0
   let bytes = 0
-  /** @param {string} path @param {number} depth */
-  const visit = (path, depth) => {
+  /** @type {Array<{path:string,type:'directory'|'file',mode:number,nlink:number,size:number,sha256:string|null}>} */
+  const inventory = []
+  /** @param {string} path @param {string} relativePath @param {number} depth */
+  const visit = (path, relativePath, depth) => {
     if (depth > 8) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set exceeds the depth limit')
     const stat = lstatSync(path)
     if (stat.isSymbolicLink()) {
@@ -2085,19 +2119,48 @@ function activationAssetSetBytes(root) {
     entries += 1
     if (entries > 16) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains too many entries')
     if (stat.isDirectory()) {
-      for (const name of readdirSync(path).sort()) visit(join(path, name), depth + 1)
+      inventory.push({
+        path: relativePath,
+        type: 'directory',
+        mode: stat.mode & 0o777,
+        nlink: stat.nlink,
+        size: stat.size,
+        sha256: null,
+      })
+      for (const name of readdirSync(path).sort()) visit(join(path, name), join(relativePath, name), depth + 1)
       return
     }
     if (!stat.isFile() || stat.nlink !== 1) {
       throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains an unsupported entry')
     }
-    bytes += stat.size
+    const content = readFileSync(path)
+    if (content.length !== stat.size) {
+      throw new OperationsError('activation-asset-inventory-invalid', 'activation asset file changed during validation')
+    }
+    bytes += content.length
     if (bytes > MAX_ACTIVATION_ASSET_BYTES + 64 * 1024) {
       throw new OperationsError('activation-asset-retention-limit', 'activation asset set exceeds the storage limit')
     }
+    inventory.push({
+      path: relativePath,
+      type: 'file',
+      mode: stat.mode & 0o777,
+      nlink: stat.nlink,
+      size: stat.size,
+      sha256: sha256(content),
+    })
   }
-  visit(root, 0)
-  return bytes
+  visit(root, '.', 0)
+  inventory.sort((left, right) => left.path.localeCompare(right.path))
+  return {
+    bytes,
+    tree_sha256: sha256(stableJson(inventory)),
+  }
+}
+
+/** @param {string} root */
+function activationAssetSetBytes(root) {
+  return activationAssetSetEvidence(root).bytes
 }
 
 /**
@@ -2111,7 +2174,7 @@ function activationAssetSetBytes(root) {
  * @param {{allowUnreferenced?:boolean}} [options]
  */
 function validateExactRetainedActivationAssets(paths, runtimeRoot, options = {}) {
-  const retained = retainedActivationAssetSets(paths, runtimeRoot)
+  const { retained, targets } = retainedActivationAssets(paths, runtimeRoot)
   if ((retained.size === 0 && options.allowUnreferenced !== true) || retained.size > MAX_ACTIVATION_ASSET_SETS) {
     throw new OperationsError(
       'activation-asset-retention-limit',
@@ -2140,7 +2203,7 @@ function validateExactRetainedActivationAssets(paths, runtimeRoot, options = {})
     }
     const path = join(assetsRoot, entry.name)
     assertOwnedPath(path, 'directory', true)
-    present.set(entry.name, activationAssetSetBytes(path))
+    present.set(entry.name, activationAssetSetEvidence(path))
   }
   for (const digest of retained) {
     if (!present.has(digest)) {
@@ -2149,10 +2212,23 @@ function validateExactRetainedActivationAssets(paths, runtimeRoot, options = {})
         'ownerless runtime root is missing a retained activation asset set',
       )
     }
+    const target = targets.get(digest)
+    if (target === undefined) {
+      throw new OperationsError(
+        'activation-asset-inventory-invalid',
+        'retained activation asset set has no authenticated target',
+      )
+    }
+    if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
+      throw new OperationsError(
+        'activation-asset-inventory-invalid',
+        'retained activation asset set does not match its authenticated target',
+      )
+    }
   }
-  return [...present].sort(([left], [right]) => left.localeCompare(right)).map(([digest, bytes]) => ({
+  return [...present].sort(([left], [right]) => left.localeCompare(right)).map(([digest, evidence]) => ({
     digest,
-    bytes,
+    ...evidence,
   }))
 }
 
