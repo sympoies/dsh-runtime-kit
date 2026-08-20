@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   chmodSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -397,6 +398,34 @@ function activationAssetSets(subject) {
     .filter(entry => entry.isDirectory() && /^[0-9a-f]{64}$/.test(entry.name))
     .map(entry => entry.name)
     .sort()
+}
+
+function activationAssetInventory(subject) {
+  const assetsRoot = join(subject.runtimeRoot, 'assets')
+  if (!existsSync(assetsRoot)) return []
+  const inventory = []
+  const visit = (path, relativePath) => {
+    const stat = lstatSync(path)
+    inventory.push({
+      path: relativePath,
+      type: stat.isDirectory() ? 'directory' : 'file',
+      mode: stat.mode & 0o777,
+      sha256: stat.isFile() ? sha256(readFileSync(path)) : null,
+    })
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(path).sort()) visit(join(path, name), join(relativePath, name))
+    }
+  }
+  for (const name of readdirSync(assetsRoot).sort()) visit(join(assetsRoot, name), name)
+  return inventory
+}
+
+function makeAssetTreeOwnerOnly(root) {
+  const stat = lstatSync(root)
+  chmodSync(root, stat.isDirectory() ? 0o700 : 0o600)
+  if (stat.isDirectory()) {
+    for (const name of readdirSync(root)) makeAssetTreeOwnerOnly(join(root, name))
+  }
 }
 
 function activationForTarget(target, profile = 'work') {
@@ -1037,17 +1066,23 @@ test('ownerless adoption enumerates exact terminal and interrupted remove states
   const removed = fixture()
   try {
     applyPlan(removed, ['setup', '--profile', 'work', '--package', removed.v1])
+    const orphanDigest = activationAssetSets(removed)[0]
+    const orphanBackup = join(removed.root, 'pre-owner-remove-assets')
+    cpSync(join(removed.runtimeRoot, 'assets', orphanDigest), orphanBackup, { recursive: true })
     applyPlan(removed, ['remove', '--profile', 'work'])
     const statePath = join(removed.home, 'runtime-kit', 'state', 'work.json')
     const activationPath = join(removed.runtimeRoot, 'activation.json')
     const ownerPath = join(removed.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    const orphanPath = join(removed.runtimeRoot, 'assets', orphanDigest)
+    cpSync(orphanBackup, orphanPath, { recursive: true })
+    makeAssetTreeOwnerOnly(orphanPath)
     unlinkSync(ownerPath)
     unlinkSync(join(removed.runtimeRoot, '.dsh-runtime-kit.lock'))
     assert.equal(existsSync(activationPath), false)
-    assert.deepEqual(activationAssetSets(removed), [])
+    assert.deepEqual(activationAssetSets(removed), [orphanDigest])
     const before = {
       state: readFileSync(statePath, 'utf8'),
-      assets: readdirSync(join(removed.runtimeRoot, 'assets')).sort(),
+      assets: activationAssetInventory(removed),
     }
 
     const repair = run(removed, ['doctor', '--profile', 'work', '--repair'])
@@ -1056,6 +1091,11 @@ test('ownerless adoption enumerates exact terminal and interrupted remove states
     assert.equal(repair.value.data.plan.adoption.observed_activation_source, 'absent')
     assert.equal(repair.value.data.plan.adoption.pending_phase, null)
     assert.equal(repair.value.data.plan.adoption.pending_action, 'remove')
+    assert.deepEqual(repair.value.data.plan.adoption.reviewed_orphan_asset_sets, [{
+      digest: orphanDigest,
+      bytes: repair.value.data.plan.adoption.reviewed_orphan_asset_sets[0].bytes,
+    }])
+    assert.ok(repair.value.data.plan.adoption.reviewed_orphan_asset_sets[0].bytes > 0)
     const adopted = run(removed, [
       'doctor', '--profile', 'work', '--repair', '--apply',
       '--expected-plan-digest', repair.value.data.plan_digest,
@@ -1063,8 +1103,9 @@ test('ownerless adoption enumerates exact terminal and interrupted remove states
     assert.equal(adopted.status, 0, adopted.stderr)
     assert.equal(existsSync(ownerPath), true)
     assert.equal(readFileSync(statePath, 'utf8'), before.state)
-    assert.deepEqual(readdirSync(join(removed.runtimeRoot, 'assets')).sort(), before.assets)
+    assert.deepEqual(activationAssetInventory(removed), before.assets)
     applyPlan(removed, ['setup', '--profile', 'work', '--package', removed.v2])
+    assert.equal(activationAssetSets(removed).includes(orphanDigest), false)
     applyPlan(removed, ['remove', '--profile', 'work'])
   } finally {
     removed.cleanup()
@@ -1139,6 +1180,115 @@ test('ownerless adoption enumerates exact terminal and interrupted remove states
         before.activation,
       )
       assert.deepEqual(activationAssetSets(subject), before.assets)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('terminal ownerless adoption rejects an asset retained by another profile', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const installedState = JSON.parse(readFileSync(statePath, 'utf8'))
+    const retainedDigest = installedState.current.target.assets.asset_set_sha256
+    const orphanBackup = join(subject.root, 'globally-retained-assets')
+    cpSync(join(subject.runtimeRoot, 'assets', retainedDigest), orphanBackup, { recursive: true })
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    const retainedPath = join(subject.runtimeRoot, 'assets', retainedDigest)
+    cpSync(orphanBackup, retainedPath, { recursive: true })
+    makeAssetTreeOwnerOnly(retainedPath)
+    const removedState = JSON.parse(readFileSync(statePath, 'utf8'))
+    writeJson(join(subject.home, 'profiles', 'other', 'package.json'), {
+      name: 'dsh-profile-other',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: [] } },
+    })
+    const otherStatePath = join(subject.home, 'runtime-kit', 'state', 'other.json')
+    writeJson(otherStatePath, {
+      ...removedState,
+      profile: 'other',
+      current: installedState.current,
+      last_applied: null,
+    })
+    chmodSync(otherStatePath, 0o600)
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+    const before = {
+      work: readFileSync(statePath, 'utf8'),
+      other: readFileSync(otherStatePath, 'utf8'),
+      assets: activationAssetInventory(subject),
+    }
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(rejected.status, 65, rejected.stderr)
+    assert.equal(rejected.value.error.code, 'runtime-root-owner-missing', rejected.stdout)
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(statePath, 'utf8'), before.work)
+    assert.equal(
+      readFileSync(otherStatePath, 'utf8'),
+      before.other,
+    )
+    assert.deepEqual(activationAssetInventory(subject), before.assets)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('terminal ownerless adoption rejects unsafe orphan inventories', () => {
+  const scenarios = [
+    { name: 'unmanaged-name', code: 'activation-asset-inventory-invalid' },
+    { name: 'staging-name', code: 'activation-asset-inventory-invalid' },
+    { name: 'symlink-member', code: 'activation-asset-inventory-invalid' },
+    { name: 'over-count', code: 'activation-asset-retention-limit' },
+  ]
+  for (const scenario of scenarios) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const orphanDigest = activationAssetSets(subject)[0]
+      const orphanBackup = join(subject.root, 'unsafe-orphan-backup')
+      cpSync(join(subject.runtimeRoot, 'assets', orphanDigest), orphanBackup, { recursive: true })
+      applyPlan(subject, ['remove', '--profile', 'work'])
+      const assetsRoot = join(subject.runtimeRoot, 'assets')
+      const orphanPath = join(assetsRoot, orphanDigest)
+      cpSync(orphanBackup, orphanPath, { recursive: true })
+      makeAssetTreeOwnerOnly(orphanPath)
+      if (scenario.name === 'unmanaged-name') {
+        writeFileSync(join(assetsRoot, 'unmanaged'), 'unmanaged', { mode: 0o600 })
+      } else if (scenario.name === 'staging-name') {
+        mkdirSync(join(assetsRoot, `.${orphanDigest}.staging`), { mode: 0o700 })
+      } else if (scenario.name === 'symlink-member') {
+        symlinkSync(join(subject.root, 'outside'), join(orphanPath, 'unsafe-link'))
+      } else {
+        for (let index = 1; index <= 16; index += 1) {
+          const digest = index.toString(16).padStart(64, '0')
+          const extra = join(assetsRoot, digest)
+          cpSync(orphanBackup, extra, { recursive: true })
+          makeAssetTreeOwnerOnly(extra)
+        }
+      }
+      const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+      unlinkSync(ownerPath)
+      unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const before = {
+        state: readFileSync(statePath, 'utf8'),
+        names: readdirSync(assetsRoot).sort(),
+      }
+
+      const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      assert.equal(rejected.status, 65, `${scenario.name}: ${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, scenario.code, `${scenario.name}: ${rejected.stdout}`)
+      assert.equal(existsSync(ownerPath), false)
+      assert.equal(readFileSync(statePath, 'utf8'), before.state)
+      assert.deepEqual(readdirSync(assetsRoot).sort(), before.names)
+      if (scenario.name === 'symlink-member') {
+        assert.equal(lstatSync(join(orphanPath, 'unsafe-link')).isSymbolicLink(), true)
+      }
     } finally {
       subject.cleanup()
     }

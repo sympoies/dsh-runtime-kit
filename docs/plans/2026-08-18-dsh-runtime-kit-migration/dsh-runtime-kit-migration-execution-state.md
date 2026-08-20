@@ -430,6 +430,25 @@ until the repaired head is re-reviewed.
   is assigned source rehearsal `issue1-finalhead-20260820p`; external terminal
   evidence remains required before promotion. No merge or cutover is
   authorized.
+- 2026-08-20: Final terminal-remove inventory follow-up first failed 0/2:
+  a true pre-owner completed-remove root with one restored safe digest
+  directory was rejected, while another profile's authenticated reference to
+  the same set was not. Terminal adoption now requires zero retained
+  activation references across the global authenticated profile inventory and
+  permits at most 16 present digest directories only as reviewed unreferenced
+  orphans. Each orphan is owner-only, single-link, symlink-free,
+  depth/count-bounded, and limited independently to 4 MiB of package assets
+  plus 64 KiB of activation overhead. The receipt binds each orphan digest and
+  byte count; apply revalidates under the root lock, writes only ownership
+  infrastructure, and preserves the exact orphan tree. The next authenticated
+  setup reconciles it. Unmanaged/staging names, malformed members, 17 present
+  sets, and any globally retained set fail closed. Focused terminal contracts
+  pass 3/3, complete ownerless adoption audit 10/10, operations 57/57 on Node
+  22 and Node 24, and full package 264/264 plus typecheck, both performance
+  gates, a 133-entry package preview, plan validation, and diff check. The
+  frozen package is assigned source rehearsal `issue1-finalhead-20260820q`;
+  external terminal evidence remains required before promotion. No merge or
+  cutover is authorized.
 
 ## Decision Log
 

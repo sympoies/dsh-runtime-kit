@@ -1247,3 +1247,30 @@ final frozen package is assigned source rehearsal
 `issue1-finalhead-20260820p`; its terminal receipt remains external. Exact-head
 specialist and hosted acceptance remain promotion gates; no merge or cutover
 is claimed.
+
+The final terminal-remove inventory review began RED 0/2. A true pre-owner
+completed-remove fixture restored its former digest directory after removal;
+preview rejected that safe orphan with status 65 instead of offering the
+owner-only adoption. Conversely, when another authenticated profile retained
+that same set, preview incorrectly returned status 0 instead of rejecting the
+globally referenced candidate. The strengthened negative inventory table also
+covers unmanaged and staging names, a symlink member, and 17 present sets.
+
+Terminal adoption now requires zero retained activation references across the
+global authenticated profile inventory, while admitting at most 16 safe
+present digest directories as reviewed unreferenced orphans. Every orphan is
+owner-only, single-link, symlink-free, depth/count bounded, and independently
+limited to 4 MiB of package assets plus 64 KiB of activation overhead. Its
+digest and byte count are bound into the version 2 receipt and revalidated
+under the runtime-root lock. Apply writes only ownership infrastructure and
+preserves the exact orphan tree; the next authenticated setup reconciles it.
+Focused terminal contracts pass 3/3 and the complete ownerless adoption audit
+passes 10/10. Operations passes 57/57 on Node 22 and Node 24, and the full
+package suite passes 264/264. Typechecking and plan validation pass.
+Deterministic policy performance passes 2,000 samples at 0.131761 ms p95 with
+zero retained growth/active resources; packed released agent-hook performance
+passes 25 samples at 5.177387 ms p95 with zero active resources or live
+children. The 133-entry package preview and diff check also pass. The frozen
+package is assigned source rehearsal `issue1-finalhead-20260820q`; its terminal
+receipt remains external. Exact-head specialist and hosted acceptance remain
+promotion gates; no merge or cutover is claimed.

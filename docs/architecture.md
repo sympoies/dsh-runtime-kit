@@ -411,8 +411,14 @@ oversized, or malformed candidates cannot be adopted.
 The adoption receipt also binds one protocol-consistent provenance row:
 installed terminal state is `current/current`; removed terminal state is
 `absent/absent` only when current, previous, and pending are null, the
-last-applied remove is authenticated to the selected root, and the owner-only
-asset directory is exactly empty. Update and rollback `prepared` state may be
+last-applied remove is authenticated to the selected root, and the global
+authenticated profile inventory retains zero references to activation sets.
+The owner-only asset directory may contain up to 16 reviewed unreferenced
+digest directories left by the pre-ownership remove; each is subject to the
+normal owner, link, topology, count, and per-set byte bounds, and its digest
+and byte count are adoption evidence. Adoption leaves those bytes untouched,
+while the next authenticated setup or update removes them through ordinary
+reconciliation. Update and rollback `prepared` state may be
 `current/current` or `pending/current`; update and rollback `native-applied`
 state may be `pending/current` or `pending/pending`; setup is adoptable only as
 `native-applied/pending/pending`. Pending remove retains the authenticated

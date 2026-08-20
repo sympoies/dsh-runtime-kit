@@ -380,7 +380,13 @@ Adoption binds one explicit actual/activation provenance pair to the pending
 protocol phase. With no pending operation, both must match `current`; a
 terminal removed root instead requires absent package and activation surfaces,
 null current/previous/pending state, an authenticated last-applied remove for
-the selected root, and an exactly empty owner-only assets directory. During an
+the selected root, and zero asset-set references across every authenticated
+profile receipt. It may retain up to 16 reviewed unreferenced digest
+directories from the pre-ownership remove: every directory must satisfy the
+same owner, mode, link, depth, count, and per-set byte limits as a live set,
+and its digest and byte count are bound into the adoption receipt. Adoption
+preserves those orphan bytes; the next authenticated setup or update collects
+them through ordinary reconciliation. During an
 update or rollback, `prepared` permits `current/current` or `pending/current`,
 and `native-applied` permits `pending/current` or `pending/pending`. Setup is
 adoptable only at `native-applied/pending/pending`. A pending remove retains

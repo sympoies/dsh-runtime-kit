@@ -2108,11 +2108,11 @@ function activationAssetSetBytes(root) {
  *
  * @param {ReturnType<typeof pathsFor>} paths
  * @param {string} runtimeRoot
- * @param {{allowEmpty?:boolean}} [options]
+ * @param {{allowUnreferenced?:boolean}} [options]
  */
 function validateExactRetainedActivationAssets(paths, runtimeRoot, options = {}) {
   const retained = retainedActivationAssetSets(paths, runtimeRoot)
-  if ((retained.size === 0 && options.allowEmpty !== true) || retained.size > MAX_ACTIVATION_ASSET_SETS) {
+  if ((retained.size === 0 && options.allowUnreferenced !== true) || retained.size > MAX_ACTIVATION_ASSET_SETS) {
     throw new OperationsError(
       'activation-asset-retention-limit',
       retained.size === 0
@@ -2123,8 +2123,16 @@ function validateExactRetainedActivationAssets(paths, runtimeRoot, options = {})
   const assetsRoot = join(runtimeRoot, 'assets')
   assertOwnedPath(assetsRoot, 'directory', true)
   const present = new Map()
-  for (const entry of readdirSync(assetsRoot, { withFileTypes: true })) {
-    if (!/^[0-9a-f]{64}$/.test(entry.name) || !retained.has(entry.name)) {
+  const entries = readdirSync(assetsRoot, { withFileTypes: true })
+  if (entries.length > MAX_ACTIVATION_ASSET_SETS) {
+    throw new OperationsError(
+      'activation-asset-retention-limit',
+      'runtime root contains too many activation asset sets',
+    )
+  }
+  for (const entry of entries) {
+    if (!/^[0-9a-f]{64}$/.test(entry.name)
+      || (options.allowUnreferenced !== true && !retained.has(entry.name))) {
       throw new OperationsError(
         'activation-asset-inventory-invalid',
         'ownerless runtime asset root contains an unmanaged or staging entry',
@@ -2780,7 +2788,16 @@ function ownerlessRuntimeRootAdoption(paths, runtimeRoot, profile) {
     )
   }
   const [observedActualSource, observedActivationSource] = observedPairs[0]
-  const assetSets = validateExactRetainedActivationAssets(paths, runtimeRoot, { allowEmpty: terminalRemoved })
+  const globallyRetainedAssetSets = retainedActivationAssetSets(paths, runtimeRoot)
+  if (terminalRemoved && globallyRetainedAssetSets.size !== 0) {
+    throw new OperationsError(
+      'runtime-root-owner-missing',
+      'terminal removed ownerless runtime root still has retained activation references',
+    )
+  }
+  const assetSets = validateExactRetainedActivationAssets(paths, runtimeRoot, {
+    allowUnreferenced: terminalRemoved,
+  })
   return {
     schema_version: 'dsh-runtime-kit.runtime-root-adoption.v2',
     dsh_home: realpathSync(paths.home),
@@ -2792,7 +2809,8 @@ function ownerlessRuntimeRootAdoption(paths, runtimeRoot, profile) {
     pending_phase: pending?.phase ?? null,
     pending_action: pendingPlan?.action ?? (terminalRemoved ? 'remove' : null),
     active_asset_set_sha256: activation?.manifest.asset_set_sha256 ?? null,
-    retained_asset_sets: assetSets,
+    retained_asset_sets: terminalRemoved ? [] : assetSets,
+    reviewed_orphan_asset_sets: terminalRemoved ? assetSets : [],
     runtime_root_topology: topology,
   }
 }
