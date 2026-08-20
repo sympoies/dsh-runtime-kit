@@ -1481,3 +1481,16 @@ nils-cli 1.27.0, and denied network completes setup-update-rollback-remove and
 cleans both the temporary UID and nft table. Frozen packed source rehearsal
 `issue1-native-dsh-profile-20260821x` remains external. A new exact-head hosted
 run is still required; no merge or cutover is claimed.
+
+PR #18 exact head `0b6aea416046d44e8d530ef06160985ab447e1d6`
+then passed the four-job DSH compatibility workflow in run `32397354308`:
+package validation on Node 22 and Node 24 plus pinned and upstream-next DSH
+compatibility. It was squash-integrated into the Task 6.1 candidate branch as
+`74f5d0a64f3de22754763146d0eb538fc90666fa`. This is retained integration
+evidence rather than a new behavior change, so a new RED is not meaningful;
+the exact provider head, signed source commit, four terminal check results, and
+candidate-base readback are the verification contract. The next signed
+semantic candidate receipt and private control manifest must bind the same
+eight acceptance files before the final hosted attempt. Task 6.1 remains in
+progress until all 12 disposable hosted scenarios and the correlated no-merge
+delivery receipt pass; no cutover is claimed here.
