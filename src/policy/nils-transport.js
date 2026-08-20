@@ -1,8 +1,11 @@
 // @ts-check
 
 import { createHash } from 'node:crypto'
-import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+
+import { resolveAgentHookRuntime, requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
+import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+
+export { selectManagedSessionEnvironment } from '../nils/session-environment.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -19,31 +22,6 @@ const DEFAULT_MAX_ACTIVE_POLICY_CHECKS = 4
 const MAX_ACTIVE_POLICY_CHECKS = 16
 const MAX_POLICY_INPUT_DEPTH = 64
 const MAX_POLICY_INPUT_ENTRIES = 10_000
-const MANAGED_SESSION_ENVIRONMENT = Object.freeze([
-  'AGENT_SESSION_ID',
-  'AGENT_SESSION_RUNTIME_ID',
-  'AGENT_SESSION_BIN',
-  'AGENT_SESSION_CAPABILITY_FILE',
-  'AGENT_SESSION_STATE_DIR',
-])
-
-/**
- * Restore only the trusted session identity fields that DSH's subprocess
- * service deliberately scrubs from ambient process state. Bearer/token values
- * are never forwarded; agent-session reads its capability from the private
- * path after nils validates the managed contract.
- *
- * @param {NodeJS.ProcessEnv} environment
- */
-export function selectManagedSessionEnvironment(environment) {
-  /** @type {Record<string, string>} */
-  const selected = {}
-  for (const name of MANAGED_SESSION_ENVIRONMENT) {
-    const value = environment[name]
-    if (typeof value === 'string' && value.length > 0) selected[name] = value
-  }
-  return Object.keys(selected).length === 0 ? undefined : Object.freeze(selected)
-}
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/
 const DSH_V1_REASON_DISPOSITIONS = new Set(['allow', 'warn', 'context', 'block'])
 
@@ -321,15 +299,6 @@ function policyTeardownTimeout(value) {
     : DEFAULT_POLICY_TEARDOWN_TIMEOUT_MS
 }
 
-/** @param {unknown} value @param {string} name */
-function optionalAbsolutePath(value, name) {
-  if (value === undefined) return undefined
-  if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || !isAbsolute(value)) {
-    throw new TypeError(`dsh-runtime-kit: ${name} must be an absolute path`)
-  }
-  return value
-}
-
 /** @param {CancellationCause} cause */
 function cancellationDenial(cause) {
   if (cause === 'caller-aborted') return denial('policy-caller-aborted')
@@ -346,21 +315,15 @@ function cancellationDenial(cause) {
  * sibling operation, so possible survivors can never create reusable capacity.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
+ * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
  */
 export function createNilsTransport(ctx, config = {}) {
-  const command = typeof config.agentHook === 'string' && config.agentHook.length > 0
-    ? config.agentHook
-    : 'agent-hook'
+  const agentHook = resolveAgentHookRuntime(config)
   const timeoutMs = policyTimeout(config.policyTimeoutMs)
   const teardownTimeoutMs = policyTeardownTimeout(config.policyTeardownTimeoutMs)
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
-  const agentDocsHome = optionalAbsolutePath(config.agentDocsHome, 'agentDocsHome')
-  const agentDocsStateHome = optionalAbsolutePath(
-    config.agentDocsStateHome,
-    'agentDocsStateHome',
-  ) ?? join(homedir(), '.local/state/dsh-runtime-kit')
-  const managedSessionEnvironment = selectManagedSessionEnvironment(process.env)
+  const agentDocsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
+  const agentDocsStateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
   /** @type {Set<ActiveOperation>} */
   const active = new Set()
   let open = true
@@ -482,11 +445,8 @@ export function createNilsTransport(ctx, config = {}) {
 
       try {
         operation.handle = ctx.subprocess.spawn({
-          argv: [command, 'dispatch', '--product', 'dsh', '--format', 'json'],
+          argv: agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
           cwd,
-          ...(managedSessionEnvironment === undefined
-            ? {}
-            : { env: managedSessionEnvironment }),
           stdio: {
             stdin: { data: payload },
             stdout: { maxBytes: MAX_POLICY_OUTPUT_BYTES },
@@ -494,6 +454,7 @@ export function createNilsTransport(ctx, config = {}) {
           },
           graceMs: 1_000,
           signal: operation.controller.signal,
+          env: isolatedNilsEnvironment(undefined),
         })
       } catch {
         return operation.cause === undefined
@@ -578,7 +539,7 @@ export function createNilsTransport(ctx, config = {}) {
           session_id: context.sessionId,
           turn: context.turn,
           step: context.step,
-          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_home: agentDocsHome,
           agent_docs_state_home: agentDocsStateHome,
         },
         tool: {
@@ -607,7 +568,7 @@ export function createNilsTransport(ctx, config = {}) {
           session_id: context.sessionId,
           turn: context.turn,
           step: context.step,
-          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_home: agentDocsHome,
           agent_docs_state_home: agentDocsStateHome,
         },
         tool: {
@@ -635,7 +596,7 @@ export function createNilsTransport(ctx, config = {}) {
           ...preStep && request.sessionStartSource !== undefined
             ? { session_start_source: request.sessionStartSource }
             : {},
-          ...agentDocsHome === undefined ? {} : { agent_docs_home: agentDocsHome },
+          agent_docs_home: agentDocsHome,
           agent_docs_state_home: agentDocsStateHome,
         },
       }

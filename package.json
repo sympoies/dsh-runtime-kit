@@ -6,6 +6,7 @@
   "main": "index.js",
   "bin": {
     "dsh-runtime-kit": "./bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-launch": "./bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs"
   },
   "exports": {
@@ -19,6 +20,7 @@
     "bin",
     "policy.js",
     "src",
+    "agent-docs",
     "agents",
     "cordis.patch.yml",
     "compatibility",
@@ -51,6 +53,13 @@
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
+  "bundledDependencies": [
+    "@standard-schema/spec",
+    "chokidar",
+    "js-yaml",
+    "yaml",
+    "zod"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:smoke": "node test/smoke.mjs",
@@ -60,6 +69,7 @@
     "stage:compatibility-peers": "node scripts/stage-dsh-compatibility-peers.mjs",
     "acceptance": "node scripts/run-acceptance.mjs",
     "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
+    "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
     "verify:policy-source": "node scripts/verify-policy-parity.mjs",
     "typecheck": "tsc -p jsconfig.json"
   },

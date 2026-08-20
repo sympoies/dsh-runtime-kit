@@ -3,6 +3,9 @@
       name: '@sympoies/dsh-runtime-kit'
       config:
         agentHook: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'
+        agentHookConfig: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
+        agentHookPolicy: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY
+        agentHookStateDir: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
         agentDocs: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? 'agent-docs'
         agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
         agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME

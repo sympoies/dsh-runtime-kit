@@ -875,3 +875,622 @@ The DSH package suite passes 217/217 plus typecheck, the real packed smoke and
 external-tarball rehearsal pass, and the private trust root passes its full
 `make validate` gate. Security and maintainability follow-ups report no
 remaining material findings.
+
+## Task 6.1 released-nils and coexistence correction evidence
+
+The retained contract first added two focused regressions before changing the
+manifest or acceptance code. The focused command
+`node --test test/acceptance.test.mjs test/coexistence-contract.test.mjs`
+reported 9 passed and 3 failed: the old summary accepted receipts without
+coexistence markers, the compatibility manifest remained `pending-release`,
+and the source/plan/state/README terminal contract still required retirement of
+agent-runtime-kit. These are behavioral and retained-contract failures, not a
+module-absence setup result.
+
+The correction authenticates the official nils-cli `v1.27.0` tag and peeled
+source commit, downloads the official Linux x86-64 release archive, verifies
+its published SHA-256, and independently hashes the six acceptance binaries
+extracted from that archive. The exact evidence is checked into
+`compatibility/nils-cli.json`; no ambient nils checkout or installed binary is
+used as release proof. Because v1.27.0 is the first published DSH-capable
+contract, both the supported minimum and validated release are `1.27.0`.
+
+Green acceptance now requires the existing 12-scenario receipt to carry three
+additional assertions without inventing a synthetic scenario: DSH has zero
+agent-runtime-kit dependency, Codex/Claude wiring remains untouched, and the
+DSH run did not cross-load their hooks, skills, or session state. Operations and
+packed-smoke programs prove those claims with isolated provider sentinels. The
+focused suite then passed 37/37. Hosted isolated execution and its correlated
+no-merge live delivery remain the final Task 6.1 promotion boundary; this source
+evidence does not claim that hosted acceptance has run.
+
+## Task 6.1 live-root isolation follow-up
+
+Cutover preflight found that the prior smoke's temporary XDG roots concealed two
+ambient fallbacks. Without an explicit docs home, `agent-docs` could derive its
+catalog from the Codex or Claude Code home. Bare `agent-hook` dispatch,
+finish-line, and doctor calls could likewise select the shared provider config,
+policy, and state even though DSH engine support was installed. The first
+focused regression run reported 50 passed and 3 failed: the package lacked a
+DSH-only docs catalog, context construction accepted an absent docs home, and
+policy dispatch omitted literal hook config/policy/state arguments. A separate
+acceptance regression failed because a receipt without explicit hook/docs/state
+isolation was still accepted.
+
+The correction ships a compact DSH-only `agent-docs/` catalog, requires absolute
+hook config/policy/state plus docs catalog/state paths at activation, and passes
+the hook paths on every dispatch, finish-line, and doctor invocation. The
+activation contract copies policy and catalog sources into owner-only DSH roots,
+requires config/policy regular files with link count one, uses DSH's native
+`headless` profile, and never implicitly migrates a Codex or Claude Code private
+bundle. Packed smoke installs an invalid ambient hook config and provider-only
+docs markers, then proves neither was selected.
+
+The real operations smoke initially exposed a distinct store mismatch: its
+bootstrap and managed mutations changed `HOME`, so pnpm rejected the second
+installation with `ERR_PNPM_UNEXPECTED_STORE`. The smoke now preserves the
+acceptance runner's single HOME for both phases. The standalone operations
+matrix and packed rc.7 smoke pass with released nils-cli v1.27.0 binaries.
+
+The final local source rehearsal, run ID
+`issue1-coexistence-source-20260820b`, is `released` mode and binds runtime
+package SHA-256
+`af1c71a1205f5fd99cbc291a59ea0e2df679733859a5c26e54ad255f9433c1b6`.
+It reports 10 passed, 2 pending, and 0 failed with exactly two honest promotion
+blockers: disposable isolated execution and authorized live delivery. Its
+private-project-skill scenario carries both zero-cross-loading and explicit
+DSH hook/docs/state isolation evidence. This remains a local trusted-code
+rehearsal, not the final hosted pass.
+
+## Task 6.1 candidate review-repair evidence
+
+The first hosted package jobs on the candidate head supplied a real benchmark
+red on both Node 22 and Node 24: the benchmark still constructed the nils
+transport without the newly mandatory DSH hook config, policy, and state roots.
+The isolated fixture now supplies all three exact paths, and the benchmark gate
+passes locally.
+
+Security follow-up then added provider-shaped ambient `AGENT_SESSION_*` input,
+valid loadable provider skills, observable hook/session markers, structured
+zero-loading booleans, and exact fixture digests. DSH nils subprocesses now
+tombstone every ambient managed-session variable; no unauthenticated provider
+session bridge remains. Acceptance additionally binds the nils source commit,
+release archive name, and archive SHA-256, and rejects source, archive-name, or
+archive-digest substitution independently of the six executable hashes.
+
+Maintainability and API follow-up made doctor validate the released agent-docs
+executable plus the owner-only DSH catalog and state roots, removed dead context
+path code, and retained the review status as unresolved until follow-up review.
+A real pinned rc.7 regression proves `$DSH_HOME/.env` rejects `DSH_*` bootstrap
+variables. The supported path is instead one owner launcher invocation for
+setup, doctor, and live DSH; it authenticates one absolute DSH-only runtime root
+and overrides ambient provider paths.
+
+Data-migration and adversarial follow-up first failed four focused operations
+contracts for versioned policy/docs assets, tool replacement, interruption
+between package mutation and asset activation, and unrelated profile mutation.
+The reviewed plan now binds exact DSH/pnpm executable identities, the runtime
+root, package and asset digests, and bounded profile control files. Assets are
+staged and verified in a content-addressed owner-only directory before native
+mutation, while `activation.json` switches only after native package
+verification. Doctor recovery and rollback restore matched package/asset sets.
+Provider-home aliases, symlinked roots, nested asset/state roots, and tool
+replacement fail closed.
+
+A final audit strengthened the collateral test so it changed only an unrelated
+pnpm `packages` integrity entry. It failed meaningfully because the first
+projection ignored all `packages` and `snapshots` entries (observed status 0,
+expected 65). The corrected projection removes only the runtime-kit root and
+its one-sided dependency closure; shared and unrelated lock entries remain
+bound. That focused regression passes, as do the three asset/rollback/recovery
+tests and strict typechecking.
+
+The first post-review source acceptance also failed before setup because the
+fresh packed operations controller lacked its production `yaml` dependency.
+The operations leg now installs the candidate's exact package-lock closure with
+scripts and peers omitted, matching the existing runtime leg. The rerun,
+`issue1-reviewfix-20260820b`, exited zero in released mode with 10 passed, 2
+authorization-pending, and 0 failed. It binds runtime package SHA-256
+`3e7f4c3d5c36a61aabab2283ec87f8aa7a1e6ec0513ff5358be864118987fa89`,
+official nils-cli v1.27.0 source/archive/binary identities, versioned operations
+activation, and three structured provider zero-loading results. Follow-up
+specialist disposition remains a provider gate; this source evidence does not
+claim those reviews clean or authorize cutover.
+
+The final-head recovery and isolation follow-up added four narrowly scoped
+contracts. The first focused run passed only the already-enforced launcher
+nesting case and failed three cases: supervisor-loss recovery proposed
+`finalize` despite retained unrelated manifest and lockfile mutation, operations
+accepted a `DSH_HOME` overlapping a provider home, and the first dual-tool test
+used one invalid comment syntax for two different executable formats. After
+correcting that test construction, independent DSH and pnpm byte replacement
+both proved the existing plan-drift boundary before mutation; that finding was
+coverage-only. The launcher's provider-home nesting in both directions was
+also already enforced and was coverage-only.
+
+The production repair canonicalizes missing DSH paths through the nearest
+existing ancestor and rejects equality, nesting, or symlink aliases against
+explicit and default Codex and Claude homes before preview, doctor, repair, or
+mutation. Interrupted collateral recovery now compares the retained
+`profile_before` snapshot before proposing finalize, restores the prior
+package, activation, manifest, lockfile, and state through the shared recovery
+path, then rejects the contaminated operation fail closed. The exact focused
+rerun passes 4/4, the affected operations-plus-launcher suite passes 34/34, the
+operations suite passes 30/30 on both Node 22 and Node 24, and the full package
+suite passes 237/237 plus strict typechecking. The final packed source
+acceptance, run ID `issue1-finalhead-20260820d`, remains released mode with 10
+passed, 2 authorization-pending, and 0 failed. Follow-up specialist disposition
+and hosted acceptance remain promotion gates; no merge or cutover is claimed.
+
+The next final-head security follow-up reproduced three persisted-root recovery
+gaps before production changes. A four-test focused run passed only the
+existing-package collateral update restoration case and failed the other three:
+doctor repair accepted current provider-home equality/nesting/aliases for a
+persisted pending root, accepted a provider home overlapping a retained
+previous root, and omitted current provider topology from the repair-plan
+digest. The package-update case was coverage-only: the existing shared
+restoration path already returned the typed collateral failure while exactly
+restoring the v1 installed digest/version, activation manifest and asset set,
+profile manifest/lock bytes, current/previous/last-applied state, and clearing
+pending after an interrupted v2 update.
+
+The repair now reuses the activation root validator for every persisted
+pending, current, and previous runtime root before recovery can inspect or
+mutate one. It binds those canonical roots plus source-labeled explicit and
+default Codex/Claude home topology into the reviewed doctor-repair digest, so
+provider configuration or symlink topology drift between preview and apply is
+rejected. Negative coverage exercises equality, provider-above-root,
+provider-below-root, symlink aliases, default Codex home, retained previous
+roots, collateral restoration, and remove finalization while provider sentinel
+bytes remain unchanged. The focused suite passes 5/5, affected
+operations-plus-launcher passes 39/39, operations passes 35/35 on Node 22 and
+Node 24, and the full suite passes 242/242 plus typechecking. Packed source
+acceptance `issue1-finalhead-20260820e` remains released mode with 10 passed, 2
+authorization-pending, and 0 failed. Follow-up review and hosted acceptance
+remain promotion gates; no merge or cutover is claimed.
+
+## Task 6.1 schema-migration and real-subprocess follow-up
+
+The final API/data/performance review identified two independent promotion
+gaps. New operations records had extended the published version 1 state and
+plan shapes in place, and the performance command timed only an in-memory fake
+subprocess. Four migration/root regressions first failed 0/4: exact base
+terminal state was reported as unsupported, removed state could not migrate,
+legacy pending lacked an actionable non-destructive recovery, and update
+accepted a different supplied runtime root. Two compatibility regressions then
+failed 0/2 because no real-subprocess budget or CI command existed.
+
+New writes use explicit operations-state and operations-plan version 2.
+Version 1 has its own strict parser matching the retained base shape. Terminal
+v1 migrates only through digest-bound `doctor --repair`: retained package
+artifacts and installed bytes are authenticated, activation asset digests are
+derived from the bounded archive, the selected canonical runtime root is bound,
+and v2 state is written atomically after activation. Removed state stays
+removed. A v1 pending attempt is never guessed because it lacks the profile
+snapshot needed for safe recovery; repair preserves its bytes and directs the
+operator to the exact base CLI or an authenticated backup. Update, rollback,
+remove, and duplicate setup now reject runtime-root drift before native DSH.
+The focused migration/root suite passes 4/4.
+
+The closed compatibility manifest now carries a separate packed subprocess
+budget. `benchmark:policy:real` first packs and extracts the exact candidate,
+authenticates the released nils-cli `1.27.0` agent-hook version and binary
+SHA-256, then measures 25 sequential real dispatch subprocesses after five
+warmups. Promotion requires p95 at or below 250 ms and zero active operations
+or live children after disposal. The local released-binary run passes with p95
+about 6.1 ms and zero retained runtime resources. Package CI downloads the
+official archive, verifies its retained archive SHA-256 before extraction, and
+runs the same packed benchmark on Node 22 and Node 24.
+
+Final local gates pass: migration/root focused 5/5, compatibility focused 2/2,
+operations 47/47 on Node 22 and Node 24, and the full package suite 254/254.
+Typechecking, diff checks, the 2,000-sample deterministic benchmark (p95 about
+0.13 ms), the packed real-subprocess benchmark (p95 about 6.5 ms), the
+133-entry package preview, and plan validation all pass. Fresh packed source
+acceptance `issue1-finalhead-20260820l` remains released mode with 10 passed,
+2 authorization-pending, and 0 failed. Exact-head review convergence and
+hosted 12/12 acceptance remain promotion gates; no merge or cutover is claimed.
+
+The final red-team pass then reproduced the unbounded activation-store defect.
+Before production edits, the new retention, pre-pending crash, and cross-home
+ownership regressions failed 0/3: a third update retained three sets, the
+staging fault did not exist, and a second DSH home could mutate the same runtime
+root. A separate digest-before-claim regression then failed 0/1 because a
+drifted apply wrote the owner record before rejecting the plan. The
+implementation now binds a root to one canonical DSH home only after the
+reviewed digest matches, holds a
+root-scoped kernel lock, inventories every strict current/previous/pending and
+active reference, admits at most 16 sets within the corresponding byte budget,
+and collects exact unreferenced digest or hidden staging directories. A fourth
+capacity regression and a digest-before-claim regression pass together with the
+original three (5/5); Node 22 and Node 24 operations pass 47/47, and the
+complete package suite passes 254/254. An invalid plan digest cannot claim an
+otherwise unowned runtime root.
+The packed rehearsal named above is the exact post-repair package run; provider
+review-loop history retains the original open finding until the repaired head
+is observed as fixed.
+
+The final convergence recovery audit reproduced both crash windows before the
+atomic restore implementation. Two deterministic process-loss tests failed
+0/2: doctor repair returned the normal typed collateral result instead of being
+interrupted at a durable profile replacement or final state replacement, so
+the tests could not prove a parseable pending receipt survived either point.
+
+All restored profile control files and operations state now use one
+owner-checked atomic replacement primitive. It creates a private, single-link
+temporary in the target directory, writes and fsyncs the complete bytes,
+renames over the old inode, restores and fsyncs the final mode, and fsyncs the
+directory. Recovery restores and verifies the prior package, activation, and
+complete profile snapshot before the final state replacement can clear the
+pending receipt. A process killed immediately after either temporary becomes
+durable leaves valid pending JSON; the next doctor repair removes the exact
+orphan temporary and converges to the prior v1 package, assets, manifest,
+lockfile, and state. The focused regressions pass 2/2, operations passes 37/37
+on Node 22 and Node 24, and the full suite passes 244/244 plus typechecking.
+Policy benchmark, 132-entry package preview, plan validation, and diff checks
+pass. Packed source acceptance `issue1-finalhead-20260820h` remains released
+mode with 10 passed, 2 authorization-pending, and 0 failed. Follow-up review
+and hosted acceptance remain promotion gates; no merge or cutover is claimed.
+
+The absent-before profile-control removal follow-up was simplified after final
+maintainability review found that its durable marker had no recovery semantics:
+the pending receipt and authenticated prior snapshot were authoritative, while
+repair only deleted the marker. A replacement two-window regression first
+failed 0/1 because the old implementation had no distinct before-unlink fault
+boundary and returned the normal typed collateral result instead of receiving
+`SIGKILL`. Removal now keeps the owner/type checks, unlinks and fsyncs the
+directory without creating a second protocol artifact, and exposes test-only
+boundaries immediately before unlink and after the durable unlink. The former
+leaves `pnpm-lock.yaml` present and retries through collateral restoration; the
+latter leaves it absent and retries through clear. Both retain parseable pending
+state and converge to the exact authenticated v1 package, activation, profile,
+and state. The isolated two-window regression passes 1/1 and all three
+replacement/removal/state interruption cases pass 3/3.
+Operations passes 38/38 on Node 22 and Node 24, and the full suite passes
+245/245 plus typechecking. Packed source acceptance
+`issue1-finalhead-20260820j` remains released mode with 10 passed, 2
+authorization-pending, and 0 failed. Follow-up review and hosted acceptance
+remain promotion gates; no merge or cutover is claimed.
+
+The final ownership ledger follow-up first ran four focused contracts. Both
+owner-adoption tests failed 0/2: a valid ownerless version 2 root exposed no
+recovery action, while a different DSH home fell through to
+`repair-not-required`. The pending contract rejected a malformed digest but
+incorrectly accepted a pending plan whose root was owned by a foreign DSH home
+as a `finalize` repair. Oversized and symlinked retained-set cases were
+coverage-only GREEN 1/1 and already preserved state and activation bytes while
+returning their typed retention/inventory failures.
+
+A final no-other-mutation audit added an unreferenced authenticated-store
+sentinel to the positive adoption case and produced a second meaningful RED
+0/1: apply deleted that artifact before entering the adoption branch, and the
+postcondition failed with `ENOENT`. Artifact reconciliation now begins only
+after the adoption early return. The isolated sentinel regression passes 1/1,
+proving adoption leaves the complete pre-existing operations artifact store as
+well as state, activation, and retained assets byte-identical.
+
+`doctor --repair` now owns the only legacy version 2 adoption path. Its plan
+binds canonical DSH home/root topology, exact state and activation digests,
+installed and active current-or-pending target provenance, and every retained
+asset-set digest and size. Apply revalidates under the root lock and atomically
+writes only the owner record; ordinary mutations, cross-home/unmanaged/drifted
+candidates, malformed or foreign pending roots, and any missing, extra,
+staging, oversized, or malformed retained entry remain closed. The unreachable
+aggregate byte branch is removed: admission is derived from at most 16 sets,
+each with a 4 MiB package-asset plus 64 KiB activation-overhead ceiling. The
+focused suite passes 4/4, launcher passes 4/4, operations passes 51/51 on Node
+22 and Node 24, and the full package suite passes 258/258 plus typechecking.
+Both policy benchmarks, the 133-entry package preview, plan validation, and
+diff checks pass. Packed source acceptance `issue1-finalhead-20260820m`
+remains released mode with 10 passed, 2 authorization-pending, and 0 failed.
+Exact-head specialist and hosted acceptance remain promotion gates; no merge
+or cutover is claimed.
+
+The next exact-head review found that adoption selected actual and activation
+provenance independently. A new phase-consistency regression was RED because
+the impossible `prepared/current/pending` combination returned status 0 rather
+than 65. It also retains a positive `native-applied/pending/current` case from
+the real write order. A second RED changed an authenticated policy byte after
+a valid adoption preview: apply rejected it but returned
+`runtime-root-owner-missing` instead of the required old-plan `plan-drift`.
+A final error-surface regression was RED because an unavailable command
+supervisor during reviewed repair apply was masked as status 65 `plan-drift`
+instead of retaining status 70 `command-unavailable`.
+
+Adoption now enumerates a single permitted protocol row and binds
+`observed_actual_source`, `observed_activation_source`, `pending_phase`, and
+`pending_action` into its version 2 evidence. Undefined phases, pending remove,
+setup before both surfaces are pending, mixed `current/pending`, and ambiguous
+multi-row matches remain closed. Apply-time topology, provenance, activation,
+and asset evidence revalidation failures normalize to `plan-drift` before
+owner write. The explicit normalization allowlist excludes command,
+supervisor, runtime-isolation, and configuration failures so they preserve
+their typed exit status, code, and details. The final focused audit passes 4/4,
+the complete adoption/retention/pending suite passes 6/6, operations passes
+53/53 on Node 22 and Node 24, and the full package suite passes 260/260 plus
+typechecking. Deterministic policy performance passes 2,000 samples at
+0.192413 ms p95 with zero retained growth/active resources; packed released
+agent-hook performance passes 25 samples at 6.02768 ms p95 with zero active
+resources or live children. The 133-entry package preview, plan validation,
+and diff check also pass. The frozen candidate uses packed source acceptance
+ID `issue1-finalhead-20260820o`; the terminal receipt is external so no
+post-pack tracked edit can invalidate it.
+
+The terminal-remove ownership follow-up began RED 0/2. An authenticated
+ownerless version 2 root after a completed remove returned status 65 instead
+of exposing its one-time repair, so the subsequent setup/remove lifecycle
+could not be proven. The locked revalidation fault also returned status 0
+instead of preserving status 70 `command-supervisor-failed`, demonstrating
+that the adoption branch still bypassed the shared reviewed-repair error
+classifier.
+
+Adoption now enumerates the removed protocol states without performing
+cleanup. A terminal removed root requires absent package and activation
+surfaces, null current/previous/pending state, an authenticated last-applied
+remove tied to the selected root, and an exactly empty owner-only assets
+directory. Pending remove retains the authenticated current snapshot and exact
+asset set: prepared permits `current/current` or `absent/current`, while
+native-applied permits `absent/current` or `absent/absent`; the impossible
+prepared `current/absent` row stays closed. The version 2 receipt binds the
+observed sources, phase, and remove action. Apply revalidates the same row
+under the root lock and writes only ownership infrastructure. Its catch now
+uses the central durable-evidence classifier, so a non-allowlisted typed fault
+retains its status, code, and details.
+
+The two focused regressions pass 2/2 and the complete ownerless adoption audit
+passes 8/8. Operations passes 55/55 on Node 22 and Node 24, and the full package
+suite passes 262/262. Typechecking and plan validation pass. Deterministic
+policy performance passes 2,000 samples at 0.129151 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 6.068236 ms p95 with zero active resources or live children. The
+final frozen package is assigned source rehearsal
+`issue1-finalhead-20260820p`; its terminal receipt remains external. Exact-head
+specialist and hosted acceptance remain promotion gates; no merge or cutover
+is claimed.
+
+The final terminal-remove inventory review began RED 0/2. A true pre-owner
+completed-remove fixture restored its former digest directory after removal;
+preview rejected that safe orphan with status 65 instead of offering the
+owner-only adoption. Conversely, when another authenticated profile retained
+that same set, preview incorrectly returned status 0 instead of rejecting the
+globally referenced candidate. The strengthened negative inventory table also
+covers unmanaged and staging names, a symlink member, and 17 present sets.
+
+Terminal adoption now requires zero retained activation references across the
+global authenticated profile inventory, while admitting at most 16 safe
+present digest directories as reviewed unreferenced orphans. Every orphan is
+owner-only, single-link, symlink-free, depth/count bounded, and independently
+limited to 4 MiB of package assets plus 64 KiB of activation overhead. Its
+digest and byte count are bound into the version 2 receipt and revalidated
+under the runtime-root lock. Apply writes only ownership infrastructure and
+preserves the exact orphan tree; the next authenticated setup reconciles it.
+Focused terminal contracts pass 3/3 and the complete ownerless adoption audit
+passes 10/10. Operations passes 57/57 on Node 22 and Node 24, and the full
+package suite passes 264/264. Typechecking and plan validation pass.
+Deterministic policy performance passes 2,000 samples at 0.131761 ms p95 with
+zero retained growth/active resources; packed released agent-hook performance
+passes 25 samples at 5.177387 ms p95 with zero active resources or live
+children. The 133-entry package preview and diff check also pass. The frozen
+package is assigned source rehearsal `issue1-finalhead-20260820q`; its terminal
+receipt remains external. Exact-head specialist and hosted acceptance remain
+promotion gates; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32360067297` then crossed the infrastructure acquisition
+and isolation boundaries but returned only the runner's former generic
+`ACCEPTANCE_FAILED` diagnostic. A workspace-failure regression first failed
+13/14 because no sanitized phase or cause was emitted. The runner now reports
+only a bounded phase, error class, and stable cause code; scenario programs
+similarly emit one exact producer/step/cause record, and arbitrary progress or
+path-bearing output is discarded. The diagnostic exposed two functional
+portability defects in sequence. A source-only authenticated DSH checkout was
+incorrectly inspected for build outputs before the runner installed and built
+it, and the operations wrapper invoked `pnpm dsh`, allowing package-manager
+launcher state to replace the explicitly authenticated pnpm. The runner now
+authenticates checkout identity before build, repeats the full artifact check
+after build, and invokes the selected built DSH CLI directly with Node.
+
+The next exact replay exposed the final boundary: the temporary scenario PATH
+symlinked pnpm/action-setup's package-relative launcher, so its sibling runtime
+resolved below the temporary directory instead of the authenticated package.
+The package-layout regression failed 0/1 before the tool-path owner existed.
+Scenario PATH entries are now owner-only exec forwarders to the authenticated
+absolute tools, preserving each launcher's original package runtime without
+weakening binary identity checks. Focused acceptance, compatibility, and
+tool-path tests pass 33/33; the full package suite passes 276/276. Exact packed
+source rehearsal `acceptance-local-tool-forwarder-fix` passes all functional
+scenarios with 10 passed, 2 hosted-delivery-pending, and 0 failed against DSH
+rc.7 and released nils-cli 1.27.0. The final post-documentation receipt remains
+external; a new exact-head hosted run is still required before Task 6.1 can
+complete.
+
+The inactive-retained-set review began RED 0/2. After setup v1 and update v2,
+a same-length mutation of the inactive v1 policy before preview still produced
+a valid `adopt-owner` plan. A separate valid preview followed by the same
+mutation applied successfully and wrote the owner instead of returning
+`plan-drift`. The positive pre-owner v1/v2 fixture already retained a usable
+rollback target and was preserved as an explicit adoption-to-rollback check.
+
+Ownerless adoption now builds one authenticated digest-to-target catalog from
+every strict version 2 current, previous, and pending receipt in the DSH home.
+Every globally retained or active digest must resolve without conflict and its
+policy, catalog, document, and root-specific hook configuration must match the
+retained directory. Bounded traversal hashes sorted relative
+path/type/mode/link/size/file-digest rows into a canonical tree digest and
+binds that digest plus bytes in the adoption receipt. Terminal unreferenced
+orphans remain untrusted and unexecuted, but their canonical tree digests also
+make preview/apply changes fail as `plan-drift`. The two original regressions
+and positive rollback case pass 3/3; complete ownerless audit passes 11/11.
+Operations passes 60/60 on Node 22 and Node 24, and the full package suite
+passes 267/267. Typechecking and plan validation pass. Deterministic policy
+performance passes 2,000 samples at 0.138592 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 5.805533 ms p95 with zero active resources or live children. The
+133-entry package preview and diff check also pass. The frozen package is
+assigned source rehearsal `issue1-finalhead-20260820r`; its terminal receipt
+remains external. Exact-head specialist and hosted acceptance remain promotion
+gates; no merge or cutover is claimed.
+
+The canonical agent-hook configuration follow-up began RED 0/2. Both an active
+asset set and an inactive previous set accepted valid TOML that selected an
+owner-private alternate policy while placing the expected canonical path and
+digest only in comments; ownerless repair returned an adoption plan instead of
+failing closed. Activation now owns one internal canonical renderer used by
+staging, active reads, and retained-set validation. All three compare the exact
+configuration bytes, so comments, alternate provider data, extra sections, or
+overrides cannot satisfy the activation contract. The focused regressions pass
+2/2 and the complete ownerless audit passes 13/13. Operations passes 62/62 on
+Node 22 and Node 24, and the full package suite passes 269/269. Typechecking
+and plan validation pass. Deterministic policy performance passes 2,000
+samples at 0.144672 ms p95 with zero retained growth/active resources; packed
+released agent-hook performance passes 25 samples at 6.020433 ms p95 with zero
+active resources or live children. The 133-entry package preview and diff
+check also pass. The frozen package is assigned source rehearsal
+`issue1-finalhead-20260820s`; its terminal receipt remains external. Exact-head
+specialist and hosted acceptance remain promotion gates; no merge or cutover
+is claimed.
+
+The active-activation topology follow-up began RED with one of two focused
+cases failing. Replacing the versioned `agent-hook` directory with a symlink to
+mutable hook state still launched the child, while the analogous direct
+agent-docs-directory symlink was already rejected by the existing leaf check.
+The active reader now canonicalizes and validates the root, lstat-checks every
+component below it as an owner-private real directory or file, proves every
+asset leaf remains inside its real versioned set, and checks the asset-set,
+hook-assets, and docs-home surfaces against both mutually disjoint state roots
+before rendering the canonical hook configuration. A positive compatibility
+case proves an absolute runtime root below a symlinked parent canonicalizes to
+the same real root without weakening the no-symlink boundary inside it.
+Focused topology regressions pass 2/2, launcher passes 7/7, and ownerless
+adoption remains 13/13. Operations passes 62/62 on Node 22 and Node 24, and the
+full package suite passes 272/272. Typechecking and plan validation pass.
+Deterministic policy performance passes 2,000 samples at 0.201880 ms p95 with
+zero retained growth/active resources; packed released agent-hook performance
+passes 25 samples at 5.886571 ms p95 with zero active resources or live
+children. The 133-entry package preview and diff check also pass. The frozen
+package is assigned source rehearsal `issue1-finalhead-20260820t`; its terminal
+receipt remains external. Exact-head specialist and hosted acceptance remain
+promotion gates; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32367478998` completed content-addressed acquisition but
+the credentialless candidate stopped before any functional scenario with
+`pnpm store discovery failed`. The downloaded run artifact contained the
+expected pnpm v11 store and passed its top-level digest checks. Replaying the
+pnpm 11.7 action-style package-relative launcher against that extracted store
+also succeeded when acquisition's explicit store root was retained. The
+source runner was the divergent leg: it discarded acquisition's explicit
+`--store-dir`, `XDG_DATA_HOME`, and `PNPM_HOME` binding and asked pnpm to infer
+the store after HOME/XDG isolation changed.
+
+The regression began RED 0/1 because no prepared-store binding existed. Its
+fixture models pnpm/action-setup's package-relative launcher and accepts only
+the exact acquired store root and environment. Source acceptance now reuses
+that root, validates pnpm's canonical versioned result, and includes only a
+bounded exit status when discovery fails. The focused acceptance, tool-path,
+and store-binding suite passes 17/17; the first complete package run passes
+277/277, and the frozen rerun passes 277/277 plus typechecking. Deterministic
+policy performance passes 2,000 samples at 0.134611 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 6.078499 ms p95 with zero active resources or live children. The
+134-entry package preview, plan validation, and diff check also pass. The
+frozen package is assigned source rehearsal
+`issue1-pnpm-store-20260820u`; its terminal receipt remains external. A new
+exact-head hosted run remains required; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32374056631` authenticated every acquired input and
+entered the credentialless, network-denied source runner, then stopped during
+the pinned DSH dependency install after the five-minute command deadline. The
+downloaded 536 MiB acquisition artifact passed every recorded SHA-256 check.
+With its exact pnpm v11 store, pnpm 11.7, Node 22, and DSH revision `99f6f02`,
+the frozen install completed in 4.9 seconds when registry access was available.
+The same install under a denied network namespace reproduced the failure:
+pnpm's lockfile supply-chain verifier attempted registry metadata requests
+despite `--offline`, then entered its 10-second and one-minute retry schedule.
+
+The focused regression began RED 0/1 because source acceptance did not require
+the authenticated-lockfile mode. The selected DSH commit and lockfile are
+verified before preparation, so the install now combines `--offline`,
+`--frozen-lockfile`, and `--trust-lockfile` without relaxing the exact revision
+or content-addressed store. The exact network-denied replay then completed 923
+packages with zero downloads in 2.4 seconds. Focused acceptance/store coverage
+passes 16/16 on Node 22 and Node 24, the full package suite passes 277/277, and
+typechecking passes. Deterministic policy performance passes 2,000 samples at
+0.137433 ms p95 with zero active resources; the packed released agent-hook gate
+passes 25 samples at 4.583915 ms p95 with zero active resources or live
+children. The 134-entry package preview, plan validation, and diff check pass.
+The frozen package is assigned source rehearsal
+`issue1-pnpm-offline-20260820v`; its terminal receipt remains external. A new
+exact-head hosted run remains required; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32380603036` then passed acquisition, the pinned DSH
+offline build, credentialless setup, and network denial before the operations
+scenario stopped at `profile-setup` with the former generic `ERR_ASSERTION`
+cause. Its exact 536,753,395-byte input artifact passed every recorded SHA-256
+check. A bounded diagnostic replay exposed the underlying operations code as
+`native-dsh-verification-failed`: the owner-only acquisition umask produced
+0700 executable package entries, while pnpm normalized the installed copies
+to 0755. Content, paths, entry count, and total bytes were identical, but the
+tree identity incorrectly bound the owner/group/other execute-bit distribution.
+
+The regression began RED 0/1 with the same exit 65 verification failure. Tree
+identity now binds whether each regular file is executable while continuing to
+bind its path, type, size, and complete contents; package-manager normalization
+therefore cannot change identity, while executable-to-nonexecutable drift still
+fails. Operations smoke also maps the bounded CLI error code to a sanitized
+`DSH_OPERATIONS_*` cause instead of collapsing it to `ERR_ASSERTION`. The two
+focused contracts pass 2/2, the affected acceptance/operations suite passes
+80/80, operations passes 63/63 on Node 22 and Node 24, and the full package
+suite passes 278/278. Typechecking, both performance gates, a 134-entry package
+preview, plan validation, and diff check pass. The frozen package is assigned
+source rehearsal `issue1-operations-profile-20260820w`; its terminal receipt
+remains external. A new exact-head hosted run remains required; no merge or
+cutover is claimed.
+
+Hosted Task 6.1 run `32388147367` authenticated the acquired closure, entered
+the credentialless network-denied candidate, and stopped at native profile
+setup with `DSH_OPERATIONS_NATIVE_DSH_FAILED`. Exact secondary-UID/nft replay
+reproduced pnpm registry metadata attempts: the runtime-kit tarball did not
+carry its production dependency closure, so the isolated DSH profile could not
+install it without network access. The bundled-closure regression began RED
+0/1 because `npm pack` listed no bundled dependency package manifests. The
+package now declares every exact production dependency as bundled and the
+regression proves each manifest is present in the reviewed artifact.
+
+The first full replay then reached native verification and began RED at exit
+65: pnpm normalizes its installed top-level `node_modules` materialization.
+The identity regression proves three boundaries: changing a bundled dependency
+before apply changes the reviewed artifact and returns `plan-drift`; pnpm-style
+changes inside the installed top-level `node_modules` are accepted; changing a
+plugin-owned path outside that subtree still makes doctor and duplicate replay
+reject drift. The reviewed tarball SHA therefore binds the complete bundled
+closure, while installed identity excludes only the package-manager-owned
+subtree. The next exact replay reached remove and exposed pnpm 11.7 rejecting
+the forwarded `remove --offline` option. Its focused test began RED with
+`native-dsh-failed` exit 79 and now proves only add receives the supported
+offline flag; remove retains the normalized isolated offline environment.
+
+The combined focused operations contracts pass 2/2, bundled staging and
+bounded failure-diagnostic contracts each pass 1/1, the affected suite passes
+82/82, operations pass 65/65 on Node 22 and Node 24, and the full package suite
+passes 281/281. Typechecking and plan validation pass. Deterministic policy
+performance passes 2,000 samples at 0.128481 ms p95 with zero retained growth,
+active resources, or live handles; packed released agent-hook performance
+passes 25 samples at 5.611917 ms p95 with zero active resources or live
+children. The 1,144-entry package preview and diff/main-agent scope checks
+pass. Exact secondary-UID/nft replay against DSH rc.7, pnpm 11.7, released
+nils-cli 1.27.0, and denied network completes setup-update-rollback-remove and
+cleans both the temporary UID and nft table. Frozen packed source rehearsal
+`issue1-native-dsh-profile-20260821x` remains external. A new exact-head hosted
+run is still required; no merge or cutover is claimed.
+
+PR #18 exact head `0b6aea416046d44e8d530ef06160985ab447e1d6`
+then passed the four-job DSH compatibility workflow in run `32397354308`:
+package validation on Node 22 and Node 24 plus pinned and upstream-next DSH
+compatibility. It was squash-integrated into the Task 6.1 candidate branch as
+`74f5d0a64f3de22754763146d0eb538fc90666fa`. This is retained integration
+evidence rather than a new behavior change, so a new RED is not meaningful;
+the exact provider head, signed source commit, four terminal check results, and
+candidate-base readback are the verification contract. The next signed
+semantic candidate receipt and private control manifest must bind the same
+eight acceptance files before the final hosted attempt. Task 6.1 remains in
+progress until all 12 disposable hosted scenarios and the correlated no-merge
+delivery receipt pass; no cutover is claimed here.

@@ -24,9 +24,19 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
       { cwd: ROOT },
     )).stdout)
     const tarball = join(temporary, packed[0].filename)
+    // This consumer verifies package exports only. Do not let npm auto-install
+    // a newer DSH peer closure from the registry; runtime compatibility is
+    // covered by the separately authenticated, exact staged closure.
     await execute(
       'npm',
-      ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+      [
+        'install',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+        '--legacy-peer-deps',
+        tarball,
+      ],
       { cwd: temporary },
     )
     const requireFromInstall = createRequire(join(temporary, 'consumer.cjs'))

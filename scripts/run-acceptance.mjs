@@ -13,7 +13,6 @@ import {
   realpath,
   rm,
   stat,
-  symlink,
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -25,10 +24,18 @@ import {
   AcceptanceError,
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
+  scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 import { extractFreshPackage } from '../src/acceptance/package-staging.js'
+import {
+  createToolPath,
+  discoverPreparedPnpmStore,
+} from '../src/acceptance/tool-path.js'
 import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
+import {
+  inspectSelectedDshCheckout,
+  inspectSelectedDshCheckoutIdentity,
+} from '../src/compat/git-checkout.js'
 
 const sourceProjectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI_SCHEMA = 'dsh-runtime-kit.acceptance-cli.v1'
@@ -38,6 +45,36 @@ const DEFAULT_GIT = '/usr/bin/git'
 const DEFAULT_TAR = '/usr/bin/tar'
 const DEFAULT_SYSTEMD_RUN = '/usr/bin/systemd-run'
 const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
+let activePhase = 'arguments'
+
+/** @param {string} phase */
+function enterPhase(phase) {
+  activePhase = phase
+}
+
+/** @param {unknown} error */
+function unexpectedAcceptanceFailure(error) {
+  const causeCode = error !== null
+    && typeof error === 'object'
+    && 'code' in error
+    && typeof error.code === 'string'
+    && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
+    ? error.code
+    : 'UNCLASSIFIED'
+  const causeName = error instanceof Error
+    && ['Error', 'RangeError', 'SyntaxError', 'TypeError'].includes(error.name)
+    ? error.name
+    : 'Error'
+  return new AcceptanceError(
+    'DSH_RUNTIME_KIT_ACCEPTANCE_INTERNAL_FAILED',
+    'acceptance runner failed during ' + activePhase,
+    {
+      phase: activePhase,
+      cause_code: causeCode,
+      cause_name: causeName,
+    },
+  )
+}
 
 function parseCli() {
   let parsed
@@ -54,6 +91,9 @@ function parseCli() {
         'review-specialists-bin': { type: 'string' },
         'semantic-commit-bin': { type: 'string' },
         'forge-cli-bin': { type: 'string' },
+        'nils-source-commit': { type: 'string' },
+        'nils-archive-name': { type: 'string' },
+        'nils-archive-sha256': { type: 'string' },
         'pnpm-bin': { type: 'string' },
         'npm-bin': { type: 'string' },
         'git-bin': { type: 'string', default: DEFAULT_GIT },
@@ -94,11 +134,20 @@ function parseCli() {
   ].filter(value => value !== undefined)
   const hasPackageTarball = parsed.values['package-tarball'] !== undefined
   const hasPackageSha256 = parsed.values['package-sha256'] !== undefined
+  const nilsSourceCommit = parsed.values['nils-source-commit']
+  const nilsArchiveName = parsed.values['nils-archive-name']
+  const nilsArchiveSha256 = parsed.values['nils-archive-sha256']
   if (required.some(value => typeof value !== 'string')
     || paths.some(value => typeof value !== 'string' || !isAbsolute(value))
     || (parsed.values['run-id'] !== undefined
       && !RUN_ID.test(parsed.values['run-id']))
     || hasPackageTarball !== hasPackageSha256
+    || typeof nilsSourceCommit !== 'string'
+    || !/^[0-9a-f]{40,64}$/u.test(nilsSourceCommit)
+    || typeof nilsArchiveName !== 'string'
+    || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u.test(nilsArchiveName)
+    || typeof nilsArchiveSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/u.test(nilsArchiveSha256)
     || (hasPackageSha256
       && !/^[0-9a-f]{64}$/u.test(parsed.values['package-sha256']))) {
     throw new AcceptanceError(
@@ -114,6 +163,9 @@ function parseCli() {
     reviewSpecialistsBin: resolve(required[4]),
     semanticCommitBin: resolve(required[5]),
     forgeCliBin: resolve(required[6]),
+    nilsSourceCommit,
+    nilsArchiveName,
+    nilsArchiveSha256,
     pnpmBin: resolve(required[7]),
     npmBin: resolve(required[8]),
     gitBin: resolve(required[9]),
@@ -252,7 +304,7 @@ function nilsIdentity(binary, expectedName, env) {
 /**
  * @param {string} command
  * @param {string[]} args
- * @param {{cwd?:string,env?:Record<string,string>,timeout?:number,label:string}} options
+ * @param {{cwd?:string,env?:Record<string,string>,timeout?:number,label:string,failureDetails?:(result:any)=>Record<string,unknown>}} options
  */
 function runChecked(command, args, options) {
   const result = spawnSync(command, args, {
@@ -266,26 +318,10 @@ function runChecked(command, args, options) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
       options.label + ' failed',
+      options.failureDetails?.(result) ?? {},
     )
   }
   return result
-}
-
-/** @param {string} root @param {Record<string,{path:string,sha256:string}>} tools */
-async function createToolPath(root, tools) {
-  const path = resolve(root, 'tool-path')
-  await mkdir(path, { mode: 0o700 })
-  const entries = {
-    git: tools.git.path,
-    npm: tools.npm.path,
-    pnpm: tools.pnpm.path,
-    tar: tools.tar.path,
-    node: process.execPath,
-  }
-  for (const [name, target] of Object.entries(entries)) {
-    await symlink(target, resolve(path, name))
-  }
-  return path
 }
 
 /** @param {string} root @param {{path:string,sha256:string}} source @param {string} name */
@@ -324,23 +360,21 @@ async function prepareDsh(root, sourceRoot, revision, tools, env) {
     env,
     label: 'pinned DSH source checkout',
   })
-  const store = runChecked(tools.pnpm.path, ['store', 'path', '--silent'], {
-    env: { ...env, HOME: process.env.HOME ?? env.HOME },
-    label: 'pnpm store discovery',
-  }).stdout.trim()
-  if (!isAbsolute(store)) {
-    throw new AcceptanceError(
-      'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
-      'pnpm store path is invalid',
-    )
-  }
-  const canonicalStore = await realpath(store)
+  const canonicalStore = await discoverPreparedPnpmStore({
+    cwd: destination,
+    env,
+    home: process.env.HOME ?? env.HOME,
+    pnpmBin: tools.pnpm.path,
+    maxBuffer: MAX_OUTPUT,
+    timeout: SCENARIO_TIMEOUT_MS,
+  })
   env.NPM_CONFIG_STORE_DIR = canonicalStore
   env.npm_config_store_dir = canonicalStore
   runChecked(tools.pnpm.path, [
     'install',
     '--offline',
     '--frozen-lockfile',
+    '--trust-lockfile',
     '--ignore-scripts',
     '--store-dir', canonicalStore,
   ], {
@@ -436,9 +470,45 @@ async function prepareOperationsLeg(root, artifact, tarballSha256, tools, env) {
     })
     operationPackages[key] = destination
   }
+  await installPackageDependencies(
+    project,
+    artifact.packageLock,
+    tools.npm,
+    env,
+    'operations acceptance dependency installation',
+  )
   return Object.freeze({
     project,
     operationPackages: Object.freeze(operationPackages),
+  })
+}
+
+/**
+ * @param {string} project
+ * @param {Buffer} packageLock
+ * @param {{path:string,sha256:string}} npm
+ * @param {Record<string,string>} env
+ * @param {string} label
+ */
+async function installPackageDependencies(project, packageLock, npm, env, label) {
+  await writeFile(resolve(project, 'package-lock.json'), packageLock, {
+    mode: 0o600,
+    flag: 'wx',
+  })
+  const npmCache = resolve(process.env.HOME ?? '/', '.npm')
+  runChecked(npm.path, [
+    'ci',
+    '--ignore-scripts',
+    '--omit=dev',
+    '--omit=peer',
+    '--prefer-offline',
+    '--no-audit',
+    '--no-fund',
+    '--cache', npmCache,
+  ], {
+    cwd: project,
+    env: { ...env, NPM_CONFIG_OFFLINE: 'false' },
+    label,
   })
 }
 
@@ -460,25 +530,13 @@ async function prepareRuntimeLeg(root, artifact, tarballSha256, tools, env) {
     env,
     label: 'runtime leg',
   })
-  await writeFile(resolve(project, 'package-lock.json'), artifact.packageLock, {
-    mode: 0o600,
-    flag: 'wx',
-  })
-  const npmCache = resolve(process.env.HOME ?? '/', '.npm')
-  runChecked(tools.npm.path, [
-    'ci',
-    '--ignore-scripts',
-    '--omit=dev',
-    '--omit=peer',
-    '--prefer-offline',
-    '--no-audit',
-    '--no-fund',
-    '--cache', npmCache,
-  ], {
-    cwd: project,
-    env: { ...env, NPM_CONFIG_OFFLINE: 'false' },
-    label: 'runtime-kit acceptance dependency installation',
-  })
+  await installPackageDependencies(
+    project,
+    artifact.packageLock,
+    tools.npm,
+    env,
+    'runtime-kit acceptance dependency installation',
+  )
   return project
 }
 
@@ -524,6 +582,9 @@ async function runScenario(script, env, label, systemdRun) {
     env: managerEnvironment,
     timeout: SCENARIO_TIMEOUT_MS + 30_000,
     label,
+    failureDetails: result => scenarioFailureDiagnostic(
+      String(result.stdout ?? '') + '\n' + String(result.stderr ?? ''),
+    ),
   })
   const after = await digest(script)
   if (before !== after) {
@@ -546,10 +607,12 @@ async function main() {
   process.stderr.write(
     'warning: source rehearsal is for trusted candidate code and is not an OS isolation boundary\n',
   )
+  enterPhase('workspace')
   const runRoot = await mkdtemp(resolve(tmpdir(), 'dsh-runtime-kit-acceptance-'))
   await chmod(runRoot, 0o700)
   try {
     await mkdir(resolve(runRoot, 'bin'), { mode: 0o700 })
+    enterPhase('tool-authentication')
     const [
       git,
       tar,
@@ -576,6 +639,7 @@ async function main() {
       trustedExecutable(input.systemdRunBin, 'systemd-run'),
     ])
     const tools = Object.freeze({ git, tar, pnpm, npm })
+    enterPhase('workspace')
     const toolPath = await createToolPath(runRoot, tools)
     const home = resolve(runRoot, 'home')
     const config = resolve(runRoot, 'config')
@@ -607,17 +671,19 @@ async function main() {
       if (typeof process.env[name] === 'string') env[name] = process.env[name]
     }
 
+    enterPhase('dsh-compatibility')
     const dshManifestPath = resolve(sourceProjectRoot, 'compatibility', 'dsh.json')
     const dshManifest = validateDshCompatibilityManifest(
       await jsonFile(dshManifestPath, 'DSH compatibility manifest'),
     )
     const selected = dshManifest.channels.pinned
-    await inspectSelectedDshCheckout({
+    await inspectSelectedDshCheckoutIdentity({
       sourceRoot: input.dshSourceRoot,
       channel: 'pinned',
       gitBin: git.path,
       manifest: dshManifest,
     })
+    enterPhase('dsh-preparation')
     const dshSourceRoot = await prepareDsh(
       runRoot,
       input.dshSourceRoot,
@@ -631,6 +697,7 @@ async function main() {
       gitBin: git.path,
       manifest: dshManifest,
     })
+    enterPhase('package-preparation')
     const suppliedPackage = input.packageTarball === undefined
       ? undefined
       : await trustedRegularFile(input.packageTarball, 'runtime-kit package tarball')
@@ -644,6 +711,7 @@ async function main() {
       ? await preparePackageArtifact(runRoot, tools, env)
       : await providedPackageArtifact(suppliedPackage)
     const packageSha256 = await digest(artifact.tarball)
+    enterPhase('operations-preparation')
     const operationsLeg = await prepareOperationsLeg(
       runRoot,
       artifact,
@@ -651,6 +719,7 @@ async function main() {
       tools,
       env,
     )
+    enterPhase('tool-snapshot')
     const [agentHook, agentDocs, gitCli, reviewSpecialists, semanticCommit, forgeCli] = await Promise.all([
       snapshotBinary(runRoot, hookSource, 'agent-hook'),
       snapshotBinary(runRoot, docsSource, 'agent-docs'),
@@ -666,6 +735,7 @@ async function main() {
       AGENT_HOOK_BIN: agentHook.path,
       AGENT_DOCS_BIN: agentDocs.path,
     }
+    enterPhase('tool-identity')
     const hookIdentity = nilsIdentity(agentHook, 'agent-hook', scenarioEnv)
     const docsIdentity = nilsIdentity(agentDocs, 'agent-docs', scenarioEnv)
     const gitCliIdentity = nilsIdentity(gitCli, 'git-cli', scenarioEnv)
@@ -731,6 +801,7 @@ async function main() {
         manifest: dshManifest,
       })
     }
+    enterPhase('operations-scenario')
     await verifyControlPlane()
     const operations = await runScenario(
       operationsScript,
@@ -743,6 +814,7 @@ async function main() {
       systemdRun,
     )
     await verifyControlPlane()
+    enterPhase('runtime-preparation')
     const runtimeProject = await prepareRuntimeLeg(
       runRoot,
       artifact,
@@ -751,12 +823,14 @@ async function main() {
       env,
     )
     const runtimeScript = resolve(runtimeProject, 'test', 'smoke.mjs')
+    enterPhase('packed-runtime-scenario')
     const runtime = await runScenario(
       runtimeScript,
       scenarioEnv,
       'packed runtime scenario',
       systemdRun,
     )
+    enterPhase('final-verification')
     await verifyControlPlane()
     for (const [name, original, copy] of [
       ['agent-hook', hookSource, agentHook],
@@ -802,6 +876,11 @@ async function main() {
       nils: {
         version: hookIdentity.version,
         source_revision: hookIdentity.source_revision,
+        source_commit: input.nilsSourceCommit,
+        archive: {
+          name: input.nilsArchiveName,
+          sha256: input.nilsArchiveSha256,
+        },
         artifacts: {
           'agent-hook': { sha256: hookIdentity.sha256 },
           'agent-docs': { sha256: docsIdentity.sha256 },
@@ -832,7 +911,15 @@ async function main() {
     process.stdout.write(serialized)
     process.exitCode = result.exit_code
   } finally {
-    await rm(runRoot, { recursive: true, force: true })
+    const completedPhase = activePhase
+    enterPhase('cleanup')
+    try {
+      await rm(runRoot, { recursive: true, force: true })
+    } catch (error) {
+      enterPhase('cleanup')
+      throw error
+    }
+    enterPhase(completedPhase)
   }
 }
 
@@ -841,10 +928,7 @@ try {
 } catch (error) {
   const failure = error instanceof AcceptanceError
     ? error
-    : new AcceptanceError(
-        'DSH_RUNTIME_KIT_ACCEPTANCE_FAILED',
-        'acceptance runner failed',
-      )
+    : unexpectedAcceptanceFailure(error)
   process.stdout.write(JSON.stringify({
     schema_version: CLI_SCHEMA,
     ok: false,

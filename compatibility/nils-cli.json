@@ -1,15 +1,43 @@
 {
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
-  "status": "pending-release",
-  "minimum_supported_release": null,
-  "validated_release": null,
-  "release": null,
+  "status": "released",
+  "minimum_supported_release": "1.27.0",
+  "validated_release": "1.27.0",
+  "release": {
+    "source_revision": "v1.27.0",
+    "source_commit": "cf997a39ef64127c6b925a3cba0294760b8d31b6",
+    "platform": "x86_64-unknown-linux-gnu",
+    "archive": {
+      "name": "nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "192f2e9b0225d730ff870f16654d9cec99a70ccec8dafe3199ea35a8672d421c"
+    },
+    "artifacts": {
+      "agent-hook": {
+        "sha256": "123de15f8ee21f98722b7cbc457726da5e2fd38479a4dff060839251052bd68d"
+      },
+      "agent-docs": {
+        "sha256": "6ada95412c092e520ce0d0bb8247545dad443ec3e59ef21b7d6af047d61079c2"
+      },
+      "forge-cli": {
+        "sha256": "4c6365a7c88d7fbe8fb1c242c2fb7016926f166bc72633694fe244ad85aeb6f9"
+      },
+      "git-cli": {
+        "sha256": "0df55358c9bab60d1db0586bd465081d84e9f02942c4d2712c11761f052d91f0"
+      },
+      "review-specialists": {
+        "sha256": "eff050352341b62ff37d00965090556249af79050a89c85123456c458bfe94a8"
+      },
+      "semantic-commit": {
+        "sha256": "f2a0ca47f8d034832fff9c0e5847c7b138fde822e5e6fb96c16512eefdc0224a"
+      }
+    }
+  },
   "commands": [
     {
       "id": "agent-hook.dispatch.dsh",
       "binary": "agent-hook",
-      "status": "pending-release",
-      "validation": "source-validated",
+      "status": "released",
+      "validation": "release-artifact-validated",
       "contracts": [
         "agent-hook.dsh-ingress.v1",
         "agent-hook.dsh-ingress.v2",
@@ -30,8 +58,8 @@
     {
       "id": "agent-docs.session.context.dsh",
       "binary": "agent-docs",
-      "status": "pending-release",
-      "validation": "source-validated",
+      "status": "released",
+      "validation": "release-artifact-validated",
       "contracts": [
         "cli.agent-docs.session.context.v1",
         "decision.context.v1",
@@ -42,8 +70,8 @@
     {
       "id": "agent-hook.finish-line.dsh",
       "binary": "agent-hook",
-      "status": "pending-release",
-      "validation": "source-validated",
+      "status": "released",
+      "validation": "release-artifact-validated",
       "contracts": [
         "agent-hook.finish-line.open.v1",
         "cli.agent-hook.finish-line-open.v1",
@@ -69,8 +97,8 @@
     {
       "id": "main-agent.dsh-external-runtime",
       "binary": "main-agent",
-      "status": "pending-release",
-      "validation": "source-validated",
+      "status": "released",
+      "validation": "release-bundle-validated",
       "contracts": [
         "main-agent.capabilities.v1",
         "main-agent.worker-start-result.v1",
@@ -82,8 +110,8 @@
     {
       "id": "agent-session.broker-heartbeat",
       "binary": "agent-session",
-      "status": "pending-release",
-      "validation": "source-validated",
+      "status": "released",
+      "validation": "release-bundle-validated",
       "contracts": [
         "per-lane broker heartbeat and stop argv from main-agent.external-launch.v1"
       ],

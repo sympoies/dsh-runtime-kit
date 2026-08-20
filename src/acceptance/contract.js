@@ -10,6 +10,7 @@ const COMMIT_SHA = /^[0-9a-f]{40,64}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
 const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
 const REPOSITORY = /^https:\/\/github\.com\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)$/iu
+const ARCHIVE_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u
 const NILS_ARTIFACTS = Object.freeze([
   'agent-docs',
   'agent-hook',
@@ -32,6 +33,61 @@ const PRODUCERS = Object.freeze({
     'failure-paths',
   ]),
 })
+
+const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
+  operations: Object.freeze({
+    inspect: Object.freeze([
+      'coexistence:dsh-agent-runtime-kit-zero-dependency',
+      'coexistence:codex-claude-wiring-untouched',
+    ]),
+  }),
+  'packed-runtime': Object.freeze({
+    'private-project-skill': Object.freeze([
+      'coexistence:no-cross-loaded-hooks-skills-session-state',
+      'coexistence:dsh-hook-docs-state-isolated',
+    ]),
+  }),
+})
+
+const RUNTIME_ISOLATION_SCHEMA = 'dsh-runtime-kit.runtime-isolation.v1'
+
+/** @param {Record<string, any>} item @param {'operations'|'packed-runtime'} producer */
+function scenarioIsolation(item, producer) {
+  if (producer !== 'packed-runtime' || item.id !== 'private-project-skill') return undefined
+  const isolation = record(item.isolation, 'packed-runtime isolation')
+  if (isolation.schema_version !== RUNTIME_ISOLATION_SCHEMA
+    || isolation.provider_skill_loaded !== false
+    || isolation.provider_hook_loaded !== false
+    || isolation.provider_session_state_loaded !== false
+    || !sha256(isolation.provider_skill_fixture_sha256)
+    || !sha256(isolation.provider_hook_fixture_sha256)
+    || !sha256(isolation.provider_session_fixture_sha256)) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'packed-runtime isolation evidence is invalid',
+    )
+  }
+  return Object.freeze({
+    schema_version: RUNTIME_ISOLATION_SCHEMA,
+    provider_skill_loaded: false,
+    provider_hook_loaded: false,
+    provider_session_state_loaded: false,
+    provider_skill_fixture_sha256: isolation.provider_skill_fixture_sha256,
+    provider_hook_fixture_sha256: isolation.provider_hook_fixture_sha256,
+    provider_session_fixture_sha256: isolation.provider_session_fixture_sha256,
+  })
+}
+
+/** @param {'operations'|'packed-runtime'} producer @param {string} id */
+function requiredScenarioEvidence(producer, id) {
+  if (producer === 'operations' && id === 'inspect') {
+    return REQUIRED_SCENARIO_EVIDENCE.operations.inspect
+  }
+  if (producer === 'packed-runtime' && id === 'private-project-skill') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['private-project-skill']
+  }
+  return []
+}
 
 const SCENARIO_ORDER = Object.freeze([
   'bootstrap',
@@ -62,6 +118,51 @@ export class AcceptanceError extends Error {
       ...details,
     })
   }
+}
+
+/** @param {unknown} output */
+export function scenarioFailureDiagnostic(output) {
+  if (typeof output !== 'string') return Object.freeze({})
+  const lines = output.split('\n').map(line => line.trim()).filter(Boolean).reverse()
+  for (const line of lines) {
+    let parsed
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    const hasOperationExitStatus = Object.hasOwn(parsed, 'operation_exit_status')
+    const expectedKeys = [
+      'cause_code',
+      'ok',
+      'producer',
+      'schema_version',
+      'step',
+      ...(hasOperationExitStatus ? ['operation_exit_status'] : []),
+    ].sort().join('\0')
+    if (Object.keys(parsed).sort().join('\0') !== expectedKeys
+      || parsed.schema_version !== 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1'
+      || parsed.ok !== false
+      || !['operations', 'packed-runtime'].includes(parsed.producer)
+      || typeof parsed.step !== 'string'
+      || !/^[a-z][a-z0-9-]{0,63}$/u.test(parsed.step)
+      || typeof parsed.cause_code !== 'string'
+      || !/^[A-Z][A-Z0-9_]{1,63}$/u.test(parsed.cause_code)
+      || (hasOperationExitStatus
+        && (!Number.isSafeInteger(parsed.operation_exit_status)
+          || parsed.operation_exit_status < 1
+          || parsed.operation_exit_status > 255))) continue
+    return Object.freeze({
+      scenario_producer: parsed.producer,
+      scenario_step: parsed.step,
+      scenario_cause_code: parsed.cause_code,
+      ...(hasOperationExitStatus
+        ? { scenario_operation_exit_status: parsed.operation_exit_status }
+        : {}),
+    })
+  }
+  return Object.freeze({})
 }
 
 /** @param {unknown} value @param {string} label */
@@ -152,24 +253,28 @@ function scenariosFrom(input, producer) {
   const seen = new Set()
   const scenarios = receipt.scenarios.map(raw => {
     const item = record(raw, producer + ' scenario')
+    const requiredEvidence = requiredScenarioEvidence(producer, item.id)
     if (!expected.includes(item.id)
       || seen.has(item.id)
       || !['passed', 'failed'].includes(item.status)
       || item.producer !== producer
       || !Array.isArray(item.evidence)
       || item.evidence.length === 0
-      || item.evidence.some(value => typeof value !== 'string' || value.length === 0)) {
+      || item.evidence.some(value => typeof value !== 'string' || value.length === 0)
+      || requiredEvidence.some(value => !item.evidence.includes(value))) {
       throw new AcceptanceError(
         'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
         producer + ' scenario evidence is invalid',
       )
     }
     seen.add(item.id)
+    const isolation = scenarioIsolation(item, producer)
     return Object.freeze({
       id: item.id,
       status: item.status,
       producer,
       evidence: Object.freeze([...item.evidence]),
+      ...isolation === undefined ? {} : { isolation },
     })
   })
   if (seen.size !== expected.length || expected.some(id => !seen.has(id))) {
@@ -206,8 +311,16 @@ function releaseAccepted(compatibility, nils) {
     && versionAtLeast(nils.version, compatibility.minimum_supported_release)
     && compatibility.release?.source_revision === nils.source_revision
     && nils.source_revision === 'v' + nils.version
+    && compatibility.release?.source_commit === nils.source_commit
+    && typeof nils.source_commit === 'string'
+    && COMMIT_SHA.test(nils.source_commit)
     && typeof compatibility.release?.platform === 'string'
     && compatibility.release.platform.length > 0
+    && compatibility.release?.archive?.name === nils.archive?.name
+    && typeof nils.archive?.name === 'string'
+    && ARCHIVE_NAME.test(nils.archive.name)
+    && compatibility.release?.archive?.sha256 === nils.archive?.sha256
+    && sha256(nils.archive?.sha256)
     && sameArtifacts(compatibility.release.artifacts, nils.artifacts)
 }
 
@@ -344,6 +457,11 @@ export function buildAcceptanceSummary(input) {
     || !EXACT_VERSION.test(nils.version)
     || typeof nils.source_revision !== 'string'
     || nils.source_revision.length === 0
+    || typeof nils.source_commit !== 'string'
+    || !COMMIT_SHA.test(nils.source_commit)
+    || typeof nils.archive?.name !== 'string'
+    || !ARCHIVE_NAME.test(nils.archive.name)
+    || !sha256(nils.archive?.sha256)
     || !exactArtifacts(nils.artifacts)
     || !sha256(input.package_sha256)
     || expectedDelivery.package_sha256 !== input.package_sha256
@@ -447,6 +565,11 @@ export function buildAcceptanceSummary(input) {
     nils: Object.freeze({
       version: nils.version,
       source_revision: nils.source_revision,
+      source_commit: nils.source_commit,
+      archive: Object.freeze({
+        name: nils.archive.name,
+        sha256: nils.archive.sha256,
+      }),
       compatibility_status: compatibility.status,
       validated_release: compatibility.validated_release ?? null,
       artifacts: Object.freeze({

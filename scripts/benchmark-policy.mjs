@@ -72,6 +72,10 @@ if (typeof global.gc !== 'function') {
   }
   const transport = createNilsTransport(ctx, {
     agentHook: '/benchmark/agent-hook',
+    agentHookConfig: '/benchmark/agent-hook/config.toml',
+    agentHookPolicy: '/benchmark/agent-hook/policy.toml',
+    agentHookStateDir: '/benchmark/agent-hook/state',
+    agentDocsHome: '/benchmark/agent-docs',
     agentDocsStateHome: '/benchmark/state',
     maxActivePolicyChecks: 1,
   })

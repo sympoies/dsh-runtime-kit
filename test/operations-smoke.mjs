@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -17,8 +18,10 @@ import { spawnSync } from 'node:child_process'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
+const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 assert.notEqual(process.env.DSH_SOURCE_ROOT, undefined, 'set DSH_SOURCE_ROOT')
 assert.notEqual(process.env.AGENT_HOOK_BIN, undefined, 'set AGENT_HOOK_BIN')
+assert.notEqual(process.env.AGENT_DOCS_BIN, undefined, 'set AGENT_DOCS_BIN')
 assert.notEqual(
   process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1,
   undefined,
@@ -33,24 +36,68 @@ const packageV1 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1)
 const packageV2 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2)
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-operations-smoke-'))
+const userHome = join(temporaryRoot, 'home')
 const dshHome = join(temporaryRoot, 'dsh-home')
+const codexHome = join(userHome, '.codex')
+const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
+const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 mkdirSync(dshHome, { mode: 0o700 })
+mkdirSync(runtimeRoot, { mode: 0o700 })
+
+function stageProviderSentinel(root, provider) {
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    mkdirSync(join(root, directory), { recursive: true, mode: 0o700 })
+    writeFileSync(
+      join(root, directory, `${provider}-only.txt`),
+      `${provider}:${directory}:must-remain-untouched\n`,
+      { mode: 0o600 },
+    )
+  }
+}
+
+function assertProviderSentinel(root, provider) {
+  assert.deepEqual(readdirSync(root).sort(), ['hooks', 'sessions', 'skills'])
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    assert.deepEqual(readdirSync(join(root, directory)), [`${provider}-only.txt`])
+    assert.equal(
+      readFileSync(join(root, directory, `${provider}-only.txt`), 'utf8'),
+      `${provider}:${directory}:must-remain-untouched\n`,
+    )
+  }
+}
+
+stageProviderSentinel(codexHome, 'codex')
+stageProviderSentinel(claudeHome, 'claude')
 
 const policy = readFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml'), 'utf8')
 const policyPath = join(temporaryRoot, 'policy.toml')
+const agentHookConfig = join(configHome, 'agent-hook', 'config.toml')
+const agentHookStateDir = join(stateHome, 'agent-hook-dsh')
+const agentDocsHome = join(temporaryRoot, 'agent-docs')
+const agentDocsStateHome = join(stateHome, 'agent-docs-dsh')
 const policyDigest = createHash('sha256').update(policy).digest('hex')
 mkdirSync(join(configHome, 'agent-hook'), { recursive: true })
 mkdirSync(stateHome, { recursive: true })
+mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
+mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
 writeFileSync(policyPath, policy, { mode: 0o600 })
-writeFileSync(join(configHome, 'agent-hook', 'config.toml'), `schema_version = "agent-hook.config.v1"
+writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 
 [policy]
 path = ${JSON.stringify(policyPath)}
 digest = "sha256:${policyDigest}"
 `, { mode: 0o600 })
+for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
+  writeFileSync(
+    join(agentDocsHome, name),
+    readFileSync(join(projectRoot, 'agent-docs', name)),
+    { mode: 0o600 },
+  )
+}
 
 function stageUnrelatedBundle(name, version) {
   const dir = join(temporaryRoot, `${name.replace(/[^a-z]/gi, '-')}-${version}`)
@@ -97,16 +144,78 @@ function upstreamStatus() {
   return result.stdout
 }
 
+/** @param {ReturnType<typeof spawnSync>} result */
+function operationFailure(result) {
+  let parsed
+  try { parsed = JSON.parse(typeof result.stdout === 'string' ? result.stdout : '') } catch {}
+  const code = parsed !== null
+    && typeof parsed === 'object'
+    && parsed.ok === false
+    && parsed.error !== null
+    && typeof parsed.error === 'object'
+    && typeof parsed.error.code === 'string'
+    && /^[a-z][a-z0-9-]{0,47}$/u.test(parsed.error.code)
+    ? `DSH_OPERATIONS_${parsed.error.code.replaceAll('-', '_').toUpperCase()}`
+    : 'DSH_OPERATIONS_COMMAND_FAILED'
+  const exitStatus = parsed !== null
+    && typeof parsed === 'object'
+    && parsed.error !== null
+    && typeof parsed.error === 'object'
+    && parsed.error.details !== null
+    && typeof parsed.error.details === 'object'
+    && Number.isSafeInteger(parsed.error.details.exit_code)
+    && parsed.error.details.exit_code >= 1
+    && parsed.error.details.exit_code <= 255
+    ? parsed.error.details.exit_code
+    : undefined
+  return {
+    code: /^[A-Z][A-Z0-9_]{1,63}$/u.test(code) ? code : 'DSH_OPERATIONS_COMMAND_FAILED',
+    exitStatus,
+  }
+}
+
 function operation(args) {
-  const result = run(process.execPath, [cli, ...args, '--format', 'json'], {
-    DSH_HOME: dshHome,
-    DSH_RUNTIME_KIT_DSH_BIN: wrapper,
-    DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
-    DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
-    XDG_CONFIG_HOME: configHome,
-    XDG_STATE_HOME: stateHome,
+  const result = spawnSync(process.execPath, [
+    launcher,
+    '--runtime-root', runtimeRoot,
+    '--',
+    process.execPath, cli, ...args, '--format', 'json',
+  ], {
+    env: {
+      ...process.env,
+      DSH_HOME: dshHome,
+      CODEX_HOME: codexHome,
+      CLAUDE_CONFIG_DIR: claudeHome,
+      DSH_RUNTIME_KIT_DSH_BIN: wrapper,
+      DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
+      DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
+      DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
+      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
+      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
+      DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
+      XDG_CONFIG_HOME: configHome,
+      XDG_STATE_HOME: stateHome,
+    },
+    encoding: 'utf8',
   })
+  if (result.status !== 0) {
+    const failure = operationFailure(result)
+    const error = /** @type {Error & {code:string,operationExitStatus?:number}} */ (new Error('runtime-kit operation failed'))
+    error.code = failure.code
+    error.operationExitStatus = failure.exitStatus
+    throw error
+  }
   return JSON.parse(result.stdout).data
+}
+
+function assertDshProfileIsolation() {
+  const profileManifest = readFileSync(
+    join(dshHome, 'profiles', 'operations-smoke', 'package.json'),
+    'utf8',
+  )
+  assert.doesNotMatch(profileManifest, /agent-runtime-kit/u)
 }
 
 function apply(args) {
@@ -116,9 +225,11 @@ function apply(args) {
 }
 
 const wrapper = join(temporaryRoot, 'dsh-wrapper.mjs')
+const dshCli = join(dshRoot, 'apps', 'cli', 'lib', 'bin.js')
 writeFileSync(wrapper, `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-const result = spawnSync('pnpm', ['dsh', ...process.argv.slice(2)], {
+const dshCli = ${JSON.stringify(dshCli)}
+const result = spawnSync(process.execPath, [dshCli, ...process.argv.slice(2)], {
   cwd: ${JSON.stringify(dshRoot)},
   env: process.env,
   stdio: 'inherit',
@@ -135,6 +246,7 @@ const unrelated = stageUnrelatedBundle('unrelated-bundle', '1.0.0')
 assertRuntimePackage(packageV1, '0.0.0-acceptance.1')
 assertRuntimePackage(packageV2, '0.0.0-acceptance.2')
 const upstreamBefore = upstreamStatus()
+let acceptanceStep = 'profile-add'
 
 try {
   run(wrapper, ['plugin', '--profile', 'operations-smoke', 'add', '--save-exact', unrelated], {
@@ -143,7 +255,9 @@ try {
   const userPatch = join(dshHome, 'profiles', 'operations-smoke', 'cordis.patch.yml')
   writeFileSync(userPatch, '# user-owned marker\n[]\n')
 
+  acceptanceStep = 'profile-setup'
   apply(['setup', '--profile', 'operations-smoke', '--package', packageV1])
+  assertDshProfileIsolation()
   const installedRuntime = join(
     dshHome,
     'profiles',
@@ -153,17 +267,26 @@ try {
     'dsh-runtime-kit',
   )
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+  acceptanceStep = 'profile-doctor'
   const doctor = operation(['doctor', '--profile', 'operations-smoke'])
   assert.equal(doctor.status, 'healthy')
   assert.equal(doctor.agent_hook.ok, true)
+  assert.equal(doctor.agent_docs.ok, true)
+  assert.equal(doctor.activation.status, 'activated')
+  assert.equal(doctor.agent_docs.catalog.startsWith(`${runtimeRoot}/assets/`), true)
   assert.match(doctor.dsh.version, /0\.1\.0-rc\.7/)
 
+  acceptanceStep = 'profile-update'
   apply(['update', '--profile', 'operations-smoke', '--package', packageV2])
+  assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.2')
 
+  acceptanceStep = 'profile-rollback'
   apply(['rollback', '--profile', 'operations-smoke'])
+  assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
 
+  acceptanceStep = 'profile-remove'
   apply(['remove', '--profile', 'operations-smoke'])
   const manifest = JSON.parse(readFileSync(join(dshHome, 'profiles', 'operations-smoke', 'package.json')))
   assert.equal(manifest.dependencies['@sympoies/dsh-runtime-kit'], undefined)
@@ -172,7 +295,10 @@ try {
   assert.equal(manifest.dsh.profile.bundles.includes('@sympoies/dsh-runtime-kit'), false)
   assert.equal(readFileSync(userPatch, 'utf8'), '# user-owned marker\n[]\n')
   assert.equal(readFileSync(join(privateRoot, 'must-survive.txt'), 'utf8'), 'private')
+  assertProviderSentinel(codexHome, 'codex')
+  assertProviderSentinel(claudeHome, 'claude')
 
+  acceptanceStep = 'final-verification'
   const upstreamAfter = upstreamStatus()
   assert.equal(upstreamBefore, '')
   assert.equal(upstreamAfter, upstreamBefore)
@@ -182,7 +308,17 @@ try {
     producer: 'operations',
     scenarios: [
       { id: 'bootstrap', status: 'passed', producer: 'operations', evidence: ['operations:full-package-setup-update-rollback-remove'] },
-      { id: 'inspect', status: 'passed', producer: 'operations', evidence: ['doctor:healthy', 'upstream:clean'] },
+      {
+        id: 'inspect',
+        status: 'passed',
+        producer: 'operations',
+        evidence: [
+          'doctor:healthy',
+          'upstream:clean',
+          'coexistence:dsh-agent-runtime-kit-zero-dependency',
+          'coexistence:codex-claude-wiring-untouched',
+        ],
+      },
     ],
     dshVersion: doctor.dsh.version,
     setupUpdateRollbackRemove: true,
@@ -190,6 +326,31 @@ try {
     privateSkillsPreserved: true,
     upstreamCheckoutClean: true,
   })}\n`)
+} catch (error) {
+  const causeCode = error !== null
+    && typeof error === 'object'
+    && 'code' in error
+    && typeof error.code === 'string'
+    && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
+    ? error.code
+    : 'UNCLASSIFIED'
+  const diagnostic = {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'operations',
+    step: acceptanceStep,
+    cause_code: causeCode,
+  }
+  if (error !== null
+    && typeof error === 'object'
+    && 'operationExitStatus' in error
+    && Number.isSafeInteger(error.operationExitStatus)
+    && error.operationExitStatus >= 1
+    && error.operationExitStatus <= 255) {
+    diagnostic.operation_exit_status = error.operationExitStatus
+  }
+  process.stderr.write(`${JSON.stringify(diagnostic)}\n`)
+  process.exitCode = 1
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })
 }

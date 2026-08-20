@@ -1,8 +1,9 @@
 # dsh-runtime-kit
 
 `@sympoies/dsh-runtime-kit` is the public, out-of-tree DeepSeek Harness runtime
-layer that will replace `agent-runtime-kit`. It is a DSH bundle, not a fork and
-not a copied preset.
+layer. DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to
+use agent-runtime-kit plus nils-cli. It is a DSH bundle, not a fork and not a
+copied preset.
 
 The current implementation contributes one Cordis plugin, the 29 public
 workflow skills, optional private-skill loading, one selective
@@ -343,6 +344,149 @@ that deliberately violates other readonly fields is already executing trusted
 code after the guard. This bundle does not use property-descriptor hardening or
 non-public Harness APIs to contain a hostile in-process wrapper.
 
+## Isolated DSH activation contract
+
+Production activation uses DSH's native `headless` profile. A new arbitrary
+profile name is not equivalent: DSH initializes unknown names with only
+`@deepseek-ai/dsh-base`, while `headless` composes both the base and headless
+agent bundles. Save the complete pre-activation `headless` profile and
+owner-only DSH runtime root as the rollback point before applying the reviewed
+package.
+
+The package ships a compact DSH-only `agent-docs/` catalog and the
+`policy/dsh-runtime-kit-v1.toml` policy source. The operations owner copies
+both into a content-addressed, immutable asset directory under an owner-only
+DSH runtime root; that root must not overlap a Codex or Claude Code runtime
+home. It creates a strict `agent-hook.config.v1` file that binds the copied
+policy digest, separate mutable hook and agent-docs state directories, and an
+owner-only `activation.json` provenance manifest. The copied files are regular
+files with `nlink` equal to 1; neither hard links nor pnpm-store links are part
+of the activation contract.
+
+The first authenticated mutation binds that runtime root to one canonical
+`DSH_HOME` in an owner-only record and serializes every activation mutation and
+collection pass with a root-scoped kernel lock. Reusing the root from another
+DSH home fails closed. A valid version 2 installation created before root
+ownership existed can be adopted only through digest-reviewed `doctor
+--repair`: the selected canonical root must match every current, rollback,
+pending, and last-applied reference in that DSH home's authenticated state;
+the installed and active targets must match its current-or-pending targets;
+and every retained set must be present with no extra, staging, oversized, or
+malformed entry. Every global current, previous, or pending reference must map
+to one authenticated target whose policy, catalog, document, and root-specific
+hook configuration match the retained set. That configuration is compared as
+the exact canonical byte sequence emitted by the activation writer: comments,
+alternate policy paths or digests, provider sections, and other overrides are
+not accepted even when canonical-looking assignments also appear elsewhere in
+the TOML. The receipt binds each set's byte
+count and canonical tree digest; apply revalidates that evidence under the root
+lock, writes only the atomic owner record, and leaves state, activation, and
+assets unchanged.
+The activation reader canonicalizes the selected runtime root, then rejects a
+symlink or unsafe owner/mode at every component below it. The asset-set,
+agent-hook, and agent-docs directories must be real, their leaves must remain
+contained in that versioned set, and every asset surface is disjoint from both
+mutable state roots. A requested absolute root below a symlinked parent remains
+compatible only after canonicalization to the same owner-private real runtime
+root; symlinks inside that root are never followed.
+Ordinary setup/update/remove never adopt an ownerless tree.
+
+Adoption binds one explicit actual/activation provenance pair to the pending
+protocol phase. With no pending operation, both must match `current`; a
+terminal removed root instead requires absent package and activation surfaces,
+null current/previous/pending state, an authenticated last-applied remove for
+the selected root, and zero asset-set references across every authenticated
+profile receipt. It may retain up to 16 reviewed unreferenced digest
+directories from the pre-ownership remove: every directory must satisfy the
+same owner, mode, link, depth, count, and per-set byte limits as a live set,
+and its digest, byte count, and canonical tree digest are bound into the
+adoption receipt. Adoption
+preserves those orphan bytes; the next authenticated setup or update collects
+them through ordinary reconciliation. During an
+update or rollback, `prepared` permits `current/current` or `pending/current`,
+and `native-applied` permits `pending/current` or `pending/pending`. Setup is
+adoptable only at `native-applied/pending/pending`. A pending remove retains
+the authenticated current snapshot and exact asset set: `prepared` permits
+`current/current` or `absent/current`, and `native-applied` permits
+`absent/current` or `absent/absent`. Undefined phases, `current/absent` remove,
+`current/pending`, or more than one matching pair are ambiguous and rejected.
+The adoption receipt binds both selected sources plus the pending phase and
+action. Any topology, provenance, activation, or retained-asset change after
+preview becomes `plan-drift` before the owner record is written. This
+normalization is limited to reviewed durable evidence: command supervision,
+runtime isolation, and configuration failures retain their original typed
+error, exit status, and details.
+
+Activation storage retains only asset sets referenced by current, rollback,
+pending, or active receipts, admits at most 16 live sets, and removes
+unreferenced digest sets plus interrupted pre-receipt staging directories.
+Each set is independently bounded to 4 MiB of package assets plus 64 KiB of
+generated activation overhead, so the total storage ceiling is derived as the
+live-set count multiplied by the per-set ceiling rather than a separate
+unreachable aggregate branch. Remove collects all sets after the final receipt
+no longer references them.
+
+Every setup, doctor, and live DSH launch uses the packaged owner launcher with
+one absolute owner-only runtime root:
+
+```sh
+install -d -m 0700 /absolute/dsh-runtime
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- <command> [args...]
+```
+
+The launcher verifies that the root is a real owner-only directory and exports
+`DSH_RUNTIME_KIT_RUNTIME_ROOT`. Before the first setup it supplies only the
+bounded bootstrap layout needed by the operations command. Once activated, it
+authenticates `activation.json`, every member digest, realpath containment, and
+asset/state disjointness before exporting the exact versioned hook and docs
+paths. It overrides ambient values for those five paths. DSH `0.1.0-rc.7`
+intentionally rejects every `DSH_*` bootstrap variable found in a project or
+Harness-home `.env`; do not store this activation contract in `$DSH_HOME/.env`.
+
+The five manifest-derived values are
+`DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG`, `DSH_RUNTIME_KIT_AGENT_HOOK_POLICY`,
+`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR`, `DSH_RUNTIME_KIT_AGENT_DOCS_HOME`, and
+`DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`. Operators do not populate them
+individually; the launcher replaces ambient values with authenticated paths.
+
+`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may also
+pin the released v1.27.0 executables. The runtime passes the config, policy, and
+state paths literally on every dispatch, finish-line request, and doctor call;
+missing or non-absolute isolation paths fail plugin activation. Ambient
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `~/.codex/AGENTS.md`, and
+`~/.claude/CLAUDE.md` are never fallback sources for DSH.
+
+Initialize or update only the native profile with the ordinary digest-reviewed
+operations flow, then inspect and boot that same profile:
+
+```sh
+# Preview and retain the returned plan_digest.
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
+  --package @sympoies/dsh-runtime-kit@<approved-version> --format json
+
+# Apply the unchanged reviewed plan.
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
+  --package @sympoies/dsh-runtime-kit@<approved-version> \
+  --apply --expected-plan-digest <digest> --format json
+
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit doctor --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh --profile headless --dump-config
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh --profile headless "run the requested task"
+```
+
+The optional private loader remains opt-in. No Codex or Claude Code private
+bundle is auto-enrolled. Leave `DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR` unset, point
+it at an empty owner-only DSH directory, or select an explicit DSH-only
+projection that satisfies the loader's no-symlink and permission checks.
+Rollback restores only the saved `headless` profile and DSH runtime
+root; Codex and Claude Code configuration, hooks, skills, and sessions remain
+unchanged throughout activation and rollback.
+
 ## Operations
 
 The package executable owns planning and receipts; DSH continues to own the
@@ -356,19 +500,25 @@ second unbound registry resolution.
 
 ```sh
 # Preview only; prints plan_digest.
-dsh-runtime-kit setup --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@1.0.0 --format json
 
 # Apply the unchanged reviewed plan.
-dsh-runtime-kit setup --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
   --package @sympoies/dsh-runtime-kit@1.0.0 \
   --apply --expected-plan-digest <digest> --format json
 
-dsh-runtime-kit update --profile work \
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit update --profile headless \
   --package @sympoies/dsh-runtime-kit@1.1.0 --format json
-dsh-runtime-kit rollback --profile work --format json
-dsh-runtime-kit remove --profile work --format json
-dsh-runtime-kit doctor --profile work --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit rollback --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit remove --profile headless --format json
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit doctor --profile headless --format json
 ```
 
 `setup`, `update`, `rollback`, and `remove` all use preview then digest-bound
@@ -380,18 +530,35 @@ without stale-path reclamation. Replaying the same applied digest succeeds as
 `duplicate` only after those locks are acquired and the installed terminal
 state is revalidated. The receipt records the exact target, artifact digest,
 requested/dependency specs, installed version, installed package-tree digest,
-and bundle index, so source-byte, installed-byte, or unrelated-manifest drift
-invalidates the operation and rollback restores the recorded
-package/configuration pair.
-An unmanaged existing installation is never adopted by version alone. A
-durably renamed pending receipt is written before native mutation. After
-interruption, `doctor --repair` previews the complete recovered receipt and may
-finalize or clear only an internally consistent attempt; every third state
-fails closed.
+policy/catalog/document digests, DSH and pnpm executable identities, bounded
+profile control files, and bundle index. Apply revalidates all of those inputs
+before mutation and rejects collateral manifest or lockfile changes afterward.
+Version 2 operations receipts bind the canonical DSH runtime root. Update,
+rollback, remove, and duplicate setup reject a different supplied root before
+native DSH runs, so an old activation cannot be stranded while state moves to
+a new tree. Exact terminal version 1 receipts remain readable only for an
+explicit `doctor --repair` migration: migration authenticates every retained
+package artifact, compares the current receipt to installed bytes, derives the
+versioned policy/docs asset digests, stages the matching activation, and writes
+the version 2 state last. A version 1 pending attempt lacks the profile snapshot
+needed for safe recovery, so it remains byte-for-byte unchanged and fails
+closed with instructions to use the exact base CLI or an authenticated backup.
+Source-byte, installed-byte, activation-asset, toolchain, or unrelated-profile
+drift invalidates the operation; rollback and interrupted-operation recovery
+restore the recorded package, profile, and activation-asset set together.
+An unmanaged existing installation is never adopted by version alone. The
+only legacy version 2 adoption is the root-owner migration described above;
+cross-home, unbound, drifted, foreign-owner, malformed-pending, or incomplete
+asset candidates remain closed. A durably renamed pending receipt is written
+before native mutation. After interruption, `doctor --repair` previews the
+complete recovered receipt and may finalize or clear only an internally
+consistent attempt; every third state fails closed.
 
-Doctor also validates the released nils `agent-hook doctor --product dsh`
-contract: DSH dispatch is supported and registration ownership belongs to
-`dsh-runtime-kit`. Remove first asks native DSH to remove the package and bundle
+Doctor validates both released nils boundaries. `agent-hook doctor --product
+dsh` must report DSH dispatch support and registration ownership by
+`dsh-runtime-kit`; `agent-docs --version` must be v1.27.0, and the DSH-only
+catalog plus state roots must remain owner-only real paths. Remove first asks
+native DSH to remove the package and bundle
 row, then cleans only a fixed final package entry if pnpm retained it. The
 profile, state, package-parent, and cleanup paths reject symlinks or unsafe
 ownership before any recursive removal. Management subprocesses use resolved
@@ -496,16 +663,36 @@ the selected DSH public closure. Operations and runtime each receive a fresh
 extraction of that authenticated tarball, so the second leg never executes a
 package tree that the first leg could mutate. Each scenario owns one stable ID
 and non-empty evidence; failures produce a typed nonzero CLI result.
+The hosted acquisition and source legs share one explicit pnpm store contract:
+acquisition prepares `$HOME/.local/share/pnpm/store`, and source acceptance
+invokes the authenticated pnpm launcher with that exact `--store-dir` plus the
+matching `XDG_DATA_HOME` and `PNPM_HOME`. It does not ask a package-relative
+GitHub Actions launcher to infer a different store after the credentialless
+runtime changes HOME/XDG scope. Because the selected DSH commit and its
+lockfile are authenticated before installation, the frozen offline install
+also uses pnpm's `--trust-lockfile` mode; this prevents supply-chain policy
+metadata checks from attempting registry access inside the network-denied
+candidate without weakening the pinned source or content-addressed store
+bindings. The runtime-kit tarball also bundles its exact production dependency
+closure, so native DSH `add` can use pnpm's explicit `--offline` mode. The
+reviewed artifact digest binds that complete closure; post-install identity
+projects out only the package root's package-manager-owned top-level
+`node_modules` materialization and continues to bind all plugin-owned paths.
+Native `remove` retains the isolated offline environment but does not forward
+pnpm's unsupported `remove --offline` option.
 
 This local mode proves only the scoped `functional-session` path. Its honest
-result remains `incomplete` with blockers for a released artifact set, a
-disposable OS-isolated environment, and an explicitly authorized live
-semantic-commit plus no-merge PR delivery correlated to the same run and exact
-repository/head. It does not claim that no legacy process exists elsewhere on
-the machine. Final `pass` requires all six hashes to match an independently
-authenticated nils release, exact pinned DSH identity, a clean head bound to the
-tested tarball digest, isolated execution, and direct provider read-back for the
-correlated open PR; caller-supplied legacy receipt flags are rejected. The
+result remains `incomplete` until a disposable OS-isolated environment and an
+explicitly authorized live semantic-commit plus no-merge PR delivery are
+correlated to the same run and exact repository/head. It does not make a
+host-wide process claim. Final `pass` requires all six hashes to match the
+independently authenticated nils-cli v1.27.0 release, exact pinned DSH identity,
+a clean head bound to the tested tarball digest, isolated execution, and direct
+provider read-back for the correlated open PR. Its `inspect` and
+`private-project-skill` evidence must also prove that the DSH profile has zero
+`agent-runtime-kit` dependency, Codex/Claude wiring is untouched, and DSH did
+not cross-load their hooks, skills, or session state. Caller-supplied legacy
+receipt flags are rejected. The
 public local runner intentionally has no final-pass mode until that external
 trust root is selected. The selected trust root is the private
 `serenvia/sympoies-infra` manual acceptance workflow. It acquires and verifies
@@ -516,7 +703,7 @@ stops that UID's user manager and proves no process remains before publishing
 candidate evidence. A separate credentialed phase may run only with explicit
 live-delivery authorization; it never executes candidate repository code and
 stops after a correlated draft, no-merge PR plus direct provider read-back.
-That trust root independently pins the seven candidate controller/scenario
+That trust root independently pins the eight candidate controller/scenario
 files it permits. The trusted controller imports none of them: it reads them as
 authenticated inputs and executes candidate behavior only in descendant DSH
 processes. Final provider read-back must contain exact standalone
@@ -572,19 +759,25 @@ npm run --silent stage:compatibility-peers -- \
   --artifact-root /empty/private/directory \
   --consumer-root /path/to/dsh-runtime-kit
 npm run benchmark:policy
+AGENT_HOOK_BIN=/absolute/path/to/released/agent-hook \
+  npm run benchmark:policy:real
 ```
 
 The promotion benchmark runs 250 warmups and two 1,000-check controlled batches.
 Before disposal it blocks if adapter p95 exceeds 5 ms, a batch retains more
 than 8 MiB, retained growth across batches exceeds 2 MiB, or any policy
 operation/provider handle remains active. Disposal must then return all active
-operations and provider handles to zero. This isolates runtime-kit transport,
-correlation, and long-lived retention overhead; provider process startup and
-host scheduling remain covered by real smoke/acceptance evidence rather than
-hidden inside this deterministic budget.
+operations and provider handles to zero. A separate promotion benchmark packs
+the exact candidate, authenticates the released nils-cli `1.27.0` `agent-hook`
+binary, and measures 25 real sequential subprocess dispatches after five
+warmups. Its p95 must remain at or below 250 ms and teardown must leave both
+transport admission and live child counts at zero. The deterministic benchmark
+isolates adapter retention; the packed subprocess benchmark includes provider
+startup and host scheduling instead of relying on a fake handle.
 
 The machine-readable [nils-cli compatibility manifest](compatibility/nils-cli.json)
-is authoritative for consumed commands and protocols. The DSH ingress is
-currently source-validated but still `pending-release`, so this package does
-not yet declare a minimum or validated nils-cli release. A local checkout or
-ambient prototype binary must not be treated as release compatibility.
+is authoritative for consumed commands and protocols. The first supported and
+currently validated DSH-capable release is nils-cli `1.27.0`. The manifest pins
+the official `v1.27.0` source commit, Linux x86-64 release archive, and exact
+hashes of all six acceptance binaries. A local checkout or ambient prototype
+binary must not be treated as release compatibility.

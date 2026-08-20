@@ -12,6 +12,15 @@ Responsibilities are intentionally split:
 - nils-cli owns deterministic policy evaluation, repository lifecycle
   commands, and machine-readable contracts.
 
+Live composition has an explicit runtime-root boundary. The package requires
+absolute DSH-only agent-hook config, policy, and state paths and passes them on
+every dispatch, finish-line, and doctor invocation. It likewise requires an
+absolute DSH-only agent-docs catalog and state root. There is no ambient XDG,
+Codex, or Claude Code fallback. The packaged `agent-docs/` directory is the
+source catalog for a copied owner-only activation root; the policy is copied to
+an owner-only regular file with link count one before its digest is recorded in
+the DSH-only hook config.
+
 `policy/rule-parity.yaml` is the frozen public source inventory, not a
 JavaScript rule engine. It authenticates the exact legacy source and exposes
 the stable 101-row, 27-capability compatibility contract implemented by the
@@ -366,7 +375,12 @@ private receipt, and emits a deterministic dry-run plan. A local target is
 packed with lifecycle scripts disabled; the plan binds the tarball SHA-256 and
 the canonical extracted package-tree digest; apply regenerates that exact
 artifact into a private content-addressed store and verifies the package tree
-DSH actually installed. Apply requires the reviewed digest and evaluates
+DSH actually installed. The published artifact bundles the complete exact
+runtime dependency closure, and its tarball SHA-256 binds those dependency
+bytes. The installed-tree projection excludes only the package root's
+top-level `node_modules` materialization because pnpm may normalize that
+package-manager-owned subtree; every other package-owned path, type,
+executable role, size, and byte remains bound. Apply requires the reviewed digest and evaluates
 duplicate or current-plan state only while holding a global artifact plus
 per-profile SQLite transaction, so process exit releases both kernel locks
 without pathname-based stale-lock reclamation. A completed digest-only replay
@@ -387,6 +401,70 @@ The shared bounded archive parser rejects more than 256 MiB expanded, 16,384
 regular-file entries, 64 MiB in one entry, or unsafe package paths before the
 operations plane invokes system `tar`, so those post-extraction tree limits are
 also pre-extraction admission limits.
+
+Activation assets have a separate root-scoped inventory. The first mutation
+atomically binds the canonical runtime root to one canonical `DSH_HOME`; a
+SQLite root lock serializes activation and collection, and a different home is
+rejected. One compatibility seam admits an ownerless pre-ownership v2 tree only
+through digest-bound `doctor --repair`. It ties the selected root to every
+current, previous, pending, and last-applied reference from the same canonical
+DSH home, authenticates the installed and active current-or-pending targets,
+and requires an exact retained-set inventory before atomically writing the
+owner record. Each retained digest must resolve to one authenticated target
+from a strict version 2 current, previous, or pending receipt; its policy,
+catalog, document, and root-specific hook configuration must match on disk.
+The activation writer, active reader, and retained-set validator share one
+canonical configuration renderer and require byte-for-byte equality. A valid
+TOML file that selects an alternate path or digest cannot authenticate itself
+by repeating the expected assignments in comments or extra sections.
+The receipt binds the bounded tree's sorted path/type/mode/link/size/file-hash
+digest plus its byte count. Cross-home, unmanaged, drifted, missing, extra,
+staging, oversized, malformed, targetless, or conflicting candidates cannot
+be adopted.
+
+Active reads canonicalize and validate the runtime root before opening the
+manifest, then lstat every component below that root without following
+symlinks. The versioned asset-set, hook-assets, and docs-home directories are
+real owner-private directories; config, policy, catalog, and document leaves
+remain inside the canonical asset set. Each asset surface is disjoint from
+both mutable state roots, and the hook and docs state roots are mutually
+disjoint. An absolute root reached through a symlinked parent is compatible
+only after it canonicalizes to the same real owner-private root; no symlink
+inside that canonical root is admitted.
+
+The adoption receipt also binds one protocol-consistent provenance row:
+installed terminal state is `current/current`; removed terminal state is
+`absent/absent` only when current, previous, and pending are null, the
+last-applied remove is authenticated to the selected root, and the global
+authenticated profile inventory retains zero references to activation sets.
+The owner-only asset directory may contain up to 16 reviewed unreferenced
+digest directories left by the pre-ownership remove; each is subject to the
+normal owner, link, topology, count, and per-set byte bounds, and its digest
+byte count, and canonical tree digest are adoption evidence. Adoption leaves
+those bytes untouched,
+while the next authenticated setup or update removes them through ordinary
+reconciliation. Update and rollback `prepared` state may be
+`current/current` or `pending/current`; update and rollback `native-applied`
+state may be `pending/current` or `pending/pending`; setup is adoptable only as
+`native-applied/pending/pending`. Pending remove retains the authenticated
+current snapshot and exact asset set: prepared permits `current/current` or
+`absent/current`, while native-applied permits `absent/current` or
+`absent/absent`. Undefined pending phases, remove `current/absent`,
+`current/pending`, and ambiguous multi-row matches fail closed. The selected
+actual source, activation source, pending phase, and pending action are
+digest-bound, and apply-time revalidation failures are plan drift before
+ownership mutation. The conversion uses an explicit durable-evidence
+allowlist; command-supervisor, isolation, and configuration errors retain their
+typed diagnostics instead of being misreported as plan drift.
+
+Reconciliation scans strict v2 receipts from that home and the active manifest,
+retains only current, previous, pending, active, and currently projected sets,
+and deletes unreferenced digest directories plus hidden pre-pending staging
+orphans. At most 16 live sets may be retained; each set has its independent
+4 MiB package-asset plus 64 KiB generated-overhead bound, which derives the
+complete count-times-per-set ceiling. Every member is owner-only, single-link,
+depth/count/size bounded, and free of symlinks or special entries; inventory
+ambiguity fails closed rather than collecting an unknown path.
 
 The pending marker precedes the DSH subprocess. A failed or interrupted native
 command therefore leaves a diagnosable transaction. Doctor compares the exact
@@ -426,7 +504,8 @@ All `@deepseek-ai/dsh-*` peers used by this rc.7 adapter are pinned exactly to
 
 `compatibility/dsh.json` is the closed promotion input. It records the pinned
 tag, one exact upstream-next revision, every consumed public package/export,
-the runtime service-method surface, and the pre-tool performance budget. The
+the runtime service-method surface, the deterministic in-memory pre-tool
+budget, and the packed released-agent-hook subprocess budget. The
 checkout inspector requires an exact clean Git root, hashes the declared built
 public entrypoints without executing checkout bytes, and rechecks cleanliness
 after inspection. The selected artifact path additionally derives the complete
@@ -444,7 +523,10 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers.
+helpers. Package CI downloads the exact nils-cli `1.27.0` archive, authenticates
+its retained SHA-256, and runs the packed candidate through the real
+`agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
+blocks promotion.
 Each receipt artifact is bounded to 128 MiB compressed, 256 MiB expanded,
 16,384 regular-file entries, and 64 MiB per entry. Staging authenticates the
 whole closure first but retains only paths and digests; extraction rereads and
@@ -485,7 +567,10 @@ it therefore cannot promote. A final pass additionally requires a disposable
 OS-isolated runner, exact released nils provenance and six artifact hashes, and
 authorized semantic-commit/forge-cli evidence bound to the same random run ID,
 canonical repository, exact head, ordered no-merge delivery steps, and provider
-read-back. Invalid matrices are typed failures with a nonzero exit.
+read-back. The scenario receipts additionally bind a DSH-profile zero-dependency
+check for `agent-runtime-kit`, unchanged Codex/Claude wiring sentinels, and no
+cross-loaded provider hooks, skills, or session state. Invalid matrices are
+typed failures with a nonzero exit.
 
 The candidate repository is not allowed to attest its own isolation or nils
 release provenance. Consequently the checked-in runner exposes only the
