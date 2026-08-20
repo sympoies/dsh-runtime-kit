@@ -16,7 +16,7 @@
 - Integration checkout: managed lane `feat/native-runtime-integrated`
 - Blockers: final run-correlated hosted acceptance remains; nils-cli v1.27.0 is
   released and artifact-pinned
-- Last updated: 2026-08-20
+- Last updated: 2026-08-21
 
 ## Task Ledger
 
@@ -37,19 +37,19 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | compatibility contract; package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; deterministic heap benchmark plus packed real released-agent-hook subprocess p95/teardown gate; packed unmodified rc.7 smoke | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | latest frozen source repair assigned rehearsal `issue1-pnpm-offline-20260820v`; full DSH package 277/277; focused acceptance/store 16/16 on Node 22 and 24; exact pnpm 11.7 hosted-store replay completes network-denied with zero downloads; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design | Hosted run `32374056631` authenticated acquisition but exposed pnpm lockfile-policy metadata retries during the offline DSH install; final pass still requires a new exact-head run-correlated hosted execution and receipt proving DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | latest frozen source repair assigned rehearsal `issue1-native-dsh-profile-20260821x`; full DSH package 281/281; operations 65/65 on Node 22 and 24; exact secondary-UID/nft replay completes native DSH setup-update-rollback-remove with network denied; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design | Hosted run `32388147367` authenticated acquisition and reached native profile setup but exposed the unbundled runtime closure and package-manager materialization contract; the source repair is locally green, while final pass still requires a new exact-head run-correlated hosted execution and receipt proving DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
 | 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
 | 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
-Task 6.1 source closeout gates: DSH 260/260 plus typecheck; operations 53/53
+Task 6.1 source closeout gates: DSH 281/281 plus typecheck; operations 65/65
 on both Node 22 and Node 24; nils focused
 agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
 8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
 `agent_run_inspect` tests explicitly skipped; private trust-root `make validate`;
 real packed DSH smoke; and final-head external-tarball rehearsal 10 passed, 2
-authority-pending, 0 failed. Security, maintainability, API-contract, and
-data-migration follow-ups for the current coexistence candidate remain open
-until the repaired head is re-reviewed.
+authority-pending, 0 failed. Prior specialist findings are retained in the
+review ledger; this functional portability repair requires one bounded quick
+review and new exact-head hosted acceptance.
 
 ## Validation Log
 
@@ -592,6 +592,23 @@ until the repaired head is re-reviewed.
   control files before hosted execution resumes. Task 6.1 remains in progress
   until the disposable hosted candidate completes all 12 scenarios and the
   correlated delivery receipt verifies; no cutover is claimed by this record.
+- 2026-08-21: Hosted run `32388147367` entered the credentialless,
+  network-denied candidate and failed native profile setup because the
+  runtime-kit tarball did not include its production dependency closure. Exact
+  secondary-UID/nft replay showed pnpm registry metadata attempts, then showed
+  that explicit `add --offline` succeeds once all exact dependencies are
+  bundled. The reviewed artifact SHA continues to bind that complete closure;
+  installed identity projects out only the package root's package-manager-owned
+  top-level `node_modules`, while binding all other plugin-owned paths. A
+  second replay exposed pnpm 11.7 rejecting `remove --offline`; DSH remove is
+  therefore invoked without that unsupported flag while the isolated offline
+  environment remains. Focused contracts pass, operations pass 65/65 on Node
+  22 and Node 24, full package passes 281/281, typecheck, both performance
+  gates, the 1,144-entry package preview, plan validation, and diff check pass.
+  The exact network-denied setup-update-rollback-remove replay is green and
+  cleans its UID/nft boundary. Frozen source rehearsal
+  `issue1-native-dsh-profile-20260821x` remains external; a new exact-head
+  hosted run is still required.
 
 ## Decision Log
 
@@ -609,9 +626,10 @@ until the repaired head is re-reviewed.
 
 ## Handoff
 
-Continue Task 6.1 from the successful external-tarball source rehearsal,
-integrated PR #17 executable-mode portability repair, completed external
-trust-root source, and published nils-cli v1.27.0 artifacts.
+Continue Task 6.1 from source rehearsal
+`issue1-native-dsh-profile-20260821x`, integrated PR #17 executable-mode
+portability repair, the bundled offline native-profile repair, completed
+external trust-root source, and published nils-cli v1.27.0 artifacts.
 Preserve the tested reviewer, operations, compatibility, DSH
 catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit

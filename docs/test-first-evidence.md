@@ -1444,3 +1444,40 @@ preview, plan validation, and diff check pass. The frozen package is assigned
 source rehearsal `issue1-operations-profile-20260820w`; its terminal receipt
 remains external. A new exact-head hosted run remains required; no merge or
 cutover is claimed.
+
+Hosted Task 6.1 run `32388147367` authenticated the acquired closure, entered
+the credentialless network-denied candidate, and stopped at native profile
+setup with `DSH_OPERATIONS_NATIVE_DSH_FAILED`. Exact secondary-UID/nft replay
+reproduced pnpm registry metadata attempts: the runtime-kit tarball did not
+carry its production dependency closure, so the isolated DSH profile could not
+install it without network access. The bundled-closure regression began RED
+0/1 because `npm pack` listed no bundled dependency package manifests. The
+package now declares every exact production dependency as bundled and the
+regression proves each manifest is present in the reviewed artifact.
+
+The first full replay then reached native verification and began RED at exit
+65: pnpm normalizes its installed top-level `node_modules` materialization.
+The identity regression proves three boundaries: changing a bundled dependency
+before apply changes the reviewed artifact and returns `plan-drift`; pnpm-style
+changes inside the installed top-level `node_modules` are accepted; changing a
+plugin-owned path outside that subtree still makes doctor and duplicate replay
+reject drift. The reviewed tarball SHA therefore binds the complete bundled
+closure, while installed identity excludes only the package-manager-owned
+subtree. The next exact replay reached remove and exposed pnpm 11.7 rejecting
+the forwarded `remove --offline` option. Its focused test began RED with
+`native-dsh-failed` exit 79 and now proves only add receives the supported
+offline flag; remove retains the normalized isolated offline environment.
+
+The combined focused operations contracts pass 2/2, bundled staging and
+bounded failure-diagnostic contracts each pass 1/1, the affected suite passes
+82/82, operations pass 65/65 on Node 22 and Node 24, and the full package suite
+passes 281/281. Typechecking and plan validation pass. Deterministic policy
+performance passes 2,000 samples at 0.128481 ms p95 with zero retained growth,
+active resources, or live handles; packed released agent-hook performance
+passes 25 samples at 5.611917 ms p95 with zero active resources or live
+children. The 1,144-entry package preview and diff/main-agent scope checks
+pass. Exact secondary-UID/nft replay against DSH rc.7, pnpm 11.7, released
+nils-cli 1.27.0, and denied network completes setup-update-rollback-remove and
+cleans both the temporary UID and nft table. Frozen packed source rehearsal
+`issue1-native-dsh-profile-20260821x` remains external. A new exact-head hosted
+run is still required; no merge or cutover is claimed.

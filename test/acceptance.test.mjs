@@ -510,12 +510,14 @@ test('scenario failure diagnostics expose only a bounded producer, step, and cau
       producer: 'operations',
       step: 'profile-setup',
       cause_code: 'ERR_ASSERTION',
+      operation_exit_status: 1,
     }),
   ].join('\n'))
   assert.deepEqual(diagnostic, {
     scenario_producer: 'operations',
     scenario_step: 'profile-setup',
     scenario_cause_code: 'ERR_ASSERTION',
+    scenario_operation_exit_status: 1,
   })
   assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',

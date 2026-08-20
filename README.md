@@ -673,7 +673,13 @@ lockfile are authenticated before installation, the frozen offline install
 also uses pnpm's `--trust-lockfile` mode; this prevents supply-chain policy
 metadata checks from attempting registry access inside the network-denied
 candidate without weakening the pinned source or content-addressed store
-bindings.
+bindings. The runtime-kit tarball also bundles its exact production dependency
+closure, so native DSH `add` can use pnpm's explicit `--offline` mode. The
+reviewed artifact digest binds that complete closure; post-install identity
+projects out only the package root's package-manager-owned top-level
+`node_modules` materialization and continues to bind all plugin-owned paths.
+Native `remove` retains the isolated offline environment but does not forward
+pnpm's unsupported `remove --offline` option.
 
 This local mode proves only the scoped `functional-session` path. Its honest
 result remains `incomplete` until a disposable OS-isolated environment and an
