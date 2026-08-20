@@ -1494,3 +1494,25 @@ semantic candidate receipt and private control manifest must bind the same
 eight acceptance files before the final hosted attempt. Task 6.1 remains in
 progress until all 12 disposable hosted scenarios and the correlated no-merge
 delivery receipt pass; no cutover is claimed here.
+
+## Task 6.1 plan-branch integration evidence
+
+Hosted run `32417978607` passed exact content-addressed acquisition in 2m7s
+and the credentialless, deny-all-egress candidate in 4m30s. The candidate
+receipt proves all 12 scenarios against exact head
+`84189777d54946491200f1aaae02e3d38568289c`; no plugin behavior failed. The
+provider phase validated the repository-scoped opaque installation token and
+its bounded natural expiry, then rejected PR #12 because the existing lane PR
+correctly targeted `feat/dsh-runtime-migration-plan`, while the terminal
+provider receipt intentionally requires the final integration PR to target
+`main` and carry run/trust-root/package markers.
+
+This is integration evidence rather than a behavior repair, so a new RED is
+not meaningful. Provider readback supplies the verification contract: PR #12
+head `84189777d54946491200f1aaae02e3d38568289c`, four green compatibility
+checks, a closed exact-head review ledger, and squash integration
+`ddf64acb9f35effa154bf4abd9c1380ecafaba05` on the non-default plan branch.
+The private control manifest must next bind the signed plan integration head
+and the exact eight controlled files. Task 6.1 remains in progress until the
+same hosted workflow creates and verifies the plan-branch-to-main draft,
+no-merge PR receipt.

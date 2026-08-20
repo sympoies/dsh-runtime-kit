@@ -37,7 +37,7 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | compatibility contract; package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; deterministic heap benchmark plus packed real released-agent-hook subprocess p95/teardown gate; packed unmodified rc.7 smoke | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | PR #18 exact head `0b6aea416046d44e8d530ef06160985ab447e1d6`; DSH compatibility run `32397354308` 4/4; frozen source rehearsal `issue1-native-dsh-profile-20260821x`; full DSH package 281/281; operations 65/65 on Node 22 and 24; exact secondary-UID/nft replay completes native DSH setup-update-rollback-remove with network denied; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design | The offline native-profile repair is squash-integrated as `74f5d0a64f3de22754763146d0eb538fc90666fa`; final pass still requires a new exact-head run-correlated hosted execution and receipt proving DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | PR #12 exact head `84189777d54946491200f1aaae02e3d38568289c` merged to the plan branch as `ddf64acb9f35effa154bf4abd9c1380ecafaba05`; hosted run `32417978607` acquisition GREEN 2m7s and credentialless network-denied candidate GREEN 4m30s; PR #18/run `32397354308`; frozen source rehearsal `issue1-native-dsh-profile-20260821x`; full DSH package 281/281; operations 65/65 on Node 22 and 24; exact released nils-cli v1.27.0 artifacts | The 12-scenario candidate and isolation receipt are green. Final pass now requires rebinding the private trust root to this signed plan integration head and one correlated plan-branch-to-main draft/no-merge provider receipt. |
 | 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
 | 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
@@ -621,6 +621,19 @@ review and new exact-head hosted acceptance.
   resumes. Task 6.1 remains in progress until the disposable hosted candidate
   completes all 12 scenarios and the correlated no-merge delivery receipt
   verifies; no cutover is claimed by this record.
+- 2026-08-21: Hosted run `32417978607` completed content-addressed acquisition
+  in 2m7s and the credentialless, network-denied candidate in 4m30s. All 12
+  scenarios and the isolated candidate receipt passed. The provider leg then
+  correctly validated a scoped opaque GitHub App credential with bounded
+  natural expiry, but rejected existing PR #12 because that lane PR targets
+  the non-default plan branch rather than `main`. The closed exact-head review
+  ledger and four green compatibility checks allowed the dispatch orchestrator
+  to squash PR #12 head `84189777d54946491200f1aaae02e3d38568289c`
+  into `feat/dsh-runtime-migration-plan` as
+  `ddf64acb9f35effa154bf4abd9c1380ecafaba05`. The next hosted attempt must bind
+  this plan integration head and create the run-correlated draft/no-merge final
+  integration PR to `main`; Task 6.1 remains in progress until that receipt is
+  green.
 
 ## Decision Log
 
