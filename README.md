@@ -377,12 +377,17 @@ the atomic owner record, and leaves state, activation, and assets unchanged.
 Ordinary setup/update/remove never adopt an ownerless tree.
 
 Adoption binds one explicit actual/activation provenance pair to the pending
-protocol phase. With no pending operation, both must match `current`. During
-an update or rollback, `prepared` permits `current/current` or
-`pending/current`, and `native-applied` permits `pending/current` or
-`pending/pending`. Setup is adoptable only at
-`native-applied/pending/pending`; an undefined phase, every pending remove,
-`current/pending`, or more than one matching pair is ambiguous and rejected.
+protocol phase. With no pending operation, both must match `current`; a
+terminal removed root instead requires absent package and activation surfaces,
+null current/previous/pending state, an authenticated last-applied remove for
+the selected root, and an exactly empty owner-only assets directory. During an
+update or rollback, `prepared` permits `current/current` or `pending/current`,
+and `native-applied` permits `pending/current` or `pending/pending`. Setup is
+adoptable only at `native-applied/pending/pending`. A pending remove retains
+the authenticated current snapshot and exact asset set: `prepared` permits
+`current/current` or `absent/current`, and `native-applied` permits
+`absent/current` or `absent/absent`. Undefined phases, `current/absent` remove,
+`current/pending`, or more than one matching pair are ambiguous and rejected.
 The adoption receipt binds both selected sources plus the pending phase and
 action. Any topology, provenance, activation, or retained-asset change after
 preview becomes `plan-drift` before the owner record is written. This

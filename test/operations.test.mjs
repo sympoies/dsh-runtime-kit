@@ -1033,6 +1033,156 @@ test('ownerless adoption rejects authenticated asset drift after preview before 
   }
 })
 
+test('ownerless adoption enumerates exact terminal and interrupted remove states', () => {
+  const removed = fixture()
+  try {
+    applyPlan(removed, ['setup', '--profile', 'work', '--package', removed.v1])
+    applyPlan(removed, ['remove', '--profile', 'work'])
+    const statePath = join(removed.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(removed.runtimeRoot, 'activation.json')
+    const ownerPath = join(removed.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(removed.runtimeRoot, '.dsh-runtime-kit.lock'))
+    assert.equal(existsSync(activationPath), false)
+    assert.deepEqual(activationAssetSets(removed), [])
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      assets: readdirSync(join(removed.runtimeRoot, 'assets')).sort(),
+    }
+
+    const repair = run(removed, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    assert.equal(repair.value.data.plan.adoption.observed_actual_source, 'absent')
+    assert.equal(repair.value.data.plan.adoption.observed_activation_source, 'absent')
+    assert.equal(repair.value.data.plan.adoption.pending_phase, null)
+    assert.equal(repair.value.data.plan.adoption.pending_action, 'remove')
+    const adopted = run(removed, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(adopted.status, 0, adopted.stderr)
+    assert.equal(existsSync(ownerPath), true)
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.deepEqual(readdirSync(join(removed.runtimeRoot, 'assets')).sort(), before.assets)
+    applyPlan(removed, ['setup', '--profile', 'work', '--package', removed.v2])
+    applyPlan(removed, ['remove', '--profile', 'work'])
+  } finally {
+    removed.cleanup()
+  }
+
+  const scenarios = [
+    { name: 'prepared-current-current', phase: 'prepared', actual: 'current', activation: 'current', valid: true },
+    { name: 'prepared-absent-current', phase: 'prepared', actual: 'absent', activation: 'current', valid: true },
+    { name: 'native-applied-absent-current', phase: 'native-applied', actual: 'absent', activation: 'current', valid: true },
+    { name: 'native-applied-absent-absent', phase: 'native-applied', actual: 'absent', activation: 'absent', valid: true },
+    { name: 'prepared-current-absent', phase: 'prepared', actual: 'current', activation: 'absent', valid: false },
+  ]
+  for (const scenario of scenarios) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const activationPath = join(subject.runtimeRoot, 'activation.json')
+      const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+      const preview = run(subject, ['remove', '--profile', 'work'])
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      const interrupted = run(subject, [
+        'remove', '--profile', 'work', '--apply',
+        '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(interrupted.status, 70, `${scenario.name}: ${interrupted.stderr}`)
+      unlinkSync(join(subject.home, 'fail-after-mutation'))
+      const state = JSON.parse(readFileSync(statePath, 'utf8'))
+      assert.equal(state.pending.operation, 'remove')
+      assert.equal(state.pending.phase, 'prepared')
+      if (scenario.actual === 'current') {
+        const restored = spawnSync(subject.dsh, [
+          'plugin', '--profile', 'work', 'add', '--save-exact', state.current.dependency_spec,
+        ], {
+          encoding: 'utf8',
+          env: { ...process.env, DSH_HOME: subject.home },
+        })
+        assert.equal(restored.status, 0, `${scenario.name}: ${restored.stderr}`)
+      }
+      state.pending.phase = scenario.phase
+      writeJson(statePath, state)
+      if (scenario.activation === 'absent') unlinkSync(activationPath)
+      unlinkSync(ownerPath)
+      unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+      const before = {
+        state: readFileSync(statePath, 'utf8'),
+        activation: existsSync(activationPath) ? readFileSync(activationPath, 'utf8') : null,
+        assets: activationAssetSets(subject),
+      }
+
+      const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      if (scenario.valid) {
+        assert.equal(repair.status, 0, `${scenario.name}: ${repair.stderr}`)
+        assert.equal(repair.value.data.plan.adoption.observed_actual_source, scenario.actual)
+        assert.equal(repair.value.data.plan.adoption.observed_activation_source, scenario.activation)
+        assert.equal(repair.value.data.plan.adoption.pending_phase, scenario.phase)
+        assert.equal(repair.value.data.plan.adoption.pending_action, 'remove')
+        const adopted = run(subject, [
+          'doctor', '--profile', 'work', '--repair', '--apply',
+          '--expected-plan-digest', repair.value.data.plan_digest,
+        ])
+        assert.equal(adopted.status, 0, `${scenario.name}: ${adopted.stderr}`)
+        assert.equal(existsSync(ownerPath), true)
+      } else {
+        assert.equal(repair.status, 65, `${scenario.name}: ${repair.stderr}`)
+        assert.equal(repair.value.error.code, 'runtime-root-owner-missing')
+        assert.equal(existsSync(ownerPath), false)
+      }
+      assert.equal(readFileSync(statePath, 'utf8'), before.state)
+      assert.equal(
+        existsSync(activationPath) ? readFileSync(activationPath, 'utf8') : null,
+        before.activation,
+      )
+      assert.deepEqual(activationAssetSets(subject), before.assets)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('locked ownerless revalidation preserves non-evidence typed failures', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      activation: readFileSync(activationPath, 'utf8'),
+      assets: activationAssetSets(subject),
+    }
+
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ], {
+      NODE_ENV: 'test',
+      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'ownerless-adoption-revalidation-infrastructure',
+    })
+    assert.equal(rejected.status, 70, rejected.stderr)
+    assert.equal(rejected.value.error.code, 'command-supervisor-failed')
+    assert.deepEqual(rejected.value.error.details, {
+      point: 'ownerless-adoption-revalidation-infrastructure',
+    })
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+    assert.deepEqual(activationAssetSets(subject), before.assets)
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('a drifted apply cannot claim an unowned runtime root', () => {
   const first = fixture()
   const rightful = fixture()

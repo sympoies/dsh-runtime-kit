@@ -1215,3 +1215,35 @@ resources or live children. The 133-entry package preview, plan validation,
 and diff check also pass. The frozen candidate uses packed source acceptance
 ID `issue1-finalhead-20260820o`; the terminal receipt is external so no
 post-pack tracked edit can invalidate it.
+
+The terminal-remove ownership follow-up began RED 0/2. An authenticated
+ownerless version 2 root after a completed remove returned status 65 instead
+of exposing its one-time repair, so the subsequent setup/remove lifecycle
+could not be proven. The locked revalidation fault also returned status 0
+instead of preserving status 70 `command-supervisor-failed`, demonstrating
+that the adoption branch still bypassed the shared reviewed-repair error
+classifier.
+
+Adoption now enumerates the removed protocol states without performing
+cleanup. A terminal removed root requires absent package and activation
+surfaces, null current/previous/pending state, an authenticated last-applied
+remove tied to the selected root, and an exactly empty owner-only assets
+directory. Pending remove retains the authenticated current snapshot and exact
+asset set: prepared permits `current/current` or `absent/current`, while
+native-applied permits `absent/current` or `absent/absent`; the impossible
+prepared `current/absent` row stays closed. The version 2 receipt binds the
+observed sources, phase, and remove action. Apply revalidates the same row
+under the root lock and writes only ownership infrastructure. Its catch now
+uses the central durable-evidence classifier, so a non-allowlisted typed fault
+retains its status, code, and details.
+
+The two focused regressions pass 2/2 and the complete ownerless adoption audit
+passes 8/8. Operations passes 55/55 on Node 22 and Node 24, and the full package
+suite passes 262/262. Typechecking and plan validation pass. Deterministic
+policy performance passes 2,000 samples at 0.129151 ms p95 with zero retained
+growth/active resources; packed released agent-hook performance passes 25
+samples at 6.068236 ms p95 with zero active resources or live children. The
+final frozen package is assigned source rehearsal
+`issue1-finalhead-20260820p`; its terminal receipt remains external. Exact-head
+specialist and hosted acceptance remain promotion gates; no merge or cutover
+is claimed.

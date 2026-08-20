@@ -409,14 +409,20 @@ owner record. Cross-home, unmanaged, drifted, missing, extra, staging,
 oversized, or malformed candidates cannot be adopted.
 
 The adoption receipt also binds one protocol-consistent provenance row:
-terminal state is `current/current`; update and rollback `prepared` state may
-be `current/current` or `pending/current`; update and rollback
-`native-applied` state may be `pending/current` or `pending/pending`; setup is
-adoptable only as `native-applied/pending/pending`. Undefined pending phases,
-pending remove, `current/pending`, and ambiguous multi-row matches fail closed.
-The selected actual source, activation source, pending phase, and pending
-action are digest-bound, and apply-time revalidation failures are plan drift
-before ownership mutation. The conversion uses an explicit durable-evidence
+installed terminal state is `current/current`; removed terminal state is
+`absent/absent` only when current, previous, and pending are null, the
+last-applied remove is authenticated to the selected root, and the owner-only
+asset directory is exactly empty. Update and rollback `prepared` state may be
+`current/current` or `pending/current`; update and rollback `native-applied`
+state may be `pending/current` or `pending/pending`; setup is adoptable only as
+`native-applied/pending/pending`. Pending remove retains the authenticated
+current snapshot and exact asset set: prepared permits `current/current` or
+`absent/current`, while native-applied permits `absent/current` or
+`absent/absent`. Undefined pending phases, remove `current/absent`,
+`current/pending`, and ambiguous multi-row matches fail closed. The selected
+actual source, activation source, pending phase, and pending action are
+digest-bound, and apply-time revalidation failures are plan drift before
+ownership mutation. The conversion uses an explicit durable-evidence
 allowlist; command-supervisor, isolation, and configuration errors retain their
 typed diagnostics instead of being misreported as plan drift.
 
