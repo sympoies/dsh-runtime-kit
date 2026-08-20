@@ -382,6 +382,13 @@ the TOML. The receipt binds each set's byte
 count and canonical tree digest; apply revalidates that evidence under the root
 lock, writes only the atomic owner record, and leaves state, activation, and
 assets unchanged.
+The activation reader canonicalizes the selected runtime root, then rejects a
+symlink or unsafe owner/mode at every component below it. The asset-set,
+agent-hook, and agent-docs directories must be real, their leaves must remain
+contained in that versioned set, and every asset surface is disjoint from both
+mutable state roots. A requested absolute root below a symlinked parent remains
+compatible only after canonicalization to the same owner-private real runtime
+root; symlinks inside that root are never followed.
 Ordinary setup/update/remove never adopt an ownerless tree.
 
 Adoption binds one explicit actual/activation provenance pair to the pending

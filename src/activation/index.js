@@ -146,9 +146,20 @@ function activationPath(root, relativePath, kind) {
   if (relativePath.includes('\0') || isAbsolute(relativePath)) {
     throw new TypeError('activation paths must be relative')
   }
-  const path = join(root, relativePath)
-  owned(path, kind)
-  const exact = realpathSync(path)
+  const path = resolve(root, relativePath)
+  if (path === root || !within(root, path)) {
+    throw new TypeError('activation path escapes the runtime root')
+  }
+  const components = relative(root, path).split(sep)
+  let cursor = root
+  for (const [index, component] of components.entries()) {
+    if (component === '' || component === '.' || component === '..') {
+      throw new TypeError('activation paths must use canonical relative components')
+    }
+    cursor = join(cursor, component)
+    owned(cursor, index === components.length - 1 ? kind : 'directory')
+  }
+  const exact = realpathSync(cursor)
   if (!within(root, exact)) throw new TypeError('activation path escapes the runtime root')
   return exact
 }
@@ -162,8 +173,8 @@ function verifyDigest(path, expected, label) {
 
 /** @param {string} root */
 export function readActivation(root) {
-  const activationPathname = join(root, 'activation.json')
-  owned(activationPathname, 'file')
+  const canonicalRoot = resolveActivationRoot(root)
+  const activationPathname = activationPath(canonicalRoot, 'activation.json', 'file')
   let value
   try { value = JSON.parse(readFileSync(activationPathname, 'utf8')) } catch {
     throw new TypeError('activation manifest must be valid JSON')
@@ -193,15 +204,27 @@ export function readActivation(root) {
     || docs.home !== `${assetRoot}/agent-docs`) {
     throw new TypeError('activation manifest paths do not match its versioned asset set')
   }
-  const config = activationPath(root, hook.config, 'file')
-  const policy = activationPath(root, hook.policy, 'file')
-  const hookState = activationPath(root, hook.state, 'directory')
-  const docsHome = activationPath(root, docs.home, 'directory')
-  const docsState = activationPath(root, docs.state, 'directory')
-  const catalog = activationPath(root, `${docs.home}/AGENT_DOCS.toml`, 'file')
-  const document = activationPath(root, `${docs.home}/PROJECT_DEV_EDIT.md`, 'file')
-  if (overlaps(realpathSync(join(root, assetRoot)), hookState)
-    || overlaps(realpathSync(join(root, assetRoot)), docsState)
+  const assetSetRoot = activationPath(canonicalRoot, assetRoot, 'directory')
+  const hookAssets = activationPath(canonicalRoot, `${assetRoot}/agent-hook`, 'directory')
+  const config = activationPath(canonicalRoot, hook.config, 'file')
+  const policy = activationPath(canonicalRoot, hook.policy, 'file')
+  const hookState = activationPath(canonicalRoot, hook.state, 'directory')
+  const docsHome = activationPath(canonicalRoot, docs.home, 'directory')
+  const docsState = activationPath(canonicalRoot, docs.state, 'directory')
+  const catalog = activationPath(canonicalRoot, `${docs.home}/AGENT_DOCS.toml`, 'file')
+  const document = activationPath(canonicalRoot, `${docs.home}/PROJECT_DEV_EDIT.md`, 'file')
+  for (const path of [hookAssets, config, policy, docsHome, catalog, document]) {
+    if (!within(assetSetRoot, path)) {
+      throw new TypeError('activation asset path must remain contained in its versioned asset set')
+    }
+  }
+  if (!within(hookAssets, config) || !within(hookAssets, policy)
+    || !within(docsHome, catalog) || !within(docsHome, document)) {
+    throw new TypeError('activation asset leaf does not match its trusted directory')
+  }
+  const assetSurfaces = [assetSetRoot, hookAssets, docsHome]
+  const stateSurfaces = [hookState, docsState]
+  if (assetSurfaces.some(asset => stateSurfaces.some(state => overlaps(asset, state)))
     || overlaps(hookState, docsState)) {
     throw new TypeError('activation assets and mutable state roots must be disjoint')
   }
@@ -223,7 +246,7 @@ export function readActivation(root) {
   return {
     manifest: activation,
     environment: {
-      DSH_RUNTIME_KIT_RUNTIME_ROOT: root,
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: canonicalRoot,
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: config,
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policy,
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: hookState,

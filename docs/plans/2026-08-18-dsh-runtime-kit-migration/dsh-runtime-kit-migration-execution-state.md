@@ -478,6 +478,22 @@ until the repaired head is re-reviewed.
   plan validation, and diff check. The frozen package is assigned source
   rehearsal `issue1-finalhead-20260820s`; external terminal evidence remains
   required before promotion. No merge or cutover is authorized.
+- 2026-08-20: Active-activation topology follow-up began with one of two
+  focused cases failing: a versioned agent-hook directory symlinked into
+  mutable hook state still launched the child, while the direct agent-docs
+  directory redirect was already rejected. Active reads now canonicalize and
+  validate the root; lstat-check every component below it; require real
+  owner-private asset-set, hook-assets, and docs-home directories; prove all
+  asset-leaf containment; and keep every asset surface disjoint from both
+  mutually disjoint state roots before rendering config. A positive case
+  preserves absolute roots below symlinked parents by canonicalizing them to
+  the same real root without permitting symlinks inside it. Focused topology
+  passes 2/2, launcher 7/7, ownerless audit 13/13, operations 62/62 on Node 22
+  and Node 24, and full package 272/272 plus typecheck, both performance gates,
+  a 133-entry package preview, plan validation, and diff check. The frozen
+  package is assigned source rehearsal `issue1-finalhead-20260820t`; external
+  terminal evidence remains required before promotion. No merge or cutover is
+  authorized.
 
 ## Decision Log
 

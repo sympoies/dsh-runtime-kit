@@ -417,6 +417,16 @@ digest plus its byte count. Cross-home, unmanaged, drifted, missing, extra,
 staging, oversized, malformed, targetless, or conflicting candidates cannot
 be adopted.
 
+Active reads canonicalize and validate the runtime root before opening the
+manifest, then lstat every component below that root without following
+symlinks. The versioned asset-set, hook-assets, and docs-home directories are
+real owner-private directories; config, policy, catalog, and document leaves
+remain inside the canonical asset set. Each asset surface is disjoint from
+both mutable state roots, and the hook and docs state roots are mutually
+disjoint. An absolute root reached through a symlinked parent is compatible
+only after it canonicalizes to the same real owner-private root; no symlink
+inside that canonical root is admitted.
+
 The adoption receipt also binds one protocol-consistent provenance row:
 installed terminal state is `current/current`; removed terminal state is
 `absent/absent` only when current, previous, and pending are null, the

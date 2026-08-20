@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
+import { activationSha256, renderAgentHookConfig } from '../src/activation/index.js'
+
 const projectRoot = resolve(import.meta.dirname, '..')
 const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 
@@ -34,6 +36,58 @@ function invoke(runtimeRoot, extraEnvironment = {}) {
       ...extraEnvironment,
     },
   })
+}
+
+function activatedRuntimeRoot(temporary) {
+  const runtimeRoot = join(temporary, 'runtime')
+  const policy = 'schema_version = "dsh.policy.v1"\n'
+  const catalog = 'schema_version = "agent-docs.catalog.v1"\n'
+  const document = '# Project development\n'
+  const assets = {
+    policy_sha256: activationSha256(policy),
+    catalog_sha256: activationSha256(catalog),
+    document_sha256: activationSha256(document),
+  }
+  const assetDigest = activationSha256(JSON.stringify({
+    catalog_sha256: assets.catalog_sha256,
+    document_sha256: assets.document_sha256,
+    policy_sha256: assets.policy_sha256,
+  }))
+  const assetRoot = join(runtimeRoot, 'assets', assetDigest)
+  const hookAssets = join(assetRoot, 'agent-hook')
+  const docsHome = join(assetRoot, 'agent-docs')
+  const hookState = join(runtimeRoot, 'state', 'agent-hook')
+  const docsState = join(runtimeRoot, 'state', 'agent-docs')
+  for (const path of [hookAssets, docsHome, hookState, docsState]) {
+    mkdirSync(path, { recursive: true, mode: 0o700 })
+  }
+  writeFileSync(join(hookAssets, 'policy.toml'), policy, { mode: 0o600 })
+  writeFileSync(
+    join(hookAssets, 'config.toml'),
+    renderAgentHookConfig(join(hookAssets, 'policy.toml'), assets.policy_sha256),
+    { mode: 0o600 },
+  )
+  writeFileSync(join(docsHome, 'AGENT_DOCS.toml'), catalog, { mode: 0o600 })
+  writeFileSync(join(docsHome, 'PROJECT_DEV_EDIT.md'), document, { mode: 0o600 })
+  writeFileSync(join(runtimeRoot, 'activation.json'), `${JSON.stringify({
+    schema_version: 'dsh-runtime-kit.activation.v1',
+    profile: 'headless',
+    package_version: '1.0.0',
+    package_artifact_sha256: '1'.repeat(64),
+    package_installed_sha256: '2'.repeat(64),
+    asset_set_sha256: assetDigest,
+    assets,
+    agent_hook: {
+      config: `assets/${assetDigest}/agent-hook/config.toml`,
+      policy: `assets/${assetDigest}/agent-hook/policy.toml`,
+      state: 'state/agent-hook',
+    },
+    agent_docs: {
+      home: `assets/${assetDigest}/agent-docs`,
+      state: 'state/agent-docs',
+    },
+  })}\n`, { mode: 0o600 })
+  return { assetRoot, assets, docsHome, docsState, hookAssets, hookState, runtimeRoot }
 }
 
 test('owner launcher derives the complete DSH isolation environment from one runtime root', () => {
@@ -136,6 +190,67 @@ test('owner launcher rejects provider-home nesting in both directions', () => {
     const containsProvider = invoke(runtimeParent, { CLAUDE_CONFIG_DIR: providerChild })
     assert.equal(containsProvider.status, 64)
     assert.match(containsProvider.stderr, /disjoint from Codex and Claude runtime homes/u)
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher rejects an agent-hook asset symlink redirected into mutable state', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const subject = activatedRuntimeRoot(temporary)
+  try {
+    rmSync(subject.hookAssets, { recursive: true })
+    writeFileSync(join(subject.hookState, 'policy.toml'), 'schema_version = "dsh.policy.v1"\n', { mode: 0o600 })
+    writeFileSync(
+      join(subject.hookState, 'config.toml'),
+      renderAgentHookConfig(join(subject.hookState, 'policy.toml'), subject.assets.policy_sha256),
+      { mode: 0o600 },
+    )
+    symlinkSync(subject.hookState, subject.hookAssets, 'dir')
+
+    const rejected = invoke(subject.runtimeRoot)
+    assert.equal(rejected.status, 64, rejected.stderr)
+    assert.equal(rejected.stdout, '')
+    assert.match(rejected.stderr, /real directory|symlink|disjoint|contained/u)
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher rejects an agent-docs asset symlink redirected into mutable state', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const subject = activatedRuntimeRoot(temporary)
+  try {
+    rmSync(subject.docsHome, { recursive: true })
+    writeFileSync(join(subject.docsState, 'AGENT_DOCS.toml'), 'schema_version = "agent-docs.catalog.v1"\n', { mode: 0o600 })
+    writeFileSync(join(subject.docsState, 'PROJECT_DEV_EDIT.md'), '# Project development\n', { mode: 0o600 })
+    symlinkSync(subject.docsState, subject.docsHome, 'dir')
+
+    const rejected = invoke(subject.runtimeRoot)
+    assert.equal(rejected.status, 64, rejected.stderr)
+    assert.equal(rejected.stdout, '')
+    assert.match(rejected.stderr, /real directory|symlink|disjoint|contained/u)
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher canonicalizes a legitimate runtime root below a symlinked parent', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const realParent = join(temporary, 'real-parent')
+  const parentAlias = join(temporary, 'parent-alias')
+  const subject = activatedRuntimeRoot(realParent)
+  symlinkSync(realParent, parentAlias, 'dir')
+  try {
+    const launched = invoke(join(parentAlias, 'runtime'))
+    assert.equal(launched.status, 0, launched.stderr)
+    const environment = JSON.parse(launched.stdout)
+    assert.equal(environment.root, subject.runtimeRoot)
+    assert.equal(environment.hookConfig, join(subject.hookAssets, 'config.toml'))
+    assert.equal(environment.hookPolicy, join(subject.hookAssets, 'policy.toml'))
+    assert.equal(environment.hookState, subject.hookState)
+    assert.equal(environment.docsHome, subject.docsHome)
+    assert.equal(environment.docsState, subject.docsState)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }

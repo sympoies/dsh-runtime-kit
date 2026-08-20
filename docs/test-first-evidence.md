@@ -1320,3 +1320,25 @@ check also pass. The frozen package is assigned source rehearsal
 `issue1-finalhead-20260820s`; its terminal receipt remains external. Exact-head
 specialist and hosted acceptance remain promotion gates; no merge or cutover
 is claimed.
+
+The active-activation topology follow-up began RED with one of two focused
+cases failing. Replacing the versioned `agent-hook` directory with a symlink to
+mutable hook state still launched the child, while the analogous direct
+agent-docs-directory symlink was already rejected by the existing leaf check.
+The active reader now canonicalizes and validates the root, lstat-checks every
+component below it as an owner-private real directory or file, proves every
+asset leaf remains inside its real versioned set, and checks the asset-set,
+hook-assets, and docs-home surfaces against both mutually disjoint state roots
+before rendering the canonical hook configuration. A positive compatibility
+case proves an absolute runtime root below a symlinked parent canonicalizes to
+the same real root without weakening the no-symlink boundary inside it.
+Focused topology regressions pass 2/2, launcher passes 7/7, and ownerless
+adoption remains 13/13. Operations passes 62/62 on Node 22 and Node 24, and the
+full package suite passes 272/272. Typechecking and plan validation pass.
+Deterministic policy performance passes 2,000 samples at 0.201880 ms p95 with
+zero retained growth/active resources; packed released agent-hook performance
+passes 25 samples at 5.886571 ms p95 with zero active resources or live
+children. The 133-entry package preview and diff check also pass. The frozen
+package is assigned source rehearsal `issue1-finalhead-20260820t`; its terminal
+receipt remains external. Exact-head specialist and hosted acceptance remain
+promotion gates; no merge or cutover is claimed.
