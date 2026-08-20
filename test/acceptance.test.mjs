@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +11,7 @@ import {
   AcceptanceError,
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
+  scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -499,6 +501,31 @@ test('failed matrices have a typed nonzero CLI result while incomplete rehearsal
   assert.equal(failed.envelope.error.summary.status, 'failed')
 })
 
+test('scenario failure diagnostics expose only a bounded producer, step, and cause code', () => {
+  const diagnostic = scenarioFailureDiagnostic([
+    'untrusted progress with /tmp/private-path',
+    JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+      ok: false,
+      producer: 'operations',
+      step: 'profile-setup',
+      cause_code: 'ERR_ASSERTION',
+    }),
+  ].join('\n'))
+  assert.deepEqual(diagnostic, {
+    scenario_producer: 'operations',
+    scenario_step: 'profile-setup',
+    scenario_cause_code: 'ERR_ASSERTION',
+  })
+  assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'operations',
+    step: '/tmp/private-path',
+    cause_code: 'ERR_ASSERTION',
+  })), {})
+})
+
 test('acceptance runner is packaged with its scenario programs and rejects old receipt injection flags', async () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   assert.equal(manifest.scripts.acceptance, 'node scripts/run-acceptance.mjs')
@@ -526,6 +553,9 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(checkoutInspector, /safe\.directory=/u)
   const operationsSmoke = readFileSync(join(projectRoot, 'test', 'operations-smoke.mjs'), 'utf8')
   assert.doesNotMatch(operationsSmoke, /function stageBundle/u)
+  assert.doesNotMatch(operationsSmoke, /spawnSync\('pnpm', \['dsh'/u)
+  assert.match(operationsSmoke, /apps', 'cli', 'lib', 'bin\.js/u)
+  assert.match(operationsSmoke, /spawnSync\(process\.execPath, \[dshCli/u)
   assert.match(operationsSmoke, /DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1/u)
   assert.match(operationsSmoke, /operations:full-package-setup-update-rollback-remove/u)
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
@@ -596,4 +626,44 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
         && envelope.error?.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_TRUST_REQUIRED'
     },
   )
+})
+
+test('acceptance runner reports a sanitized phase for unexpected workspace failures', async () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-diagnostic-'))
+  const invalidTempRoot = join(fixtureRoot, 'not-a-directory')
+  writeFileSync(invalidTempRoot, 'fixture\n')
+  try {
+    await assert.rejects(
+      run(process.execPath, [
+        join(projectRoot, 'scripts', 'run-acceptance.mjs'),
+        '--dsh-source-root', '/tmp',
+        '--agent-hook-bin', '/bin/true',
+        '--agent-docs-bin', '/bin/true',
+        '--git-cli-bin', '/bin/true',
+        '--review-specialists-bin', '/bin/true',
+        '--semantic-commit-bin', '/bin/true',
+        '--forge-cli-bin', '/bin/true',
+        '--nils-source-commit', SOURCE_COMMIT,
+        '--nils-archive-name', 'nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz',
+        '--nils-archive-sha256', ARCHIVE_SHA,
+        '--pnpm-bin', '/bin/true',
+        '--npm-bin', '/bin/true',
+        '--acknowledge-trusted-code',
+      ], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        env: { ...process.env, TMPDIR: invalidTempRoot },
+      }),
+      error => {
+        const envelope = JSON.parse(error.stdout)
+        return envelope.ok === false
+          && envelope.error?.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_INTERNAL_FAILED'
+          && envelope.error?.phase === 'workspace'
+          && envelope.error?.cause_code === 'ENOTDIR'
+          && !JSON.stringify(envelope).includes(fixtureRoot)
+      },
+    )
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
 })

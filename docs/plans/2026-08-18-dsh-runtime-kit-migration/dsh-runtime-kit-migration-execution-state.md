@@ -494,6 +494,20 @@ until the repaired head is re-reviewed.
   package is assigned source rehearsal `issue1-finalhead-20260820t`; external
   terminal evidence remains required before promotion. No merge or cutover is
   authorized.
+- 2026-08-20: Hosted Task 6.1 run `32360067297` reached the credentialless
+  candidate but the source acceptance runner returned a generic failure. New
+  bounded phase and scenario diagnostics identified a pre-build source-only
+  checkout inspection, a `pnpm dsh` launcher that escaped the authenticated
+  tool selection, and a temporary-PATH symlink that broke pnpm/action-setup's
+  package-relative runtime. Checkout identity is now authenticated before the
+  build and fully rechecked afterward; operations invoke the built selected
+  DSH CLI directly; and owner-only exec forwarders preserve authenticated tool
+  package layout. Focused tests pass 33/33, the full package suite passes
+  276/276, and exact packed source rehearsal
+  `acceptance-local-tool-forwarder-fix` passes 10 functional scenarios with 2
+  hosted-delivery-pending and 0 failed against DSH rc.7 and released nils-cli
+  1.27.0. Task 6.1 remains in progress until a new exact-head hosted run and
+  correlated delivery receipt complete; no merge or cutover is authorized.
 
 ## Decision Log
 

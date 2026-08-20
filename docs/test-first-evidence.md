@@ -1275,6 +1275,34 @@ package is assigned source rehearsal `issue1-finalhead-20260820q`; its terminal
 receipt remains external. Exact-head specialist and hosted acceptance remain
 promotion gates; no merge or cutover is claimed.
 
+Hosted Task 6.1 run `32360067297` then crossed the infrastructure acquisition
+and isolation boundaries but returned only the runner's former generic
+`ACCEPTANCE_FAILED` diagnostic. A workspace-failure regression first failed
+13/14 because no sanitized phase or cause was emitted. The runner now reports
+only a bounded phase, error class, and stable cause code; scenario programs
+similarly emit one exact producer/step/cause record, and arbitrary progress or
+path-bearing output is discarded. The diagnostic exposed two functional
+portability defects in sequence. A source-only authenticated DSH checkout was
+incorrectly inspected for build outputs before the runner installed and built
+it, and the operations wrapper invoked `pnpm dsh`, allowing package-manager
+launcher state to replace the explicitly authenticated pnpm. The runner now
+authenticates checkout identity before build, repeats the full artifact check
+after build, and invokes the selected built DSH CLI directly with Node.
+
+The next exact replay exposed the final boundary: the temporary scenario PATH
+symlinked pnpm/action-setup's package-relative launcher, so its sibling runtime
+resolved below the temporary directory instead of the authenticated package.
+The package-layout regression failed 0/1 before the tool-path owner existed.
+Scenario PATH entries are now owner-only exec forwarders to the authenticated
+absolute tools, preserving each launcher's original package runtime without
+weakening binary identity checks. Focused acceptance, compatibility, and
+tool-path tests pass 33/33; the full package suite passes 276/276. Exact packed
+source rehearsal `acceptance-local-tool-forwarder-fix` passes all functional
+scenarios with 10 passed, 2 hosted-delivery-pending, and 0 failed against DSH
+rc.7 and released nils-cli 1.27.0. The final post-documentation receipt remains
+external; a new exact-head hosted run is still required before Task 6.1 can
+complete.
+
 The inactive-retained-set review began RED 0/2. After setup v1 and update v2,
 a same-length mutation of the inactive v1 policy before preview still produced
 a valid `adopt-owner` plan. A separate valid preview followed by the same

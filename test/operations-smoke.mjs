@@ -184,9 +184,11 @@ function apply(args) {
 }
 
 const wrapper = join(temporaryRoot, 'dsh-wrapper.mjs')
+const dshCli = join(dshRoot, 'apps', 'cli', 'lib', 'bin.js')
 writeFileSync(wrapper, `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-const result = spawnSync('pnpm', ['dsh', ...process.argv.slice(2)], {
+const dshCli = ${JSON.stringify(dshCli)}
+const result = spawnSync(process.execPath, [dshCli, ...process.argv.slice(2)], {
   cwd: ${JSON.stringify(dshRoot)},
   env: process.env,
   stdio: 'inherit',
@@ -203,6 +205,7 @@ const unrelated = stageUnrelatedBundle('unrelated-bundle', '1.0.0')
 assertRuntimePackage(packageV1, '0.0.0-acceptance.1')
 assertRuntimePackage(packageV2, '0.0.0-acceptance.2')
 const upstreamBefore = upstreamStatus()
+let acceptanceStep = 'profile-add'
 
 try {
   run(wrapper, ['plugin', '--profile', 'operations-smoke', 'add', '--save-exact', unrelated], {
@@ -211,6 +214,7 @@ try {
   const userPatch = join(dshHome, 'profiles', 'operations-smoke', 'cordis.patch.yml')
   writeFileSync(userPatch, '# user-owned marker\n[]\n')
 
+  acceptanceStep = 'profile-setup'
   apply(['setup', '--profile', 'operations-smoke', '--package', packageV1])
   assertDshProfileIsolation()
   const installedRuntime = join(
@@ -222,6 +226,7 @@ try {
     'dsh-runtime-kit',
   )
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+  acceptanceStep = 'profile-doctor'
   const doctor = operation(['doctor', '--profile', 'operations-smoke'])
   assert.equal(doctor.status, 'healthy')
   assert.equal(doctor.agent_hook.ok, true)
@@ -230,14 +235,17 @@ try {
   assert.equal(doctor.agent_docs.catalog.startsWith(`${runtimeRoot}/assets/`), true)
   assert.match(doctor.dsh.version, /0\.1\.0-rc\.7/)
 
+  acceptanceStep = 'profile-update'
   apply(['update', '--profile', 'operations-smoke', '--package', packageV2])
   assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.2')
 
+  acceptanceStep = 'profile-rollback'
   apply(['rollback', '--profile', 'operations-smoke'])
   assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
 
+  acceptanceStep = 'profile-remove'
   apply(['remove', '--profile', 'operations-smoke'])
   const manifest = JSON.parse(readFileSync(join(dshHome, 'profiles', 'operations-smoke', 'package.json')))
   assert.equal(manifest.dependencies['@sympoies/dsh-runtime-kit'], undefined)
@@ -249,6 +257,7 @@ try {
   assertProviderSentinel(codexHome, 'codex')
   assertProviderSentinel(claudeHome, 'claude')
 
+  acceptanceStep = 'final-verification'
   const upstreamAfter = upstreamStatus()
   assert.equal(upstreamBefore, '')
   assert.equal(upstreamAfter, upstreamBefore)
@@ -276,6 +285,22 @@ try {
     privateSkillsPreserved: true,
     upstreamCheckoutClean: true,
   })}\n`)
+} catch (error) {
+  const causeCode = error !== null
+    && typeof error === 'object'
+    && 'code' in error
+    && typeof error.code === 'string'
+    && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
+    ? error.code
+    : 'UNCLASSIFIED'
+  process.stderr.write(`${JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'operations',
+    step: acceptanceStep,
+    cause_code: causeCode,
+  })}\n`)
+  process.exitCode = 1
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })
 }

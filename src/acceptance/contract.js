@@ -120,6 +120,41 @@ export class AcceptanceError extends Error {
   }
 }
 
+/** @param {unknown} output */
+export function scenarioFailureDiagnostic(output) {
+  if (typeof output !== 'string') return Object.freeze({})
+  const lines = output.split('\n').map(line => line.trim()).filter(Boolean).reverse()
+  for (const line of lines) {
+    let parsed
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
+    if (Object.keys(parsed).sort().join('\0') !== [
+      'cause_code',
+      'ok',
+      'producer',
+      'schema_version',
+      'step',
+    ].join('\0')
+      || parsed.schema_version !== 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1'
+      || parsed.ok !== false
+      || !['operations', 'packed-runtime'].includes(parsed.producer)
+      || typeof parsed.step !== 'string'
+      || !/^[a-z][a-z0-9-]{0,63}$/u.test(parsed.step)
+      || typeof parsed.cause_code !== 'string'
+      || !/^[A-Z][A-Z0-9_]{1,63}$/u.test(parsed.cause_code)) continue
+    return Object.freeze({
+      scenario_producer: parsed.producer,
+      scenario_step: parsed.step,
+      scenario_cause_code: parsed.cause_code,
+    })
+  }
+  return Object.freeze({})
+}
+
 /** @param {unknown} value @param {string} label */
 function record(value, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {

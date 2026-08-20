@@ -25,6 +25,7 @@ import {
   inspectCanonicalPackageArtifact,
   prepareAuthenticatedPackageScope,
 } from '../src/compat/package-artifact.js'
+import { inspectSelectedDshCheckoutIdentity } from '../src/compat/git-checkout.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifestPath = join(projectRoot, 'compatibility', 'dsh.json')
@@ -501,6 +502,52 @@ test('source inspection validates package versions and required public runtime e
   } finally {
     await rm(root, { recursive: true, force: true })
     await rm(external, { recursive: true, force: true })
+  }
+})
+
+test('selected source-only checkout can be authenticated before its build artifacts exist', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-source-only-'))
+  try {
+    await run('/usr/bin/git', ['init', '--quiet', root])
+    await writeFile(join(root, 'README.md'), 'source-only fixture\n')
+    await run('/usr/bin/git', ['-C', root, 'add', 'README.md'])
+    await run('/usr/bin/git', [
+      '-c', 'user.name=Acceptance Fixture',
+      '-c', 'user.email=acceptance@example.invalid',
+      '-C', root,
+      'commit', '--quiet', '-m', 'test: source-only fixture',
+    ])
+    const { stdout } = await run('/usr/bin/git', ['-C', root, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    })
+    const revision = stdout.trim()
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.channels.pinned.revision = revision
+
+    const report = await inspectSelectedDshCheckoutIdentity({
+      sourceRoot: root,
+      channel: 'pinned',
+      gitBin: '/usr/bin/git',
+      manifest,
+    })
+    assert.equal(report.channel, 'pinned')
+    assert.equal(report.revision, revision)
+    assert.equal(report.upstream_checkout_clean, true)
+    assert.equal('packages' in report, false)
+
+    await writeFile(join(root, 'untracked.txt'), 'must reject\n')
+    await assert.rejects(
+      inspectSelectedDshCheckoutIdentity({
+        sourceRoot: root,
+        channel: 'pinned',
+        gitBin: '/usr/bin/git',
+        manifest,
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
 
