@@ -634,6 +634,14 @@ review and new exact-head hosted acceptance.
   this plan integration head and create the run-correlated draft/no-merge final
   integration PR to `main`; Task 6.1 remains in progress until that receipt is
   green.
+- 2026-08-21: PR #19 retained the hosted candidate and remaining-delivery
+  evidence after PR #12 integration. All four compatibility jobs in run
+  `32419417097` passed, and the evidence-only PR was squash-integrated into the
+  non-default plan branch as `cae2ee784ad284565abda69d2013a04be18383de`.
+  The following signed semantic commit is the exact Task 6.1 trust-root
+  boundary: its owner-only receipt must be supplied to the hosted workflow.
+  Task 6.1 remains in progress until the correlated plan-to-main draft PR and
+  terminal hosted receipt verify; no cutover is claimed by this record.
 
 ## Decision Log
 
