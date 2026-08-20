@@ -5,7 +5,11 @@ import { realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
-import { DshCompatibilityError, inspectDshSource } from './contract.js'
+import {
+  DshCompatibilityError,
+  inspectDshSource,
+  validateDshCompatibilityManifest,
+} from './contract.js'
 
 const run = promisify(execFile)
 
@@ -72,11 +76,8 @@ async function git(gitBin, sourceRoot, args) {
   }
 }
 
-/**
- * Bind one source inspection to an exact clean selected Git checkout.
- * @param {{sourceRoot: string, channel: string, gitBin: string, manifest: unknown}} input
- */
-export async function inspectSelectedDshCheckout(input) {
+/** @param {{sourceRoot: string, channel: string, gitBin: string, manifest: unknown}} input */
+async function selectedCheckoutState(input) {
   if (!isAbsolute(input.sourceRoot)) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_DSH_SOURCE_INVALID',
@@ -87,6 +88,14 @@ export async function inspectSelectedDshCheckout(input) {
     realpath(input.sourceRoot),
     trustedGit(input.gitBin),
   ])
+  const manifest = validateDshCompatibilityManifest(input.manifest)
+  const selected = manifest.channels[input.channel]
+  if (selected === undefined) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_CHANNEL_INVALID',
+      'Unknown DSH compatibility channel: ' + input.channel,
+    )
+  }
   const topLevel = await realpath(resolve(await git(gitBin, sourceRoot, [
     'rev-parse', '--show-toplevel',
   ])))
@@ -100,21 +109,57 @@ export async function inspectSelectedDshCheckout(input) {
   const before = await git(gitBin, sourceRoot, [
     'status', '--porcelain=v1', '--untracked-files=all',
   ])
-  const report = await inspectDshSource({
-    sourceRoot,
+  if (revision !== selected.revision) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_UNSELECTED_DSH_REVISION',
+      'DSH ' + input.channel + ' revision does not match the reviewed selection',
+      { channel: input.channel, expected_revision: selected.revision, actual_revision: revision },
+    )
+  }
+  if (before.length !== 0) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
+      'DSH compatibility checkout must remain clean',
+      { channel: input.channel, revision },
+    )
+  }
+  return Object.freeze({ sourceRoot, gitBin, manifest, revision, before })
+}
+
+/**
+ * Authenticate an exact clean selected Git checkout before its build outputs exist.
+ * @param {{sourceRoot: string, channel: string, gitBin: string, manifest: unknown}} input
+ */
+export async function inspectSelectedDshCheckoutIdentity(input) {
+  const selected = await selectedCheckoutState(input)
+  return Object.freeze({
     channel: input.channel,
-    revision,
-    clean: before.length === 0,
-    manifest: input.manifest,
+    revision: selected.revision,
+    upstream_checkout_clean: true,
   })
-  const after = await git(gitBin, sourceRoot, [
+}
+
+/**
+ * Bind one built source inspection to an exact clean selected Git checkout.
+ * @param {{sourceRoot: string, channel: string, gitBin: string, manifest: unknown}} input
+ */
+export async function inspectSelectedDshCheckout(input) {
+  const selected = await selectedCheckoutState(input)
+  const report = await inspectDshSource({
+    sourceRoot: selected.sourceRoot,
+    channel: input.channel,
+    revision: selected.revision,
+    clean: true,
+    manifest: selected.manifest,
+  })
+  const after = await git(selected.gitBin, selected.sourceRoot, [
     'status', '--porcelain=v1', '--untracked-files=all',
   ])
-  if (after !== before || after.length !== 0) {
+  if (after !== selected.before || after.length !== 0) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
       'DSH compatibility inspection changed the upstream checkout',
-      { channel: input.channel, revision },
+      { channel: input.channel, revision: selected.revision },
     )
   }
   return Object.freeze({ ...report, upstream_checkout_clean: true })
