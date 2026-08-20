@@ -663,6 +663,12 @@ the selected DSH public closure. Operations and runtime each receive a fresh
 extraction of that authenticated tarball, so the second leg never executes a
 package tree that the first leg could mutate. Each scenario owns one stable ID
 and non-empty evidence; failures produce a typed nonzero CLI result.
+The hosted acquisition and source legs share one explicit pnpm store contract:
+acquisition prepares `$HOME/.local/share/pnpm/store`, and source acceptance
+invokes the authenticated pnpm launcher with that exact `--store-dir` plus the
+matching `XDG_DATA_HOME` and `PNPM_HOME`. It does not ask a package-relative
+GitHub Actions launcher to infer a different store after the credentialless
+runtime changes HOME/XDG scope.
 
 This local mode proves only the scoped `functional-session` path. Its honest
 result remains `incomplete` until a disposable OS-isolated environment and an
@@ -686,7 +692,7 @@ stops that UID's user manager and proves no process remains before publishing
 candidate evidence. A separate credentialed phase may run only with explicit
 live-delivery authorization; it never executes candidate repository code and
 stops after a correlated draft, no-merge PR plus direct provider read-back.
-That trust root independently pins the seven candidate controller/scenario
+That trust root independently pins the eight candidate controller/scenario
 files it permits. The trusted controller imports none of them: it reads them as
 authenticated inputs and executes candidate behavior only in descendant DSH
 processes. Final provider read-back must contain exact standalone

@@ -519,6 +519,19 @@ until the repaired head is re-reviewed.
   remains in progress until the disposable hosted candidate completes all 12
   scenarios and the correlated delivery receipt verifies; no cutover is
   claimed by this integration record.
+- 2026-08-20: Hosted run `32367478998` completed authenticated acquisition but
+  the credentialless source runner stopped before the scenario matrix with
+  `pnpm store discovery failed`. The acquired archive contained the expected
+  pnpm v11 store; an action-style pnpm 11.7 launcher could resolve it when
+  acquisition's explicit root and XDG/PNPM homes were retained. Source
+  acceptance had instead dropped those bindings and relied on ambient store
+  inference after isolation changed HOME/XDG scope. A RED 0/1 action-layout
+  regression now passes and requires exact `--store-dir`, `XDG_DATA_HOME`, and
+  `PNPM_HOME`; focused acceptance/tool-path coverage passes 17/17 and the first
+  and frozen full runs pass 277/277. Typecheck, both performance gates, a
+  134-entry package preview, plan validation, and diff check pass. Frozen source
+  rehearsal `issue1-pnpm-store-20260820u` remains external. Task 6.1 still
+  requires a new exact-head hosted run; no merge or cutover is authorized.
 
 ## Decision Log
 
