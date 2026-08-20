@@ -235,34 +235,19 @@ function atomicReplaceOwnedFile(path, content, mode, options = {}) {
   }
 }
 
-/** @param {string} path @param {{privateOnly?: boolean, faultPoint?: string}} [options] */
+/**
+ * @param {string} path
+ * @param {{privateOnly?: boolean, beforeFaultPoint?: string, afterFaultPoint?: string}} [options]
+ */
 function atomicRemoveOwnedFile(path, options = {}) {
   const privateOnly = options.privateOnly ?? false
   cleanupAtomicReplaceTemporaries(path, privateOnly)
   if (lstatMaybe(path) === null) return
   assertOwnedPath(path, 'file', privateOnly)
-  const temporary = join(
-    dirname(path),
-    `.${basename(path)}${ATOMIC_REPLACE_MARKER}${process.pid}.${randomUUID()}.tmp`,
-  )
-  let fd
-  try {
-    fd = openSync(temporary, 'wx', 0o600)
-    fsyncSync(fd)
-    closeSync(fd)
-    fd = undefined
-    fsyncDirectory(dirname(path))
-    if (options.faultPoint !== undefined) injectTestFault(options.faultPoint)
-    unlinkSync(path)
-    fsyncDirectory(dirname(path))
-    unlinkSync(temporary)
-    fsyncDirectory(dirname(path))
-  } finally {
-    if (fd !== undefined) {
-      try { closeSync(fd) } catch {}
-    }
-    try { unlinkSync(temporary) } catch {}
-  }
+  if (options.beforeFaultPoint !== undefined) injectTestFault(options.beforeFaultPoint)
+  unlinkSync(path)
+  fsyncDirectory(dirname(path))
+  if (options.afterFaultPoint !== undefined) injectTestFault(options.afterFaultPoint)
 }
 
 /** @param {string} path @param {unknown} value */
@@ -571,7 +556,10 @@ function restoreProfileSnapshot(snapshot, paths) {
   for (const file of snapshot.files) {
     const path = join(paths.profileDir, file.name)
     if (!file.present) {
-      atomicRemoveOwnedFile(path, { faultPoint: `restore-profile:${file.name}` })
+      atomicRemoveOwnedFile(path, {
+        beforeFaultPoint: `restore-profile:${file.name}:before-unlink`,
+        afterFaultPoint: `restore-profile:${file.name}:after-unlink`,
+      })
       continue
     }
     atomicReplaceOwnedFile(
@@ -595,7 +583,8 @@ function commitRestoredState(path, stateRead) {
   if (stateRead.raw === null) {
     atomicRemoveOwnedFile(path, {
       privateOnly: true,
-      faultPoint: 'restore-state',
+      beforeFaultPoint: 'restore-state:before-unlink',
+      afterFaultPoint: 'restore-state:after-unlink',
     })
     return
   }

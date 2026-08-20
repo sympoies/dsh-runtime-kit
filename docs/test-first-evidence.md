@@ -1071,16 +1071,22 @@ pass. Packed source acceptance `issue1-finalhead-20260820h` remains released
 mode with 10 passed, 2 authorization-pending, and 0 failed. Follow-up review
 and hosted acceptance remain promotion gates; no merge or cutover is claimed.
 
-The absent-before profile-control removal follow-up then exposed one remaining
-atomicity gap. A deterministic `pnpm-lock.yaml` removal interruption retained
-valid pending state and received `SIGKILL`, but failed because the removal path
-left zero durable same-directory temporaries instead of one. Atomic removal now
-creates and fsyncs an owner-only single-link marker before unlinking collateral
-state, fsyncs each directory transition, and cleans retained profile markers
-under the repair lock before convergence. The isolated removal regression
-passes 1/1 and all three replacement/removal/state interruption cases pass 3/3.
+The absent-before profile-control removal follow-up was simplified after final
+maintainability review found that its durable marker had no recovery semantics:
+the pending receipt and authenticated prior snapshot were authoritative, while
+repair only deleted the marker. A replacement two-window regression first
+failed 0/1 because the old implementation had no distinct before-unlink fault
+boundary and returned the normal typed collateral result instead of receiving
+`SIGKILL`. Removal now keeps the owner/type checks, unlinks and fsyncs the
+directory without creating a second protocol artifact, and exposes test-only
+boundaries immediately before unlink and after the durable unlink. The former
+leaves `pnpm-lock.yaml` present and retries through collateral restoration; the
+latter leaves it absent and retries through clear. Both retain parseable pending
+state and converge to the exact authenticated v1 package, activation, profile,
+and state. The isolated two-window regression passes 1/1 and all three
+replacement/removal/state interruption cases pass 3/3.
 Operations passes 38/38 on Node 22 and Node 24, and the full suite passes
 245/245 plus typechecking. Packed source acceptance
-`issue1-finalhead-20260820i` remains released mode with 10 passed, 2
+`issue1-finalhead-20260820j` remains released mode with 10 passed, 2
 authorization-pending, and 0 failed. Follow-up review and hosted acceptance
 remain promotion gates; no merge or cutover is claimed.

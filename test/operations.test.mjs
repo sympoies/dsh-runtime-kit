@@ -1094,73 +1094,76 @@ test('doctor repair survives interruption during an atomic profile snapshot repl
   }
 })
 
-test('doctor repair survives interruption while atomically removing collateral lockfile state', () => {
-  const subject = fixture()
-  try {
-    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
-    const activationPath = join(subject.runtimeRoot, 'activation.json')
-    const expected = {
-      state: JSON.parse(readFileSync(statePath, 'utf8')),
-      activation: readFileSync(activationPath, 'utf8'),
-      manifest: readFileSync(join(subject.profileDir, 'package.json'), 'utf8'),
+test('doctor repair converges after interruption before or after removing collateral lockfile state', () => {
+  for (const [faultPoint, expectedPresentAfterCrash, expectedAction, expectedStatus] of [
+    ['restore-profile:pnpm-lock.yaml:before-unlink', true, 'restore-collateral', 65],
+    ['restore-profile:pnpm-lock.yaml:after-unlink', false, 'clear', 0],
+  ]) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const activationPath = join(subject.runtimeRoot, 'activation.json')
+      const expected = {
+        state: JSON.parse(readFileSync(statePath, 'utf8')),
+        activation: readFileSync(activationPath, 'utf8'),
+        manifest: readFileSync(join(subject.profileDir, 'package.json'), 'utf8'),
+      }
+      const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+      assert.equal(existsSync(lockfile), false)
+      const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+      writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
+      const interrupted = run(subject, [
+        'update', '--profile', 'work', '--package', subject.v2,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.notEqual(interrupted.status, 0)
+      unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+      unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+      assert.equal(existsSync(lockfile), true)
+
+      const doctor = run(subject, ['doctor', '--profile', 'work'])
+      assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
+      const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      const crashed = run(subject, [
+        'doctor', '--profile', 'work', '--repair', '--apply',
+        '--expected-plan-digest', repair.value.data.plan_digest,
+      ], {
+        NODE_ENV: 'test',
+        DSH_RUNTIME_KIT_TEST_FAULT_POINT: faultPoint,
+      })
+      assert.equal(crashed.status, null, faultPoint)
+      assert.equal(crashed.signal, 'SIGKILL', faultPoint)
+      assert.notEqual(JSON.parse(readFileSync(statePath, 'utf8')).pending, null)
+      assert.equal(existsSync(lockfile), expectedPresentAfterCrash, faultPoint)
+
+      const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+      assert.equal(diagnosed.value.data.recovery.action, expectedAction)
+      const retry = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      const converged = run(subject, [
+        'doctor', '--profile', 'work', '--repair', '--apply',
+        '--expected-plan-digest', retry.value.data.plan_digest,
+      ])
+      assert.equal(converged.status, expectedStatus)
+      if (expectedStatus === 65) {
+        assert.equal(converged.value.error.code, 'native-dsh-collateral-mutation')
+      }
+      assert.equal(existsSync(lockfile), false)
+      assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), expected.manifest)
+      assert.equal(readFileSync(activationPath, 'utf8'), expected.activation)
+      const state = JSON.parse(readFileSync(statePath, 'utf8'))
+      assert.deepEqual(state.current, expected.state.current)
+      assert.deepEqual(state.previous, expected.state.previous)
+      assert.deepEqual(state.last_applied, expected.state.last_applied)
+      assert.equal(state.pending, null)
+      assert.equal(JSON.parse(readFileSync(join(
+        subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json',
+      ), 'utf8')).version, '1.0.0')
+    } finally {
+      subject.cleanup()
     }
-    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
-    assert.equal(existsSync(lockfile), false)
-    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
-    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
-    writeFileSync(join(subject.home, 'kill-supervisor-after-mutation'), '')
-    const interrupted = run(subject, [
-      'update', '--profile', 'work', '--package', subject.v2,
-      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
-    ])
-    assert.notEqual(interrupted.status, 0)
-    unlinkSync(join(subject.home, 'collateral-profile-mutation'))
-    unlinkSync(join(subject.home, 'kill-supervisor-after-mutation'))
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
-    assert.equal(existsSync(lockfile), true)
-
-    const doctor = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
-    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
-    const crashed = run(subject, [
-      'doctor', '--profile', 'work', '--repair', '--apply',
-      '--expected-plan-digest', repair.value.data.plan_digest,
-    ], {
-      NODE_ENV: 'test',
-      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'restore-profile:pnpm-lock.yaml',
-    })
-    assert.equal(crashed.status, null)
-    assert.equal(crashed.signal, 'SIGKILL')
-    assert.notEqual(JSON.parse(readFileSync(statePath, 'utf8')).pending, null)
-    assertPrivateAtomicTemporary(subject.profileDir, 'pnpm-lock.yaml')
-
-    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(diagnosed.value.data.recovery.action, 'restore-collateral')
-    const retry = run(subject, ['doctor', '--profile', 'work', '--repair'])
-    const converged = run(subject, [
-      'doctor', '--profile', 'work', '--repair', '--apply',
-      '--expected-plan-digest', retry.value.data.plan_digest,
-    ])
-    assert.equal(converged.status, 65)
-    assert.equal(converged.value.error.code, 'native-dsh-collateral-mutation')
-    assert.equal(existsSync(lockfile), false)
-    assert.equal(
-      readdirSync(subject.profileDir).some(name => name.includes('.dsh-runtime-kit-atomic.')),
-      false,
-    )
-    assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), expected.manifest)
-    assert.equal(readFileSync(activationPath, 'utf8'), expected.activation)
-    const state = JSON.parse(readFileSync(statePath, 'utf8'))
-    assert.deepEqual(state.current, expected.state.current)
-    assert.deepEqual(state.previous, expected.state.previous)
-    assert.deepEqual(state.last_applied, expected.state.last_applied)
-    assert.equal(state.pending, null)
-    assert.equal(JSON.parse(readFileSync(join(
-      subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json',
-    ), 'utf8')).version, '1.0.0')
-  } finally {
-    subject.cleanup()
   }
 })
 
