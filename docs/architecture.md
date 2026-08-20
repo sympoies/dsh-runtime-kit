@@ -397,6 +397,18 @@ regular-file entries, 64 MiB in one entry, or unsafe package paths before the
 operations plane invokes system `tar`, so those post-extraction tree limits are
 also pre-extraction admission limits.
 
+Activation assets have a separate root-scoped inventory. The first mutation
+atomically binds the canonical runtime root to one canonical `DSH_HOME`; a
+SQLite root lock serializes activation and collection, and a different home or
+an ownerless pre-existing activation tree is rejected. Reconciliation scans
+strict v2 receipts from that home and the active manifest, retains only
+current, previous, pending, active, and currently projected sets, and deletes
+unreferenced digest directories plus hidden pre-pending staging orphans. At
+most 16 live sets and 16 bounded-set byte budgets may be retained. Every member
+is owner-only, single-link, depth/count/size bounded, and free of symlinks or
+special entries; inventory ambiguity fails closed rather than collecting an
+unknown path.
+
 The pending marker precedes the DSH subprocess. A failed or interrupted native
 command therefore leaves a diagnosable transaction. Doctor compares the exact
 observed terminal state with the reviewed target and previous receipt: it may

@@ -1083,15 +1083,32 @@ official archive, verifies its retained archive SHA-256 before extraction, and
 runs the same packed benchmark on Node 22 and Node 24.
 
 Final local gates pass: migration/root focused 5/5, compatibility focused 2/2,
-operations 42/42 on Node 22 and Node 24, and the full package suite 249/249.
+operations 47/47 on Node 22 and Node 24, and the full package suite 254/254.
 Typechecking, diff checks, the 2,000-sample deterministic benchmark (p95 about
-0.21 ms), the packed real-subprocess benchmark (p95 about 6.0 ms), the
+0.13 ms), the packed real-subprocess benchmark (p95 about 6.5 ms), the
 133-entry package preview, and plan validation all pass. Fresh packed source
-acceptance `issue1-finalhead-20260820k` binds package SHA-256
-`795bdcec4d3f59dff83ce75dfbb924345d8bfa5537ad98bde9031839578ee19e`
-and remains released mode with 10 passed, 2 authorization-pending, and 0
-failed. Exact-head review convergence and hosted 12/12 acceptance remain
-promotion gates; no merge or cutover is claimed.
+acceptance `issue1-finalhead-20260820l` remains released mode with 10 passed,
+2 authorization-pending, and 0 failed. Exact-head review convergence and
+hosted 12/12 acceptance remain promotion gates; no merge or cutover is claimed.
+
+The final red-team pass then reproduced the unbounded activation-store defect.
+Before production edits, the new retention, pre-pending crash, and cross-home
+ownership regressions failed 0/3: a third update retained three sets, the
+staging fault did not exist, and a second DSH home could mutate the same runtime
+root. A separate digest-before-claim regression then failed 0/1 because a
+drifted apply wrote the owner record before rejecting the plan. The
+implementation now binds a root to one canonical DSH home only after the
+reviewed digest matches, holds a
+root-scoped kernel lock, inventories every strict current/previous/pending and
+active reference, admits at most 16 sets within the corresponding byte budget,
+and collects exact unreferenced digest or hidden staging directories. A fourth
+capacity regression and a digest-before-claim regression pass together with the
+original three (5/5); Node 22 and Node 24 operations pass 47/47, and the
+complete package suite passes 254/254. An invalid plan digest cannot claim an
+otherwise unowned runtime root.
+The packed rehearsal named above is the exact post-repair package run; provider
+review-loop history retains the original open finding until the repaired head
+is observed as fixed.
 
 The final convergence recovery audit reproduced both crash windows before the
 atomic restore implementation. Two deterministic process-loss tests failed

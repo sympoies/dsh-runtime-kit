@@ -53,6 +53,9 @@ const MAX_INSTALLED_PACKAGE_BYTES = 256 * 1024 * 1024
 const MAX_ARTIFACT_COUNT = 64
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
+const MAX_ACTIVATION_ASSET_SETS = 16
+const MAX_ACTIVATION_ASSET_STORAGE_BYTES = MAX_ACTIVATION_ASSET_SETS * (MAX_ACTIVATION_ASSET_BYTES + 64 * 1024)
+const RUNTIME_ROOT_OWNER_SCHEMA = 'dsh-runtime-kit.runtime-root-owner.v1'
 const DSH_SOURCE_REVISION = '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca'
 const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
@@ -1524,6 +1527,69 @@ function withOperationLocks(paths, body) {
   return withLock(artifactLock, () => withLock(paths.lock, body))
 }
 
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function assertRuntimeRootOwner(paths, runtimeRoot) {
+  const ownerPath = join(runtimeRoot, '.dsh-runtime-kit-owner.json')
+  const home = realpathSync(paths.home)
+  if (lstatMaybe(ownerPath) === null) {
+    throw new OperationsError('runtime-root-owner-missing', 'runtime root ownership record is missing')
+  }
+  assertSafeStateFile(ownerPath)
+  const owner = readJson(ownerPath).value
+  if (!plainRecord(owner)
+    || owner.schema_version !== RUNTIME_ROOT_OWNER_SCHEMA
+    || typeof owner.dsh_home !== 'string'
+    || !isAbsolute(owner.dsh_home)
+    || Object.keys(owner).sort().join(',') !== 'dsh_home,schema_version') {
+    throw new OperationsError('runtime-root-owner-invalid', 'runtime root ownership record is invalid')
+  }
+  let recordedHome
+  try { recordedHome = realpathSync(owner.dsh_home) } catch {
+    throw new OperationsError('runtime-root-owner-invalid', 'runtime root owner home is unavailable')
+  }
+  if (recordedHome !== home) {
+    throw new OperationsError(
+      'runtime-root-owner-mismatch',
+      'runtime root is owned by a different DSH home',
+    )
+  }
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function assertRuntimeRootClaimable(paths, runtimeRoot) {
+  const ownerPath = join(runtimeRoot, '.dsh-runtime-kit-owner.json')
+  if (lstatMaybe(ownerPath) !== null) return assertRuntimeRootOwner(paths, runtimeRoot)
+  if (lstatMaybe(join(runtimeRoot, 'activation.json')) !== null
+    || lstatMaybe(join(runtimeRoot, 'assets')) !== null) {
+    throw new OperationsError(
+      'runtime-root-owner-missing',
+      'runtime root contains activation state without a dsh-runtime-kit ownership record',
+    )
+  }
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function ensureRuntimeRootOwner(paths, runtimeRoot) {
+  const ownerPath = join(runtimeRoot, '.dsh-runtime-kit-owner.json')
+  assertRuntimeRootClaimable(paths, runtimeRoot)
+  if (lstatMaybe(ownerPath) === null) {
+    atomicWriteJson(ownerPath, {
+      schema_version: RUNTIME_ROOT_OWNER_SCHEMA,
+      dsh_home: realpathSync(paths.home),
+    })
+  }
+  assertRuntimeRootOwner(paths, runtimeRoot)
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot @param {() => unknown} body */
+function withRuntimeRootLock(paths, runtimeRoot, body) {
+  const lock = join(runtimeRoot, '.dsh-runtime-kit.lock')
+  return withLock(lock, () => {
+    assertRuntimeRootClaimable(paths, runtimeRoot)
+    return body()
+  })
+}
+
 /** @param {string} input */
 function resolveExecutable(input) {
   const candidates = input.includes('/')
@@ -1922,8 +1988,127 @@ function activateStagedAssets(target, runtimeRoot, profile) {
 
 /** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot @param {string} profile */
 function stageActivation(paths, target, runtimeRoot, profile) {
+  reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
   stageActivationAssets(paths, target, runtimeRoot)
   return activateStagedAssets(target, runtimeRoot, profile)
+}
+
+/** @param {Set<string>} retained @param {unknown} value @param {string} runtimeRoot */
+function retainSnapshotAssetSet(retained, value, runtimeRoot) {
+  if (value === null || value === undefined) return
+  const snapshot = validateSnapshot(value)
+  if (snapshot.runtime_root === runtimeRoot) retained.add(snapshot.target.assets.asset_set_sha256)
+}
+
+/** @param {ReturnType<typeof pathsFor>} paths @param {string} runtimeRoot */
+function retainedActivationAssetSets(paths, runtimeRoot) {
+  const retained = new Set()
+  for (const name of readdirSync(dirname(paths.state)).sort()) {
+    if (!name.endsWith('.json')) continue
+    const profile = validateProfile(name.slice(0, -'.json'.length))
+    const stateRead = readState(join(dirname(paths.state), name), profile)
+    const state = stateRead.value
+    if (stateRead.version !== 2 || state === null) continue
+    retainSnapshotAssetSet(retained, state.current, runtimeRoot)
+    retainSnapshotAssetSet(retained, state.previous, runtimeRoot)
+    if (state.pending !== null) {
+      const pending = validatePending(state.pending, profile)
+      const plan = /** @type {any} */ (validatePlan(pending.plan, profile))
+      if (plan.runtime_root === runtimeRoot && pending.target !== null) {
+        retained.add(validateTarget(pending.target).assets.asset_set_sha256)
+      }
+    }
+  }
+  if (lstatMaybe(join(runtimeRoot, 'activation.json')) !== null) {
+    retained.add(readActivation(runtimeRoot).manifest.asset_set_sha256)
+  }
+  return retained
+}
+
+/** @param {string} root */
+function activationAssetSetBytes(root) {
+  let entries = 0
+  let bytes = 0
+  /** @param {string} path @param {number} depth */
+  const visit = (path, depth) => {
+    if (depth > 8) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set exceeds the depth limit')
+    const stat = lstatSync(path)
+    if (stat.isSymbolicLink()) {
+      throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains a symbolic link')
+    }
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+      throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set is not owned by the current user')
+    }
+    if ((stat.mode & 0o077) !== 0) {
+      throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set is not owner-only')
+    }
+    entries += 1
+    if (entries > 16) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains too many entries')
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(path).sort()) visit(join(path, name), depth + 1)
+      return
+    }
+    if (!stat.isFile() || stat.nlink !== 1) {
+      throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains an unsupported entry')
+    }
+    bytes += stat.size
+    if (bytes > MAX_ACTIVATION_ASSET_BYTES + 64 * 1024) {
+      throw new OperationsError('activation-asset-retention-limit', 'activation asset set exceeds the storage limit')
+    }
+  }
+  visit(root, 0)
+  return bytes
+}
+
+/**
+ * Reconcile only asset sets owned by this DSH home while the root lock is
+ * held. Current, rollback, pending, and active sets are authoritative; all
+ * other digest directories and interrupted staging temporaries are orphans.
+ *
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} runtimeRoot
+ * @param {string} [projectedAssetSet]
+ */
+function reconcileActivationAssets(paths, runtimeRoot, projectedAssetSet) {
+  const retained = retainedActivationAssetSets(paths, runtimeRoot)
+  if (projectedAssetSet !== undefined) retained.add(projectedAssetSet)
+  if (retained.size > MAX_ACTIVATION_ASSET_SETS) {
+    throw new OperationsError('activation-asset-retention-limit', 'runtime root retains too many activation asset sets')
+  }
+  const assetsRoot = join(runtimeRoot, 'assets')
+  if (lstatMaybe(assetsRoot) === null) return
+  assertOwnedPath(assetsRoot, 'directory', true)
+  let removed = false
+  let retainedBytes = 0
+  const present = new Set()
+  for (const entry of readdirSync(assetsRoot, { withFileTypes: true })) {
+    const path = join(assetsRoot, entry.name)
+    if (/^[0-9a-f]{64}$/.test(entry.name)) {
+      assertOwnedPath(path, 'directory', true)
+      if (!retained.has(entry.name)) {
+        rmSync(path, { recursive: true, force: false })
+        removed = true
+        continue
+      }
+      present.add(entry.name)
+      retainedBytes += activationAssetSetBytes(path)
+      continue
+    }
+    if (/^\.[0-9a-f]{64}\.[0-9A-Za-z_-]+$/.test(entry.name)) {
+      assertOwnedPath(path, 'directory', true)
+      rmSync(path, { recursive: true, force: false })
+      removed = true
+      continue
+    }
+    throw new OperationsError('activation-asset-inventory-invalid', 'runtime asset root contains an unmanaged entry')
+  }
+  for (const digest of retained) {
+    if (!present.has(digest)) retainedBytes += MAX_ACTIVATION_ASSET_BYTES + 64 * 1024
+  }
+  if (retainedBytes > MAX_ACTIVATION_ASSET_STORAGE_BYTES) {
+    throw new OperationsError('activation-asset-retention-limit', 'runtime root activation assets exceed the storage limit')
+  }
+  if (removed) fsyncDirectory(assetsRoot)
 }
 
 /** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateLegacyTarget>} legacy */
@@ -2138,6 +2323,9 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
   return withOperationLocks(paths, () => {
     const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
     const toolchain = resolveToolchain(dshInput, paths.home)
+    return withRuntimeRootLock(paths, runtimeRoot, () => {
+    reconcileActivationAssets(paths, runtimeRoot)
+    try {
     reconcileArtifacts(paths)
     const stateRead = readState(paths.state, profile)
     const priorState = /** @type {any} */ (stateRead.value)
@@ -2157,6 +2345,7 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       if (!duplicateIsTerminal(priorState, actual, priorState.last_applied, paths)) {
         throw new OperationsError('owned-state-drift', 'duplicate receipt no longer matches the current terminal state')
       }
+      ensureRuntimeRootOwner(paths, runtimeRoot)
       return { mode: 'duplicate', plan: priorState.last_applied.plan, plan_digest: expectedPlanDigest }
     }
     const npmBin = resolveExecutable('npm')
@@ -2177,6 +2366,7 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     if (reviewed.plan_digest !== expectedPlanDigest) {
       throw new OperationsError('plan-drift', 'profile or runtime-kit state changed after preview')
     }
+    ensureRuntimeRootOwner(paths, runtimeRoot)
     const target = reviewed.plan.target === null ? null : validateTarget(reviewed.plan.target)
     const state = stateRead.value
     if (reviewed.plan.action === 'noop') {
@@ -2195,7 +2385,11 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
 
     const dshBin = toolchain.dsh.executable
     const installSpec = target === null ? null : installSpecForTarget(target, paths, npmBin)
-    if (target !== null) stageActivationAssets(paths, target, runtimeRoot)
+    if (target !== null) {
+      reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
+      stageActivationAssets(paths, target, runtimeRoot)
+      injectTestFault('after-stage-activation-assets')
+    }
     const profileBefore = captureProfileSnapshot(paths)
     const pending = pendingState(
       profile,
@@ -2285,6 +2479,10 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     atomicWriteJson(paths.state, next)
     reconcileArtifacts(paths)
     return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
+    })
+    } finally {
+      reconcileActivationAssets(paths, runtimeRoot)
+    }
     })
   })
 }
@@ -2607,12 +2805,21 @@ function applyRepair(profile, paths, reviewed) {
     reconcileArtifacts(paths)
     const stateRead = readState(paths.state, profile)
     const state = stateRead.value
+    const runtimeRoot = stateRead.version === 1
+      ? resolveActivationRoot(/** @type {any} */ (reviewed.plan).runtime_root)
+      : resolveActivationRoot(/** @type {any} */ (validatePlan(
+          validatePending(/** @type {any} */ (state)?.pending, profile).plan,
+          profile,
+        )).runtime_root)
+    return withRuntimeRootLock(paths, runtimeRoot, () => {
+    reconcileActivationAssets(paths, runtimeRoot)
+    try {
     if (stateRead.version === 1) {
-      const runtimeRoot = resolveActivationRoot(/** @type {any} */ (reviewed.plan).runtime_root)
       const current = legacyMigrationPlan(profile, paths, readActual(paths), stateRead, runtimeRoot)
       if (current.plan_digest !== reviewed.plan_digest) {
         throw new OperationsError('plan-drift', 'legacy migration state changed after preview')
       }
+      ensureRuntimeRootOwner(paths, runtimeRoot)
       const proposed = /** @type {any} */ (current.plan).proposed_state
       if (proposed.current === null) {
         removeActivation(runtimeRoot)
@@ -2644,6 +2851,7 @@ function applyRepair(profile, paths, reviewed) {
     if (current.plan_digest !== reviewed.plan_digest) {
       throw new OperationsError('plan-drift', 'recovery state changed after preview')
     }
+    ensureRuntimeRootOwner(paths, runtimeRoot)
     if (recovery.action === 'restore-collateral') {
       const pending = validatePending(recovery.pending, profile)
       const plan = /** @type {any} */ (validatePlan(pending.plan, profile))
@@ -2721,6 +2929,10 @@ function applyRepair(profile, paths, reviewed) {
     }
     reconcileArtifacts(paths)
     return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
+    } finally {
+      reconcileActivationAssets(paths, runtimeRoot)
+    }
+    })
   })
 }
 
@@ -2801,6 +3013,11 @@ export function main(argv = process.argv.slice(2)) {
       const activationInput = {}
       try {
         activationInput.runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
+        if (existsSync(join(activationInput.runtimeRoot, '.dsh-runtime-kit-owner.json'))
+          || existsSync(join(activationInput.runtimeRoot, 'activation.json'))
+          || existsSync(join(activationInput.runtimeRoot, 'assets'))) {
+          assertRuntimeRootOwner(paths, activationInput.runtimeRoot)
+        }
         if (existsSync(join(activationInput.runtimeRoot, 'activation.json'))) {
           activationInput.data = readActivation(activationInput.runtimeRoot)
         }

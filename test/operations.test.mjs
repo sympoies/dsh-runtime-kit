@@ -390,6 +390,15 @@ function assertPrivateAtomicTemporary(directory, targetName) {
   if (typeof process.getuid === 'function') assert.equal(stat.uid, process.getuid())
 }
 
+function activationAssetSets(subject) {
+  const root = join(subject.runtimeRoot, 'assets')
+  if (!existsSync(root)) return []
+  return readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && /^[0-9a-f]{64}$/.test(entry.name))
+    .map(entry => entry.name)
+    .sort()
+}
+
 function legacyTarget(target) {
   const { assets: _assets, ...legacy } = target
   return legacy
@@ -712,6 +721,139 @@ test('doctor finalizes a package mutation interrupted before asset activation', 
       JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
       '1.0.0',
     )
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('activation assets retain only current and rollback sets across updates and removal', () => {
+  const subject = fixture()
+  try {
+    const v3 = stageBundle(subject.root, '3.0.0')
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', v3])
+    const state = JSON.parse(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'), 'utf8'))
+    assert.deepEqual(
+      activationAssetSets(subject),
+      [state.current.target.assets.asset_set_sha256, state.previous.target.assets.asset_set_sha256].sort(),
+    )
+
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    assert.deepEqual(activationAssetSets(subject), [])
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a pre-pending staging crash is collected by the next authenticated apply', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const before = JSON.parse(readFileSync(statePath, 'utf8'))
+    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const interrupted = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v2,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], {
+      NODE_ENV: 'test',
+      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'after-stage-activation-assets',
+    })
+    assert.equal(interrupted.status, null)
+    assert.equal(interrupted.signal, 'SIGKILL')
+    assert.deepEqual(JSON.parse(readFileSync(statePath, 'utf8')), before)
+    assert.equal(activationAssetSets(subject).length, 2)
+
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.deepEqual(activationAssetSets(subject), [before.current.target.assets.asset_set_sha256])
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('one runtime root cannot be shared by different DSH homes', () => {
+  const owner = fixture()
+  const contender = fixture()
+  try {
+    applyPlan(owner, ['setup', '--profile', 'work', '--package', owner.v1])
+    contender.runtimeRoot = owner.runtimeRoot
+    const preview = run(contender, ['setup', '--profile', 'work', '--package', contender.v1])
+    assert.equal(preview.status, 0, preview.stderr)
+    const rejected = run(contender, [
+      'setup', '--profile', 'work', '--package', contender.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'runtime-root-owner-mismatch')
+    assert.equal(run(owner, ['doctor', '--profile', 'work']).status, 0)
+  } finally {
+    owner.cleanup()
+    contender.cleanup()
+  }
+})
+
+test('a drifted apply cannot claim an unowned runtime root', () => {
+  const first = fixture()
+  const rightful = fixture()
+  try {
+    const preview = run(first, ['setup', '--profile', 'work', '--package', first.v1])
+    assert.equal(preview.status, 0, preview.stderr)
+    const rejected = run(first, [
+      'setup', '--profile', 'work', '--package', first.v1,
+      '--apply', '--expected-plan-digest', '0'.repeat(64),
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(existsSync(join(first.runtimeRoot, '.dsh-runtime-kit-owner.json')), false)
+
+    rightful.runtimeRoot = first.runtimeRoot
+    applyPlan(rightful, ['setup', '--profile', 'work', '--package', rightful.v1])
+    assert.equal(run(rightful, ['doctor', '--profile', 'work']).status, 0)
+  } finally {
+    first.cleanup()
+    rightful.cleanup()
+  }
+})
+
+test('activation asset retention rejects more than the configured live-set bound', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const stateDir = join(subject.home, 'runtime-kit', 'state')
+    const current = JSON.parse(readFileSync(join(stateDir, 'work.json'), 'utf8')).current
+    for (let index = 0; index < 16; index += 1) {
+      const assets = {
+        catalog_sha256: sha256(`catalog-${index}`),
+        document_sha256: sha256(`document-${index}`),
+        policy_sha256: sha256(`policy-${index}`),
+      }
+      const profile = `retained-${index}`
+      const statePath = join(stateDir, `${profile}.json`)
+      writeJson(statePath, {
+        schema_version: 'dsh-runtime-kit.operations-state.v2',
+        profile,
+        current: {
+          ...structuredClone(current),
+          target: {
+            ...structuredClone(current.target),
+            assets: { ...assets, asset_set_sha256: sha256(JSON.stringify(assets)) },
+          },
+        },
+        previous: null,
+        last_applied: null,
+        pending: null,
+      })
+      chmodSync(statePath, 0o600)
+    }
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'activation-asset-retention-limit')
+    assert.equal(JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version, '1.0.0')
   } finally {
     subject.cleanup()
   }

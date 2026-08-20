@@ -363,6 +363,15 @@ owner-only `activation.json` provenance manifest. The copied files are regular
 files with `nlink` equal to 1; neither hard links nor pnpm-store links are part
 of the activation contract.
 
+The first authenticated mutation binds that runtime root to one canonical
+`DSH_HOME` in an owner-only record and serializes every activation mutation and
+collection pass with a root-scoped kernel lock. Reusing the root from another
+DSH home fails closed. Activation storage retains only asset sets referenced by
+current, rollback, pending, or active receipts, admits at most 16 live sets and
+the corresponding bounded byte budget, and removes unreferenced digest sets
+plus interrupted pre-receipt staging directories. Remove collects all sets
+after the final receipt no longer references them.
+
 Every setup, doctor, and live DSH launch uses the packaged owner launcher with
 one absolute owner-only runtime root:
 
