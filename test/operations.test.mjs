@@ -16,11 +16,22 @@ import {
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+
+const sha256 = value => createHash('sha256').update(value).digest('hex')
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
 
 function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true })
@@ -378,6 +389,189 @@ function assertPrivateAtomicTemporary(directory, targetName) {
   assert.equal(stat.nlink, 1)
   if (typeof process.getuid === 'function') assert.equal(stat.uid, process.getuid())
 }
+
+function legacyTarget(target) {
+  const { assets: _assets, ...legacy } = target
+  return legacy
+}
+
+function legacySnapshot(snapshot) {
+  const {
+    runtime_root: _runtimeRoot,
+    activation_digest: _activationDigest,
+    target,
+    ...legacy
+  } = snapshot
+  return { ...legacy, target: legacyTarget(target) }
+}
+
+function legacyPlan(plan) {
+  const {
+    runtime_root: _runtimeRoot,
+    toolchain: _toolchain,
+    target,
+    ...legacy
+  } = plan
+  return {
+    ...legacy,
+    schema_version: 'dsh-runtime-kit.operations-plan.v1',
+    target: target === null ? null : legacyTarget(target),
+  }
+}
+
+function legacyReceipt(receipt) {
+  if (receipt === null) return null
+  const plan = legacyPlan(receipt.plan)
+  return { ...receipt, plan, plan_digest: sha256(stableJson(plan)) }
+}
+
+function writeLegacyTerminalState(subject) {
+  const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+  const current = JSON.parse(readFileSync(statePath, 'utf8'))
+  const legacy = {
+    schema_version: 'dsh-runtime-kit.operations-state.v1',
+    profile: 'work',
+    current: current.current === null ? null : legacySnapshot(current.current),
+    previous: current.previous === null ? null : legacySnapshot(current.previous),
+    last_applied: legacyReceipt(current.last_applied),
+    pending: null,
+  }
+  writeJson(statePath, legacy)
+  rmSync(subject.runtimeRoot, { recursive: true, force: true })
+  mkdirSync(subject.runtimeRoot, { mode: 0o700 })
+  return { statePath, legacy }
+}
+
+test('base operations-state v1 migrates explicitly before update rollback and remove', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const { statePath } = writeLegacyTerminalState(subject)
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.status, 65)
+    assert.equal(diagnosed.value.data.recovery.action, 'migrate-v1')
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.equal(preview.value.data.plan.schema_version, 'dsh-runtime-kit.operations-plan.v2')
+    assert.equal(preview.value.data.plan.action, 'migrate-v1')
+    const migrated = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(migrated.status, 0, `${migrated.stdout}\n${migrated.stderr}`)
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    assert.equal(state.schema_version, 'dsh-runtime-kit.operations-state.v2')
+    assert.equal(state.current.installed_version, '2.0.0')
+    assert.equal(state.previous.installed_version, '1.0.0')
+    assert.equal(state.current.runtime_root, subject.runtimeRoot)
+    assert.match(state.current.target.assets.asset_set_sha256, /^[0-9a-f]{64}$/)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), true)
+
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+    assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).current, null)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('removed base v1 state migrates without recreating package or activation state', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    const { statePath } = writeLegacyTerminalState(subject)
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.equal(preview.value.data.plan.action, 'migrate-v1')
+    const migrated = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(migrated.status, 0, migrated.stderr)
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    assert.equal(state.schema_version, 'dsh-runtime-kit.operations-state.v2')
+    assert.equal(state.current, null)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('legacy pending state stays unchanged behind an actionable non-destructive recovery error', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const current = JSON.parse(readFileSync(statePath, 'utf8'))
+    const next = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(next.status, 0, next.stderr)
+    const plan = legacyPlan(next.value.data.plan)
+    const target = legacyTarget(next.value.data.plan.target)
+    const legacy = {
+      schema_version: 'dsh-runtime-kit.operations-state.v1',
+      profile: 'work',
+      current: legacySnapshot(current.current),
+      previous: null,
+      last_applied: legacyReceipt(current.last_applied),
+      pending: {
+        operation: 'update',
+        plan_digest: sha256(stableJson(plan)),
+        target,
+        plan,
+        phase: 'prepared',
+        started_at: new Date().toISOString(),
+      },
+    }
+    writeJson(statePath, legacy)
+    rmSync(subject.runtimeRoot, { recursive: true, force: true })
+    mkdirSync(subject.runtimeRoot, { mode: 0o700 })
+    const before = readFileSync(statePath, 'utf8')
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.status, 65)
+    assert.equal(diagnosed.value.data.recovery.action, 'legacy-pending')
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 65)
+    assert.equal(repair.value.error.code, 'legacy-pending-recovery-unsupported')
+    assert.match(repair.value.error.message, /exact base CLI|backup/u)
+    assert.equal(readFileSync(statePath, 'utf8'), before)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('managed operations reject a supplied runtime root that differs from persisted receipts', () => {
+  for (const operation of ['update', 'rollback', 'remove']) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      if (operation === 'rollback') {
+        applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      }
+      const alternateRoot = join(subject.root, `alternate-${operation}`)
+      mkdirSync(alternateRoot, { mode: 0o700 })
+      const args = operation === 'update'
+        ? ['update', '--profile', 'work', '--package', subject.v2]
+        : [operation, '--profile', 'work']
+      const rejected = run(subject, args, {
+        DSH_RUNTIME_KIT_RUNTIME_ROOT: alternateRoot,
+      })
+      assert.equal(rejected.status, 65, operation)
+      assert.equal(rejected.value.error.code, 'runtime-root-drift', operation)
+      assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), true)
+      assert.equal(existsSync(join(alternateRoot, 'activation.json')), false)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
 
 test('setup, update, rollback, and remove preserve unrelated profile and private state', () => {
   const subject = fixture()
@@ -877,11 +1071,15 @@ test('doctor repair validates persisted previous roots against current provider 
     mkdirSync(previousRoot, { mode: 0o700 })
     mkdirSync(currentRoot, { mode: 0o700 })
     applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1], {
-      DSH_RUNTIME_KIT_RUNTIME_ROOT: previousRoot,
+      DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
     })
     applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2], {
       DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
     })
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    state.previous.runtime_root = previousRoot
+    writeJson(statePath, state)
     const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v1], {
       DSH_RUNTIME_KIT_RUNTIME_ROOT: currentRoot,
     })

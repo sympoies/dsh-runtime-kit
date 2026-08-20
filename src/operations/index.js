@@ -39,8 +39,10 @@ import {
 } from '../activation/index.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
-const STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v1'
-const PLAN_SCHEMA = 'dsh-runtime-kit.operations-plan.v1'
+const LEGACY_STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v1'
+const STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v2'
+const LEGACY_PLAN_SCHEMA = 'dsh-runtime-kit.operations-plan.v1'
+const PLAN_SCHEMA = 'dsh-runtime-kit.operations-plan.v2'
 const OUTPUT_SCHEMA = 'cli.dsh-runtime-kit.operations.v1'
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/
@@ -759,6 +761,31 @@ function validateTarget(value) {
   return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}} */ (value)
 }
 
+/** @param {unknown} value */
+function validateLegacyTarget(value) {
+  if (!plainRecord(value) || !['registry', 'local'].includes(/** @type {string} */ (value.kind))
+    || typeof value.requested_spec !== 'string'
+    || typeof value.expected_version !== 'string'
+    || !EXACT_VERSION_PATTERN.test(value.expected_version)) {
+    throw new OperationsError('invalid-operations-state', 'legacy operations state contains an invalid package target')
+  }
+  const common = ['kind', 'requested_spec', 'expected_version', 'artifact_sha256', 'installed_sha256']
+  if (value.kind === 'registry') {
+    if (Object.keys(value).some(key => !common.includes(key))
+      || value.requested_spec !== `${PACKAGE_NAME}@${value.expected_version}`
+      || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
+      || typeof value.installed_sha256 !== 'string' || !DIGEST_PATTERN.test(value.installed_sha256)) {
+      throw new OperationsError('invalid-operations-state', 'legacy operations state contains an invalid registry target')
+    }
+  } else if (Object.keys(value).some(key => ![...common, 'source_path'].includes(key))
+    || typeof value.source_path !== 'string' || !isAbsolute(value.source_path)
+    || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
+    || typeof value.installed_sha256 !== 'string' || !DIGEST_PATTERN.test(value.installed_sha256)) {
+    throw new OperationsError('invalid-operations-state', 'legacy operations state contains an invalid local package target')
+  }
+  return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string}} */ (value)
+}
+
 /** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target */
 function artifactPathFor(paths, target) {
   return join(paths.artifacts, `${target.artifact_sha256}.tgz`)
@@ -835,6 +862,24 @@ function validateSnapshot(value) {
   return /** @type {{requested_spec: string, dependency_spec: string, installed_version: string, installed_digest: string, bundle_index: number, runtime_root: string, activation_digest: string, target: ReturnType<typeof validateTarget>}} */ (value)
 }
 
+/** @param {unknown} value */
+function validateLegacySnapshot(value) {
+  if (!plainRecord(value) || typeof value.requested_spec !== 'string'
+    || typeof value.dependency_spec !== 'string' || typeof value.installed_version !== 'string'
+    || typeof value.installed_digest !== 'string' || !DIGEST_PATTERN.test(value.installed_digest)
+    || !Number.isSafeInteger(value.bundle_index) || /** @type {number} */ (value.bundle_index) < 0
+    || Object.keys(value).some(key => ![
+      'requested_spec', 'dependency_spec', 'installed_version', 'installed_digest', 'bundle_index', 'target',
+    ].includes(key))) {
+    throw new OperationsError('invalid-operations-state', 'legacy operations state contains an invalid install snapshot')
+  }
+  const target = validateLegacyTarget(value.target)
+  if (value.requested_spec !== target.requested_spec || value.installed_version !== target.expected_version) {
+    throw new OperationsError('invalid-operations-state', 'legacy install snapshot does not match its package target')
+  }
+  return /** @type {{requested_spec: string, dependency_spec: string, installed_version: string, installed_digest: string, bundle_index: number, target: ReturnType<typeof validateLegacyTarget>}} */ (value)
+}
+
 /** @param {ReturnType<typeof readActual>} actual @param {ReturnType<typeof validateSnapshot>} expected @param {ReturnType<typeof pathsFor>} paths */
 function snapshotMatches(actual, expected, paths) {
   return actual.dependency_spec === expected.dependency_spec
@@ -850,10 +895,10 @@ function snapshotMatches(actual, expected, paths) {
 
 /** @param {string} path @param {string} expectedProfile */
 function readState(path, expectedProfile) {
-  if (lstatMaybe(path) === null) return { raw: null, digest: 'absent', value: null }
+  if (lstatMaybe(path) === null) return { raw: null, digest: 'absent', value: null, version: null }
   assertSafeStateFile(path)
   const read = readJson(path)
-  if (!plainRecord(read.value) || read.value.schema_version !== STATE_SCHEMA
+  if (!plainRecord(read.value)
     || read.value.profile !== expectedProfile
     || !['current', 'previous', 'last_applied', 'pending'].every(key => Object.hasOwn(read.value, key))
     || Object.keys(read.value).some(key => ![
@@ -861,11 +906,21 @@ function readState(path, expectedProfile) {
     ].includes(key))) {
     throw new OperationsError('invalid-operations-state', 'runtime-kit operations state has an unsupported schema')
   }
-  if (read.value.current !== null) validateSnapshot(read.value.current)
-  if (read.value.previous !== null) validateSnapshot(read.value.previous)
-  if (read.value.pending !== null) validatePending(read.value.pending, expectedProfile)
-  if (read.value.last_applied !== null) validateAppliedReceipt(read.value.last_applied, expectedProfile)
-  return { raw: read.raw, digest: sha256(read.raw), value: read.value }
+  if (read.value.schema_version === STATE_SCHEMA) {
+    if (read.value.current !== null) validateSnapshot(read.value.current)
+    if (read.value.previous !== null) validateSnapshot(read.value.previous)
+    if (read.value.pending !== null) validatePending(read.value.pending, expectedProfile)
+    if (read.value.last_applied !== null) validateAppliedReceipt(read.value.last_applied, expectedProfile)
+    return { raw: read.raw, digest: sha256(read.raw), value: read.value, version: 2 }
+  }
+  if (read.value.schema_version === LEGACY_STATE_SCHEMA) {
+    if (read.value.current !== null) validateLegacySnapshot(read.value.current)
+    if (read.value.previous !== null) validateLegacySnapshot(read.value.previous)
+    if (read.value.pending !== null) validateLegacyPending(read.value.pending, expectedProfile)
+    if (read.value.last_applied !== null) validateLegacyAppliedReceipt(read.value.last_applied, expectedProfile)
+    return { raw: read.raw, digest: sha256(read.raw), value: read.value, version: 1 }
+  }
+  throw new OperationsError('invalid-operations-state', 'runtime-kit operations state has an unsupported schema')
 }
 
 /** @param {string} packageSpec @param {string} cwd @param {string} npmBin @param {string} home */
@@ -1029,14 +1084,28 @@ function retainedArtifactDigests(paths) {
     if (!name.endsWith('.json')) continue
     const profile = name.slice(0, -'.json'.length)
     validateProfile(profile)
-    const state = readState(join(dirname(paths.state), name), profile).value
+    const stateRead = readState(join(dirname(paths.state), name), profile)
+    const state = stateRead.value
     if (state === null) continue
-    if (state.current !== null) retainTargetArtifact(digests, validateSnapshot(state.current).target)
-    if (state.previous !== null) retainTargetArtifact(digests, validateSnapshot(state.previous).target)
-    if (state.pending !== null) retainTargetArtifact(digests, validatePending(state.pending, profile).target)
-    if (state.last_applied !== null) {
-      const receipt = /** @type {any} */ (validateAppliedReceipt(state.last_applied, profile))
-      retainTargetArtifact(digests, receipt.plan.target)
+    if (stateRead.version === 1) {
+      if (state.current !== null) digests.add(validateLegacySnapshot(state.current).target.artifact_sha256)
+      if (state.previous !== null) digests.add(validateLegacySnapshot(state.previous).target.artifact_sha256)
+      if (state.pending !== null) {
+        const pending = validateLegacyPending(state.pending, profile)
+        if (pending.target !== null) digests.add(validateLegacyTarget(pending.target).artifact_sha256)
+      }
+      if (state.last_applied !== null) {
+        const receipt = /** @type {any} */ (validateLegacyAppliedReceipt(state.last_applied, profile))
+        if (receipt.plan.target !== null) digests.add(validateLegacyTarget(receipt.plan.target).artifact_sha256)
+      }
+    } else {
+      if (state.current !== null) retainTargetArtifact(digests, validateSnapshot(state.current).target)
+      if (state.previous !== null) retainTargetArtifact(digests, validateSnapshot(state.previous).target)
+      if (state.pending !== null) retainTargetArtifact(digests, validatePending(state.pending, profile).target)
+      if (state.last_applied !== null) {
+        const receipt = /** @type {any} */ (validateAppliedReceipt(state.last_applied, profile))
+        retainTargetArtifact(digests, receipt.plan.target)
+      }
     }
   }
   return digests
@@ -1252,6 +1321,92 @@ function validateAppliedReceipt(value, profile) {
   return value
 }
 
+/** @param {unknown} value @param {string} profile */
+function validateLegacyPlan(value, profile) {
+  if (!plainRecord(value) || value.schema_version !== LEGACY_PLAN_SCHEMA || value.profile !== profile
+    || value.package_name !== PACKAGE_NAME || typeof value.operation !== 'string'
+    || typeof value.action !== 'string' || !plainRecord(value.observed)
+    || Object.keys(value).some(key => ![
+      'schema_version', 'operation', 'profile', 'package_name', 'action', 'target', 'observed',
+    ].includes(key))
+    || Object.keys(value.observed).some(key => ![
+      'profile_exists', 'dependency_spec_digest', 'bundle_indexes', 'installed_version',
+      'installed_digest', 'installed_entry', 'manifest_digest', 'state_digest',
+    ].includes(key))
+    || typeof value.observed.profile_exists !== 'boolean'
+    || !(value.observed.dependency_spec_digest === null
+      || (typeof value.observed.dependency_spec_digest === 'string' && DIGEST_PATTERN.test(value.observed.dependency_spec_digest)))
+    || !Array.isArray(value.observed.bundle_indexes)
+    || value.observed.bundle_indexes.some(index => !Number.isSafeInteger(index) || index < 0)
+    || !(value.observed.installed_version === null || typeof value.observed.installed_version === 'string')
+    || !(value.observed.installed_digest === null
+      || (typeof value.observed.installed_digest === 'string' && DIGEST_PATTERN.test(value.observed.installed_digest)))
+    || typeof value.observed.installed_entry !== 'boolean'
+    || typeof value.observed.manifest_digest !== 'string'
+    || !(value.observed.state_digest === 'absent'
+      || (typeof value.observed.state_digest === 'string' && DIGEST_PATTERN.test(value.observed.state_digest)))) {
+    throw new OperationsError('invalid-operations-state', 'legacy operations state contains an invalid reviewed plan')
+  }
+  const actions = {
+    setup: ['install', 'noop'],
+    update: ['update', 'noop'],
+    rollback: ['rollback'],
+    remove: ['remove', 'noop'],
+  }
+  const allowed = /** @type {Record<string, string[]>} */ (actions)[value.operation]
+  if (allowed === undefined || !allowed.includes(/** @type {string} */ (value.action))) {
+    throw new OperationsError('invalid-operations-state', 'legacy reviewed plan operation and action are inconsistent')
+  }
+  if (value.operation === 'remove') {
+    if (value.target !== null) throw new OperationsError('invalid-operations-state', 'legacy remove plan must not contain a package target')
+  } else {
+    validateLegacyTarget(value.target)
+  }
+  return value
+}
+
+/** @param {unknown} value @param {string} profile */
+function validateLegacyPending(value, profile) {
+  if (!plainRecord(value) || typeof value.operation !== 'string'
+    || typeof value.plan_digest !== 'string' || !DIGEST_PATTERN.test(value.plan_digest)
+    || typeof value.started_at !== 'string'
+    || !(value.phase === undefined || ['prepared', 'native-applied'].includes(/** @type {string} */ (value.phase)))
+    || Object.keys(value).some(key => ![
+      'operation', 'plan_digest', 'target', 'plan', 'phase', 'started_at',
+    ].includes(key))) {
+    throw new OperationsError('invalid-operations-state', 'legacy pending operation is invalid')
+  }
+  const plan = validateLegacyPlan(value.plan, profile)
+  if (plan.operation !== value.operation || sha256(stableJson(plan)) !== value.plan_digest
+    || stableJson(plan.target) !== stableJson(value.target)) {
+    throw new OperationsError('invalid-operations-state', 'legacy pending operation does not match its reviewed plan')
+  }
+  if (value.operation === 'remove') {
+    if (value.target !== null) throw new OperationsError('invalid-operations-state', 'legacy pending remove target must be null')
+  } else {
+    validateLegacyTarget(value.target)
+  }
+  return value
+}
+
+/** @param {unknown} value @param {string} profile */
+function validateLegacyAppliedReceipt(value, profile) {
+  if (!plainRecord(value) || typeof value.operation !== 'string'
+    || typeof value.plan_digest !== 'string' || !DIGEST_PATTERN.test(value.plan_digest)
+    || typeof value.completed_at !== 'string'
+    || !(value.recovered === undefined || value.recovered === true)
+    || Object.keys(value).some(key => ![
+      'operation', 'plan_digest', 'plan', 'completed_at', 'recovered',
+    ].includes(key))) {
+    throw new OperationsError('invalid-operations-state', 'legacy last-applied receipt is invalid')
+  }
+  const plan = validateLegacyPlan(value.plan, profile)
+  if (plan.operation !== value.operation || sha256(stableJson(plan)) !== value.plan_digest) {
+    throw new OperationsError('invalid-operations-state', 'legacy last-applied receipt does not match its reviewed plan')
+  }
+  return value
+}
+
 /**
  * @param {string} operation
  * @param {string} profile
@@ -1264,12 +1419,24 @@ function validateAppliedReceipt(value, profile) {
  */
 function buildMutationPlan(operation, profile, paths, actual, stateRead, requestedTarget, runtimeRoot, toolchain) {
   const state = stateRead.value
+  if (stateRead.version === 1) {
+    throw new OperationsError(
+      'operations-state-migration-required',
+      'legacy operations state must be migrated with doctor --repair before package mutation',
+    )
+  }
   if (state?.pending !== null && state?.pending !== undefined) {
     throw new OperationsError('recovery-required', 'an interrupted operation must be resolved with doctor --repair')
   }
   const current = state?.current === null || state?.current === undefined
     ? null
     : validateSnapshot(state.current)
+  if (current !== null && current.runtime_root !== runtimeRoot) {
+    throw new OperationsError(
+      'runtime-root-drift',
+      'supplied runtime root does not match the persisted current receipt',
+    )
+  }
   if (current !== null && !snapshotMatches(actual, current, paths)) {
     throw new OperationsError('owned-state-drift', 'observed profile state does not match the last runtime-kit receipt')
   }
@@ -1307,6 +1474,12 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
       throw new OperationsError('rollback-unavailable', 'no exact previous runtime-kit receipt is available', 64)
     }
     const previous = validateSnapshot(state.previous)
+    if (previous.runtime_root !== runtimeRoot) {
+      throw new OperationsError(
+        'runtime-root-drift',
+        'supplied runtime root does not match the persisted rollback receipt',
+      )
+    }
     const target = previous.target
     return planFor(operation, profile, actual, stateRead, target, 'rollback', runtimeRoot, toolchain)
   }
@@ -1753,6 +1926,118 @@ function stageActivation(paths, target, runtimeRoot, profile) {
   return activateStagedAssets(target, runtimeRoot, profile)
 }
 
+/** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateLegacyTarget>} legacy */
+function migrateLegacyTarget(paths, legacy) {
+  const artifact = artifactPathFor(paths, /** @type {any} */ (legacy))
+  assertSafeStateFile(artifact)
+  const archive = readFileSync(artifact)
+  if (archive.byteLength > MAX_PACKED_PACKAGE_BYTES || sha256(archive) !== legacy.artifact_sha256) {
+    throw new OperationsError('artifact-drift', 'legacy package artifact does not match its authenticated digest')
+  }
+  try {
+    inspectCanonicalPackageArtifact(archive)
+  } catch {
+    throw new OperationsError('artifact-drift', 'legacy package artifact is not a canonical bounded package')
+  }
+  const extracted = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-migrate-v1-'))
+  try {
+    const unpacked = spawn(resolveExecutable('tar'), ['-xzf', artifact, '-C', extracted], paths.home, {
+      timeoutMs: PACKAGE_COMMAND_TIMEOUT_MS,
+    })
+    if (unpacked.status !== 0) {
+      throw new OperationsError('artifact-drift', 'legacy package artifact could not be inspected')
+    }
+    return validateTarget({
+      ...legacy,
+      assets: packageAssets(join(extracted, 'package')),
+    })
+  } finally {
+    rmSync(extracted, { recursive: true, force: true })
+  }
+}
+
+/**
+ * @param {ReturnType<typeof validateLegacySnapshot>} legacy
+ * @param {ReturnType<typeof validateTarget>} target
+ * @param {string} runtimeRoot
+ * @param {string} profile
+ */
+function migratedLegacySnapshot(legacy, target, runtimeRoot, profile) {
+  return validateSnapshot({
+    ...legacy,
+    runtime_root: runtimeRoot,
+    activation_digest: sha256(`${JSON.stringify(activationManifest(target, profile), undefined, 2)}\n`),
+    target,
+  })
+}
+
+/**
+ * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof readActual>} actual
+ * @param {ReturnType<typeof readState>} stateRead
+ * @param {string} runtimeRoot
+ */
+function legacyMigrationPlan(profile, paths, actual, stateRead, runtimeRoot) {
+  if (stateRead.version !== 1 || stateRead.value === null) {
+    throw new OperationsError('migration-not-required', 'operations state is not a legacy v1 record', 64)
+  }
+  const state = stateRead.value
+  if (state.pending !== null) {
+    throw new OperationsError(
+      'legacy-pending-recovery-unsupported',
+      'legacy pending state cannot be inferred safely; recover with the exact base CLI or restore an authenticated backup',
+    )
+  }
+  const currentLegacy = state.current === null ? null : validateLegacySnapshot(state.current)
+  const previousLegacy = state.previous === null ? null : validateLegacySnapshot(state.previous)
+  let current = null
+  if (currentLegacy === null) {
+    if (!actualAbsent(actual)) {
+      throw new OperationsError('owned-state-drift', 'legacy removed receipt does not match the current profile state')
+    }
+  } else {
+    const target = migrateLegacyTarget(paths, currentLegacy.target)
+    if (actual.dependency_spec !== currentLegacy.dependency_spec
+      || actual.installed_version !== currentLegacy.installed_version
+      || actual.installed_digest !== currentLegacy.installed_digest
+      || actual.bundle_indexes.length !== 1
+      || actual.bundle_indexes[0] !== currentLegacy.bundle_index
+      || !targetMatchesActual(actual, target, paths)) {
+      throw new OperationsError('owned-state-drift', 'legacy current receipt does not match the installed package')
+    }
+    current = migratedLegacySnapshot(currentLegacy, target, runtimeRoot, profile)
+  }
+  const previous = previousLegacy === null
+    ? null
+    : migratedLegacySnapshot(
+        previousLegacy,
+        migrateLegacyTarget(paths, previousLegacy.target),
+        runtimeRoot,
+        profile,
+      )
+  const proposedState = {
+    schema_version: STATE_SCHEMA,
+    profile,
+    current,
+    previous,
+    last_applied: null,
+    pending: null,
+  }
+  const plan = {
+    schema_version: PLAN_SCHEMA,
+    operation: 'doctor-repair',
+    profile,
+    package_name: PACKAGE_NAME,
+    action: 'migrate-v1',
+    state_digest: stateRead.digest,
+    observed_manifest_digest: actual.manifest_digest,
+    runtime_root: runtimeRoot,
+    proposed_state: proposedState,
+  }
+  return { plan, plan_digest: sha256(stableJson(plan)) }
+}
+
 /** @param {string} runtimeRoot */
 function removeActivation(runtimeRoot) {
   const path = join(runtimeRoot, 'activation.json')
@@ -2157,6 +2442,27 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
   const state = stateRead.value
+  if (stateRead.version === 1) {
+    const action = state?.pending === null ? 'migrate-v1' : 'legacy-pending'
+    return {
+      schema_version: 'dsh-runtime-kit.doctor.v1',
+      profile,
+      status: 'needs-attention',
+      owned_status: 'recovery-required',
+      recovery: {
+        action,
+        schema_version: LEGACY_STATE_SCHEMA,
+        runtime_root: activationInput.runtimeRoot ?? null,
+      },
+      observed: publicActual(actual),
+      agent_hook: agentHookDoctor(agentHook, paths.home),
+      agent_docs: agentDocsDoctor(agentDocs, paths.home),
+      activation: activationInput.error === undefined
+        ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
+        : { ok: false, error: activationInput.error },
+      dsh: dshVersion(dshBin, paths.home),
+    }
+  }
   repairRuntimeRootTopology(state, profile)
   const recovery = recoveryFor(actual, state, paths)
   let ownedStatus = 'absent'
@@ -2220,16 +2526,36 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
 
 /** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof diagnose>} diagnostic */
 function repairPlan(profile, paths, diagnostic) {
-  if (diagnostic.recovery === null) throw new OperationsError('repair-not-required', 'doctor found no interrupted operation', 64)
-  if (diagnostic.recovery.action === 'unknown') {
+  const recovery = /** @type {any} */ (diagnostic.recovery)
+  if (recovery === null) throw new OperationsError('repair-not-required', 'doctor found no interrupted operation', 64)
+  if (recovery.action === 'legacy-pending') {
+    throw new OperationsError(
+      'legacy-pending-recovery-unsupported',
+      'legacy pending state cannot be inferred safely; recover with the exact base CLI or restore an authenticated backup',
+    )
+  }
+  if (recovery.action === 'migrate-v1') {
+    if (typeof recovery.runtime_root !== 'string') {
+      throw new OperationsError('unsafe-repair-runtime-root', 'legacy migration requires a valid canonical runtime root')
+    }
+    const runtimeRoot = resolveActivationRoot(recovery.runtime_root)
+    return legacyMigrationPlan(
+      profile,
+      paths,
+      readActual(paths),
+      readState(paths.state, profile),
+      runtimeRoot,
+    )
+  }
+  if (recovery.action === 'unknown') {
     throw new OperationsError('recovery-ambiguous', 'interrupted operation does not match either reviewed terminal state')
   }
   const stateRead = readState(paths.state, profile)
   const state = /** @type {any} */ (stateRead.value)
   const runtimeRootTopology = repairRuntimeRootTopology(state, profile)
-  const pending = validatePending(diagnostic.recovery.pending, profile)
+  const pending = validatePending(recovery.pending, profile)
   let proposed
-  if (diagnostic.recovery.action === 'clear' || diagnostic.recovery.action === 'restore-collateral') {
+  if (recovery.action === 'clear' || recovery.action === 'restore-collateral') {
     proposed = {
       current: state.current,
       previous: state.previous,
@@ -2264,8 +2590,8 @@ function repairPlan(profile, paths, diagnostic) {
     operation: 'doctor-repair',
     profile,
     package_name: PACKAGE_NAME,
-    action: diagnostic.recovery.action,
-    pending_plan_digest: diagnostic.recovery.pending.plan_digest,
+    action: recovery.action,
+    pending_plan_digest: recovery.pending.plan_digest,
     observed_manifest_digest: diagnostic.observed.manifest_digest,
     state_digest: stateRead.digest,
     runtime_root_topology: runtimeRootTopology,
@@ -2281,6 +2607,22 @@ function applyRepair(profile, paths, reviewed) {
     reconcileArtifacts(paths)
     const stateRead = readState(paths.state, profile)
     const state = stateRead.value
+    if (stateRead.version === 1) {
+      const runtimeRoot = resolveActivationRoot(/** @type {any} */ (reviewed.plan).runtime_root)
+      const current = legacyMigrationPlan(profile, paths, readActual(paths), stateRead, runtimeRoot)
+      if (current.plan_digest !== reviewed.plan_digest) {
+        throw new OperationsError('plan-drift', 'legacy migration state changed after preview')
+      }
+      const proposed = /** @type {any} */ (current.plan).proposed_state
+      if (proposed.current === null) {
+        removeActivation(runtimeRoot)
+      } else {
+        stageActivation(paths, validateTarget(proposed.current.target), runtimeRoot, profile)
+      }
+      atomicWriteJson(paths.state, proposed)
+      reconcileArtifacts(paths)
+      return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
+    }
     if (state?.pending !== null && state?.pending !== undefined) {
       const pending = validatePending(state.pending, profile)
       cleanupProfileRestoreTemporaries(
@@ -2316,6 +2658,7 @@ function applyRepair(profile, paths, reviewed) {
         raw: `${JSON.stringify(restoredState, undefined, 2)}\n`,
         digest: sha256(stableJson(restoredState)),
         value: restoredState,
+        version: 2,
       }
       try {
         restoreAfterCollateral(

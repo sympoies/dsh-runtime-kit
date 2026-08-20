@@ -435,7 +435,8 @@ All `@deepseek-ai/dsh-*` peers used by this rc.7 adapter are pinned exactly to
 
 `compatibility/dsh.json` is the closed promotion input. It records the pinned
 tag, one exact upstream-next revision, every consumed public package/export,
-the runtime service-method surface, and the pre-tool performance budget. The
+the runtime service-method surface, the deterministic in-memory pre-tool
+budget, and the packed released-agent-hook subprocess budget. The
 checkout inspector requires an exact clean Git root, hashes the declared built
 public entrypoints without executing checkout bytes, and rechecks cleanliness
 after inspection. The selected artifact path additionally derives the complete
@@ -453,7 +454,10 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers.
+helpers. Package CI downloads the exact nils-cli `1.27.0` archive, authenticates
+its retained SHA-256, and runs the packed candidate through the real
+`agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
+blocks promotion.
 Each receipt artifact is bounded to 128 MiB compressed, 256 MiB expanded,
 16,384 regular-file entries, and 64 MiB per entry. Staging authenticates the
 whole closure first but retains only paths and digests; extraction rereads and

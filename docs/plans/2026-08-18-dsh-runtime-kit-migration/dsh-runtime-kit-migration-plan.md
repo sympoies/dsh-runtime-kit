@@ -442,6 +442,9 @@ breakage observable and repeatable without maintaining a DSH fork.
   - No source patch or copied preset is required.
   - Pre-tool p95 and retained resource use meet documented budgets or block
     promotion with measurements.
+  - A separately bounded packed-candidate benchmark authenticates the released
+    agent-hook binary, measures real subprocess startup/dispatch, and proves
+    zero live children and active policy operations after teardown.
 - **Validation**:
   - compatibility CI matrix and clean-upstream assertion
   - controlled latency and resource benchmark

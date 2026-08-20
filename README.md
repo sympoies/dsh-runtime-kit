@@ -470,6 +470,16 @@ requested/dependency specs, installed version, installed package-tree digest,
 policy/catalog/document digests, DSH and pnpm executable identities, bounded
 profile control files, and bundle index. Apply revalidates all of those inputs
 before mutation and rejects collateral manifest or lockfile changes afterward.
+Version 2 operations receipts bind the canonical DSH runtime root. Update,
+rollback, remove, and duplicate setup reject a different supplied root before
+native DSH runs, so an old activation cannot be stranded while state moves to
+a new tree. Exact terminal version 1 receipts remain readable only for an
+explicit `doctor --repair` migration: migration authenticates every retained
+package artifact, compares the current receipt to installed bytes, derives the
+versioned policy/docs asset digests, stages the matching activation, and writes
+the version 2 state last. A version 1 pending attempt lacks the profile snapshot
+needed for safe recovery, so it remains byte-for-byte unchanged and fails
+closed with instructions to use the exact base CLI or an authenticated backup.
 Source-byte, installed-byte, activation-asset, toolchain, or unrelated-profile
 drift invalidates the operation; rollback and interrupted-operation recovery
 restore the recorded package, profile, and activation-asset set together.
@@ -667,16 +677,21 @@ npm run --silent stage:compatibility-peers -- \
   --artifact-root /empty/private/directory \
   --consumer-root /path/to/dsh-runtime-kit
 npm run benchmark:policy
+AGENT_HOOK_BIN=/absolute/path/to/released/agent-hook \
+  npm run benchmark:policy:real
 ```
 
 The promotion benchmark runs 250 warmups and two 1,000-check controlled batches.
 Before disposal it blocks if adapter p95 exceeds 5 ms, a batch retains more
 than 8 MiB, retained growth across batches exceeds 2 MiB, or any policy
 operation/provider handle remains active. Disposal must then return all active
-operations and provider handles to zero. This isolates runtime-kit transport,
-correlation, and long-lived retention overhead; provider process startup and
-host scheduling remain covered by real smoke/acceptance evidence rather than
-hidden inside this deterministic budget.
+operations and provider handles to zero. A separate promotion benchmark packs
+the exact candidate, authenticates the released nils-cli `1.27.0` `agent-hook`
+binary, and measures 25 real sequential subprocess dispatches after five
+warmups. Its p95 must remain at or below 250 ms and teardown must leave both
+transport admission and live child counts at zero. The deterministic benchmark
+isolates adapter retention; the packed subprocess benchmark includes provider
+startup and host scheduling instead of relying on a fake handle.
 
 The machine-readable [nils-cli compatibility manifest](compatibility/nils-cli.json)
 is authoritative for consumed commands and protocols. The first supported and

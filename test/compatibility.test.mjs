@@ -87,6 +87,11 @@ test('DSH compatibility manifest pins rc.7 and one selected upstream-next revisi
   )
   assert.equal(manifest.performance.pre_tool.p95_ms > 0, true)
   assert.equal(manifest.performance.pre_tool.retained_heap_bytes > 0, true)
+  assert.equal(manifest.performance.pre_tool_subprocess.warmup_iterations > 0, true)
+  assert.equal(manifest.performance.pre_tool_subprocess.iterations >= 20, true)
+  assert.equal(manifest.performance.pre_tool_subprocess.p95_ms > 0, true)
+  assert.equal(manifest.performance.pre_tool_subprocess.max_active_after, 0)
+  assert.equal(manifest.performance.pre_tool_subprocess.max_live_children_after, 0)
   assert.deepEqual(manifest.runtime_surface, DSH_RC7_RUNTIME_SURFACE)
   assert.deepEqual(manifest.optional_runtime_surface, DSH_RC7_OPTIONAL_RUNTIME_SURFACE)
 
@@ -118,6 +123,22 @@ test('DSH compatibility manifest pins rc.7 and one selected upstream-next revisi
   oneBatch.performance.pre_tool.iterations = 2_000
   assert.throws(
     () => validateDshCompatibilityManifest(oneBatch),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+
+  const missingRealSubprocess = structuredClone(manifest)
+  delete missingRealSubprocess.performance.pre_tool_subprocess
+  assert.throws(
+    () => validateDshCompatibilityManifest(missingRealSubprocess),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+
+  const insufficientRealSamples = structuredClone(manifest)
+  insufficientRealSamples.performance.pre_tool_subprocess.iterations = 19
+  assert.throws(
+    () => validateDshCompatibilityManifest(insufficientRealSamples),
     error => error instanceof DshCompatibilityError
       && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
   )
@@ -532,6 +553,7 @@ test('performance promotion fails closed on p95, retained heap, or active resour
 test('compatibility workflow keeps both selected channels promotion-blocking', () => {
   const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const nils = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
   assert.match(workflow, /channel: pinned/)
   assert.match(workflow, /channel: upstream-next/)
   assert.match(workflow, new RegExp(manifest.channels.pinned.revision))
@@ -547,6 +569,10 @@ test('compatibility workflow keeps both selected channels promotion-blocking', (
   assert.doesNotMatch(workflow, /npm install --offline/)
   assert.match(workflow, /npm run typecheck && npm test/)
   assert.match(workflow, /npm run benchmark:policy/)
+  assert.match(workflow, /npm run benchmark:policy:real/)
+  assert.match(workflow, new RegExp(nils.release.archive.name))
+  assert.match(workflow, new RegExp(nils.release.archive.sha256))
+  assert.match(workflow, /AGENT_HOOK_BIN/)
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/)
   assert.equal(
     workflow.match(/fetch-depth: 0/g)?.length,

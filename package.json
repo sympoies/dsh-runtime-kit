@@ -62,6 +62,7 @@
     "stage:compatibility-peers": "node scripts/stage-dsh-compatibility-peers.mjs",
     "acceptance": "node scripts/run-acceptance.mjs",
     "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
+    "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
     "verify:policy-source": "node scripts/verify-policy-parity.mjs",
     "typecheck": "tsc -p jsconfig.json"
   },

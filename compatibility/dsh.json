@@ -161,6 +161,13 @@
       "retained_heap_bytes": 8388608,
       "retained_growth_bytes": 2097152,
       "max_active_after": 0
+    },
+    "pre_tool_subprocess": {
+      "warmup_iterations": 5,
+      "iterations": 25,
+      "p95_ms": 250,
+      "max_active_after": 0,
+      "max_live_children_after": 0
     }
   }
 }

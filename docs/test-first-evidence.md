@@ -1049,6 +1049,50 @@ acceptance `issue1-finalhead-20260820e` remains released mode with 10 passed, 2
 authorization-pending, and 0 failed. Follow-up review and hosted acceptance
 remain promotion gates; no merge or cutover is claimed.
 
+## Task 6.1 schema-migration and real-subprocess follow-up
+
+The final API/data/performance review identified two independent promotion
+gaps. New operations records had extended the published version 1 state and
+plan shapes in place, and the performance command timed only an in-memory fake
+subprocess. Four migration/root regressions first failed 0/4: exact base
+terminal state was reported as unsupported, removed state could not migrate,
+legacy pending lacked an actionable non-destructive recovery, and update
+accepted a different supplied runtime root. Two compatibility regressions then
+failed 0/2 because no real-subprocess budget or CI command existed.
+
+New writes use explicit operations-state and operations-plan version 2.
+Version 1 has its own strict parser matching the retained base shape. Terminal
+v1 migrates only through digest-bound `doctor --repair`: retained package
+artifacts and installed bytes are authenticated, activation asset digests are
+derived from the bounded archive, the selected canonical runtime root is bound,
+and v2 state is written atomically after activation. Removed state stays
+removed. A v1 pending attempt is never guessed because it lacks the profile
+snapshot needed for safe recovery; repair preserves its bytes and directs the
+operator to the exact base CLI or an authenticated backup. Update, rollback,
+remove, and duplicate setup now reject runtime-root drift before native DSH.
+The focused migration/root suite passes 4/4.
+
+The closed compatibility manifest now carries a separate packed subprocess
+budget. `benchmark:policy:real` first packs and extracts the exact candidate,
+authenticates the released nils-cli `1.27.0` agent-hook version and binary
+SHA-256, then measures 25 sequential real dispatch subprocesses after five
+warmups. Promotion requires p95 at or below 250 ms and zero active operations
+or live children after disposal. The local released-binary run passes with p95
+about 6.1 ms and zero retained runtime resources. Package CI downloads the
+official archive, verifies its retained archive SHA-256 before extraction, and
+runs the same packed benchmark on Node 22 and Node 24.
+
+Final local gates pass: migration/root focused 5/5, compatibility focused 2/2,
+operations 42/42 on Node 22 and Node 24, and the full package suite 249/249.
+Typechecking, diff checks, the 2,000-sample deterministic benchmark (p95 about
+0.21 ms), the packed real-subprocess benchmark (p95 about 6.0 ms), the
+133-entry package preview, and plan validation all pass. Fresh packed source
+acceptance `issue1-finalhead-20260820k` binds package SHA-256
+`795bdcec4d3f59dff83ce75dfbb924345d8bfa5537ad98bde9031839578ee19e`
+and remains released mode with 10 passed, 2 authorization-pending, and 0
+failed. Exact-head review convergence and hosted 12/12 acceptance remain
+promotion gates; no merge or cutover is claimed.
+
 The final convergence recovery audit reproduced both crash windows before the
 atomic restore implementation. Two deterministic process-loss tests failed
 0/2: doctor repair returned the normal typed collateral result instead of being

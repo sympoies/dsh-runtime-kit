@@ -289,6 +289,22 @@ export function validateDshCompatibilityManifest(input) {
       'DSH pre-tool performance budget is invalid',
     )
   }
+  const subprocess = requireRecord(
+    performance.pre_tool_subprocess,
+    'DSH real subprocess performance contract is missing',
+  )
+  requirePositiveInteger(subprocess.warmup_iterations, 'subprocess warmup_iterations must be positive')
+  if (requirePositiveInteger(subprocess.iterations, 'subprocess iterations must be positive') < 20
+    || typeof subprocess.p95_ms !== 'number'
+    || !Number.isFinite(subprocess.p95_ms)
+    || subprocess.p95_ms <= 0
+    || subprocess.max_active_after !== 0
+    || subprocess.max_live_children_after !== 0) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH real subprocess performance budget is invalid',
+    )
+  }
   return Object.freeze(structuredClone(manifest))
 }
 
