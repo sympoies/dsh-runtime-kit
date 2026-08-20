@@ -532,6 +532,16 @@ until the repaired head is re-reviewed.
   134-entry package preview, plan validation, and diff check pass. Frozen source
   rehearsal `issue1-pnpm-store-20260820u` remains external. Task 6.1 still
   requires a new exact-head hosted run; no merge or cutover is authorized.
+- 2026-08-20: The pnpm-store portability repair at PR #15 exact head
+  `6caa310d9f82796cbd1e512ec06ad0e53060a1ef` passed all four DSH
+  compatibility checks in run `32371298214` and was squash-integrated into the
+  Task 6.1 candidate branch as
+  `e6d0cee1d9359cdf8e5db355019bba868ca6fd6d`. This retained integration
+  record is the next semantic candidate boundary: its exact receipt and the
+  private trust root must bind the same eight acceptance control files before
+  hosted execution resumes. Task 6.1 remains in progress until the disposable
+  hosted candidate completes all 12 scenarios and the correlated delivery
+  receipt verifies; no cutover is claimed by this integration record.
 
 ## Decision Log
 
@@ -550,8 +560,8 @@ until the repaired head is re-reviewed.
 ## Handoff
 
 Continue Task 6.1 from the successful external-tarball source rehearsal,
-integrated PR #14 portability repair, completed external trust-root source, and
-published nils-cli v1.27.0 artifacts.
+integrated PR #15 pnpm-store portability repair, completed external trust-root
+source, and published nils-cli v1.27.0 artifacts.
 Preserve the tested reviewer, operations, compatibility, DSH
 catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit
