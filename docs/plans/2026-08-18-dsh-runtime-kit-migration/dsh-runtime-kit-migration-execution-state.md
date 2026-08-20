@@ -466,6 +466,18 @@ until the repaired head is re-reviewed.
   assigned source rehearsal `issue1-finalhead-20260820r`; external terminal
   evidence remains required before promotion. No merge or cutover is
   authorized.
+- 2026-08-20: Canonical agent-hook configuration follow-up first failed 0/2:
+  active and inactive retained sets accepted valid TOML that selected an
+  alternate owner-private policy while hiding the expected canonical path and
+  digest in comments. Activation now owns one internal canonical renderer used
+  by staging, active reads, and retained-set validation; all three require
+  exact byte equality and therefore reject comments, extra sections, alternate
+  providers, and overrides. Focused regressions pass 2/2, complete ownerless
+  audit 13/13, operations 62/62 on Node 22 and Node 24, and full package
+  269/269 plus typecheck, both performance gates, a 133-entry package preview,
+  plan validation, and diff check. The frozen package is assigned source
+  rehearsal `issue1-finalhead-20260820s`; external terminal evidence remains
+  required before promotion. No merge or cutover is authorized.
 
 ## Decision Log
 

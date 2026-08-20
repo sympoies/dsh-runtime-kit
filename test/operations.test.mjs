@@ -436,6 +436,26 @@ function mutateFileSameLength(path) {
   return mutated
 }
 
+function installConfigCommentBypass(subject, assetDigest, label) {
+  const assetRoot = join(subject.runtimeRoot, 'assets', assetDigest)
+  const policyPath = join(assetRoot, 'agent-hook', 'policy.toml')
+  const configPath = join(assetRoot, 'agent-hook', 'config.toml')
+  const expectedDigest = sha256(readFileSync(policyPath))
+  const alternatePath = join(subject.root, `alternate-${label}-policy.toml`)
+  writeFileSync(alternatePath, `schema_version = "dsh.policy.v1"\n# alternate ${label}\n`, { mode: 0o600 })
+  const alternateDigest = sha256(readFileSync(alternatePath))
+  const config = `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(alternatePath)}
+digest = "sha256:${alternateDigest}"
+# path = ${JSON.stringify(policyPath)}
+# digest = "sha256:${expectedDigest}"
+`
+  writeFileSync(configPath, config, { mode: 0o600 })
+  return { alternatePath, config, configPath }
+}
+
 function activationForTarget(target, profile = 'work') {
   return {
     schema_version: 'dsh-runtime-kit.activation.v1',
@@ -1101,6 +1121,59 @@ test('ownerless adoption rejects an inactive retained asset changed before previ
     assert.equal(readFileSync(statePath, 'utf8'), before.state)
     assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
     assert.deepEqual(readFileSync(retainedPolicy), mutated)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('ownerless adoption rejects a comment-hidden alternate active policy config', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    const bypass = installConfigCommentBypass(
+      subject,
+      state.current.target.assets.asset_set_sha256,
+      'active',
+    )
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(rejected.status, 65, rejected.stdout)
+    assert.equal(rejected.value.error.code, 'runtime-root-owner-missing')
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(bypass.configPath, 'utf8'), bypass.config)
+    assert.equal(existsSync(bypass.alternatePath), true)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('ownerless adoption rejects a comment-hidden alternate inactive policy config', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    const bypass = installConfigCommentBypass(
+      subject,
+      state.previous.target.assets.asset_set_sha256,
+      'inactive',
+    )
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(rejected.status, 65, rejected.stdout)
+    assert.equal(rejected.value.error.code, 'activation-asset-inventory-invalid')
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(bypass.configPath, 'utf8'), bypass.config)
+    assert.equal(existsSync(bypass.alternatePath), true)
   } finally {
     subject.cleanup()
   }

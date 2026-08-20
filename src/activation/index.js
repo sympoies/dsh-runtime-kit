@@ -12,6 +12,19 @@ export function activationSha256(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+/** @param {string} policyPath @param {string} policyDigest */
+export function renderAgentHookConfig(policyPath, policyDigest) {
+  if (policyPath.includes('\0') || !isAbsolute(policyPath) || !DIGEST.test(policyDigest)) {
+    throw new TypeError('agent-hook config requires an absolute policy path and exact digest')
+  }
+  return `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(policyPath)}
+digest = "sha256:${policyDigest}"
+`
+}
+
 /** @param {string} parent @param {string} child */
 function within(parent, child) {
   const fragment = relative(parent, child)
@@ -204,8 +217,7 @@ export function readActivation(root) {
     throw new TypeError('activation asset-set digest does not match its members')
   }
   const configText = readFileSync(config, 'utf8')
-  if (!configText.includes(`path = ${JSON.stringify(policy)}`)
-    || !configText.includes(`digest = "sha256:${assets.policy_sha256}"`)) {
+  if (configText !== renderAgentHookConfig(policy, assets.policy_sha256)) {
     throw new TypeError('agent-hook config does not bind the activated policy')
   }
   return {

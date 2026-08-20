@@ -33,6 +33,7 @@ import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hoo
 import {
   activationSha256,
   readActivation,
+  renderAgentHookConfig,
   resolveActivationRoot,
   resolveProviderDisjointPath,
   resolveProviderHomeTopology,
@@ -1947,9 +1948,10 @@ function stagedActivationAssetsMatch(target, runtimeRoot) {
     if (sha256(readFileSync(policy)) !== target.assets.policy_sha256
       || sha256(readFileSync(catalog)) !== target.assets.catalog_sha256
       || sha256(readFileSync(document)) !== target.assets.document_sha256) return false
-    const configText = readFileSync(config, 'utf8')
-    return configText.includes(`path = ${JSON.stringify(policy)}`)
-      && configText.includes(`digest = "sha256:${target.assets.policy_sha256}"`)
+    return readFileSync(config, 'utf8') === renderAgentHookConfig(
+      policy,
+      target.assets.policy_sha256,
+    )
   } catch {
     return false
   }
@@ -1995,12 +1997,14 @@ function stageActivationAssets(paths, target, runtimeRoot) {
       writeFileSync(policyPath, readFileSync(join(source, 'policy', 'dsh-runtime-kit-v1.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'AGENT_DOCS.toml'), readFileSync(join(source, 'agent-docs', 'AGENT_DOCS.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'PROJECT_DEV_EDIT.md'), readFileSync(join(source, 'agent-docs', 'PROJECT_DEV_EDIT.md')), { mode: 0o600 })
-      writeFileSync(join(hook, 'config.toml'), `schema_version = "agent-hook.config.v1"
-
-[policy]
-path = ${JSON.stringify(join(finalRoot, 'agent-hook', 'policy.toml'))}
-digest = "sha256:${target.assets.policy_sha256}"
-`, { mode: 0o600 })
+      writeFileSync(
+        join(hook, 'config.toml'),
+        renderAgentHookConfig(
+          join(finalRoot, 'agent-hook', 'policy.toml'),
+          target.assets.policy_sha256,
+        ),
+        { mode: 0o600 },
+      )
       renameSync(temporary, finalRoot)
       fsyncDirectory(assetsRoot)
     } finally {

@@ -374,7 +374,11 @@ the installed and active targets must match its current-or-pending targets;
 and every retained set must be present with no extra, staging, oversized, or
 malformed entry. Every global current, previous, or pending reference must map
 to one authenticated target whose policy, catalog, document, and root-specific
-hook configuration match the retained set. The receipt binds each set's byte
+hook configuration match the retained set. That configuration is compared as
+the exact canonical byte sequence emitted by the activation writer: comments,
+alternate policy paths or digests, provider sections, and other overrides are
+not accepted even when canonical-looking assignments also appear elsewhere in
+the TOML. The receipt binds each set's byte
 count and canonical tree digest; apply revalidates that evidence under the root
 lock, writes only the atomic owner record, and leaves state, activation, and
 assets unchanged.

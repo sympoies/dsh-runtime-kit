@@ -408,6 +408,10 @@ and requires an exact retained-set inventory before atomically writing the
 owner record. Each retained digest must resolve to one authenticated target
 from a strict version 2 current, previous, or pending receipt; its policy,
 catalog, document, and root-specific hook configuration must match on disk.
+The activation writer, active reader, and retained-set validator share one
+canonical configuration renderer and require byte-for-byte equality. A valid
+TOML file that selects an alternate path or digest cannot authenticate itself
+by repeating the expected assignments in comments or extra sections.
 The receipt binds the bounded tree's sorted path/type/mode/link/size/file-hash
 digest plus its byte count. Cross-home, unmanaged, drifted, missing, extra,
 staging, oversized, malformed, targetless, or conflicting candidates cannot

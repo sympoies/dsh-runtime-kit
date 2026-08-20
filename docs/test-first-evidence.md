@@ -1301,3 +1301,22 @@ samples at 5.805533 ms p95 with zero active resources or live children. The
 assigned source rehearsal `issue1-finalhead-20260820r`; its terminal receipt
 remains external. Exact-head specialist and hosted acceptance remain promotion
 gates; no merge or cutover is claimed.
+
+The canonical agent-hook configuration follow-up began RED 0/2. Both an active
+asset set and an inactive previous set accepted valid TOML that selected an
+owner-private alternate policy while placing the expected canonical path and
+digest only in comments; ownerless repair returned an adoption plan instead of
+failing closed. Activation now owns one internal canonical renderer used by
+staging, active reads, and retained-set validation. All three compare the exact
+configuration bytes, so comments, alternate provider data, extra sections, or
+overrides cannot satisfy the activation contract. The focused regressions pass
+2/2 and the complete ownerless audit passes 13/13. Operations passes 62/62 on
+Node 22 and Node 24, and the full package suite passes 269/269. Typechecking
+and plan validation pass. Deterministic policy performance passes 2,000
+samples at 0.144672 ms p95 with zero retained growth/active resources; packed
+released agent-hook performance passes 25 samples at 6.020433 ms p95 with zero
+active resources or live children. The 133-entry package preview and diff
+check also pass. The frozen package is assigned source rehearsal
+`issue1-finalhead-20260820s`; its terminal receipt remains external. Exact-head
+specialist and hosted acceptance remain promotion gates; no merge or cutover
+is claimed.
