@@ -508,6 +508,17 @@ until the repaired head is re-reviewed.
   hosted-delivery-pending and 0 failed against DSH rc.7 and released nils-cli
   1.27.0. Task 6.1 remains in progress until a new exact-head hosted run and
   correlated delivery receipt complete; no merge or cutover is authorized.
+- 2026-08-20: The hosted portability repair at PR #14 exact head
+  `eeac5b0fac378a5058d4ce0ea479b86682732f49` passed all four DSH
+  compatibility checks in run `32364546124` and was squash-integrated into the
+  Task 6.1 candidate branch as
+  `aaf90c18738800c2f5f979f47e41d6d00b42cd35`. This retained integration
+  record is the next semantic candidate boundary: its exact receipt and the
+  private trust root must bind the eight acceptance control files, including
+  `src/acceptance/tool-path.js`, before hosted execution resumes. Task 6.1
+  remains in progress until the disposable hosted candidate completes all 12
+  scenarios and the correlated delivery receipt verifies; no cutover is
+  claimed by this integration record.
 
 ## Decision Log
 
@@ -526,7 +537,8 @@ until the repaired head is re-reviewed.
 ## Handoff
 
 Continue Task 6.1 from the successful external-tarball source rehearsal,
-completed external trust-root source, and published nils-cli v1.27.0 artifacts.
+integrated PR #14 portability repair, completed external trust-root source, and
+published nils-cli v1.27.0 artifacts.
 Preserve the tested reviewer, operations, compatibility, DSH
 catalog-projection, and acceptance-v2 contracts. Final promotion still needs
 one run-correlated hosted execution plus explicitly authorized semantic commit
