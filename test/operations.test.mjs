@@ -399,6 +399,31 @@ function activationAssetSets(subject) {
     .sort()
 }
 
+function activationForTarget(target, profile = 'work') {
+  return {
+    schema_version: 'dsh-runtime-kit.activation.v1',
+    profile,
+    package_version: target.expected_version,
+    package_artifact_sha256: target.artifact_sha256,
+    package_installed_sha256: target.installed_sha256,
+    asset_set_sha256: target.assets.asset_set_sha256,
+    assets: {
+      policy_sha256: target.assets.policy_sha256,
+      catalog_sha256: target.assets.catalog_sha256,
+      document_sha256: target.assets.document_sha256,
+    },
+    agent_hook: {
+      config: `assets/${target.assets.asset_set_sha256}/agent-hook/config.toml`,
+      policy: `assets/${target.assets.asset_set_sha256}/agent-hook/policy.toml`,
+      state: 'state/agent-hook',
+    },
+    agent_docs: {
+      home: `assets/${target.assets.asset_set_sha256}/agent-docs`,
+      state: 'state/agent-docs',
+    },
+  }
+}
+
 function legacyTarget(target) {
   const { assets: _assets, ...legacy } = target
   return legacy
@@ -904,6 +929,110 @@ test('ownerless runtime-root adoption rejects cross-home and inexact candidates'
   }
 })
 
+test('ownerless adoption binds one phase-consistent actual and activation provenance', () => {
+  for (const scenario of ['prepared-current-pending', 'native-applied-pending-current']) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const activationPath = join(subject.runtimeRoot, 'activation.json')
+      const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+      const rootLockPath = join(subject.runtimeRoot, '.dsh-runtime-kit.lock')
+      const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      const interrupted = run(subject, [
+        'update', '--profile', 'work', '--package', subject.v2,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(interrupted.status, 70)
+      unlinkSync(join(subject.home, 'fail-after-mutation'))
+      const state = JSON.parse(readFileSync(statePath, 'utf8'))
+      assert.equal(state.pending.phase, 'prepared')
+
+      if (scenario === 'native-applied-pending-current') {
+        state.pending.phase = 'native-applied'
+        writeJson(statePath, state)
+      } else {
+        const restored = spawnSync(subject.dsh, [
+          'plugin', '--profile', 'work', 'add', '--save-exact', state.current.dependency_spec,
+        ], {
+          encoding: 'utf8',
+          env: { ...process.env, DSH_HOME: subject.home },
+        })
+        assert.equal(restored.status, 0, restored.stderr)
+        writeJson(activationPath, activationForTarget(state.pending.target))
+      }
+      unlinkSync(ownerPath)
+      unlinkSync(rootLockPath)
+      const before = {
+        state: readFileSync(statePath, 'utf8'),
+        activation: readFileSync(activationPath, 'utf8'),
+        assets: activationAssetSets(subject),
+      }
+
+      const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      if (scenario === 'native-applied-pending-current') {
+        assert.equal(repair.status, 0, repair.stderr)
+        assert.equal(repair.value.data.plan.adoption.observed_actual_source, 'pending')
+        assert.equal(repair.value.data.plan.adoption.observed_activation_source, 'current')
+        assert.equal(repair.value.data.plan.adoption.pending_phase, 'native-applied')
+        assert.equal(repair.value.data.plan.adoption.pending_action, 'update')
+        const adopted = run(subject, [
+          'doctor', '--profile', 'work', '--repair', '--apply',
+          '--expected-plan-digest', repair.value.data.plan_digest,
+        ])
+        assert.equal(adopted.status, 0, adopted.stderr)
+        assert.equal(existsSync(ownerPath), true)
+      } else {
+        assert.equal(repair.status, 65, repair.stderr)
+        assert.equal(repair.value.error.code, 'runtime-root-owner-missing')
+        assert.equal(existsSync(ownerPath), false)
+      }
+      assert.equal(readFileSync(statePath, 'utf8'), before.state)
+      assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+      assert.deepEqual(activationAssetSets(subject), before.assets)
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('ownerless adoption rejects authenticated asset drift after preview before claiming', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    const rootLockPath = join(subject.runtimeRoot, '.dsh-runtime-kit.lock')
+    unlinkSync(ownerPath)
+    unlinkSync(rootLockPath)
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    const activation = JSON.parse(readFileSync(activationPath, 'utf8'))
+    const policyPath = join(subject.runtimeRoot, activation.agent_hook.policy)
+    writeFileSync(policyPath, `${readFileSync(policyPath, 'utf8')}# post-preview drift\n`)
+    const before = {
+      state: readFileSync(statePath, 'utf8'),
+      activation: readFileSync(activationPath, 'utf8'),
+      policy: readFileSync(policyPath, 'utf8'),
+    }
+
+    const rejected = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(rejected.status, 65, rejected.stderr)
+    assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(existsSync(ownerPath), false)
+    assert.equal(readFileSync(statePath, 'utf8'), before.state)
+    assert.equal(readFileSync(activationPath, 'utf8'), before.activation)
+    assert.equal(readFileSync(policyPath, 'utf8'), before.policy)
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('a drifted apply cannot claim an unowned runtime root', () => {
   const first = fixture()
   const rightful = fixture()
@@ -1051,6 +1180,20 @@ test('doctor rejects missing DSH-only agent-hook isolation paths before executio
     assert.equal(result.status, 65)
     assert.equal(result.value.error.code, 'agent-hook-isolation-invalid')
     assert.match(result.value.error.message, /agentHookConfig is required/)
+
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const ownerPath = join(subject.runtimeRoot, '.dsh-runtime-kit-owner.json')
+    unlinkSync(ownerPath)
+    unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    const unavailableSupervisor = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ], { PATH: subject.commandDir })
+    assert.equal(unavailableSupervisor.status, 70, unavailableSupervisor.stderr)
+    assert.equal(unavailableSupervisor.value.error.code, 'command-unavailable')
+    assert.equal(existsSync(ownerPath), false)
   } finally {
     subject.cleanup()
   }

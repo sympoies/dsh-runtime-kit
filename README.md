@@ -376,6 +376,20 @@ malformed entry. Apply revalidates those bytes under the root lock, writes only
 the atomic owner record, and leaves state, activation, and assets unchanged.
 Ordinary setup/update/remove never adopt an ownerless tree.
 
+Adoption binds one explicit actual/activation provenance pair to the pending
+protocol phase. With no pending operation, both must match `current`. During
+an update or rollback, `prepared` permits `current/current` or
+`pending/current`, and `native-applied` permits `pending/current` or
+`pending/pending`. Setup is adoptable only at
+`native-applied/pending/pending`; an undefined phase, every pending remove,
+`current/pending`, or more than one matching pair is ambiguous and rejected.
+The adoption receipt binds both selected sources plus the pending phase and
+action. Any topology, provenance, activation, or retained-asset change after
+preview becomes `plan-drift` before the owner record is written. This
+normalization is limited to reviewed durable evidence: command supervision,
+runtime isolation, and configuration failures retain their original typed
+error, exit status, and details.
+
 Activation storage retains only asset sets referenced by current, rollback,
 pending, or active receipts, admits at most 16 live sets, and removes
 unreferenced digest sets plus interrupted pre-receipt staging directories.

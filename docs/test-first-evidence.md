@@ -1185,3 +1185,33 @@ diff checks pass. Packed source acceptance `issue1-finalhead-20260820m`
 remains released mode with 10 passed, 2 authorization-pending, and 0 failed.
 Exact-head specialist and hosted acceptance remain promotion gates; no merge
 or cutover is claimed.
+
+The next exact-head review found that adoption selected actual and activation
+provenance independently. A new phase-consistency regression was RED because
+the impossible `prepared/current/pending` combination returned status 0 rather
+than 65. It also retains a positive `native-applied/pending/current` case from
+the real write order. A second RED changed an authenticated policy byte after
+a valid adoption preview: apply rejected it but returned
+`runtime-root-owner-missing` instead of the required old-plan `plan-drift`.
+A final error-surface regression was RED because an unavailable command
+supervisor during reviewed repair apply was masked as status 65 `plan-drift`
+instead of retaining status 70 `command-unavailable`.
+
+Adoption now enumerates a single permitted protocol row and binds
+`observed_actual_source`, `observed_activation_source`, `pending_phase`, and
+`pending_action` into its version 2 evidence. Undefined phases, pending remove,
+setup before both surfaces are pending, mixed `current/pending`, and ambiguous
+multi-row matches remain closed. Apply-time topology, provenance, activation,
+and asset evidence revalidation failures normalize to `plan-drift` before
+owner write. The explicit normalization allowlist excludes command,
+supervisor, runtime-isolation, and configuration failures so they preserve
+their typed exit status, code, and details. The final focused audit passes 4/4,
+the complete adoption/retention/pending suite passes 6/6, operations passes
+53/53 on Node 22 and Node 24, and the full package suite passes 260/260 plus
+typechecking. Deterministic policy performance passes 2,000 samples at
+0.192413 ms p95 with zero retained growth/active resources; packed released
+agent-hook performance passes 25 samples at 6.02768 ms p95 with zero active
+resources or live children. The 133-entry package preview, plan validation,
+and diff check also pass. The frozen candidate uses packed source acceptance
+ID `issue1-finalhead-20260820o`; the terminal receipt is external so no
+post-pack tracked edit can invalidate it.

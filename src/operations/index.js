@@ -86,6 +86,37 @@ class OperationsError extends Error {
   }
 }
 
+// Applying a reviewed repair may discover that the profile, recovery state,
+// activation inventory, or provider-root topology changed since preview. Only
+// those durable evidence failures are plan drift. Command supervision and
+// runtime isolation failures retain their typed infrastructure/config codes.
+const REVIEWED_REPAIR_DRIFT_CODES = new Set([
+  'activation-asset-inventory-invalid',
+  'activation-asset-retention-limit',
+  'activation-drift',
+  'installed-package-limit',
+  'invalid-installed-package',
+  'invalid-json',
+  'invalid-operations-state',
+  'invalid-profile-manifest',
+  'owned-state-drift',
+  'profile-snapshot-limit',
+  'recovery-ambiguous',
+  'repair-not-required',
+  'runtime-root-owner-invalid',
+  'runtime-root-owner-missing',
+  'unsafe-profile-tree',
+  'unsafe-repair-runtime-root',
+])
+
+/** @param {unknown} error */
+function reviewedRepairApplyError(error) {
+  if (error instanceof OperationsError && REVIEWED_REPAIR_DRIFT_CODES.has(error.code)) {
+    return new OperationsError('plan-drift', 'recovery state changed after preview')
+  }
+  return error
+}
+
 /** @param {string | Buffer} value */
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex')
@@ -2658,40 +2689,75 @@ function ownerlessRuntimeRootAdoption(paths, runtimeRoot, profile) {
     )
   }
   const activationDigest = sha256(readFileSync(join(runtimeRoot, 'activation.json')))
-  const candidates = []
+  const candidates = /** @type {Record<string, {target:ReturnType<typeof validateTarget>,activation_digest:string}>} */ ({})
   if (state.current !== null) {
     const current = validateSnapshot(state.current)
-    candidates.push({
+    candidates.current = {
       target: current.target,
       activation_digest: current.activation_digest,
-    })
-  }
-  if (state.pending !== null) {
-    const pending = validatePending(state.pending, profile)
-    if (pending.target !== null) {
-      const target = validateTarget(pending.target)
-      candidates.push({
-        target,
-        activation_digest: sha256(`${JSON.stringify(activationManifest(target, profile), undefined, 2)}\n`),
-      })
     }
   }
-  if (candidates.length === 0
-    || !candidates.some(candidate => targetMatchesActual(readActual(paths), candidate.target, paths))
-    || !candidates.some(candidate => activationMatches(candidate.target, runtimeRoot, profile)
-      && activationDigest === candidate.activation_digest)) {
+  let pending = null
+  let pendingPlan = null
+  if (state.pending !== null) {
+    pending = validatePending(state.pending, profile)
+    pendingPlan = /** @type {any} */ (validatePlan(pending.plan, profile))
+    if (pending.operation === 'remove' || pending.target === null) {
+      throw new OperationsError(
+        'runtime-root-owner-missing',
+        'ownerless runtime roots cannot adopt a pending remove operation',
+      )
+    }
+    if (!['prepared', 'native-applied'].includes(/** @type {string} */ (pending.phase))) {
+      throw new OperationsError(
+        'runtime-root-owner-missing',
+        'ownerless runtime adoption requires an explicit pending protocol phase',
+      )
+    }
+    const target = validateTarget(pending.target)
+    candidates.pending = {
+      target,
+      activation_digest: sha256(`${JSON.stringify(activationManifest(target, profile), undefined, 2)}\n`),
+    }
+  }
+  const actual = readActual(paths)
+  const actualMatches = Object.fromEntries(Object.entries(candidates).map(([source, candidate]) => [
+    source,
+    targetMatchesActual(actual, candidate.target, paths),
+  ]))
+  const activationMatchesSource = Object.fromEntries(Object.entries(candidates).map(([source, candidate]) => [
+    source,
+    activationMatches(candidate.target, runtimeRoot, profile)
+      && activationDigest === candidate.activation_digest,
+  ]))
+  const allowedPairs = pending === null
+    ? [['current', 'current']]
+    : candidates.current === undefined
+      ? pending.phase === 'native-applied' ? [['pending', 'pending']] : []
+      : pending.phase === 'prepared'
+        ? [['current', 'current'], ['pending', 'current']]
+        : [['pending', 'current'], ['pending', 'pending']]
+  const observedPairs = allowedPairs.filter(([actualSource, activationSource]) => (
+    actualMatches[actualSource] === true && activationMatchesSource[activationSource] === true
+  ))
+  if (observedPairs.length !== 1) {
     throw new OperationsError(
       'runtime-root-owner-missing',
-      'ownerless runtime root does not match the authenticated current or pending v2 target',
+      'ownerless runtime root does not match one phase-consistent authenticated v2 target pair',
     )
   }
+  const [observedActualSource, observedActivationSource] = observedPairs[0]
   const assetSets = validateExactRetainedActivationAssets(paths, runtimeRoot)
   return {
-    schema_version: 'dsh-runtime-kit.runtime-root-adoption.v1',
+    schema_version: 'dsh-runtime-kit.runtime-root-adoption.v2',
     dsh_home: realpathSync(paths.home),
     runtime_root: runtimeRoot,
     state_digest: stateRead.digest,
     activation_digest: activationDigest,
+    observed_actual_source: observedActualSource,
+    observed_activation_source: observedActivationSource,
+    pending_phase: pending?.phase ?? null,
+    pending_action: pendingPlan?.action ?? null,
     active_asset_set_sha256: activation.manifest.asset_set_sha256,
     retained_asset_sets: assetSets,
     runtime_root_topology: topology,
@@ -3010,7 +3076,12 @@ function applyRepair(profile, paths, reviewed) {
         )).runtime_root)
     return withRuntimeRootLock(paths, runtimeRoot, () => {
     if (adoption) {
-      const current = ownerlessAdoptionPlan(profile, paths, runtimeRoot)
+      let current
+      try {
+        current = ownerlessAdoptionPlan(profile, paths, runtimeRoot)
+      } catch {
+        throw new OperationsError('plan-drift', 'ownerless runtime root changed after preview')
+      }
       if (current.plan_digest !== reviewed.plan_digest) {
         throw new OperationsError('plan-drift', 'ownerless runtime root changed after preview')
       }
@@ -3246,16 +3317,30 @@ export function main(argv = process.argv.slice(2)) {
           error instanceof Error ? error.message : 'agent-hook isolation is invalid',
         )
       }
-      const diagnostic = diagnose(profile, paths, agentHook, {
-        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
-        agentDocsHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_HOME,
-        agentDocsStateHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME,
-      }, dshBin, activationInput)
+      let diagnostic
+      try {
+        diagnostic = diagnose(profile, paths, agentHook, {
+          agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+          agentDocsHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_HOME,
+          agentDocsStateHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME,
+        }, dshBin, activationInput)
+      } catch (error) {
+        if (parsed.values.repair && apply) {
+          throw reviewedRepairApplyError(error)
+        }
+        throw error
+      }
       if (!parsed.values.repair) {
         print(envelope(diagnostic, diagnostic.status === 'healthy'), format)
         return diagnostic.status === 'healthy' ? 0 : 65
       }
-      const planned = repairPlan(profile, paths, diagnostic)
+      let planned
+      try {
+        planned = repairPlan(profile, paths, diagnostic)
+      } catch (error) {
+        if (apply) throw reviewedRepairApplyError(error)
+        throw error
+      }
       if (!apply) {
         print(envelope({ mode: 'dry-run', ...planned }), format)
         return 0

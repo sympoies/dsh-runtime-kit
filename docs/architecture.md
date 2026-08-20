@@ -408,6 +408,18 @@ and requires an exact retained-set inventory before atomically writing the
 owner record. Cross-home, unmanaged, drifted, missing, extra, staging,
 oversized, or malformed candidates cannot be adopted.
 
+The adoption receipt also binds one protocol-consistent provenance row:
+terminal state is `current/current`; update and rollback `prepared` state may
+be `current/current` or `pending/current`; update and rollback
+`native-applied` state may be `pending/current` or `pending/pending`; setup is
+adoptable only as `native-applied/pending/pending`. Undefined pending phases,
+pending remove, `current/pending`, and ambiguous multi-row matches fail closed.
+The selected actual source, activation source, pending phase, and pending
+action are digest-bound, and apply-time revalidation failures are plan drift
+before ownership mutation. The conversion uses an explicit durable-evidence
+allowlist; command-supervisor, isolation, and configuration errors retain their
+typed diagnostics instead of being misreported as plan drift.
+
 Reconciliation scans strict v2 receipts from that home and the active manifest,
 retains only current, previous, pending, active, and currently projected sets,
 and deletes unreferenced digest directories plus hidden pre-pending staging

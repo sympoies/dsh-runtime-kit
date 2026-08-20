@@ -37,11 +37,11 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | compatibility contract; package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; deterministic heap benchmark plus packed real released-agent-hook subprocess p95/teardown gate; packed unmodified rc.7 smoke | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | final-head released-mode source rehearsal `issue1-finalhead-20260820m`: 10 passed, 2 pending, 0 failed; DSH 258/258; operations 51/51 on Node 22 and 24; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
+| 6.1 | Run complete real-session acceptance matrix | in-progress | frozen final-head source candidate assigned rehearsal `issue1-finalhead-20260820o`; predecessor `n` reported 10 passed, 2 pending, 0 failed; DSH 260/260; operations 53/53 on Node 22 and 24; deterministic and packed real-agent-hook performance gates; exact nils-cli v1.27.0 artifacts; explicit DSH-only hook/docs/state roots; bounded root-owned activation assets; disposable credentialless UID/deny-all-egress design; stubbed no-merge provider integration | Final pass still requires one run-correlated hosted candidate workflow execution; receipt must prove DSH zero-dependency, provider-wiring preservation, no cross-loading, and no ambient provider/XDG fallback |
 | 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
 | 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
 
-Task 6.1 source closeout gates: DSH 258/258 plus typecheck; operations 51/51
+Task 6.1 source closeout gates: DSH 260/260 plus typecheck; operations 53/53
 on both Node 22 and Node 24; nils focused
 agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
 8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
@@ -389,6 +389,27 @@ until the repaired head is re-reviewed.
   `issue1-finalhead-20260820m` remains released mode with 10 passed, 2
   authorization-pending, and 0 failed. Exact-head specialist convergence and
   hosted acceptance remain required; no merge or cutover is authorized.
+- 2026-08-20: Exact-head provenance follow-up rejects the formerly accepted
+  impossible `prepared/current/pending` ownerless combination and binds one
+  phase-consistent actual/activation source pair plus pending action and phase
+  into the adoption receipt. The explicit table preserves the legitimate
+  `native-applied/pending/current` crash window, permits setup only after both
+  observed surfaces are pending, and rejects undefined phases and pending
+  remove. A second regression changes an authenticated policy byte after a
+  valid preview; old-digest apply now returns `plan-drift`, writes no owner,
+  and preserves state, activation, and changed asset bytes. A final error-
+  surface RED showed that an unavailable command supervisor during apply was
+  incorrectly converted from status 70 `command-unavailable` to status 65
+  `plan-drift`. Apply now converts only an explicit allowlist of reviewed
+  state, topology, provenance, and inventory failures; infrastructure,
+  isolation, and configuration errors retain their typed code, status, and
+  details. Focused audit tests pass 4/4, adoption tests pass 6/6, operations
+  pass 53/53 on Node 22 and Node 24, and the full package suite passes 260/260
+  plus typechecking, both performance gates, a 133-entry package preview, plan
+  validation, and diff check. The frozen package is assigned source rehearsal
+  `issue1-finalhead-20260820o`; its terminal receipt is retained outside the
+  repository after the package bytes are fixed. No merge or cutover is
+  authorized.
 
 ## Decision Log
 
