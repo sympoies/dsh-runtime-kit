@@ -1420,3 +1420,27 @@ children. The 134-entry package preview, plan validation, and diff check pass.
 The frozen package is assigned source rehearsal
 `issue1-pnpm-offline-20260820v`; its terminal receipt remains external. A new
 exact-head hosted run remains required; no merge or cutover is claimed.
+
+Hosted Task 6.1 run `32380603036` then passed acquisition, the pinned DSH
+offline build, credentialless setup, and network denial before the operations
+scenario stopped at `profile-setup` with the former generic `ERR_ASSERTION`
+cause. Its exact 536,753,395-byte input artifact passed every recorded SHA-256
+check. A bounded diagnostic replay exposed the underlying operations code as
+`native-dsh-verification-failed`: the owner-only acquisition umask produced
+0700 executable package entries, while pnpm normalized the installed copies
+to 0755. Content, paths, entry count, and total bytes were identical, but the
+tree identity incorrectly bound the owner/group/other execute-bit distribution.
+
+The regression began RED 0/1 with the same exit 65 verification failure. Tree
+identity now binds whether each regular file is executable while continuing to
+bind its path, type, size, and complete contents; package-manager normalization
+therefore cannot change identity, while executable-to-nonexecutable drift still
+fails. Operations smoke also maps the bounded CLI error code to a sanitized
+`DSH_OPERATIONS_*` cause instead of collapsing it to `ERR_ASSERTION`. The two
+focused contracts pass 2/2, the affected acceptance/operations suite passes
+80/80, operations passes 63/63 on Node 22 and Node 24, and the full package
+suite passes 278/278. Typechecking, both performance gates, a 134-entry package
+preview, plan validation, and diff check pass. The frozen package is assigned
+source rehearsal `issue1-operations-profile-20260820w`; its terminal receipt
+remains external. A new exact-head hosted run remains required; no merge or
+cutover is claimed.
