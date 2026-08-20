@@ -126,8 +126,10 @@ transition from the store rather than from this runtime's return values:
   and close the run out.
 - **overlapping scope refused** — a third lane declaring a path another lane
   already claims is refused when it tries to acquire that claim at bootstrap.
-- **stopped lane unproven while the harness lives** — a plugin-closed lane reads
-  `unknown`, not `stopped`, and the store-side reconcile path stays closed.
+- **closed lane proven by its released heartbeat** — a plugin-closed lane still
+  reads `unknown` while its last beat is fresh, with `reconcile-stopped` refused;
+  once that beat lapses it reads `stopped` and reconciles, all under a live
+  harness.
 
 The subagent seam is the one substituted part: the lane child and anchor are
 doubles there, while `npm run test:smoke` covers the real-DSH half (activation,
@@ -151,11 +153,16 @@ checkpoint inside a live DSH session is not yet covered by either.
   after launch returns. A worker call in that window fails
   `coordination-unauthorized`; the launch tool does not currently wait for
   readiness before returning.
-- Closing a lane while this harness is still alive leaves its runtime evidence
-  *unproven*, not stopped: a plugin-asserted termination is corroborated only by
-  a harness proven gone, so `worker reconcile-stopped` and record deletion stay
-  refused until the harness exits. Corroborating the assertion with the lane's
-  released broker heartbeat instead would open that path while the harness runs.
+- Closing a lane is provable while this harness keeps serving its other lanes,
+  but not instantly. `main_agent_lane_close` releases the lane's broker
+  heartbeat, and the CLI accepts that release as corroboration for the
+  `terminated` sidecar — so until the last beat it wrote goes stale, the lane
+  still holds coordination authority and reads `unknown`, with
+  `worker reconcile-stopped` and record deletion refused. Once the beat lapses
+  the lane reads `stopped` and both paths open. The residual is a same-uid one:
+  a hostile lane could write `terminated` and kill its own heartbeat to make its
+  record deletable while still computing — what it gives up in exchange is every
+  authenticated call it could still make.
 - Coordination is not an OS security boundary: lane isolation is worktree
   scoping plus in-process tool authority, matching the caveat the managed-CLI
   design carries.

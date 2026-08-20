@@ -79,6 +79,10 @@ limitation when any gate fails:
    `if_revision`, `idempotency_key`), then close its runtime with
    `main_agent_lane_close` (interrupts the child, stops the heartbeat, and
    marks the liveness sidecar terminated so store-side cleanup can proceed).
+   The stop becomes provable once that released heartbeat lapses, not the
+   instant close returns: a `reconcile-stopped` or record deletion attempted
+   inside that window refuses with a coordination-unverified code. Retry after
+   the lapse instead of treating the refusal as terminal.
 9. Close the run with `main_agent_run_closeout` (`summary`, `next_action`,
    optional `result_summary`, `if_run_revision`, `idempotency_key`): it
    terminates any remaining lane, records the fenced final checkpoint through

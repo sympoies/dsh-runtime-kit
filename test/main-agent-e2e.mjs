@@ -273,32 +273,51 @@ async function run() {
   assert.equal(closedTwo.closed, true)
   const twoSidecar = json(readFileSync(join(stateDir, 'sessions', launchedTwo.worker_session_id, 'dsh-runtime-liveness.json'), 'utf8'))
   assert.equal(twoSidecar.lane.state, 'terminated')
-  // The documented corroboration rule, observed end to end: a plugin-asserted
-  // termination is only *proven* once the pinned harness is gone. This harness
-  // is still running, so the lane reads `unknown` rather than `stopped` — a
-  // corrupted or forged sidecar can never terminalize a live lane this way.
+  // The corroboration rule, observed end to end. A plugin-asserted termination
+  // needs a second witness, and this harness is still alive — so the witness has
+  // to be the lane's own coordination heartbeat, which close just released. The
+  // last beat it wrote stays fresh for its freshness window, and until that
+  // lapses the lane still holds authority: it reads `unknown` and the store-side
+  // reconcile path stays closed. A forged sidecar therefore cannot terminalize a
+  // lane that is still beating.
   assert.equal(
     status(launchedTwo.worker_session_id),
     'unknown',
-    'a terminated sidecar under a live harness is unproven, not stopped',
+    'a lane whose last beat is still fresh holds authority and is not proven stopped',
   )
-  // Its consequence, also observed rather than assumed: the store-side
-  // reconcile path stays closed while the evidence is unproven. A lane closed
-  // inside a live harness therefore waits for the harness to exit before
-  // `reconcile-stopped` admits it. Tracked as a follow-up: corroborating the
-  // assertion with the lane's released heartbeat would let this path run while
-  // the harness lives.
-  const reconcileAttempt = storeAttempt([
+  const refusedReconcile = storeAttempt([
     'worker', 'reconcile-stopped', 'lane-two',
     '--if-revision', String(revision('lane-two')),
     '--reason', 'the lane runtime was closed by its plugin',
     '--idempotency-key', 'e2e-reconcile-two-0001',
   ])
-  assert.notEqual(reconcileAttempt.status, 0, 'unproven evidence must not terminalize the lane')
+  assert.notEqual(refusedReconcile.status, 0, 'unproven evidence must not terminalize the lane')
   assert.match(
-    String(json(reconcileAttempt.stdout).error?.code),
+    String(json(refusedReconcile.stdout).error?.code),
     /unverified|runtime|coordination/,
-    `unexpected reconcile refusal: ${reconcileAttempt.stdout}`,
+    `unexpected reconcile refusal: ${refusedReconcile.stdout}`,
+  )
+  // Once the released heartbeat goes stale the assertion is corroborated, and
+  // this is the behaviour the store side gained: the lane reads `stopped` and
+  // reconciles while the harness keeps serving its other lanes, instead of
+  // waiting for the whole harness to exit. The wait is the CLI's own freshness
+  // window, so poll for the transition rather than assuming its length.
+  const stopProven = await waitFor(
+    () => status(launchedTwo.worker_session_id) === 'stopped',
+    90_000,
+    () => `lane two never became provably stopped: status=${status(launchedTwo.worker_session_id)}`,
+  )
+  assert.equal(stopProven, true)
+  store([
+    'worker', 'reconcile-stopped', 'lane-two',
+    '--if-revision', String(revision('lane-two')),
+    '--reason', 'the lane runtime was closed by its plugin',
+    '--idempotency-key', 'e2e-reconcile-two-0002',
+  ])
+  assert.notEqual(
+    assignmentState('lane-two'),
+    'working',
+    'a reconciled lane leaves working',
   )
 
   // ---- Closeout ---------------------------------------------------------
@@ -444,6 +463,24 @@ function privateJson(path, document) {
 
 function json(text) {
   return JSON.parse(text)
+}
+
+/**
+ * Poll until `probe` holds. Used for transitions this runtime does not drive —
+ * a coordination heartbeat lapsing, for instance — so the scenario waits on the
+ * CLI's own window instead of hard-coding its length.
+ *
+ * @param {() => boolean} probe
+ * @param {number} timeoutMs
+ * @param {() => string} describe failure message, evaluated only on timeout
+ */
+async function waitFor(probe, timeoutMs, describe) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (probe()) return true
+    await new Promise(resolve => setTimeout(resolve, 500))
+  }
+  assert.fail(describe())
 }
 
 function laneChildExec() {
