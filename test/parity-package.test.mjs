@@ -24,9 +24,15 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
       { cwd: ROOT },
     )).stdout)
     const tarball = join(temporary, packed[0].filename)
+    // Install the packed bundle without resolving its peer closure, the same way
+    // `provider-retirements` does. This assertion is about what the tarball
+    // exposes, and the bundle's peers name exact DSH versions whose own ranges
+    // are open (`^0.1.0-rc.7`), so a peer-resolving install reads whatever the
+    // registry serves today and fails `ERESOLVE` the moment a newer prerelease
+    // of one transitive peer demands a newer sibling than this bundle pins.
     await execute(
       'npm',
-      ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball],
+      ['install', '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund', tarball],
       { cwd: temporary },
     )
     const requireFromInstall = createRequire(join(temporary, 'consumer.cjs'))
