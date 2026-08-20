@@ -200,6 +200,15 @@ if (verb === 'add') {
       if (existsSync(join(home, 'normalize-installed-executable-modes'))) {
         normalizeExecutableModes(installed)
       }
+      if (existsSync(join(home, 'normalize-bundled-installed-tree'))) {
+        const bundled = join(installed, 'node_modules', 'fixture-dependency')
+        if (existsSync(join(bundled, 'CHANGELOG.md'))) {
+          rmSync(join(bundled, 'CHANGELOG.md'))
+        }
+        const bin = join(installed, 'node_modules', '.bin')
+        mkdirSync(bin, { recursive: true })
+        symlinkSync('../fixture-dependency/bin.js', join(bin, 'fixture-dependency'))
+      }
     } else writeFileSync(join(installed, 'package.json'), JSON.stringify(packageManifest))
   }
   if (packageManifest.name !== packageName) process.exit(92)
@@ -2548,6 +2557,58 @@ test('local package content is authenticated by the reviewed plan', () => {
   }
 })
 
+test('installed identity excludes only package-manager-owned bundled dependency materialization', () => {
+  const subject = fixture()
+  try {
+    const manifestPath = join(subject.v1, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.dependencies = { 'fixture-dependency': '1.0.0' }
+    manifest.bundledDependencies = ['fixture-dependency']
+    writeJson(manifestPath, manifest)
+    const dependency = join(subject.v1, 'node_modules', 'fixture-dependency')
+    mkdirSync(dependency, { recursive: true })
+    writeJson(join(dependency, 'package.json'), {
+      name: 'fixture-dependency',
+      version: '1.0.0',
+      bin: { 'fixture-dependency': 'bin.js' },
+    })
+    writeFileSync(join(dependency, 'index.js'), 'export const value = 1\n')
+    writeFileSync(join(dependency, 'bin.js'), '#!/usr/bin/env node\n', { mode: 0o755 })
+    writeFileSync(join(dependency, 'CHANGELOG.md'), 'reviewed dependency bytes\n')
+
+    const stale = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(stale.status, 0, stale.stderr)
+    writeFileSync(join(dependency, 'index.js'), 'export const value = 2\n')
+    const sourceDrift = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', stale.value.data.plan_digest,
+    ])
+    assert.equal(sourceDrift.status, 65)
+    assert.equal(sourceDrift.value.error.code, 'plan-drift')
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+
+    writeFileSync(join(subject.home, 'normalize-bundled-installed-tree'), '')
+    const installed = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.match(installed.preview.plan.target.artifact_sha256, /^[a-f0-9]{64}$/)
+    assert.match(installed.preview.plan.target.installed_sha256, /^[a-f0-9]{64}$/)
+
+    const installedRoot = join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')
+    assert.equal(existsSync(join(installedRoot, 'node_modules/.bin/fixture-dependency')), true)
+    writeFileSync(join(installedRoot, 'forged.js'), 'unreviewed plugin-owned bytes\n')
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 65)
+    assert.equal(doctor.value.data.owned_status, 'drift')
+    const replay = run(subject, [
+      'setup', '--profile', 'work',
+      '--apply', '--expected-plan-digest', installed.preview.plan_digest,
+    ])
+    assert.equal(replay.status, 65)
+    assert.equal(replay.value.error.code, 'owned-state-drift')
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('an exact registry target is installed from a reviewed immutable artifact', () => {
   const subject = fixture()
   try {
@@ -2926,5 +2987,68 @@ process.exit(sentinel === '<absent>' && !proxy.includes('must-not-leak') ? 70 : 
     assert.equal(rejected.stderr.includes('must-not-leak'), false)
   } finally {
     subject.cleanup()
+  }
+})
+
+test('native DSH mutations preserve only explicit offline package-manager intent', () => {
+  for (const expected of [
+    {
+      name: 'enabled',
+      environment: { NPM_CONFIG_OFFLINE: 'true', PNPM_OFFLINE: 'true' },
+      observed: { argument: true, npm: 'true', pnpm: 'true' },
+    },
+    {
+      name: 'invalid-values-removed',
+      environment: { NPM_CONFIG_OFFLINE: 'false', PNPM_OFFLINE: 'yes' },
+      observed: { argument: false, npm: '<absent>', pnpm: '<absent>' },
+    },
+  ]) {
+    const subject = fixture()
+    try {
+      const observedPath = join(subject.home, `offline-environment-${expected.name}.json`)
+      const dsh = join(subject.root, `offline-aware-dsh-${expected.name}.mjs`)
+      writeFileSync(dsh, `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+if (args[0] === '--version') {
+  process.stdout.write('0.1.0-rc.7\\n')
+  process.exit(0)
+}
+const observed = {
+  argument: args.includes('--offline'),
+  npm: process.env.NPM_CONFIG_OFFLINE ?? '<absent>',
+  pnpm: process.env.PNPM_OFFLINE ?? '<absent>',
+}
+writeFileSync(${JSON.stringify(observedPath)}, JSON.stringify(observed))
+const expected = args[3] === 'remove'
+  ? { ...${JSON.stringify(expected.observed)}, argument: false }
+  : ${JSON.stringify(expected.observed)}
+if (JSON.stringify(observed) !== JSON.stringify(expected)) process.exit(79)
+const result = spawnSync(${JSON.stringify(realpathSync(subject.dsh))}, args, {
+  env: process.env,
+  stdio: 'inherit',
+})
+process.exit(result.status ?? 70)
+`)
+      chmodSync(dsh, 0o755)
+      applyPlan(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+      ], {
+        ...expected.environment,
+        DSH_RUNTIME_KIT_DSH_BIN: dsh,
+      })
+      assert.deepEqual(JSON.parse(readFileSync(observedPath, 'utf8')), expected.observed)
+      applyPlan(subject, ['remove', '--profile', 'work'], {
+        ...expected.environment,
+        DSH_RUNTIME_KIT_DSH_BIN: dsh,
+      })
+      assert.deepEqual(JSON.parse(readFileSync(observedPath, 'utf8')), {
+        ...expected.observed,
+        argument: false,
+      })
+    } finally {
+      subject.cleanup()
+    }
   }
 })

@@ -145,7 +145,7 @@ function upstreamStatus() {
 }
 
 /** @param {ReturnType<typeof spawnSync>} result */
-function operationFailureCode(result) {
+function operationFailure(result) {
   let parsed
   try { parsed = JSON.parse(typeof result.stdout === 'string' ? result.stdout : '') } catch {}
   const code = parsed !== null
@@ -157,7 +157,21 @@ function operationFailureCode(result) {
     && /^[a-z][a-z0-9-]{0,47}$/u.test(parsed.error.code)
     ? `DSH_OPERATIONS_${parsed.error.code.replaceAll('-', '_').toUpperCase()}`
     : 'DSH_OPERATIONS_COMMAND_FAILED'
-  return /^[A-Z][A-Z0-9_]{1,63}$/u.test(code) ? code : 'DSH_OPERATIONS_COMMAND_FAILED'
+  const exitStatus = parsed !== null
+    && typeof parsed === 'object'
+    && parsed.error !== null
+    && typeof parsed.error === 'object'
+    && parsed.error.details !== null
+    && typeof parsed.error.details === 'object'
+    && Number.isSafeInteger(parsed.error.details.exit_code)
+    && parsed.error.details.exit_code >= 1
+    && parsed.error.details.exit_code <= 255
+    ? parsed.error.details.exit_code
+    : undefined
+  return {
+    code: /^[A-Z][A-Z0-9_]{1,63}$/u.test(code) ? code : 'DSH_OPERATIONS_COMMAND_FAILED',
+    exitStatus,
+  }
 }
 
 function operation(args) {
@@ -187,8 +201,10 @@ function operation(args) {
     encoding: 'utf8',
   })
   if (result.status !== 0) {
-    const error = /** @type {Error & {code:string}} */ (new Error('runtime-kit operation failed'))
-    error.code = operationFailureCode(result)
+    const failure = operationFailure(result)
+    const error = /** @type {Error & {code:string,operationExitStatus?:number}} */ (new Error('runtime-kit operation failed'))
+    error.code = failure.code
+    error.operationExitStatus = failure.exitStatus
     throw error
   }
   return JSON.parse(result.stdout).data
@@ -318,13 +334,22 @@ try {
     && /^[A-Z][A-Z0-9_]{1,63}$/u.test(error.code)
     ? error.code
     : 'UNCLASSIFIED'
-  process.stderr.write(`${JSON.stringify({
+  const diagnostic = {
     schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
     ok: false,
     producer: 'operations',
     step: acceptanceStep,
     cause_code: causeCode,
-  })}\n`)
+  }
+  if (error !== null
+    && typeof error === 'object'
+    && 'operationExitStatus' in error
+    && Number.isSafeInteger(error.operationExitStatus)
+    && error.operationExitStatus >= 1
+    && error.operationExitStatus <= 255) {
+    diagnostic.operation_exit_status = error.operationExitStatus
+  }
+  process.stderr.write(`${JSON.stringify(diagnostic)}\n`)
   process.exitCode = 1
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })

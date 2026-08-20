@@ -132,24 +132,34 @@ export function scenarioFailureDiagnostic(output) {
       continue
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
-    if (Object.keys(parsed).sort().join('\0') !== [
+    const hasOperationExitStatus = Object.hasOwn(parsed, 'operation_exit_status')
+    const expectedKeys = [
       'cause_code',
       'ok',
       'producer',
       'schema_version',
       'step',
-    ].join('\0')
+      ...(hasOperationExitStatus ? ['operation_exit_status'] : []),
+    ].sort().join('\0')
+    if (Object.keys(parsed).sort().join('\0') !== expectedKeys
       || parsed.schema_version !== 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1'
       || parsed.ok !== false
       || !['operations', 'packed-runtime'].includes(parsed.producer)
       || typeof parsed.step !== 'string'
       || !/^[a-z][a-z0-9-]{0,63}$/u.test(parsed.step)
       || typeof parsed.cause_code !== 'string'
-      || !/^[A-Z][A-Z0-9_]{1,63}$/u.test(parsed.cause_code)) continue
+      || !/^[A-Z][A-Z0-9_]{1,63}$/u.test(parsed.cause_code)
+      || (hasOperationExitStatus
+        && (!Number.isSafeInteger(parsed.operation_exit_status)
+          || parsed.operation_exit_status < 1
+          || parsed.operation_exit_status > 255))) continue
     return Object.freeze({
       scenario_producer: parsed.producer,
       scenario_step: parsed.step,
       scenario_cause_code: parsed.cause_code,
+      ...(hasOperationExitStatus
+        ? { scenario_operation_exit_status: parsed.operation_exit_status }
+        : {}),
     })
   }
   return Object.freeze({})

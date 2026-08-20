@@ -375,7 +375,12 @@ private receipt, and emits a deterministic dry-run plan. A local target is
 packed with lifecycle scripts disabled; the plan binds the tarball SHA-256 and
 the canonical extracted package-tree digest; apply regenerates that exact
 artifact into a private content-addressed store and verifies the package tree
-DSH actually installed. Apply requires the reviewed digest and evaluates
+DSH actually installed. The published artifact bundles the complete exact
+runtime dependency closure, and its tarball SHA-256 binds those dependency
+bytes. The installed-tree projection excludes only the package root's
+top-level `node_modules` materialization because pnpm may normalize that
+package-manager-owned subtree; every other package-owned path, type,
+executable role, size, and byte remains bound. Apply requires the reviewed digest and evaluates
 duplicate or current-plan state only while holding a global artifact plus
 per-profile SQLite transaction, so process exit releases both kernel locks
 without pathname-based stale-lock reclamation. A completed digest-only replay

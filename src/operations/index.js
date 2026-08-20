@@ -387,6 +387,11 @@ function packageTreeDigest(packagePath, containmentPath) {
   /** @param {string} absolute @param {string} logical @param {number} depth */
   const visit = (absolute, logical, depth) => {
     if (depth > 64) throw new OperationsError('installed-package-limit', 'installed package exceeds the depth limit')
+    // The authenticated npm artifact digest binds the complete bundled
+    // dependency closure. pnpm owns and normalizes the installed top-level
+    // node_modules materialization, so the post-install identity projects that
+    // subtree out while continuing to bind every package-owned path.
+    if (depth === 1 && logical === 'node_modules') return
     const stat = lstatSync(absolute)
     entries += 1
     if (entries > MAX_INSTALLED_PACKAGE_FILES) {
@@ -1721,6 +1726,16 @@ function minimalEnvironment(home, extra = {}) {
   return { ...env, ...extra }
 }
 
+function explicitOfflineEnvironment() {
+  if (!['NPM_CONFIG_OFFLINE', 'npm_config_offline', 'PNPM_OFFLINE']
+    .some(name => process.env[name] === 'true')) return {}
+  const environment = /** @type {Record<string, string>} */ ({})
+  for (const name of ['NPM_CONFIG_OFFLINE', 'npm_config_offline', 'PNPM_OFFLINE']) {
+    environment[name] = 'true'
+  }
+  return environment
+}
+
 /** @param {ReturnType<typeof spawnSync>} result */
 function commandFailure(result) {
   const stderr = typeof result.stderr === 'string' ? result.stderr : ''
@@ -1873,8 +1888,10 @@ function spawn(bin, args, home, options = {}) {
 
 /** @param {string} dshBin @param {string} home @param {string} profile @param {string} verb @param {string | null} spec */
 function runDshMutation(dshBin, home, profile, verb, spec) {
+  const offlineEnvironment = explicitOfflineEnvironment()
+  const offline = Object.keys(offlineEnvironment).length > 0
   const args = verb === 'add'
-    ? ['plugin', '--profile', profile, 'add', '--save-exact', /** @type {string} */ (spec)]
+    ? ['plugin', '--profile', profile, 'add', ...(offline ? ['--offline'] : []), '--save-exact', /** @type {string} */ (spec)]
     : ['plugin', '--profile', profile, 'remove', PACKAGE_NAME]
   const result = spawn(dshBin, args, home, {
     cwd: home,
@@ -1882,6 +1899,7 @@ function runDshMutation(dshBin, home, profile, verb, spec) {
     extraEnv: {
       NPM_CONFIG_USERCONFIG: '/dev/null',
       NPM_CONFIG_IGNORE_SCRIPTS: 'true',
+      ...offlineEnvironment,
     },
   })
   if (result.status !== 0) {

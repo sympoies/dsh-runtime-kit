@@ -53,6 +53,13 @@
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
+  "bundledDependencies": [
+    "@standard-schema/spec",
+    "chokidar",
+    "js-yaml",
+    "yaml",
+    "zod"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:smoke": "node test/smoke.mjs",
