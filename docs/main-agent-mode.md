@@ -21,8 +21,11 @@ Tracking: sympoies/dsh-runtime-kit#6. The nils-cli side of the contract is
 | Spawning the lane child, prompt delivery       | this bundle (`src/main-agent/`)              |
 | Per-lane broker heartbeat process              | this bundle (spawns `agent-session broker heartbeat`) |
 | Liveness/turn evidence sidecar                 | this bundle (schema `main-agent.dsh-runtime-liveness.v1`) |
-| Worker-side bootstrap/checkpoint               | the worker runs `main-agent bootstrap` / `main-agent checkpoint` |
-| Lane interrupt/close                           | this bundle's tools; CLI stop verbs refuse dsh lanes |
+| Worker-side bootstrap                          | the worker runs `main-agent bootstrap`       |
+| Worker-side checkpoint                         | this bundle's per-lane `main_agent_checkpoint` tool, which writes the private input and runs the fenced CLI |
+| Review decision (what to change, what to accept) | the controller agent and its review skills |
+| Review-loop transport (record the decision, deliver it into the lane) | this bundle's tools |
+| Lane interrupt/close, run closeout, descendant drain | this bundle's tools; CLI stop verbs refuse dsh lanes |
 
 ## Runtime shape
 
@@ -62,6 +65,82 @@ Mode simply never activates and the rest of the bundle is unaffected.
 - `main_agent_lane_close({assignment_id})` — terminal lane cleanup after the
   assignment reached a terminal store state: interrupt, heartbeat stop,
   best-effort broker stop, sidecar marked `terminated`.
+- `main_agent_worker_supervise({assignment_id})` — runs the store-side
+  `worker supervise` macro and folds this runtime's lane facts onto it. The
+  store's classification and next action pass through untouched; lane facts
+  (child activity from `listChildren`, turn phase, lane state) live in a
+  separate `lane` object, so transport observation can never be mistaken for
+  durable store truth. A listing failure degrades to `child_activity:
+  "unknown"` rather than failing supervision.
+- `main_agent_worker_request_changes({assignment_id, if_revision, reason,
+  idempotency_key})` — records the fenced store decision **first**, then
+  delivers it into that lane's inbox through `followup()`. A delivery failure
+  is reported (`delivered: false` plus `delivery_error`) and never unwinds the
+  durable decision; the worker can still read it through its own rehydrate
+  path. No raw terminal input is involved.
+- `main_agent_worker_accept({assignment_id, if_revision, idempotency_key})` —
+  records the fenced acceptance. The lane stays live so its worktree and inbox
+  remain inspectable; closing it is a separate explicit step.
+- `main_agent_run_closeout({summary, next_action, result_summary?,
+  if_run_revision, idempotency_key})` — terminates every remaining lane,
+  writes the private final checkpoint, runs the store `closeout` macro, then
+  `drainContinuableDescendants()` on the lane anchors and disposes them. The
+  controller session survives to deliver the final answer.
+
+## Lane tool
+
+- `main_agent_checkpoint({summary, next_action, state?, result_summary?,
+  blocker_summary?, if_revision, idempotency_key})` — registered **inside each
+  lane child's own context**, never globally, so a lane can only ever
+  checkpoint its own assignment: there is no argument through which it could
+  name another. It writes the `main-agent.checkpoint-input.v1` document to the
+  path the launch payload declared (owner-only, atomic rename, verified real
+  directory) and runs the fenced `main-agent checkpoint` with the lane's own
+  environment and worktree.
+
+  This replaces the worker writing that file itself — a file tool in one
+  composition, a shell `printf` in another — and with it the checkpoint-file
+  admission hook that existed to keep those writes honest. A lane whose payload
+  names no checkpoint path inside its own coordination directory gets no
+  checkpoint tool at all rather than one pointed somewhere unproven.
+
+## Service
+
+`ctx.provide('mainAgentOrchestration', …)` exposes a versioned, **read-only**
+view: `apiVersion`, `laneCount`, `maxLanes`, `cliDegraded`, `lanes()`,
+`lane(assignmentId)`, and the tool names this runtime owns. Every mutation is a
+tool, so each one carries a model-visible call, an argument record, and the
+store's fenced receipt; a service method that mutated the run would be an
+unlogged second write path onto the same durable state. The pre-service name
+`dshRuntimeKitMainAgent` stays bound to the same object.
+
+## Acceptance evidence
+
+`npm run test:main-agent-e2e` (with `NILS_BIN_DIR` pointing at a nils-cli build)
+runs three scenarios against a real store, real worker sessions, real
+coordination brokers, real worktrees, and real CLI calls — asserting every
+transition from the store rather than from this runtime's return values:
+
+- **two-lane lifecycle** — launch two lanes, bootstrap both, submit lane one
+  through its own checkpoint tool, supervise, request changes, resubmit, accept,
+  and close the run out.
+- **overlapping scope refused** — a third lane declaring a path another lane
+  already claims is refused when it tries to acquire that claim at bootstrap.
+- **closed lane proven by its released heartbeat** — a plugin-closed lane still
+  reads `unknown` while its last beat is fresh, with `reconcile-stopped` refused;
+  once that beat lapses it reads `stopped` and reconciles, all under a live
+  harness.
+
+The subagent seam is the one substituted part: the lane child and anchor are
+doubles there, while `npm run test:smoke` covers the real-DSH half (activation,
+tool surface, provided service). A model-driven lane child issuing its own
+checkpoint inside a live DSH session is not yet covered by either.
+
+`dsh-runtime-kit.main-agent-lane.v1` uses `disposition` only for launch results:
+`launched` means this call created the in-process lane, while `reattached` means
+an idempotent launch found the exact existing incarnation. Interrupt and close
+results instead carry the neutral `operation` value `interrupt` or `close`, and
+read-only service projections carry neither field.
 
 ## Known limitations (v1)
 
@@ -75,6 +154,21 @@ Mode simply never activates and the rest of the bundle is unaffected.
   starting the heartbeat with the lane and terminating it at lane close.
 - Concurrent lanes are bounded by the `maxLanes` config (default 8, hard cap
   64); a launch beyond capacity refuses with `main-agent-lane-capacity`.
+- A lane can authenticate only once its coordination broker is ready. Its own
+  heartbeat establishes readiness on the first beat, and the launch tool now
+  performs a bounded authenticated status wait before it starts the child or
+  reports success. A broker that never becomes usable is rolled back with
+  `main-agent-broker-readiness-timeout`.
+- Closing a lane is provable while this harness keeps serving its other lanes,
+  but not instantly. `main_agent_lane_close` releases the lane's broker
+  heartbeat, and the CLI accepts that release as corroboration for the
+  `terminated` sidecar — so until the last beat it wrote goes stale, the lane
+  still holds coordination authority and reads `unknown`, with
+  `worker reconcile-stopped` and record deletion refused. Once the beat lapses
+  the lane reads `stopped` and both paths open. The residual is a same-uid one:
+  a hostile lane could write `terminated` and kill its own heartbeat to make its
+  record deletable while still computing — what it gives up in exchange is every
+  authenticated call it could still make.
 - Coordination is not an OS security boundary: lane isolation is worktree
   scoping plus in-process tool authority, matching the caveat the managed-CLI
   design carries.

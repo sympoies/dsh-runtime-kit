@@ -72,7 +72,8 @@
     "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
     "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
     "verify:policy-source": "node scripts/verify-policy-parity.mjs",
-    "typecheck": "tsc -p jsconfig.json"
+    "typecheck": "tsc -p jsconfig.json",
+    "test:main-agent-e2e": "node test/main-agent-e2e.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",

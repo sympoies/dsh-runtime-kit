@@ -10,26 +10,30 @@ test('the published nils release is pinned by exact source, archive, and binary 
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.0')
-  assert.equal(manifest.validated_release, '1.27.0')
+  assert.equal(manifest.minimum_supported_release, '1.27.1')
+  assert.equal(manifest.validated_release, '1.27.1')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.0',
-    source_commit: 'cf997a39ef64127c6b925a3cba0294760b8d31b6',
+    source_revision: 'v1.27.1',
+    source_commit: 'a12a48f07d2bc2c40ab6c832c1d63c37170298e1',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: '192f2e9b0225d730ff870f16654d9cec99a70ccec8dafe3199ea35a8672d421c',
+      name: 'nils-cli-v1.27.1-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: 'db0bc121812f1e171029617fcd60d1930878baa350960ddf6bedbe2681740c9a',
     },
     artifacts: {
-      'agent-hook': { sha256: '123de15f8ee21f98722b7cbc457726da5e2fd38479a4dff060839251052bd68d' },
-      'agent-docs': { sha256: '6ada95412c092e520ce0d0bb8247545dad443ec3e59ef21b7d6af047d61079c2' },
-      'forge-cli': { sha256: '4c6365a7c88d7fbe8fb1c242c2fb7016926f166bc72633694fe244ad85aeb6f9' },
-      'git-cli': { sha256: '0df55358c9bab60d1db0586bd465081d84e9f02942c4d2712c11761f052d91f0' },
-      'review-specialists': { sha256: 'eff050352341b62ff37d00965090556249af79050a89c85123456c458bfe94a8' },
-      'semantic-commit': { sha256: 'f2a0ca47f8d034832fff9c0e5847c7b138fde822e5e6fb96c16512eefdc0224a' },
+      'agent-hook': { sha256: '163d62819dc204a2c5b64a4550763c0a969678393902836d0507004a0f696b04' },
+      'agent-docs': { sha256: '77f49c9485a6aaa6e2982949f5b9c44fbe19ec553530b1a8f51b7784c647e15c' },
+      'forge-cli': { sha256: 'b019bd1c0a28d15bad172d0579539d6a3aa95e67b53ec2793801f8d5e1384804' },
+      'git-cli': { sha256: 'e3ba417507ad0e98821d93e17fe1ce139818ce37072c668f89a25a5b7906b62b' },
+      'review-specialists': { sha256: '3448084f8ccf283047937f027169e1d0fd0d1d372c5816aa5b7d8207dd0fcda5' },
+      'semantic-commit': { sha256: 'bb480aab9e642aeb41f2d544b338b732ea68910b796022985ac0c5e2acbd2c96' },
     },
   })
   assert.ok(manifest.commands.every(command => command.status === 'released'))
+  assert.equal(
+    manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,
+    'release-bundle-validated',
+  )
 })
 
 test('retained migration docs define isolated coexistence instead of repository retirement', () => {

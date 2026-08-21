@@ -3,6 +3,51 @@
 import { isAbsolute } from 'node:path'
 import { loadDshRc7Runtime } from './contract.js'
 
+/**
+ * Isolate the rc.7 Agent session-header shape used by optional integrations.
+ * Validation stays with each consumer; this adapter only owns field routing so
+ * a future Harness rc changes one compatibility seam.
+ * @param {unknown} agent
+ * @returns {Readonly<{id?: string, parentSession?: string, cwd?: string}>}
+ */
+export function dshRc7SessionHeader(agent) {
+  const header = /** @type {any} */ (agent)?.session?.header
+  if (header === null || typeof header !== 'object') return Object.freeze({})
+  return Object.freeze({
+    ...typeof header.id === 'string' ? { id: header.id } : {},
+    ...typeof header.parentSession === 'string'
+      ? { parentSession: header.parentSession }
+      : {},
+    ...typeof header.cwd === 'string' ? { cwd: header.cwd } : {},
+  })
+}
+
+/**
+ * @param {unknown} agent
+ * @returns {Readonly<{provider?: string, model?: string}>}
+ */
+export function dshRc7AgentRoute(agent) {
+  const options = /** @type {any} */ (agent)?.options
+  if (options === null || typeof options !== 'object') return Object.freeze({})
+  return Object.freeze({
+    ...typeof options.provider === 'string' ? { provider: options.provider } : {},
+    ...typeof options.model === 'string' ? { model: options.model } : {},
+  })
+}
+
+/**
+ * @param {unknown} payload
+ * @returns {Readonly<{id?: string, stopReason?: string}>}
+ */
+export function dshRc7RunInfo(payload) {
+  if (payload === null || typeof payload !== 'object') return Object.freeze({})
+  const record = /** @type {Record<string, unknown>} */ (payload)
+  return Object.freeze({
+    ...typeof record.id === 'string' ? { id: record.id } : {},
+    ...typeof record.stopReason === 'string' ? { stopReason: record.stopReason } : {},
+  })
+}
+
 export async function filesystemSkillsApply() {
   return (await loadDshRc7Runtime()).filesystemSkillsApply
 }

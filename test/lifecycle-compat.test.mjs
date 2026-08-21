@@ -1,7 +1,41 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createDshRc7Compatibility } from '../src/compat/dsh-rc7.js'
+import {
+  createDshRc7Compatibility,
+  dshRc7AgentRoute,
+  dshRc7RunInfo,
+  dshRc7SessionHeader,
+} from '../src/compat/dsh-rc7.js'
+
+test('the rc.7 adapter owns session, route, and run-info shape probes', () => {
+  const agent = {
+    options: { provider: 'deepseek-official', model: 'deepseek-v4' },
+    session: {
+      header: {
+        id: 'child-one',
+        parentSession: 'anchor-one',
+        cwd: '/worktrees/child-one',
+      },
+    },
+  }
+  assert.deepEqual(dshRc7SessionHeader(agent), {
+    id: 'child-one',
+    parentSession: 'anchor-one',
+    cwd: '/worktrees/child-one',
+  })
+  assert.deepEqual(dshRc7AgentRoute(agent), {
+    provider: 'deepseek-official',
+    model: 'deepseek-v4',
+  })
+  assert.deepEqual(dshRc7RunInfo({ id: 'child-one', stopReason: 'completed' }), {
+    id: 'child-one',
+    stopReason: 'completed',
+  })
+  assert.deepEqual(dshRc7SessionHeader({}), {})
+  assert.deepEqual(dshRc7AgentRoute({}), {})
+  assert.deepEqual(dshRc7RunInfo({}), {})
+})
 
 function agentFixture({
   id = 'session-1',

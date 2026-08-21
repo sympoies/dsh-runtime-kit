@@ -23,6 +23,10 @@ export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
  * @property {string} livenessFile
  * @property {string} childId
  * @property {string} anchorId
+ * @property {unknown} anchor the live anchor Agent, the parent authority every
+ *   `followup` and drain call needs; the id alone cannot carry it
+ * @property {string} worktree the lane's real worktree, which is both the
+ *   anchor session cwd and the cwd every worker-principal CLI call runs in
  * @property {'open' | 'terminated'} state
  * @property {LaneTurnEvidence | undefined} turn
  * @property {Readonly<Record<string, string>>} workerEnv
@@ -87,6 +91,10 @@ export function createLaneRegistry() {
   const byLivenessFile = new Map()
   /** @type {Map<string, Lane>} */
   const byWorkerSession = new Map()
+  /** @type {Map<string, Lane>} */
+  const byAnchor = new Map()
+  /** @type {Map<string, Lane>} */
+  const byMember = new Map()
   return Object.freeze({
     /** @param {Lane} lane */
     add(lane) {
@@ -103,6 +111,26 @@ export function createLaneRegistry() {
     byWorkerSession(workerSessionId) {
       return byWorkerSession.get(workerSessionId)
     },
+    /** Bind the parked anchor before child materialization begins. @param {Lane} lane */
+    bindAnchor(lane) {
+      byAnchor.set(lane.anchorId, lane)
+    },
+    /** @param {string} anchorId */
+    byAnchor(anchorId) {
+      return byAnchor.get(anchorId)
+    },
+    /** @param {string} sessionId @param {Lane} lane */
+    bindMember(sessionId, lane) {
+      byMember.set(sessionId, lane)
+    },
+    /** @param {string} sessionId */
+    unbindMember(sessionId) {
+      byMember.delete(sessionId)
+    },
+    /** @param {string} sessionId */
+    byMember(sessionId) {
+      return byMember.get(sessionId)
+    },
     /** @param {string} assignmentId */
     byAssignment(assignmentId) {
       return byAssignment.get(assignmentId)
@@ -117,12 +145,18 @@ export function createLaneRegistry() {
       byChild.delete(lane.childId)
       byLivenessFile.delete(resolve(lane.livenessFile))
       byWorkerSession.delete(lane.workerSessionId)
+      byAnchor.delete(lane.anchorId)
+      for (const [sessionId, memberLane] of byMember) {
+        if (memberLane === lane) byMember.delete(sessionId)
+      }
     },
     clear() {
       byAssignment.clear()
       byChild.clear()
       byLivenessFile.clear()
       byWorkerSession.clear()
+      byAnchor.clear()
+      byMember.clear()
     },
     list() {
       return [...byAssignment.values()]
