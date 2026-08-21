@@ -1608,3 +1608,15 @@ Per the maintainer's explicit review boundary, the completed full specialist
 review is not repeated and no further review cycle is opened. Provider
 delivery, exact-head hosted acceptance, and the final local DeepSeek proof
 remain required before closeout.
+
+PR #25 delivered the bounded PR #24 review repairs at exact Good-signed head
+`2d3542e22182eca96ca0ac7bd63e80e4669f6f7d`. DSH compatibility run
+`32445935939` passed package validation on Node 22 and Node 24 plus the pinned
+and upstream-next consumer jobs. The PR was exact-head squash-integrated into
+the non-default plan branch as
+`a73ecdbe032199491703cd9133561a7f6d2d0ba5`. This retained record is not a new
+behavior change and therefore has no additional RED; the signed reviewed head,
+4/4 terminal checks, targeted review evidence, and merge readback are its
+verification contract. A new signed semantic descendant and private trust-root
+rebind remain required before the hosted 12-scenario rerun and final local
+DeepSeek proof.

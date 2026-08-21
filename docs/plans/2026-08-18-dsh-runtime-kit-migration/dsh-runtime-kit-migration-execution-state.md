@@ -687,6 +687,14 @@ review and new exact-head hosted acceptance.
   not repeated and no further review cycle is opened. PR #24 remains unmerged
   until the repaired plan head is delivered, hosted acceptance is rebound, and
   the local DeepSeek proof is repeated.
+- 2026-08-21: PR #25 exact Good-signed head
+  `2d3542e22182eca96ca0ac7bd63e80e4669f6f7d` passed all four DSH
+  compatibility jobs in run `32445935939` and was squash-integrated into the
+  non-default plan branch as
+  `a73ecdbe032199491703cd9133561a7f6d2d0ba5`. This evidence-only checkpoint
+  adds no new behavior or review cycle. The next signed semantic descendant
+  must bind the private infra trust root before the hosted 12-scenario rerun;
+  local DeepSeek activation/proof and PR #24 closeout remain downstream gates.
 
 ## Decision Log
 
