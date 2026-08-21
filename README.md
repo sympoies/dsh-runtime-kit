@@ -97,12 +97,18 @@ blob must still be identical.
 - Authenticates reviewer authority by the exact live child `Agent` published
   synchronously during the trusted spawn call, not by a session event, role
   string, prompt, or caller claim. The child receives a final read-only sandbox
-  override and an agent-scoped monotonic tool guard. Repository reads remain
-  available, while Bash, filesystem mutation, code mode, nested calls,
-  delegation, and unknown tools are denied before their body executes. Exact
+  override and an agent-scoped monotonic tool guard. Local inspection is limited
+  to `read`, single-file `grep`, and `glob` under the canonical session
+  workspace; symlink escapes and credential-bearing paths are denied, and image
+  reads, runtime context, skills, Bash, filesystem mutation, code mode, nested
+  calls, delegation, and unknown tools are denied before their body executes. Exact
   reviewers bypass ordinary edit/finish-line lifecycle evaluation only because
   that stricter guard owns their entire tool surface; ordinary and forged
   sessions continue through the full nils policy path.
+- Publishes `dshRuntimeKit.childPluginStatus` as a read-only snapshot for the
+  optional reviewer and Main Agent Mode children. Each entry is `pending`,
+  `active`, or a bounded `failed` record; activation failures remain logged but
+  are no longer indistinguishable from an intentionally pending child.
 - Validates private skills as an owner-controlled POSIX tree, then detaches all
   instructions and resources into a sealed process-local snapshot before
   registration. Changes take effect on the next DSH process; there is no live
@@ -332,7 +338,7 @@ depth two. The corresponding configuration fields are
 Task and result limits are UTF-8 byte limits enforced after DSH schema
 validation; they are not JSON Schema character-count approximations.
 Reviewer children have no outbound web tool: the allowlist is limited to local
-inspection, runtime context, skills, structured completion, and agent listing.
+workspace-contained inspection and structured completion.
 
 The exact supported DSH peer line is `0.1.0-rc.7`; the compatibility adapter is
 not declared compatible with later release candidates or `0.1.x` releases.
@@ -439,7 +445,9 @@ The launcher verifies that the root is a real owner-only directory and exports
 bounded bootstrap layout needed by the operations command. Once activated, it
 authenticates `activation.json`, every member digest, realpath containment, and
 asset/state disjointness before exporting the exact versioned hook and docs
-paths. It overrides ambient values for those five paths. DSH `0.1.0-rc.7`
+paths. It overrides ambient values for those five paths, then replaces the
+launcher process with the requested long-lived command on POSIX so no idle Node
+parent remains for the DSH lifetime. DSH `0.1.0-rc.7`
 intentionally rejects every `DSH_*` bootstrap variable found in a project or
 Harness-home `.env`; do not store this activation contract in `$DSH_HOME/.env`.
 

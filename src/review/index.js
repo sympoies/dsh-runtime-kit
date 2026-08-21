@@ -1,7 +1,8 @@
 // @ts-check
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 /** @typedef {import('@deepseek-ai/dsh-agent').Agent} Agent */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
@@ -38,13 +39,90 @@ const DEFAULT_MAX_DEPTH = 2
 const READ_ONLY_TOOLS = new Set([
   'glob',
   'grep',
-  'list_agents',
   'read',
-  'read_image',
-  'runtime_context',
-  'skill',
   'structured_output',
 ])
+
+const REVIEWER_PATH_TOOLS = new Set(['glob', 'grep', 'read'])
+const REVIEWER_PROTECTED_DIRECTORIES = new Set([
+  '.aws',
+  '.dsh',
+  '.git',
+  '.gnupg',
+  '.ssh',
+])
+const REVIEWER_PROTECTED_FILES = new Set([
+  '.git-credentials',
+  '.netrc',
+  '.npmrc',
+  '.pypirc',
+  'credentials.yaml',
+  'credentials.yml',
+  'id_dsa',
+  'id_ed25519',
+  'id_ecdsa',
+  'id_rsa',
+])
+
+/** @param {string} candidate */
+function protectedReviewerPath(candidate) {
+  const segments = candidate.split(sep).filter(Boolean).map(segment => segment.toLowerCase())
+  if (segments.some(segment => REVIEWER_PROTECTED_DIRECTORIES.has(segment))) return true
+  const basename = segments.at(-1) ?? ''
+  return basename.startsWith('.env')
+    || basename.startsWith('.credentials.')
+    || REVIEWER_PROTECTED_FILES.has(basename)
+    || basename.endsWith('.key')
+    || basename.endsWith('.pem')
+}
+
+/** @param {Readonly<ToolExecution>} exec @param {Agent} agent @param {string} role */
+function reviewerReadDenial(exec, agent, role) {
+  if (!REVIEWER_PATH_TOOLS.has(exec.name)) return undefined
+  const cwd = agent.session?.header?.cwd
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
+    return `reviewer read boundary unavailable for ${role}`
+  }
+  let workspace
+  try {
+    workspace = realpathSync(cwd)
+  } catch {
+    return `reviewer read boundary unavailable for ${role}`
+  }
+  if (!plainRecord(exec.arguments)) {
+    return `reviewer read arguments are invalid for ${role}`
+  }
+  const field = exec.name === 'read' ? 'file_path' : 'path'
+  const rawPath = exec.arguments[field]
+  if (exec.name === 'grep' && typeof rawPath !== 'string') {
+    return `reviewer grep requires one explicit file for ${role}`
+  }
+  if (rawPath !== undefined && (typeof rawPath !== 'string' || rawPath.trim().length === 0)) {
+    return `reviewer read arguments are invalid for ${role}`
+  }
+  const requested = rawPath === undefined ? workspace : resolve(workspace, rawPath)
+  let canonical
+  try {
+    canonical = realpathSync(requested)
+  } catch {
+    return `reviewer read target is invalid for ${role}`
+  }
+  const within = relative(workspace, canonical)
+  if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
+    return `reviewer read boundary denied ${role}`
+  }
+  if (protectedReviewerPath(within)) {
+    return `reviewer protected path denied ${role}`
+  }
+  if (exec.name === 'grep') {
+    try {
+      if (!statSync(canonical).isFile()) return `reviewer grep requires one explicit file for ${role}`
+    } catch {
+      return `reviewer read target is invalid for ${role}`
+    }
+  }
+  return undefined
+}
 
 /** @type {WeakMap<object, WeakMap<Agent, string>>} */
 const authorityClassifications = new WeakMap()
@@ -467,7 +545,7 @@ export function installReviewSpecialists(ctx, config = {}, authority = createRev
         || !READ_ONLY_TOOLS.has(exec.name)) {
         return `read-only reviewer ${admission.role} cannot execute ${JSON.stringify(exec.name)}`
       }
-      return undefined
+      return reviewerReadDenial(exec, agent, admission.role)
     })
   }
   ctx.on('agent/created', classifyReviewer)

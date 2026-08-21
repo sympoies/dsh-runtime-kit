@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { accessSync, constants, existsSync } from 'node:fs'
+import { delimiter, join } from 'node:path'
 
 import { readActivation, resolveActivationRoot } from '../src/activation/index.js'
 
@@ -43,6 +43,29 @@ const environment = {
     DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: join(runtimeRoot, 'agent-docs-state'),
   },
 }
+
+function resolveCommand(command) {
+  if (command.includes('/')) return command
+  for (const directory of (environment.PATH ?? '').split(delimiter).filter(Boolean)) {
+    const candidate = join(directory, command)
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {}
+  }
+  throw new Error(`command is unavailable: ${command}`)
+}
+
+if (process.platform !== 'win32' && typeof process.execve === 'function') {
+  try {
+    const command = resolveCommand(args[3])
+    process.execve(command, [args[3], ...args.slice(4)], environment)
+  } catch (error) {
+    process.stderr.write(`dsh-runtime-kit-launch: failed to start command: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(70)
+  }
+}
+
 const result = spawnSync(args[3], args.slice(4), {
   env: environment,
   stdio: 'inherit',

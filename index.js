@@ -23,6 +23,10 @@ import {
   createReviewerAuthority,
   reviewSpecialistsRuntime,
 } from './src/review/index.js'
+import {
+  createChildPluginStatus,
+  observeChildPluginActivation,
+} from './src/runtime-status.js'
 
 export { plusOneTool }
 export { applyMainAgentMode, mainAgentMode } from './src/main-agent/index.js'
@@ -448,27 +452,25 @@ export async function apply(ctx, config = {}) {
       }, 'dsh-runtime-kit private skill snapshot')
     }
     const reviewers = createReviewerAuthority()
-    applyPolicy(ctx, config, reviewers, dshRuntime)
-    void Promise.resolve(ctx.plugin(reviewSpecialistsRuntime, {
-      authority: reviewers,
-      config,
-    })).catch(error => {
-      ctx.logger?.warn?.(
-        'dsh-runtime-kit: review specialists failed to activate: %s',
-        String(error?.stack ?? error),
-      )
-    })
+    const childPlugins = createChildPluginStatus()
+    applyPolicy(ctx, config, reviewers, dshRuntime, childPlugins)
+    observeChildPluginActivation(
+      childPlugins,
+      'review_specialists',
+      () => ctx.plugin(reviewSpecialistsRuntime, { authority: reviewers, config }),
+      ctx.logger,
+    )
     // Child fiber: Main Agent Mode activates only where the subagent runtime
     // exists, without gating skills or policy on it. Never awaited — an
     // unmet inject leaves the child pending by design. A rejection is a real
     // failure rather than intentional non-activation, so surface it instead of
     // letting both cases look like silently missing tools.
-    void Promise.resolve(ctx.plugin(mainAgentMode, config)).catch(error => {
-      ctx.logger?.warn?.(
-        "dsh-runtime-kit: Main Agent Mode failed to activate: %s",
-        String(error?.stack ?? error),
-      )
-    })
+    observeChildPluginActivation(
+      childPlugins,
+      'main_agent_mode',
+      () => ctx.plugin(mainAgentMode, config),
+      ctx.logger,
+    )
   } catch (error) {
     await privateSnapshot?.dispose()
     throw error

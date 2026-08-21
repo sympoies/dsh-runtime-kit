@@ -1558,3 +1558,53 @@ does not introduce another behavior RED; exact provider head, check run,
 review state, and merge readback are its verification contract. A signed
 semantic descendant and private trust-root rebind remain required before the
 new hosted acceptance and reversible local activation.
+
+## Task 6.3 PR #24 review-repair evidence
+
+The one full review of hosted-created PR #24 produced seven actionable
+findings. Security review found that authenticated reviewer children bypassed
+the ordinary nils policy while retaining unrestricted filesystem and image
+inspection, and that operations accepted executables below replaceable
+writable ancestors. Data review found that legacy migration trusted a retained
+installed digest without recomputing it from the authenticated artifact.
+Performance review found that lifecycle prompt projection joined an unbounded
+message corpus before applying its 64 KiB limit and that the owner launcher
+kept an otherwise idle Node parent alive for the whole DSH process.
+Maintainability review found that optional child-plugin activation failures
+were log-only and that terminal operations states duplicated one transition
+protocol across normal, recovery, and legacy paths.
+
+The reviewer containment regression began RED 17/18 when an authenticated
+reviewer could read outside its session workspace. The guard now exposes only
+workspace-contained `read`, single-file `grep`, `glob`, and structured output;
+canonical realpaths, symlink escapes, protected credential paths, and removed
+image/runtime/skill/agent capabilities are covered directly. The toolchain
+regression began RED when setup accepted an executable reached through a
+group/world-writable non-sticky ancestor. Every executable ancestor must now be
+a real directory owned by the current user or root, with only the ordinary
+sticky-directory exception. The legacy migration regression began RED when an
+artifact whose unpacked installed tree contradicted its v1 receipt was adopted;
+migration now recomputes and binds both current and previous retained digests.
+
+Lifecycle prompt projection now consumes UTF-8 segments only until the byte
+budget is full. Optional reviewer and Main Agent Mode activation publishes a
+bounded `pending`, `active`, or `failed` snapshot through the runtime service,
+without exposing exception messages. On POSIX the verified owner launcher now
+hands off with `execve`, eliminating its long-lived parent process; the fallback
+remains only for platforms without that primitive. Normal mutation, no-op,
+recovery, and legacy migration terminal states now share one receipt/state
+constructor; this last change is a structural consolidation with the existing
+operations matrix as its behavior-preservation proof rather than a synthetic
+behavior RED.
+
+The directly affected reviewer-plus-launcher suites pass 26/26 and the complete
+operations-plus-policy-plugin suites pass 115/115. Typechecking and diff checks
+pass. The one targeted repair review found only that `.envrc` remained outside
+the protected `.env`/`.env.*` predicate. Its exact follow-up began RED 0/1 when
+both `read` and single-file `grep` were admitted; the protected rule now covers
+the complete `.env*` basename family while an ordinary `environment.js` remains
+readable. That one regression passes 1/1 with typecheck and diff checks green.
+Per the maintainer's explicit review boundary, the completed full specialist
+review is not repeated and no further review cycle is opened. Provider
+delivery, exact-head hosted acceptance, and the final local DeepSeek proof
+remain required before closeout.

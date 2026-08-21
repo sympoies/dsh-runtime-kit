@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -377,8 +380,18 @@ test('reviewer authority is exact-agent scoped and blocks mutation before body e
   })
 
   const guard = child.guards[0]
-  assert.equal(guard({ agent: child, name: 'read', parent: undefined }), undefined)
-  assert.equal(guard({ agent: child, name: 'grep', parent: Symbol('code') }), undefined)
+  assert.match(guard({
+    agent: child,
+    name: 'read',
+    arguments: { file_path: '/workspace/project/file.js' },
+    parent: undefined,
+  }), /reviewer read boundary unavailable/)
+  assert.match(guard({
+    agent: child,
+    name: 'grep',
+    arguments: { pattern: 'x' },
+    parent: Symbol('code'),
+  }), /reviewer read boundary unavailable/)
   for (const name of [
     'write',
     'edit',
@@ -387,6 +400,10 @@ test('reviewer authority is exact-agent scoped and blocks mutation before body e
     'run_code',
     'subagent',
     'review_specialists',
+    'list_agents',
+    'read_image',
+    'runtime_context',
+    'skill',
     'web_fetch',
     'web_search',
   ]) {
@@ -398,6 +415,88 @@ test('reviewer authority is exact-agent scoped and blocks mutation before body e
   assert.equal(subject.service.roleOf(impostor), undefined)
   assert.equal(subject.service.roleOf(subject.parent), undefined)
   assert.equal(guard({ agent: child, name: 'structured_output', parent: undefined }), undefined)
+})
+
+test('reviewer reads are confined to ordinary files under the exact session workspace', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-review-boundary-'))
+  const workspace = join(root, 'workspace')
+  const outside = join(root, 'outside')
+  mkdirSync(workspace)
+  mkdirSync(outside)
+  writeFileSync(join(workspace, 'source.js'), 'export const answer = 42\n')
+  writeFileSync(join(workspace, 'environment.js'), 'export const mode = "test"\n')
+  writeFileSync(join(workspace, '.env'), 'FIXTURE_ONLY=not-a-secret\n')
+  writeFileSync(join(workspace, '.envrc'), 'export FIXTURE_ONLY=not-a-secret\n')
+  writeFileSync(join(outside, 'credential.txt'), 'fixture-only\n')
+  symlinkSync(join(outside, 'credential.txt'), join(workspace, 'linked.txt'))
+
+  try {
+    const subject = reviewHarness()
+    await subject.tool.execute({
+      task: 'Inspect only.',
+      roles: ['reviewer-security'],
+    }, execution(subject.parent))
+    const child = subject.starts[0].child
+    child.session.header.cwd = workspace
+    const guard = child.guards[0]
+
+    assert.equal(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: 'source.js' },
+      parent: undefined,
+    }), undefined)
+    assert.equal(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: 'environment.js' },
+      parent: undefined,
+    }), undefined)
+    assert.equal(guard({
+      agent: child,
+      name: 'grep',
+      arguments: { pattern: 'answer', path: join(workspace, 'source.js') },
+      parent: undefined,
+    }), undefined)
+    assert.match(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: join(outside, 'credential.txt') },
+      parent: undefined,
+    }), /reviewer read boundary/)
+    assert.match(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: 'linked.txt' },
+      parent: undefined,
+    }), /reviewer read boundary/)
+    assert.match(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: '.env' },
+      parent: undefined,
+    }), /reviewer protected path/)
+    assert.match(guard({
+      agent: child,
+      name: 'read',
+      arguments: { file_path: '.envrc' },
+      parent: undefined,
+    }), /reviewer protected path/)
+    assert.match(guard({
+      agent: child,
+      name: 'grep',
+      arguments: { pattern: 'FIXTURE_ONLY', path: '.envrc' },
+      parent: undefined,
+    }), /reviewer protected path/)
+    assert.match(guard({
+      agent: child,
+      name: 'glob',
+      arguments: { pattern: '**/*', path: outside },
+      parent: undefined,
+    }), /reviewer read boundary/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('review_specialists emits deterministic validator-compatible JSONL from structured output', async () => {

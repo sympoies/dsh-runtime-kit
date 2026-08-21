@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
 import { activationSha256, renderAgentHookConfig } from '../src/activation/index.js'
@@ -106,6 +106,35 @@ test('owner launcher derives the complete DSH isolation environment from one run
       docsState: join(runtimeRoot, 'agent-docs-state'),
       argument: 'argument preserved',
     })
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher replaces itself with the long-lived command on POSIX', async () => {
+  if (process.platform === 'win32' || typeof process.execve !== 'function') return
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const runtimeRoot = join(temporary, 'runtime')
+  mkdirSync(runtimeRoot, { mode: 0o700 })
+  try {
+    const child = spawn(process.execPath, [
+      launcher,
+      '--runtime-root', runtimeRoot,
+      '--',
+      process.execPath,
+      '-e',
+      'process.stdout.write(String(process.pid))',
+    ], { cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+    const stdout = []
+    const stderr = []
+    child.stdout.on('data', chunk => stdout.push(chunk))
+    child.stderr.on('data', chunk => stderr.push(chunk))
+    const status = await new Promise((resolve, reject) => {
+      child.once('error', reject)
+      child.once('close', resolve)
+    })
+    assert.equal(status, 0, Buffer.concat(stderr).toString('utf8'))
+    assert.equal(Number(Buffer.concat(stdout).toString('utf8')), child.pid)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
