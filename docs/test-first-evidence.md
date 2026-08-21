@@ -1516,3 +1516,33 @@ The private control manifest must next bind the signed plan integration head
 and the exact eight controlled files. Task 6.1 remains in progress until the
 same hosted workflow creates and verifies the plan-branch-to-main draft,
 no-merge PR receipt.
+
+Hosted Task 6.1 run `32431065461` subsequently passed the complete released
+acceptance boundary: content-addressed acquisition, the credentialless and
+network-denied candidate, all 12 scenarios, and the correlated draft/no-merge
+plan-to-main PR readback. Local Task 6.2 activation then found a distinct
+clean-profile regression. The native DSH command correctly initialized the
+previously absent `headless` manifest and workspace, but collateral detection
+treated every absent-before manifest as drift. Exact recovery reached the
+original absent state yet was rejected by the same predicate.
+
+The initial focused regressions began RED 0/2 with
+`native-dsh-collateral-recovery-failed`. Quick review then added a recovery RED
+0/1 because a DSH-created manifest remaining after interruption was incorrectly
+eligible for the initialization allowance. Production now treats files newly
+created by the exact plan-bound DSH binary as native profile initialization
+only during the immediate post-mutation comparison when the manifest was
+absent before mutation; doctor and recovery require exact absent/present
+topology. A second regression proves that a lockfile which already existed
+remains collateral-protected, is restored byte-for-byte, and returns the
+bounded collateral rejection. All three focused contracts pass, operations
+pass 68/68 on Node 22 and Node 24, and the full package suite passes 284/284.
+Typechecking, plan validation, diff/main-agent
+scope checks, and both performance gates pass; policy p95 is 0.179408 ms over
+2,000 samples and the packed released agent-hook p95 is 5.493834 ms over 25
+samples, with zero active resources or live children. Frozen packed source
+rehearsal `issue1-clean-profile-20260821y` passes 10/2/0 against DSH rc.7 and
+released nils-cli 1.27.0. The interrupted machine-local receipt was cleared
+through digest-bound `doctor --repair`. The repaired exact head still requires
+provider integration, hosted acceptance, and successful local activation
+before Task 6.2 or closeout is claimed.

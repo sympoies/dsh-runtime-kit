@@ -533,6 +533,11 @@ requested/dependency specs, installed version, installed package-tree digest,
 policy/catalog/document digests, DSH and pnpm executable identities, bounded
 profile control files, and bundle index. Apply revalidates all of those inputs
 before mutation and rejects collateral manifest or lockfile changes afterward.
+When the selected profile has no manifest yet, the exact reviewed DSH binary
+owns its newly created native profile scaffold; any control file that existed
+before initialization remains part of the collateral comparison and is
+restored exactly on rejection. Doctor and interrupted-operation recovery never
+use that initialization allowance and require exact absent/present topology.
 Version 2 operations receipts bind the canonical DSH runtime root. Update,
 rollback, remove, and duplicate setup reject a different supplied root before
 native DSH runs, so an old activation cannot be stranded while state moves to
