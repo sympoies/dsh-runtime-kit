@@ -36,6 +36,9 @@ the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
 and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
 authority facts a sanitized live observation must prove. It does not broaden
 the generic DSH version range or authorize another custom profile.
+Controller and lane tools are separate surfaces: the controller must not expose
+`main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
+forbidden from the controller's lane-management tools.
 
 ## Promotion checks
 

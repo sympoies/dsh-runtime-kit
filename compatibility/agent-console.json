@@ -1,5 +1,5 @@
 {
-  "schema_version": "dsh-runtime-kit.agent-console-profile.v1",
+  "schema_version": "dsh-runtime-kit.agent-console-profile.v2",
   "profile": "dsh-tui",
   "dsh": {
     "version": "0.1.0-rc.7",
@@ -19,19 +19,39 @@
     "dsh-tui",
     "dsh-runtime-kit"
   ],
-  "required_tools": [
-    "runtime_kit_plus_one",
-    "runtime_context",
-    "review_specialists",
-    "main_agent_worker_launch",
-    "main_agent_worker_interrupt",
-    "main_agent_lane_close",
-    "main_agent_worker_supervise",
-    "main_agent_worker_request_changes",
-    "main_agent_worker_accept",
-    "main_agent_run_closeout",
-    "main_agent_checkpoint"
-  ],
+  "tool_surfaces": {
+    "controller": {
+      "required": [
+        "runtime_kit_plus_one",
+        "runtime_context",
+        "review_specialists",
+        "main_agent_worker_launch",
+        "main_agent_worker_interrupt",
+        "main_agent_lane_close",
+        "main_agent_worker_supervise",
+        "main_agent_worker_request_changes",
+        "main_agent_worker_accept",
+        "main_agent_run_closeout"
+      ],
+      "forbidden": [
+        "main_agent_checkpoint"
+      ]
+    },
+    "lane": {
+      "required": [
+        "main_agent_checkpoint"
+      ],
+      "forbidden": [
+        "main_agent_worker_launch",
+        "main_agent_worker_interrupt",
+        "main_agent_lane_close",
+        "main_agent_worker_supervise",
+        "main_agent_worker_request_changes",
+        "main_agent_worker_accept",
+        "main_agent_run_closeout"
+      ]
+    }
+  },
   "required_skills": [
     "main-agent-mode",
     "code-review-specialists"

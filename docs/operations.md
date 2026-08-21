@@ -90,8 +90,10 @@ For Agent Console, run doctor with `--profile dsh-tui`, inspect the composed
 tree with `dsh --profile dsh-tui --dump-config`, then invoke `dsh-tui` through
 the same launcher. The composed evidence must satisfy
 `inspectAgentConsoleRc7Profile`: the official `userQuestions` and TUI rows,
-runtime-kit tools/skills/Main Agent service, and the inherited controller/worker
-route must all be present.
+runtime-kit tools/skills/Main Agent service, separated controller/lane tool
+surfaces, and the inherited controller/worker route must all be present. Route
+evidence contains only `provider` and `model`; credential-shaped or other
+extensions are rejected rather than copied into a serializable inspection.
 
 ## Agent Console authority boundary
 

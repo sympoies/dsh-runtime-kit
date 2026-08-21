@@ -82,6 +82,14 @@ assert.deepEqual(dshIngressCompatibility?.contracts, [
 const dshManifest = JSON.parse(readFileSync(join(dshRoot, 'package.json'), 'utf8'))
 assert.equal(dshManifest.name, '@deepseek-ai/dsh-root')
 assert.equal(dshManifest.version, '0.1.0-rc.7')
+const dshRevisionResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+  cwd: dshRoot,
+  encoding: 'utf8',
+  timeout: 10_000,
+})
+assert.equal(dshRevisionResult.status, 0, dshRevisionResult.stderr)
+const dshRevision = dshRevisionResult.stdout.trim()
+assert.equal(dshRevision, '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
 const userHome = join(temporaryRoot, 'home')
@@ -102,8 +110,8 @@ const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
 const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
-const profile = 'runtime-kit-smoke'
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
+const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
 const validationCommand = 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
@@ -391,6 +399,11 @@ function collectFiles(directory, prefix = '') {
   })
 }
 
+function collectDumpRowIds(dump) {
+  return [...dump.matchAll(/^\s*- id:\s*['"]?([^'"\s#]+)['"]?\s*$/gmu)]
+    .map(match => match[1])
+}
+
 try {
   mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
   mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
@@ -618,11 +631,32 @@ description = "packed rc.7 finish-line smoke"
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
 
+  const profileDirectory = join(dshHome, 'profiles', profile)
+  const installedProfileManifest = JSON.parse(
+    readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
+  )
+  const installedBundles = installedProfileManifest.dsh?.profile?.bundles
   const dump = runDsh(['--profile', profile, '--dump-config']).stdout
+  const composedRowIds = collectDumpRowIds(dump)
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
+  let installedTuiVersion
   if (agentConsoleTuiPackage !== undefined) {
+    assert.deepEqual(installedBundles, [
+      '@deepseek-ai/dsh-base',
+      '@deepseek-harness-tui/dsh-tui',
+      '@sympoies/dsh-runtime-kit',
+    ])
+    const installedTuiManifest = JSON.parse(readFileSync(join(
+      profileDirectory,
+      'node_modules',
+      '@deepseek-harness-tui',
+      'dsh-tui',
+      'package.json',
+    ), 'utf8'))
+    installedTuiVersion = installedTuiManifest.version
+    assert.equal(installedTuiVersion, '0.8.1')
     assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
     assert.match(dump, /id: dsh-tui/)
     assert.match(dump, /id: user-questions/)
@@ -630,7 +664,9 @@ description = "packed rc.7 finish-line smoke"
   assert.doesNotMatch(dump, /agent-runtime-kit/u)
   assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
 
-  const driverPath = join(temporaryRoot, 'smoke-driver.mjs')
+  const driverPath = agentConsoleTuiPackage === undefined
+    ? join(temporaryRoot, 'smoke-driver.mjs')
+    : join(profileDirectory, 'smoke-driver.mjs')
   const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
   const sandboxRunnerPath = join(temporaryRoot, 'smoke-sandbox-runner.sh')
   const llmModuleUrl = pathToFileURL(
@@ -647,6 +683,22 @@ import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModule
 import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { scopeOf } from ${JSON.stringify(scopeModuleUrl)}
 import { rmSync } from 'node:fs'
+${agentConsoleTuiPackage === undefined
+    ? ''
+    : "import { inspectAgentConsoleRc7Profile } from '@sympoies/dsh-runtime-kit/agent-console-profile'"}
+
+const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === undefined
+    ? undefined
+    : {
+        profile,
+        dsh: { version: dshManifest.version, revision: dshRevision },
+        tui: { package: '@deepseek-harness-tui/dsh-tui', version: installedTuiVersion },
+        bundles: installedBundles,
+        rowIds: composedRowIds,
+      })}
+const smokeRoute = ${JSON.stringify(agentConsoleTuiPackage === undefined
+    ? { provider: 'runtime-kit-smoke', model: 'scripted' }
+    : { provider: 'codex-proxy', model: 'gpt-5.6-sol' })}
 
 export const name = 'dsh-runtime-kit-smoke-driver'
 // Cordis inject is required-only, so listing the orchestration service here
@@ -932,21 +984,21 @@ export function apply(ctx) {
       })
 
       const adapter = new SmokeAdapter()
-      ctx.llm.registerAdapter(['runtime-kit-smoke'], adapter)
+      ctx.llm.registerAdapter([smokeRoute.provider], adapter)
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/.dsh-validation-count', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/finish-line-native-mutation.txt', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/reviewer-mutation-must-not-exist.txt', { force: true })
       const handle = process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
         ? await ctx.agents.resume({
           resumeSessionId: SessionId(targetId),
-          agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+          agentOptions: smokeRoute,
           setup: ${agentConsoleTuiPackage === undefined
             ? 'undefined'
             : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
         })
         : await ctx.agents.create({
           sessionId: SessionId(targetId),
-          agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+          agentOptions: smokeRoute,
           meta: {
             cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT,
             ${agentConsoleTuiPackage === undefined ? '' : "agentPreset: 'standard',"}
@@ -990,6 +1042,56 @@ export function apply(ctx) {
       }))
       await agent.whenIdle()
 
+      const controllerTools = ctx.tools.schemas(agent).map(tool => tool.name)
+      const laneTools = [...ctx.mainAgentOrchestration.tools.lane]
+      const routeObservation = {
+        provider: agent.options.provider,
+        model: agent.options.model,
+      }
+      const sandboxEvent = [...agent.session.events]
+        .reverse()
+        .find(event => event.type === 'sandbox/mode')
+      const approvalEvent = [...agent.session.events]
+        .reverse()
+        .find(event => event.type === 'approval/policy')
+      const agentConsoleObservation = agentConsoleProfileFacts === undefined
+        ? undefined
+        : {
+            profile: agentConsoleProfileFacts.profile,
+            dsh: agentConsoleProfileFacts.dsh,
+            tui: agentConsoleProfileFacts.tui,
+            bundles: agentConsoleProfileFacts.bundles,
+            composition: {
+              rowIds: agentConsoleProfileFacts.rowIds,
+              controllerTools,
+              laneTools,
+              skills: skills.map(skill => skill.name),
+              services: [
+                ...(ctx.userQuestions === undefined ? [] : ['userQuestions']),
+                ...(ctx.mainAgentOrchestration === undefined ? [] : ['mainAgentOrchestration']),
+              ],
+            },
+            controllerRoute: routeObservation,
+            workerRoute: ctx.mainAgentOrchestration.workerRoute(agent),
+            authority: {
+              runtimeKitPatchRowIds: agentConsoleProfileFacts.rowIds
+                .filter(rowId => rowId === 'dsh-runtime-kit'),
+              sandboxMode: sandboxEvent?.data?.mode,
+              approvalPolicy: approvalEvent?.data?.policy,
+              permissionModeSource: process.env.DSH_PERMISSION_MODE === undefined
+                ? undefined
+                : 'DSH_PERMISSION_MODE',
+              providerCredentials: [{
+                provider: 'codex-proxy',
+                apiKeyEnv: 'DSH_CODEX_PROXY_TOKEN',
+                inlineValuePresent: false,
+              }],
+            },
+          }
+      const agentConsoleInspection = agentConsoleObservation === undefined
+        ? undefined
+        : inspectAgentConsoleRc7Profile(agentConsoleObservation)
+
       process.stdout.write('${marker}' + JSON.stringify({
         result,
         contextResult,
@@ -1026,7 +1128,9 @@ export function apply(ctx) {
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
         providers: ctx.llm.listProviders().map(provider => provider.id),
-        tools: ctx.tools.schemas(agent).map(tool => tool.name),
+        tools: controllerTools,
+        agentConsoleObservation,
+        agentConsoleInspection,
         mainAgentOrchestration: ctx.mainAgentOrchestration === undefined
           ? undefined
           : {
@@ -1094,6 +1198,42 @@ ${agentConsoleTuiOverlay}
   assert.ok(line, `missing ${marker} output:\n${boot.stdout}\n${boot.stderr}`)
 
   const receipt = JSON.parse(line.slice(marker.length))
+  if (agentConsoleTuiPackage !== undefined) {
+    assert.equal(
+      receipt.agentConsoleInspection?.schema_version,
+      'dsh-runtime-kit.agent-console-profile-inspection.v2',
+    )
+    assert.equal(receipt.agentConsoleInspection.compatible, true)
+    assert.equal(receipt.agentConsoleObservation.profile, 'dsh-tui')
+    assert.deepEqual(receipt.agentConsoleObservation.bundles, [
+      '@deepseek-ai/dsh-base',
+      '@deepseek-harness-tui/dsh-tui',
+      '@sympoies/dsh-runtime-kit',
+    ])
+    assert.equal(
+      receipt.agentConsoleObservation.composition.controllerTools
+        .includes('main_agent_checkpoint'),
+      false,
+    )
+    assert.deepEqual(
+      receipt.agentConsoleObservation.composition.laneTools,
+      ['main_agent_checkpoint'],
+    )
+    assert.deepEqual(
+      receipt.agentConsoleInspection.controller_route,
+      { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+    )
+    assert.deepEqual(
+      receipt.agentConsoleInspection.worker_route,
+      receipt.agentConsoleInspection.controller_route,
+    )
+    assert.deepEqual(receipt.agentConsoleInspection.authority, {
+      runtime_kit_patch_rows: ['dsh-runtime-kit'],
+      sandbox_mode: 'workspace-write',
+      approval_policy: 'ask',
+      credentials: 'environment-reference-only',
+    })
+  }
   assert.ok(receipt.managedWorktreeResult, 'packed DSH must exercise the managed-worktree route')
   const result = receipt.result
   const contextResult = receipt.contextResult
@@ -1600,6 +1740,19 @@ ${agentConsoleTuiOverlay}
     governedDefaultDeliveryDryRunVerified: true,
     nativeReviewSpecialistsVerified: true,
     reviewerMutationBlockedBeforeBody: true,
+    agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined
+      ? false
+      : receipt.agentConsoleInspection.compatible,
+    agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
+      ? false
+      : receipt.agentConsoleObservation.composition.controllerTools
+          .includes('main_agent_checkpoint') === false
+        && receipt.agentConsoleObservation.composition.laneTools
+          .includes('main_agent_checkpoint'),
+    agentConsoleSolInheritanceVerified: agentConsoleTuiPackage === undefined
+      ? false
+      : receipt.agentConsoleInspection.worker_route.provider === 'codex-proxy'
+        && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol',
     externalProviderMutationAttempted: false,
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,

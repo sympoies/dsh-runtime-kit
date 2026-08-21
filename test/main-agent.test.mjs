@@ -380,6 +380,11 @@ test('worker launch executes the external-launch contract without duplicating la
 
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 1)
+  assert.deepEqual(
+    service.workerRoute(controllerExec().agent),
+    { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+    'the real orchestration service exposes the inherited route used for lane anchors',
+  )
 })
 
 test('worker launch waits for authenticated broker readiness before starting the lane child', async (t) => {
