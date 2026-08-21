@@ -58,8 +58,8 @@ const nilsCompatibility = JSON.parse(
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
-assert.equal(nilsCompatibility.minimum_supported_release, '1.27.0')
-assert.equal(nilsCompatibility.validated_release, '1.27.0')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.27.1')
+assert.equal(nilsCompatibility.validated_release, '1.27.1')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -616,7 +616,18 @@ import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { rmSync } from 'node:fs'
 
 export const name = 'dsh-runtime-kit-smoke-driver'
-export const inject = ['agents', 'llm', 'skills', 'tools', 'dshRuntimeKit']
+// Cordis inject is required-only, so listing the orchestration service here
+// makes "Main Agent Mode activated" a load-time condition of this driver: an
+// absent service fails the smoke at plugin activation instead of silently
+// skipping the lane assertions below.
+export const inject = [
+  'agents',
+  'llm',
+  'skills',
+  'tools',
+  'dshRuntimeKit',
+  'mainAgentOrchestration',
+]
 
 function toolCallResponse(name, value, suffix) {
   const id = CallId('dsh-runtime-kit-smoke-' + suffix)
@@ -966,6 +977,14 @@ export function apply(ctx) {
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
         providers: ctx.llm.listProviders().map(provider => provider.id),
         tools: ctx.tools.schemas(agent).map(tool => tool.name),
+        mainAgentOrchestration: ctx.mainAgentOrchestration === undefined
+          ? undefined
+          : {
+            apiVersion: ctx.mainAgentOrchestration.apiVersion,
+            laneCount: ctx.mainAgentOrchestration.laneCount,
+            controllerTools: ctx.mainAgentOrchestration.tools.controller,
+            laneTools: ctx.mainAgentOrchestration.tools.lane,
+          },
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
@@ -1100,6 +1119,10 @@ exec "$@"
     'main_agent_worker_launch',
     'main_agent_worker_interrupt',
     'main_agent_lane_close',
+    'main_agent_worker_supervise',
+    'main_agent_worker_request_changes',
+    'main_agent_worker_accept',
+    'main_agent_run_closeout',
   ]) {
     assert.ok(
       receipt.tools.includes(laneTool),
@@ -1107,6 +1130,18 @@ exec "$@"
         + `(tools: ${receipt.tools.join(', ')})`,
     )
   }
+  // The lane checkpoint tool carries per-lane authority, so it must exist only
+  // inside a lane child's own context — never on the controller's tool surface.
+  assert.equal(
+    receipt.tools.includes('main_agent_checkpoint'),
+    false,
+    'the lane checkpoint tool must not be globally registered',
+  )
+  assert.equal(
+    receipt.mainAgentOrchestration?.apiVersion,
+    1,
+    'the versioned orchestration service is provided in a real DSH composition',
+  )
   assert.equal(
     [...receipt.providers, ...receipt.tools]
       .some(name => /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i.test(name)),

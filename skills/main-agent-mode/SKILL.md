@@ -27,9 +27,12 @@ limitation when any gate fails:
 1. `main-agent capabilities --provider dsh --format json` must return
    `main-agent.capabilities.v1` with `compatible:true` and
    `capabilities.external_runtime` exactly `main-agent.external-runtime.v1`.
-2. The `main_agent_worker_launch`, `main_agent_worker_interrupt`, and
-   `main_agent_lane_close` tools must be available in this session (they are
-   registered only where the subagent runtime exists).
+2. The controller lane tools must be available in this session (they are
+   registered only where the subagent runtime exists):
+   `main_agent_worker_launch`, `main_agent_worker_interrupt`,
+   `main_agent_lane_close`, `main_agent_worker_supervise`,
+   `main_agent_worker_request_changes`, `main_agent_worker_accept`, and
+   `main_agent_run_closeout`.
 3. `main-agent self readiness --format json` must return `data.ready:true`.
 
 ## Workflow
@@ -51,27 +54,45 @@ limitation when any gate fails:
    starts the lane's coordination heartbeat, and publishes its liveness
    sidecar. It is idempotent per assignment and key; a lane incarnation
    conflict is a typed error, never a second worker.
-5. Supervise through the store, never through runtime impressions:
-   `main-agent worker list|show|wait|diagnose|supervise --format json`.
-   Branch only on typed `state`, `classification`, and `recovery_action`
-   fields. An idle lane with a live harness is a running lane; cold resume is
+5. Supervise with `main_agent_worker_supervise` (`assignment_id`). It returns
+   the store's own bounded supervision result under `store` — branch only on
+   its typed `classification`, `state`, and `recovery_action` — plus a `lane`
+   object carrying this runtime's transport facts. Never treat a lane fact as
+   store truth: `child_activity` is a session-store snapshot, not a durable
+   outcome, and `unknown` means unproven. `main-agent worker
+   list|show|wait|diagnose --format json` remain available for the store half
+   alone. An idle lane with a live harness is a running lane; cold resume is
    automatic when the lane receives its next message.
 6. Review loop: a worker submits via a revision-fenced checkpoint with
    `state:"submitted"`. Independently extract the lane diff, verify scope and
    exclusions, rerun proportionate validation, and run the
-   `code-review-specialists` outcome. Return findings to the same lane with
-   `main-agent worker request-changes` plus `main-agent worker message
-   --body-file`; only the acceptance decision is serialized on the
-   controller.
+   `code-review-specialists` outcome — those decisions stay with this
+   controller. Return the outcome with `main_agent_worker_request_changes`
+   (`assignment_id`, `if_revision`, `reason`, `idempotency_key`), which records
+   the fenced store decision and then delivers it into that lane's inbox. Treat
+   `delivered:false` as a delivery gap to retry or report, never as a reason to
+   re-record the decision.
 7. Interrupt a lane only through `main_agent_worker_interrupt`; the CLI's
    runtime-stop verbs refuse dsh lanes by design. A lane whose runtime is
    proven stopped reconciles with `main-agent worker reconcile-stopped`.
-8. Accept each lane (`main-agent worker accept`), then close its runtime with
+8. Accept each lane with `main_agent_worker_accept` (`assignment_id`,
+   `if_revision`, `idempotency_key`), then close its runtime with
    `main_agent_lane_close` (interrupts the child, stops the heartbeat, and
    marks the liveness sidecar terminated so store-side cleanup can proceed).
-9. Close the run with `main-agent closeout --if-run-revision <n>
-   --checkpoint-file <private-json> --idempotency-key <key> --format json`
-   and report acceptance to the user with the declared validation evidence.
+   The stop becomes provable once that released heartbeat lapses, not the
+   instant close returns: a `reconcile-stopped` or record deletion attempted
+   inside that window refuses with a coordination-unverified code. Retry after
+   the lapse instead of treating the refusal as terminal.
+9. Close the run with `main_agent_run_closeout` (`summary`, `next_action`,
+   optional `result_summary`, `if_run_revision`, `idempotency_key`): it
+   terminates any remaining lane, records the fenced final checkpoint through
+   the store closeout macro, and drains this runtime's lane descendants. Then
+   report acceptance to the user with the declared validation evidence.
+
+Lane workers record their own progress with the `main_agent_checkpoint` tool,
+which exists only inside a lane child's context. Do not instruct a worker to
+write the checkpoint file itself; the tool owns that write and the fenced CLI
+call.
 
 ## Recovery and limitations
 

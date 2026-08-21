@@ -8,10 +8,15 @@ skill remains authoritative when it is stricter.
 The nils-cli `main-agent` store owns runs, assignments, revision-fenced
 checkpoints, idempotency receipts, and acceptance state. The bundle's lane
 runtime owns only transport: spawning the lane worker in its worktree,
-running the lane's coordination heartbeat, and publishing the liveness
-sidecar the CLI reads for runtime evidence. Neither side substitutes for the
-other: a lane without a checkpoint has made no progress, and a checkpoint
-without a live lane still holds its durable state.
+running the lane's coordination heartbeat, publishing the liveness sidecar the
+CLI reads for runtime evidence, and carrying each fenced decision between the
+store and the right lane. Neither side substitutes for the other: a lane
+without a checkpoint has made no progress, and a checkpoint without a live lane
+still holds its durable state.
+
+Every mutation the lane runtime performs is a store call first and a transport
+action second. A recorded decision the lane never received is a delivery gap to
+retry; it is never re-recorded, because the fence already moved.
 
 ## Controller packet
 
@@ -54,6 +59,11 @@ Acceptance is serialized on the controller: read-only gathering (diffs,
 validation suites, review passes) may run across lanes in parallel, but only
 the controller decides `request-changes`, `accept`, or `cancel`, and each
 decision is revision-fenced against the lane's current state.
+
+The review *decision* is the controller's; the lane runtime owns only its
+delivery. `main_agent_worker_request_changes` records the fenced decision and
+then places it in the lane's inbox, so a worker never needs raw terminal input
+and never learns of a revision request the store did not accept.
 
 ## Stop and recovery
 

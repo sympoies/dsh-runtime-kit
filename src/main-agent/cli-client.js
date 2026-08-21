@@ -110,8 +110,18 @@ export function createCliClient(ctx, config = {}) {
      * `{ok: true, envelope: {ok: false, error}}` so callers branch on the
      * envelope, not the exit code alone.
      *
+     * `env` entries are layered onto the provider's scrubbed base, so a caller
+     * that needs the CLI to authenticate as a specific principal passes that
+     * principal's environment explicitly instead of relying on ambient state.
+     *
      * @param {readonly string[]} argv
-     * @param {{ cwd: string, signal?: AbortSignal, stdinData?: string, timeoutMs?: number }} options
+     * @param {{
+     *   cwd: string,
+     *   signal?: AbortSignal,
+     *   stdinData?: string,
+     *   timeoutMs?: number,
+     *   env?: Readonly<Record<string, string>>,
+     * }} options
      * @returns {Promise<CliResult>}
      */
     async run(argv, options) {
@@ -131,6 +141,7 @@ export function createCliClient(ctx, config = {}) {
           handle = ctx.subprocess.spawn({
             argv: [...argv],
             cwd: options.cwd,
+            ...options.env === undefined ? {} : { env: { ...options.env } },
             stdio: {
               stdin: options.stdinData === undefined ? 'ignore' : { data: options.stdinData },
               stdout: { maxBytes: MAX_CLI_OUTPUT_BYTES },

@@ -22,8 +22,16 @@ Run the keyless end-to-end smoke test against a prepared DSH source checkout:
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/target/debug/agent-hook \
+AGENT_DOCS_BIN=/path/to/nils-cli/target/debug/agent-docs \
 npm run test:smoke
 ```
+
+The smoke also resolves `review-specialists` as a sibling of `AGENT_HOOK_BIN`,
+so build all three from the same nils-cli checkout
+(`cargo build --bin agent-hook --bin agent-docs --bin review-specialists`).
+Binaries older than the contracts under test fail as typed bridge errors
+(`policy-output-invalid`, `finish-line response invalid`), not as version
+warnings.
 
 The test must install this package into a clean temporary DSH profile, verify
 the composed bundle layer, and execute `runtime_kit_plus_one` through DSH's real
