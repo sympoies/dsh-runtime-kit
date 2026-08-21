@@ -33,8 +33,9 @@ the requested long-lived command. Do not store activation variables in
 
 ## Preview and apply
 
-`setup`, `update`, `rollback`, and `remove` are dry-run by default. A mutation
-requires the exact digest returned by the unchanged preview.
+`setup`, `update`, `rollback`, `remove`, and `doctor --repair` are dry-run by
+default. A mutation requires the exact digest returned by the unchanged
+preview.
 
 Preview setup:
 
@@ -119,6 +120,14 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh-runtime-kit doctor --profile headless --repair --format json
 ```
 
+Apply only that unchanged repair plan:
+
+```sh
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit doctor --profile headless --repair \
+  --apply --expected-plan-digest <plan-digest> --format json
+```
+
 Repair is digest-reviewed and writes only evidence it can authenticate. It does
 not adopt arbitrary ownerless trees, guess between ambiguous phases, or rewrite
 unrelated DSH configuration.
@@ -150,6 +159,25 @@ Activation retains only asset sets referenced by current, previous, pending, or
 active receipts. Collection and mutation are serialized by kernel-backed locks,
 and all external health, packaging, and DSH commands have bounded deadlines and
 process-group quiescence checks.
+
+## Storage and command bounds
+
+The private package artifact store admits at most 64 archives, 1 GiB total,
+and 128 MiB per archive. Artifact inspection rejects more than 256 MiB expanded,
+16,384 regular-file entries, 64 MiB in one entry, or unsafe package paths before
+system extraction.
+
+Activation storage separately admits at most 16 live asset sets. Each set is
+bounded to 4 MiB of package assets plus 64 KiB of generated activation overhead;
+collection removes only unreferenced digest sets and interrupted staging names.
+
+External health checks have a 30-second deadline, packaging commands have a
+two-minute deadline, and DSH mutations have a ten-minute deadline. An operator
+may lower, but never raise, those bounds with
+`DSH_RUNTIME_KIT_COMMAND_TIMEOUT_MS`; the minimum accepted value is 100 ms.
+Timeout, supervisor loss, or a command that leaves descendants causes the
+owner to terminate the dedicated process group and prove quiescence before
+releasing operation locks.
 
 ## Optional private skills
 

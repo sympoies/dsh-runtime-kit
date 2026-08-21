@@ -44,6 +44,8 @@ owner of this repository's contributor documentation.
   does not create a JavaScript policy engine or make a capability executable.
 - `docs/architecture.md` owns runtime design and trust-boundary rationale.
 - `docs/operations.md` owns activation and operator procedures.
+- `docs/acceptance.md` owns the current local-rehearsal and final-promotion
+  acceptance boundary.
 - `docs/test-first-evidence.md` and `docs/devlog/` retain evidence and history;
   they do not override current code, manifests, or normative documentation.
 
@@ -103,6 +105,7 @@ The independent operations smoke requires two complete staged package variants:
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
+AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1=/path/to/package-v1 \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2=/path/to/package-v2 \
 npm run test:operations-smoke
@@ -144,10 +147,32 @@ these commands to patch or normalize upstream DSH sources.
 ## Acceptance and delivery
 
 `npm run acceptance` is a trusted-code source rehearsal, not a self-issued
-promotion result. It requires explicit arguments for the selected DSH checkout,
-six nils executables, package artifact, and isolated run identity, plus
-`--acknowledge-trusted-code`. See [the acceptance boundary](docs/acceptance.md)
-before running it.
+promotion result. Run it with the required DSH checkout, released nils
+executables and provenance, and package-manager paths:
+
+```sh
+npm run acceptance -- \
+  --dsh-source-root /absolute/path/to/deepseek-harness \
+  --agent-hook-bin /absolute/path/to/nils-cli/bin/agent-hook \
+  --agent-docs-bin /absolute/path/to/nils-cli/bin/agent-docs \
+  --git-cli-bin /absolute/path/to/nils-cli/bin/git-cli \
+  --review-specialists-bin /absolute/path/to/nils-cli/bin/review-specialists \
+  --semantic-commit-bin /absolute/path/to/nils-cli/bin/semantic-commit \
+  --forge-cli-bin /absolute/path/to/nils-cli/bin/forge-cli \
+  --nils-source-commit cf997a39ef64127c6b925a3cba0294760b8d31b6 \
+  --nils-archive-name nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz \
+  --nils-archive-sha256 192f2e9b0225d730ff870f16654d9cec99a70ccec8dafe3199ea35a8672d421c \
+  --pnpm-bin /absolute/path/to/pnpm \
+  --npm-bin /absolute/path/to/npm \
+  --output /absolute/path/to/acceptance-summary.json \
+  --acknowledge-trusted-code
+```
+
+The runner generates a run ID and packs the current checkout when no caller
+bindings are supplied. `--run-id` is optional. `--package-tarball` and
+`--package-sha256` are also optional but must be supplied together when an
+external controller binds a prepacked candidate. See
+[the acceptance boundary](docs/acceptance.md) before running it.
 
 Final promotion additionally requires the independently selected external
 trust root, disposable OS isolation, released-artifact verification, and

@@ -23,6 +23,17 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
       ['pack', '--json', '--pack-destination', temporary],
       { cwd: ROOT },
     )).stdout)
+    const packedPaths = new Set(packed[0].files.map(file => file.path))
+    for (const expected of [
+      'README.md',
+      'DEVELOPMENT.md',
+      'docs/README.md',
+      'docs/acceptance.md',
+      'docs/compatibility.md',
+      'docs/operations.md',
+    ]) {
+      assert.ok(packedPaths.has(expected), `packed documentation missing ${expected}`)
+    }
     const tarball = join(temporary, packed[0].filename)
     // This consumer verifies package exports only. Do not let npm auto-install
     // a newer DSH peer closure from the registry; runtime compatibility is

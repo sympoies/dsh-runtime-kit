@@ -571,6 +571,10 @@ those external boundaries.
 
 ## Acceptance
 
+[`docs/acceptance.md`](acceptance.md) is the canonical owner for current
+acceptance and promotion requirements. This section records the architectural
+rationale and implementation boundary behind that contract.
+
 Acceptance is a separate promotion boundary. `scripts/run-acceptance.mjs`
 copies six content-addressed nils executables into a private run root, fixes the
 tool PATH, creates disposable HOME/XDG state, and snapshots the package before

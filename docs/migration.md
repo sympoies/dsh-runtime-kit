@@ -1,4 +1,11 @@
-# Migration status
+# Historical migration snapshot
+
+> This document preserves the source-rehearsal state immediately before hosted
+> acceptance, reversible activation, and coexistence closeout completed. It is
+> not the current project status. See the [development log](devlog/README.md)
+> and the retained
+> [terminal execution state](plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md)
+> for the completed outcome.
 
 The additive DSH runtime is staged behind executable gates:
 

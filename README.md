@@ -46,12 +46,19 @@ contract and promotion checks.
 ## Install and activate
 
 Use the native DSH `headless` profile. Unknown profile names contain only the
-base bundle and are not equivalent to `headless`. Install an exact approved
-package version so `dsh-runtime-kit` and `dsh-runtime-kit-launch` are available,
-then create a dedicated owner-only runtime root:
+base bundle and are not equivalent to `headless`.
+
+The package is not yet published to the npm registry. Until a release is
+available, pack a reviewed source checkout and install that exact local tarball
+so `dsh-runtime-kit` and `dsh-runtime-kit-launch` are available:
 
 ```sh
-npm install --global @sympoies/dsh-runtime-kit@<approved-version>
+git clone https://github.com/sympoies/dsh-runtime-kit.git
+cd dsh-runtime-kit
+npm ci --ignore-scripts
+runtime_kit_tarball="$(npm pack --ignore-scripts --silent)"
+npm install --global --ignore-scripts --legacy-peer-deps \
+  "$PWD/$runtime_kit_tarball"
 install -d -m 0700 /absolute/dsh-runtime
 ```
 
@@ -60,7 +67,7 @@ Preview setup and retain the returned `plan_digest`:
 ```sh
 dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh-runtime-kit setup --profile headless \
-  --package @sympoies/dsh-runtime-kit@<approved-version> --format json
+  --package "$PWD" --format json
 ```
 
 Apply only that unchanged reviewed plan, verify the installation, and start
@@ -69,7 +76,7 @@ DSH through the same launcher:
 ```sh
 dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh-runtime-kit setup --profile headless \
-  --package @sympoies/dsh-runtime-kit@<approved-version> \
+  --package "$PWD" \
   --apply --expected-plan-digest <plan-digest> --format json
 
 dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
@@ -106,7 +113,7 @@ for its ownership model and current limitations.
 - [Compatibility](docs/compatibility.md)
 - [Private and project skills](docs/private-skills.md)
 - [Acceptance boundary](docs/acceptance.md)
-- [Migration status](docs/migration.md)
+- [Historical migration snapshot](docs/migration.md)
 - [Development log](docs/devlog/README.md)
 - [Contributor setup and validation](DEVELOPMENT.md)
 

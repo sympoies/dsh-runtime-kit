@@ -21,8 +21,8 @@ routine contributor entrypoint.
   finish-line, activation, compatibility, and trust boundaries.
 - [Acceptance boundary](acceptance.md) — what local rehearsal proves and what
   independent promotion must add.
-- [Migration status](migration.md) — completed migration capabilities and the
-  remaining promotion boundary.
+- [Historical migration snapshot](migration.md) — the pre-closeout source
+  rehearsal state retained for context; use the devlog for current status.
 
 ## Develop and investigate
 
@@ -33,6 +33,6 @@ routine contributor entrypoint.
 - [Development log](devlog/README.md) — curated, newest-first project history.
 - [Retained plans](plans/) — detailed implementation plans and execution state.
 
-Normative guidance belongs in the current product, development, operations, or
-architecture owner. Evidence and logs should link to those documents instead of
-repeating or overriding the current contract.
+Normative guidance belongs in the current product, development, operations,
+acceptance, or architecture owner. Evidence and logs should link to those
+documents instead of repeating or overriding the current contract.
