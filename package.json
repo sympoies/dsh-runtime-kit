@@ -11,6 +11,7 @@
   },
   "exports": {
     ".": "./index.js",
+    "./agent-console-profile": "./src/compat/agent-console.js",
     "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"

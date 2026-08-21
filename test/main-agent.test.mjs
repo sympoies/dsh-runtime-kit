@@ -291,7 +291,7 @@ function controllerExec() {
   return {
     signal: new AbortController().signal,
     agent: {
-      options: { provider: 'deepseek-official', model: 'deepseek-v4' },
+      options: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
       session: { header: { id: 'controller-one', cwd: '/controller/checkout' } },
     },
   }
@@ -343,6 +343,11 @@ test('worker launch executes the external-launch contract without duplicating la
     realpathSync(laneWorktree(scratch)),
     'the anchor cwd is the real lane worktree',
   )
+  assert.deepEqual(
+    harness.anchors[0].options,
+    { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+    'the lane anchor inherits the Agent Console Sol controller route',
+  )
   assert.equal(harness.continuations.length, 1)
   const continuation = harness.continuations[0]
   assert.equal(continuation.label, 'main-agent:assignment-one')
@@ -375,6 +380,11 @@ test('worker launch executes the external-launch contract without duplicating la
 
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 1)
+  assert.deepEqual(
+    service.workerRoute(controllerExec().agent),
+    { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+    'the real orchestration service exposes the inherited route used for lane anchors',
+  )
 })
 
 test('worker launch waits for authenticated broker readiness before starting the lane child', async (t) => {

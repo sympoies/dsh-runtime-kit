@@ -578,6 +578,24 @@ export function applyMainAgentMode(ctx, config = {}) {
   }
 
   /**
+   * Resolve the route a new lane anchor inherits from its controller. Keeping
+   * this as the service's read-only route observation and the launch path's
+   * single source prevents compatibility evidence from reimplementing the
+   * worker-provider/model fallback.
+   *
+   * @param {any} controllerAgent
+   */
+  const workerRoute = (controllerAgent) => {
+    const controllerRoute = dshRc7AgentRoute(controllerAgent)
+    const provider = config.workerProvider ?? controllerRoute.provider
+    const model = config.workerModel ?? controllerRoute.model
+    if (typeof provider !== 'string' || typeof model !== 'string') {
+      throw laneError('main-agent-worker-route-unavailable')
+    }
+    return Object.freeze({ provider, model })
+  }
+
+  /**
    * Lane management is a controller-only surface. Tool visibility is not
    * authority, so refuse any caller that is one of this registry's anchors or
    * lane children rather than relying on the per-child deny filter alone.
@@ -945,12 +963,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         /** @type {Lane | undefined} */
         let lane
         try {
-          const controllerRoute = dshRc7AgentRoute(exec?.agent)
-          const provider = config.workerProvider ?? controllerRoute.provider
-          const model = config.workerModel ?? controllerRoute.model
-          if (typeof provider !== 'string' || typeof model !== 'string') {
-            throw laneError('main-agent-worker-route-unavailable')
-          }
+          const { provider, model } = workerRoute(exec?.agent)
           anchorHandle = await ctx.agents.create({
             sessionId: /** @type {any} */ (randomUUID()),
             meta: { cwd: anchorCwd },
@@ -1556,6 +1569,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       const lane = lanes.byAssignment(assignmentId)
       return lane === undefined ? undefined : laneSummary(lane)
     },
+    workerRoute,
     /** The tool names this runtime owns, so a composition can audit its surface. */
     tools: Object.freeze({
       controller: Object.freeze([
