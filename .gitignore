@@ -1,3 +1,6 @@
 node_modules/
 *.tgz
 agent-out/
+
+# Project-local Claude directory (skills live in .agents/skills/)
+.claude/

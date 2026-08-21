@@ -5,6 +5,9 @@ layer. DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to
 use agent-runtime-kit plus nils-cli. It is a DSH bundle, not a fork and not a
 copied preset.
 
+Notable implementation milestones and their validation evidence are recorded
+in the [development log](docs/devlog/README.md).
+
 The current implementation contributes one Cordis plugin, the 29 public
 workflow skills, optional private-skill loading, one selective
 `runtime_context({ intent })` tool, and the native DSH probe tool

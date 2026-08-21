@@ -28,3 +28,22 @@ npm run test:smoke
 The test must install this package into a clean temporary DSH profile, verify
 the composed bundle layer, and execute `runtime_kit_plus_one` through DSH's real
 tools pipeline.
+
+## Development log
+
+- `docs/devlog/` is the append-only narrative for notable work: what changed,
+  why, the evidence, and links worth keeping. It complements commit messages
+  and the normative docs; it does not replace keeping those docs current.
+- After non-trivial development work with future debugging or decision value,
+  append an entry through the `project-devlog` skill before declaring the task
+  complete. Skip transient or same-turn fixes with no durable outcome.
+- Keep entries English, newest-first by month, and safe for a public repo. Do
+  not record credentials, private skill contents, personal identifiers,
+  internal hostnames, private topology, or machine-local paths.
+
+## Project skills
+
+- Project-local skills live under `.agents/skills/<name>/`; the canonical
+  source for this workflow is `project-devlog`.
+- Search existing entries with
+  `scripts/devlog-search.sh <term> [YYYY-MM]` before adding a new one.
