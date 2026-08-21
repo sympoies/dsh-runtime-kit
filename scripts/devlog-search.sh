@@ -10,12 +10,16 @@ DIR="$ROOT/docs/devlog"
 term="${1:-}"
 month="${2:-}"
 
-if [ -z "$term" ]; then
+if [ "$#" -gt 2 ] || [ -z "$term" ]; then
   echo "usage: $0 <term> [YYYY-MM]" >&2
   exit 2
 fi
 
 if [ -n "$month" ]; then
+  if [[ ! "$month" =~ ^[0-9]{4}-(0[1-9]|1[0-2])$ ]]; then
+    echo "usage: $0 <term> [YYYY-MM]" >&2
+    exit 2
+  fi
   files=("$DIR/$month.md")
 else
   files=("$DIR"/[0-9]*.md)
