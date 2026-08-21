@@ -642,6 +642,26 @@ review and new exact-head hosted acceptance.
   boundary: its owner-only receipt must be supplied to the hosted workflow.
   Task 6.1 remains in progress until the correlated plan-to-main draft PR and
   terminal hosted receipt verify; no cutover is claimed by this record.
+- 2026-08-21: Hosted run `32431065461` completed the exact released Task 6.1
+  path with 12/12 scenarios, credentialless network denial, and correlated
+  draft/no-merge PR #20 targeting `main`. The first local Task 6.2 apply then
+  exposed a clean-profile boundary: native DSH initialized the absent
+  `headless` profile, while collateral detection classified the expected new
+  manifest/workspace as drift and classified the exact absent-state recovery
+  the same way. The initial focused regressions began RED 0/2. A quick-review
+  RED 0/1 additionally proved the initialization allowance must not apply
+  during interrupted recovery while a newly created manifest remains. The repair admits only
+  files newly created by the exact plan-bound DSH binary when the manifest was
+  initially absent during the immediate post-mutation comparison;
+  doctor/recovery require exact absent/present topology. An already-present
+  lockfile remains protected and restores byte-for-byte on rejection. Focused
+  tests pass, operations pass 68/68 on Node 22 and Node 24, full package tests pass 284/284, and typecheck,
+  plan/diff/main-agent scope, and both performance gates pass. Frozen packed
+  source rehearsal `issue1-clean-profile-20260821y` passes 10/2/0 against DSH
+  rc.7 and released nils-cli 1.27.0. The interrupted local state was cleared
+  through a digest-bound doctor repair. The repaired exact head still requires
+  hosted promotion and successful reversible local activation before Task 6.2
+  or dispatch closeout is complete.
 
 ## Decision Log
 

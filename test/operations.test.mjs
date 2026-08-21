@@ -722,6 +722,86 @@ test('setup, update, rollback, and remove preserve unrelated profile and private
   }
 })
 
+test('setup accepts a profile whose manifest is initially absent', () => {
+  const subject = fixture()
+  try {
+    unlinkSync(join(subject.profileDir, 'package.json'))
+
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+
+    const manifest = JSON.parse(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'))
+    assert.deepEqual(manifest.dependencies, { '@sympoies/dsh-runtime-kit': manifest.dependencies['@sympoies/dsh-runtime-kit'] })
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@sympoies/dsh-runtime-kit'])
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('manifest-less setup still rejects mutation of a pre-existing lockfile', () => {
+  const subject = fixture()
+  try {
+    unlinkSync(join(subject.profileDir, 'package.json'))
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    const before = "lockfileVersion: '9.0'\nimporters:\n  .: {}\n"
+    writeFileSync(lockfile, before)
+    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const rejected = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
+    assert.equal(readFileSync(lockfile, 'utf8'), before)
+    assert.equal(existsSync(join(subject.profileDir, 'package.json')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('clean-profile recovery does not clear while a newly created manifest remains', () => {
+  const subject = fixture()
+  try {
+    unlinkSync(join(subject.profileDir, 'package.json'))
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    const before = "lockfileVersion: '9.0'\nimporters:\n  .: {}\n"
+    writeFileSync(lockfile, before)
+    writeFileSync(join(subject.home, 'collateral-profile-mutation'), '')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ], {
+      NODE_ENV: 'test',
+      DSH_RUNTIME_KIT_TEST_FAULT_POINT: 'restore-profile:package.json:before-unlink',
+    })
+    assert.equal(interrupted.status, null)
+    assert.equal(interrupted.signal, 'SIGKILL')
+    unlinkSync(join(subject.home, 'collateral-profile-mutation'))
+
+    // Model an interrupted restoration whose pre-existing control file was
+    // restored while the DSH-created manifest still remained.
+    writeFileSync(lockfile, before)
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.value.data.recovery.action, 'restore-collateral')
+
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    const converged = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(converged.status, 65)
+    assert.equal(converged.value.error.code, 'native-dsh-collateral-mutation')
+    assert.equal(existsSync(join(subject.profileDir, 'package.json')), false)
+    assert.equal(readFileSync(lockfile, 'utf8'), before)
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('setup accepts package-manager normalization of owner-only executable modes', () => {
   const subject = fixture()
   try {

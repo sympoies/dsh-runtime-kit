@@ -734,18 +734,28 @@ function lockProjections(leftRaw, rightRaw) {
   return [unownedLock(left, leftRemoved), unownedLock(right, rightRemoved)]
 }
 
-/** @param {ReturnType<typeof captureProfileSnapshot>} before @param {ReturnType<typeof captureProfileSnapshot>} after */
-function profileHasCollateralMutation(before, after) {
+/** @param {ReturnType<typeof captureProfileSnapshot>} before @param {ReturnType<typeof captureProfileSnapshot>} after @param {boolean} [allowInitialization] */
+function profileHasCollateralMutation(before, after, allowInitialization = false) {
   const beforeMap = new Map(before.files.map(file => [file.name, file]))
   const afterMap = new Map(after.files.map(file => [file.name, file]))
   const beforeManifest = beforeMap.get('package.json')
   const afterManifest = afterMap.get('package.json')
-  if (!beforeManifest?.present || !afterManifest?.present
-    || stableJson(unownedManifest(/** @type {string} */ (beforeManifest.content)))
+  const beforeManifestPresent = beforeManifest?.present === true
+  const afterManifestPresent = afterManifest?.present === true
+  const initializedByMutation = allowInitialization
+    && !beforeManifestPresent
+    && afterManifestPresent
+  if (beforeManifestPresent !== afterManifestPresent && !initializedByMutation) return true
+  if (beforeManifestPresent && afterManifestPresent
+    && stableJson(unownedManifest(/** @type {string} */ (beforeManifest.content)))
       !== stableJson(unownedManifest(/** @type {string} */ (afterManifest.content)))) return true
   for (const name of PROFILE_SNAPSHOT_FILES.slice(1)) {
     const left = beforeMap.get(name)
     const right = afterMap.get(name)
+    // A pinned native DSH invocation owns the files it creates while
+    // initializing a profile whose manifest was absent. Existing profile
+    // control files remain collateral-protected below.
+    if (initializedByMutation && left?.present !== true) continue
     const leftRaw = left?.present ? /** @type {string} */ (left.content) : null
     const rightRaw = right?.present ? /** @type {string} */ (right.content) : null
     try {
@@ -2595,7 +2605,7 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
     }
     const profileAfter = captureProfileSnapshot(paths)
-    if (profileHasCollateralMutation(profileBefore, profileAfter)) {
+    if (profileHasCollateralMutation(profileBefore, profileAfter, true)) {
       try {
         restoreAfterCollateral(
           dshBin,
