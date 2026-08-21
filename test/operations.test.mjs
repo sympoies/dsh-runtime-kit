@@ -267,7 +267,7 @@ process.stdout.write(JSON.stringify({
   const agentDocs = join(root, 'fake-agent-docs.mjs')
   writeFileSync(agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.0 (v1.27.0, test)\\n')
+process.stdout.write('agent-docs 1.27.1 (v1.27.1, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
   return { commandDir, dsh, pnpm, agentHook, agentDocs }
@@ -1860,7 +1860,7 @@ test('doctor reports DSH-only agent-docs executable, catalog, and state health',
     assert.equal(healthy.value.data.status, 'healthy')
     assert.deepEqual(healthy.value.data.agent_docs, {
       ok: true,
-      version: '1.27.0',
+      version: '1.27.1',
       catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
       state_home: subject.agentDocsStateHome,
     })

@@ -3026,9 +3026,9 @@ function agentDocsDoctor(config, home) {
     if (result.status !== 0) {
       return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
     }
-    const match = /^agent-docs (1\.27\.0) \([^\r\n]+\)$/u.exec(result.stdout.trim())
+    const match = /^agent-docs (1\.27\.1) \([^\r\n]+\)$/u.exec(result.stdout.trim())
     if (match === null) {
-      return { ok: false, error: 'agent-docs version is not the supported 1.27.0 release' }
+      return { ok: false, error: 'agent-docs version is not the supported 1.27.1 release' }
     }
     return { ok: true, version: match[1], catalog, state_home: stateHome }
   } catch (error) {
