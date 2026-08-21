@@ -58,7 +58,7 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
   const catalog = read('agent-docs/AGENT_DOCS.toml')
   const context = read('agent-docs/PROJECT_DEV_EDIT.md')
   const patch = read('cordis.patch.yml')
-  const readme = read('README.md')
+  const operations = read('docs/operations.md')
   const plan = read('docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-plan.md')
 
   assert.ok(manifest.files.includes('agent-docs'))
@@ -74,10 +74,10 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
     'DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME',
   ]) {
     assert.match(patch, new RegExp(variable))
-    assert.match(readme, new RegExp(variable))
+    assert.match(operations, new RegExp(variable))
   }
-  assert.match(readme, /native `headless` profile/i)
-  assert.match(readme, /nlink[\s\S]{0,120}1/i)
-  assert.match(readme, /Codex[\s\S]{0,120}Claude[\s\S]{0,180}(?:unchanged|untouched)/i)
+  assert.match(operations, /native `headless` profile/i)
+  assert.match(operations, /link count[\s\S]{0,120}one/i)
+  assert.match(operations, /Codex[\s\S]{0,120}Claude[\s\S]{0,180}(?:unchanged|untouched)/i)
   assert.match(plan, /native `headless` profile/i)
 })
