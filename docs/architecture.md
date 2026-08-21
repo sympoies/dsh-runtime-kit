@@ -3,6 +3,8 @@
 `dsh-runtime-kit` is an out-of-tree DSH bundle. It composes only through public
 Cordis and DSH service APIs and never patches or vendors the harness.
 
+## Responsibility split
+
 Responsibilities are intentionally split:
 
 - DSH owns the agent loop, sessions, tools, sandbox, approvals, skills
@@ -11,6 +13,8 @@ Responsibilities are intentionally split:
   adaptation, reviewer personas, and compatibility diagnostics.
 - nils-cli owns deterministic policy evaluation, repository lifecycle
   commands, and machine-readable contracts.
+
+## Runtime composition and policy
 
 Live composition has an explicit runtime-root boundary. The package requires
 absolute DSH-only agent-hook config, policy, and state paths and passes them on
@@ -83,6 +87,8 @@ accepted post-tool decision. Pre-step context is appended only after downstream 
 Per-session step/turn dedupe stores one last position, so lifecycle state is
 constant-space.
 
+### Governed policy groups
+
 The packaged policy selects eleven Task 3.2, nine Task 3.3, and two Task 3.4
 `dsh.policy.v1` groups. Static
 command gates are bounded and in-process; project-dev verification and scope
@@ -123,6 +129,8 @@ binary or package script. Finish-line containment separately owns process-tree
 quiescence, while the governed nils CLIs and provider branch/access controls
 remain authoritative for delivery. The public package must not describe any of
 these layers as a general hostile-code boundary.
+
+## Specialist review
 
 Specialist review is one DSH-native tool, not eight model-authored personas or
 an external agent runtime. `src/review/index.js` loads exactly eight packaged
@@ -176,6 +184,8 @@ pre-body authority. Ordinary and forged Agents cannot enter that exception and
 continue through full nils policy. The read-only sandbox is a second boundary
 for allowed inspection tools; tool filtering and persona compliance are not
 required for the denial guarantee.
+
+## Finish-line lifecycle
 
 Finish-line state crosses a strict public open/begin/run/stop command family
 plus private quiesce and release lifecycle transports.
@@ -341,6 +351,8 @@ of the transport set and waiting for rc.7 approval. The subprocess receives a
 fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
 no forwarded environment, and no spill or unbounded output path.
 
+## Selective runtime context
+
 `src/context/nils-context.js` owns a separate bounded subprocess lifecycle for
 `agent-docs session context`. A tool call derives the exact DSH Session id and
 absolute cwd from the live Agent, mints a fresh request id, and asks nils to
@@ -369,11 +381,15 @@ runtime violations of other readonly fields are not contained here. The bundle
 therefore narrows its substitution guarantees to pre-execute listeners and
 does not depend on brittle property descriptors or non-public APIs.
 
+## Private skill discovery
+
 Private skill source remains outside this public repository. At process start,
 the loader validates the configured owner-controlled tree with bounded
 asynchronous traversal and no-follow reads, copies it into a sealed temporary
 snapshot, and registers definitions parsed from those retained bytes. Project
 skills rank above the snapshot, which ranks above bundled public skills.
+
+## Operations and activation
 
 `src/operations/index.js` is an out-of-process management plane and never edits
 DSH profile JSON or its bundle list. It resolves one strict profile name and one
@@ -503,6 +519,8 @@ kills any group that remains after timeout, supervisor loss, or direct-command
 return, and waits for its absence before unwinding both SQLite transactions.
 Failure to prove settlement remains closed.
 
+## Compatibility and performance
+
 Upstream compatibility is executable: pack the bundle, install it into a clean
 profile, dump the composed config, boot DSH, discover skills, and drive a real
 Agent/AgentLoop allow/block probe plus cancellation and plugin-disposal drains.
@@ -550,6 +568,12 @@ are promotion budgets for runtime-kit overhead. Disposal is a separate zero-
 active/zero-live assertion. These are not claims about external process startup
 or host scheduling; the packed real DSH smoke remains the integration proof for
 those external boundaries.
+
+## Acceptance
+
+[`docs/acceptance.md`](acceptance.md) is the canonical owner for current
+acceptance and promotion requirements. This section records the architectural
+rationale and implementation boundary behind that contract.
 
 Acceptance is a separate promotion boundary. `scripts/run-acceptance.mjs`
 copies six content-addressed nils executables into a private run root, fixes the
