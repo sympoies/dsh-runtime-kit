@@ -50,11 +50,16 @@ base bundle and are not equivalent to `headless`.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball
-so `dsh-runtime-kit` and `dsh-runtime-kit-launch` are available:
+so `dsh-runtime-kit` and `dsh-runtime-kit-launch` are available. Replace the
+placeholder below with the full commit SHA you reviewed:
 
 ```sh
 git clone https://github.com/sympoies/dsh-runtime-kit.git
 cd dsh-runtime-kit
+reviewed_commit=REPLACE_WITH_A_REVIEWED_FULL_COMMIT_SHA
+git checkout --detach "$reviewed_commit"
+test "$(git rev-parse HEAD)" = "$reviewed_commit"
+test -z "$(git status --porcelain)"
 npm ci --ignore-scripts
 runtime_kit_tarball="$(npm pack --ignore-scripts --silent)"
 npm install --global --ignore-scripts --legacy-peer-deps \
