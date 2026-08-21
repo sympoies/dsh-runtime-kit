@@ -711,6 +711,14 @@ Codex/Claude coexistence audit are also green.
   checkouts. The active DSH profile has no `agent-runtime-kit` dependency;
   Codex and Claude Code retain their existing agent-runtime-kit wiring. This
   completes Tasks 6.2 and 6.3 without retiring or cross-loading either runtime.
+- 2026-08-21: The first terminal-state PR run `32450587634` exposed the
+  one-time squash-history boundary after PR #26: a fresh clone of `main` cannot
+  contain the earlier plan-branch parity evidence merge as an ancestor. The
+  focused owner-verification regression reproduced 0/2 locally. The trusted
+  squash bridge now names final integration commit
+  `7bbcee244d0693c32697de86446e3fa037682ac9`, which contains the unchanged
+  evidence blobs and remains an ancestor of subsequent `main` commits. This is
+  the only executable closeout repair; no additional review cycle was opened.
 
 ## Decision Log
 
