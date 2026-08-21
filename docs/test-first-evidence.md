@@ -1546,3 +1546,15 @@ released nils-cli 1.27.0. The interrupted machine-local receipt was cleared
 through digest-bound `doctor --repair`. The repaired exact head still requires
 provider integration, hosted acceptance, and successful local activation
 before Task 6.2 or closeout is claimed.
+
+PR #21 then delivered the repaired contract at exact signed head
+`446a16fc988629200c1d4dd8d6a777bdd7a856f5`. Run `32435873837` passed all
+four compatibility jobs: package validation on Node 22 and Node 24 plus pinned
+and upstream-next DSH compatibility. The follow-up quick review closed its only
+finding, and the review ledger has no open finding. The PR was
+squash-integrated into the non-default plan branch as
+`074d94478971511b2d83216a15d72729e90db475`. This docs-only retained record
+does not introduce another behavior RED; exact provider head, check run,
+review state, and merge readback are its verification contract. A signed
+semantic descendant and private trust-root rebind remain required before the
+new hosted acceptance and reversible local activation.

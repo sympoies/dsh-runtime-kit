@@ -662,6 +662,16 @@ review and new exact-head hosted acceptance.
   through a digest-bound doctor repair. The repaired exact head still requires
   hosted promotion and successful reversible local activation before Task 6.2
   or dispatch closeout is complete.
+- 2026-08-21: PR #21 exact signed head
+  `446a16fc988629200c1d4dd8d6a777bdd7a856f5` passed package validation on
+  Node 22 and Node 24 plus pinned and upstream-next DSH compatibility in run
+  `32435873837`. The quick-review recovery finding is closed, with no open
+  review-ledger finding, and the repair was squash-integrated into the
+  non-default plan branch as
+  `074d94478971511b2d83216a15d72729e90db475`. This retained integration
+  record establishes the next signed semantic candidate boundary. The private
+  trust root and hosted workflow must bind that signed descendant before local
+  activation resumes; Task 6.2 and dispatch closeout remain incomplete.
 
 ## Decision Log
 
