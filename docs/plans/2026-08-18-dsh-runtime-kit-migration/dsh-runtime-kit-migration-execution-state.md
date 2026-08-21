@@ -10,12 +10,11 @@
 - Coexistence boundary: agent-runtime-kit remains active for Codex and Claude
   Code; only the DSH profile uses dsh-runtime-kit
 - Current sprint: Sprint 6
-- Status: in-progress
-- Current task: 6.1 Run complete real-session acceptance matrix
-- Next task: 6.2 Activate the local DSH profile after Task 6.1 promotion
-- Integration checkout: managed lane `feat/native-runtime-integrated`
-- Blockers: final run-correlated hosted acceptance remains; nils-cli v1.27.0 is
-  released and artifact-pinned
+- Status: complete
+- Current task: complete
+- Next task: none
+- Integration checkout: `main` through PR #26
+- Blockers: none
 - Last updated: 2026-08-21
 
 ## Task Ledger
@@ -37,19 +36,16 @@
 | 4.2 | Enforce reviewer read-only authority | done | exact-Agent replay tests; direct/nested/code/delegation denial; packed native-spawn write attempt blocked before body; child disposed | Exact child classification, final read-only sandbox override, and scoped monotonic guard; ordinary/forged sessions cannot claim reviewer identity |
 | 5.1 | Add setup, doctor, update, rollback, and remove | done | 22/22 operations tests; typecheck/diff check; unmodified rc.7 setup-update-rollback-remove smoke; upstream checkout clean | Default dry-run and digest-bound apply; registry/local artifact identity; pre-extraction bounds; process-group-quiescent deadlines; kernel locks; native DSH mutation; strict rollback/recovery; no-follow cleanup; unrelated profile/private state preserved |
 | 5.2 | Add upstream compatibility and performance gates | done | compatibility contract; package tests in a disposable consumer with the exact external runtime closure and staged 37-package DSH closure; typed runtime/source checks; deterministic heap benchmark plus packed real released-agent-hook subprocess p95/teardown gate; packed unmodified rc.7 smoke | Pinned + upstream-next resolve independently to reviewed `99f6f02`; no fork or DSH patch |
-| 6.1 | Run complete real-session acceptance matrix | in-progress | PR #12 exact head `84189777d54946491200f1aaae02e3d38568289c` merged to the plan branch as `ddf64acb9f35effa154bf4abd9c1380ecafaba05`; hosted run `32417978607` acquisition GREEN 2m7s and credentialless network-denied candidate GREEN 4m30s; PR #18/run `32397354308`; frozen source rehearsal `issue1-native-dsh-profile-20260821x`; full DSH package 281/281; operations 65/65 on Node 22 and 24; exact released nils-cli v1.27.0 artifacts | The 12-scenario candidate and isolation receipt are green. Final pass now requires rebinding the private trust root to this signed plan integration head and one correlated plan-branch-to-main draft/no-merge provider receipt. |
-| 6.2 | Activate the local DSH profile reversibly | pending | source contract now ships a DSH-only agent-docs catalog and requires literal hook config/policy/state plus docs catalog/state roots | Activate only native `headless`; copy policy/catalog into owner-only roots, preserve a DSH-only rollback point, and never mutate or fall back to Codex/Claude wiring |
-| 6.3 | Prove coexistence isolation and close dispatch | pending | pending | DSH zero `agent-runtime-kit` dependency plus active unchanged Codex/Claude wiring required |
+| 6.1 | Run complete real-session acceptance matrix | done | hosted run `32447387497`; final receipt 12 passed / 0 pending / 0 failed; runtime package SHA-256 `955438c2ec36723f3d04edbe0acafdfdceb4f958a504107be5492435c769469c`; exact released nils-cli v1.27.0; DSH rc.7 `99f6f02` | Credentialless, network-denied candidate and correlated no-merge delivery both passed; the final receipt is owner-only and hash-bound outside the repository |
+| 6.2 | Activate the local DSH profile reversibly | done | digest-bound local `headless` activation; DSH doctor healthy; direct DeepSeek `runtime_kit_plus_one` proof returned `42` for `41` | Durable trusted DSH rc.7 toolchain and fallback workspace are owner-only; project invocations still resolve to the target Git root |
+| 6.3 | Prove coexistence isolation and close dispatch | done | DSH active profile contains only dsh-runtime-kit and standard DSH bundles; Codex and Claude Code agent-runtime-kit wiring remains active; PR #26 merged to `main` as `7bbcee244d0693c32697de86446e3fa037682ac9` after four green compatibility jobs in run `32447803170` | Zero DSH cross-loading proved; provider issue closeout follows this retained terminal state |
 
-Task 6.1 source closeout gates: DSH 281/281 plus typecheck; operations 65/65
-on both Node 22 and Node 24; nils focused
-agent-docs/agent-hook suites plus clippy and fmt; nils workspace nextest
-8,566/8,566 across 168 binaries with 14 unrelated Bubblewrap-dependent
-`agent_run_inspect` tests explicitly skipped; private trust-root `make validate`;
-real packed DSH smoke; and final-head external-tarball rehearsal 10 passed, 2
-authority-pending, 0 failed. Prior specialist findings are retained in the
-review ledger; this functional portability repair requires one bounded quick
-review and new exact-head hosted acceptance.
+Task 6.1 closeout gates are terminal: the final hosted run passed all 12
+scenarios in disposable credentialless isolation and produced the correlated
+delivery receipt. The repaired plan head passed the one requested full review
+and one targeted repair follow-up; no repeated full review cycle was opened.
+Local activation, DeepSeek tool execution, DSH doctor, and the additive
+Codex/Claude coexistence audit are also green.
 
 ## Validation Log
 
@@ -695,6 +691,34 @@ review and new exact-head hosted acceptance.
   adds no new behavior or review cycle. The next signed semantic descendant
   must bind the private infra trust root before the hosted 12-scenario rerun;
   local DeepSeek activation/proof and PR #24 closeout remain downstream gates.
+- 2026-08-21: Final hosted acceptance run `32447387497` completed the released
+  path with 12 passed, 0 pending, and 0 failed scenarios. Acquisition,
+  credentialless network-denied execution, strict receipt verification, and
+  correlated no-merge provider delivery all passed. The final receipt binds
+  runtime package SHA-256
+  `955438c2ec36723f3d04edbe0acafdfdceb4f958a504107be5492435c769469c`,
+  nils-cli v1.27.0, and DSH rc.7 `99f6f02`. Hosted-created PR #26 then passed
+  package validation on Node 22 and Node 24 plus pinned and upstream-next DSH
+  compatibility in run `32447803170`; exact head
+  `5cb8b2922c9c4349de3f03fd3b545090c310cc89` was squash-merged to `main` as
+  `7bbcee244d0693c32697de86446e3fa037682ac9`.
+- 2026-08-21: Local Task 6.2 activation completed through the digest-bound DSH
+  operations contract. Doctor reports the native `headless` profile healthy,
+  and a direct DeepSeek session invoked `runtime_kit_plus_one` once and returned
+  `42` for `41`. General DSH invocations outside a repository use an owner-only
+  fallback Git workspace, while invocations inside a repository use that
+  repository root. Temporary diagnostics and receipts remain outside source
+  checkouts. The active DSH profile has no `agent-runtime-kit` dependency;
+  Codex and Claude Code retain their existing agent-runtime-kit wiring. This
+  completes Tasks 6.2 and 6.3 without retiring or cross-loading either runtime.
+- 2026-08-21: The first terminal-state PR run `32450587634` exposed the
+  one-time squash-history boundary after PR #26: a fresh clone of `main` cannot
+  contain the earlier plan-branch parity evidence merge as an ancestor. The
+  focused owner-verification regression reproduced 0/2 locally. The trusted
+  squash bridge now names final integration commit
+  `7bbcee244d0693c32697de86446e3fa037682ac9`, which contains the unchanged
+  evidence blobs and remains an ancestor of subsequent `main` commits. This is
+  the only executable closeout repair; no additional review cycle was opened.
 
 ## Decision Log
 
@@ -712,16 +736,8 @@ review and new exact-head hosted acceptance.
 
 ## Handoff
 
-Continue Task 6.1 from source rehearsal
-`issue1-native-dsh-profile-20260821x`, integrated PR #18 offline native-profile
-repair, completed external trust-root source, and published nils-cli v1.27.0
-artifacts.
-Preserve the tested reviewer, operations, compatibility, DSH
-catalog-projection, and acceptance-v2 contracts. Final promotion still needs
-one run-correlated hosted execution plus explicitly authorized semantic commit
-and no-merge PR delivery. After promotion, Task 6.2 may activate only the
-native `headless` profile behind an exact rollback point. It must bind the five
-DSH-only hook/docs paths through the owner launcher and authenticated activation
-manifest, keep private loading absent/empty unless a DSH projection is
-explicitly selected, and must not change Codex or Claude Code agent-runtime-kit
-wiring.
+Implementation and activation are complete. Preserve the hosted 12-scenario
+acceptance contract, the DSH-only `headless` profile, and the existing
+Codex/Claude agent-runtime-kit wiring. Future work is ordinary maintenance and
+must start from a new issue or explicitly authorized follow-up; no migration
+task remains in this dispatch.

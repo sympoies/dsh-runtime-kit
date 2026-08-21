@@ -67,7 +67,7 @@ const EXPECTED_OWNER_REPOSITORIES = {
 const TRUSTED_SQUASH_INTEGRATIONS = {
   [DSH]: {
     evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
-    merge_commit: 'bfab898fe553db4857bb3aa54c5db102866cf321',
+    merge_commit: '7bbcee244d0693c32697de86446e3fa037682ac9',
   },
 }
 
