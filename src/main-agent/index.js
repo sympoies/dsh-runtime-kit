@@ -940,54 +940,57 @@ export function applyMainAgentMode(ctx, config = {}) {
             assignment_id: assignmentId,
           })
         }
-        const controllerRoute = dshRc7AgentRoute(exec?.agent)
-        const provider = config.workerProvider ?? controllerRoute.provider
-        const model = config.workerModel ?? controllerRoute.model
-        if (typeof provider !== 'string' || typeof model !== 'string') {
-          throw laneError('main-agent-worker-route-unavailable')
-        }
-        const anchorHandle = await ctx.agents.create({
-          sessionId: /** @type {any} */ (randomUUID()),
-          meta: { cwd: anchorCwd },
-          agentOptions: { provider, model },
-        })
-        const anchor = anchorHandle.agent
-        const anchorId = dshRc7SessionHeader(anchor).id
-        if (typeof anchorId !== 'string' || anchorId.length === 0) {
-          throw laneError('main-agent-anchor-unavailable')
-        }
-
-        /** @type {Lane} */
-        const lane = {
-          assignmentId,
-          workerSessionId,
-          launchId: externalLaunch.launch_id,
-          livenessFile: externalLaunch.liveness_file,
-          childId: '',
-          anchorId,
-          anchor,
-          worktree: anchorCwd,
-          state: 'open',
-          // The bootstrap prompt is submitted as the child's first turn and
-          // rc.7 publishes that turn's start edge before startContinuable
-          // resolves, so the lane would otherwise advertise `waiting` for the
-          // whole bootstrap turn. Seed `working` at launch instead.
-          turn: {
-            phase: 'working',
-            phaseChangedAt: nowEpoch(),
-            currentTurn: { startedAt: nowEpoch() },
-            lastTurn: undefined,
-          },
-          workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
-          brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
-          disposeAnchor: () => {
-            try { anchorHandle.dispose() } catch {}
-          },
-          sidecarChain: Promise.resolve(),
-          stopHeartbeat: undefined,
-        }
-        lanes.bindAnchor(lane)
+        /** @type {Awaited<ReturnType<typeof ctx.agents.create>> | undefined} */
+        let anchorHandle
+        /** @type {Lane | undefined} */
+        let lane
         try {
+          const controllerRoute = dshRc7AgentRoute(exec?.agent)
+          const provider = config.workerProvider ?? controllerRoute.provider
+          const model = config.workerModel ?? controllerRoute.model
+          if (typeof provider !== 'string' || typeof model !== 'string') {
+            throw laneError('main-agent-worker-route-unavailable')
+          }
+          anchorHandle = await ctx.agents.create({
+            sessionId: /** @type {any} */ (randomUUID()),
+            meta: { cwd: anchorCwd },
+            agentOptions: { provider, model },
+          })
+          const anchor = anchorHandle.agent
+          const anchorId = dshRc7SessionHeader(anchor).id
+          if (typeof anchorId !== 'string' || anchorId.length === 0) {
+            throw laneError('main-agent-anchor-unavailable')
+          }
+
+          lane = {
+            assignmentId,
+            workerSessionId,
+            launchId: externalLaunch.launch_id,
+            livenessFile: externalLaunch.liveness_file,
+            childId: '',
+            anchorId,
+            anchor,
+            worktree: anchorCwd,
+            state: 'open',
+            // The bootstrap prompt is submitted as the child's first turn and
+            // rc.7 publishes that turn's start edge before startContinuable
+            // resolves, so the lane would otherwise advertise `waiting` for the
+            // whole bootstrap turn. Seed `working` at launch instead.
+            turn: {
+              phase: 'working',
+              phaseChangedAt: nowEpoch(),
+              currentTurn: { startedAt: nowEpoch() },
+              lastTurn: undefined,
+            },
+            workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
+            brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
+            disposeAnchor: () => {
+              try { anchorHandle?.dispose() } catch {}
+            },
+            sidecarChain: Promise.resolve(),
+            stopHeartbeat: undefined,
+          }
+          lanes.bindAnchor(lane)
           // Publish the sidecar before the heartbeat starts. The heartbeat's
           // first act is to read this lane's runtime evidence, and it is what
           // establishes the lane's broker readiness — so the evidence must
@@ -1028,15 +1031,18 @@ export function applyMainAgentMode(ctx, config = {}) {
           replayPendingRunEvents(lane)
           return launchSummary(lane, 'launched')
         } catch (error) {
-          // Roll the half-launched lane back completely: without a child the
-          // `open` sidecar would make the pinned live harness identity vouch
-          // for a lane that does not exist.
-          lanes.remove(lane)
-          lane.state = 'terminated'
-          lane.turn = undefined
-          await publishLivenessSidecar(lane).catch(() => {})
-          lane.stopHeartbeat?.()
-          lane.disposeAnchor?.()
+          // Roll every unadopted incarnation back, including failures before
+          // the lane object exists. Otherwise a missing route or rejected
+          // anchor would leave the nils-owned broker alive with no DSH lane.
+          if (lane !== undefined) {
+            lanes.remove(lane)
+            lane.state = 'terminated'
+            lane.turn = undefined
+            await publishLivenessSidecar(lane).catch(() => {})
+            lane.stopHeartbeat?.()
+          }
+          try { anchorHandle?.dispose() } catch {}
+          await releaseRefusedIncarnation()
           throw error
         }
         }

@@ -148,6 +148,8 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
 function createContext({
   envelope,
   spawnFailure = false,
+  agentCreateFailure = false,
+  anchorSessionId,
   startContinuable,
   children = [],
   followupFailure = false,
@@ -228,10 +230,12 @@ function createContext({
     },
     agents: {
       async create(options) {
+        if (agentCreateFailure) throw new Error('anchor refused to start')
+        const sessionId = anchorSessionId ?? options.sessionId
         const agent = {
-          id: options.sessionId,
+          id: sessionId,
           options: options.agentOptions,
-          session: { header: { id: options.sessionId, cwd: options.meta?.cwd } },
+          session: { header: { id: sessionId, cwd: options.meta?.cwd } },
         }
         const handle = { agent, dispose() { anchors.pop() } }
         anchors.push(agent)
@@ -501,6 +505,61 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
     ),
     /main-agent-assignment-file-invalid/,
   )
+})
+
+test('worker launch releases an unadopted incarnation when route or anchor creation fails', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const cases = [
+    {
+      name: 'missing worker route',
+      harness: createContext({ envelope: workerStartEnvelope(laneSidecarPath(scratch, 'route')) }),
+      exec: {
+        ...controllerExec(),
+        agent: {
+          options: {},
+          session: controllerExec().agent.session,
+        },
+      },
+      error: /main-agent-worker-route-unavailable/,
+    },
+    {
+      name: 'anchor creation refusal',
+      harness: createContext({
+        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'create')),
+        agentCreateFailure: true,
+      }),
+      exec: controllerExec(),
+      error: /anchor refused to start/,
+    },
+    {
+      name: 'anchor without a session id',
+      harness: createContext({
+        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'identity')),
+        anchorSessionId: '',
+      }),
+      exec: controllerExec(),
+      error: /main-agent-anchor-unavailable/,
+    },
+  ]
+
+  for (const fixture of cases) {
+    applyMainAgentMode(fixture.harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    await assert.rejects(
+      fixture.harness.registeredTools.get('main_agent_worker_launch').execute(
+        { assignment_file: '/private/assignment.json', idempotency_key: `key-${fixture.name}` },
+        fixture.exec,
+      ),
+      fixture.error,
+      fixture.name,
+    )
+    assert.equal(
+      fixture.harness.spawned.some(record => record.spec.argv.includes('stop')),
+      true,
+      `${fixture.name} releases the refused store-side broker`,
+    )
+    assert.equal(fixture.harness.anchors.length, 0, `${fixture.name} leaves no anchor`)
+  }
 })
 
 test('lane children get the deny guard and environment section; foreign children stay untouched', async (t) => {
