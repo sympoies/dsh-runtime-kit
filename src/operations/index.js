@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -1657,12 +1657,31 @@ function resolveExecutable(input) {
   for (const candidate of candidates) {
     try {
       const exact = realpathSync(candidate)
+      assertTrustedExecutableAncestors(exact)
       const stat = assertOwnedPath(exact, 'file', false, true)
       if ((stat.mode & 0o111) === 0) continue
       return exact
     } catch {}
   }
   throw new OperationsError('command-unavailable', `cannot resolve a trusted executable for ${basename(input)}`, 70)
+}
+
+/** @param {string} executable */
+function assertTrustedExecutableAncestors(executable) {
+  const filesystemRoot = parse(executable).root
+  for (let directory = dirname(executable);; directory = dirname(directory)) {
+    const stat = lstatSync(directory)
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new OperationsError('command-unavailable', 'toolchain executable has an invalid ancestor', 70)
+    }
+    const currentOwner = typeof process.getuid !== 'function' || stat.uid === process.getuid()
+    const rootOwner = stat.uid === 0
+    const stickyOwner = (stat.mode & 0o1000) !== 0 && (currentOwner || rootOwner)
+    if ((!currentOwner && !rootOwner) || ((stat.mode & 0o022) !== 0 && !stickyOwner)) {
+      throw new OperationsError('command-unavailable', 'toolchain executable has an unsafe writable ancestor', 70)
+    }
+    if (directory === filesystemRoot) break
+  }
 }
 
 /** @param {unknown} value */
@@ -2330,6 +2349,10 @@ function migrateLegacyTarget(paths, legacy) {
     if (unpacked.status !== 0) {
       throw new OperationsError('artifact-drift', 'legacy package artifact could not be inspected')
     }
+    const installedSha256 = packageTreeDigest(join(extracted, 'package'), extracted)
+    if (installedSha256 !== legacy.installed_sha256) {
+      throw new OperationsError('artifact-drift', 'legacy installed digest does not match its authenticated artifact')
+    }
     return validateTarget({
       ...legacy,
       assets: packageAssets(join(extracted, 'package')),
@@ -2346,6 +2369,9 @@ function migrateLegacyTarget(paths, legacy) {
  * @param {string} profile
  */
 function migratedLegacySnapshot(legacy, target, runtimeRoot, profile) {
+  if (legacy.installed_digest !== target.installed_sha256) {
+    throw new OperationsError('artifact-drift', 'legacy snapshot digest does not match its authenticated artifact')
+  }
   return validateSnapshot({
     ...legacy,
     runtime_root: runtimeRoot,
@@ -2399,14 +2425,10 @@ function legacyMigrationPlan(profile, paths, actual, stateRead, runtimeRoot) {
         runtimeRoot,
         profile,
       )
-  const proposedState = {
-    schema_version: STATE_SCHEMA,
+  const proposedState = versionedOperationsState(
     profile,
-    current,
-    previous,
-    last_applied: null,
-    pending: null,
-  }
+    terminalStateFields(current, previous, null),
+  )
   const plan = {
     schema_version: PLAN_SCHEMA,
     operation: 'doctor-repair',
@@ -2485,6 +2507,36 @@ function pendingState(profile, operation, planDigest, state, target, plan, profi
       started_at: new Date().toISOString(),
       profile_before: profileBefore,
     },
+  }
+}
+
+/** @param {string} operation @param {string} planDigest @param {unknown} plan @param {string} completedAt @param {boolean} [recovered] */
+function appliedReceipt(operation, planDigest, plan, completedAt, recovered = false) {
+  return {
+    operation,
+    plan_digest: planDigest,
+    plan,
+    completed_at: completedAt,
+    ...recovered ? { recovered: true } : {},
+  }
+}
+
+/** @param {unknown} current @param {unknown} previous @param {unknown} lastApplied */
+function terminalStateFields(current, previous, lastApplied) {
+  return {
+    current,
+    previous,
+    last_applied: lastApplied,
+    pending: null,
+  }
+}
+
+/** @param {string} profile @param {ReturnType<typeof terminalStateFields>} fields */
+function versionedOperationsState(profile, fields) {
+  return {
+    schema_version: STATE_SCHEMA,
+    profile,
+    ...fields,
   }
 }
 
@@ -2568,14 +2620,11 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     const target = reviewed.plan.target === null ? null : validateTarget(reviewed.plan.target)
     const state = stateRead.value
     if (reviewed.plan.action === 'noop') {
-      const next = {
-        schema_version: STATE_SCHEMA,
-        profile,
-        current: state?.current ?? null,
-        previous: state?.previous ?? null,
-        pending: null,
-        last_applied: { operation, plan_digest: reviewed.plan_digest, plan: reviewed.plan, completed_at: new Date().toISOString() },
-      }
+      const next = versionedOperationsState(profile, terminalStateFields(
+        state?.current ?? null,
+        state?.previous ?? null,
+        appliedReceipt(operation, reviewed.plan_digest, reviewed.plan, new Date().toISOString()),
+      ))
       atomicWriteJson(paths.state, next)
       reconcileArtifacts(paths)
       return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
@@ -2666,14 +2715,11 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     const previous = operation === 'update' || operation === 'rollback'
       ? state?.current ?? null
       : null
-    const next = {
-      schema_version: STATE_SCHEMA,
-      profile,
+    const next = versionedOperationsState(profile, terminalStateFields(
       current,
       previous,
-      pending: null,
-      last_applied: { operation, plan_digest: reviewed.plan_digest, plan: reviewed.plan, completed_at: new Date().toISOString() },
-    }
+      appliedReceipt(operation, reviewed.plan_digest, reviewed.plan, new Date().toISOString()),
+    ))
     atomicWriteJson(paths.state, next)
     reconcileArtifacts(paths)
     return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }
@@ -3185,8 +3231,8 @@ function repairPlan(profile, paths, diagnostic) {
     }
   } else {
     const target = pending.operation === 'remove' ? null : validateTarget(pending.target)
-    proposed = {
-      current: target === null
+    proposed = terminalStateFields(
+      target === null
         ? null
         : expectedSnapshot(
             readActual(paths),
@@ -3195,16 +3241,15 @@ function repairPlan(profile, paths, diagnostic) {
             /** @type {any} */ (pending.plan).runtime_root,
             profile,
           ),
-      previous: pending.operation === 'update' || pending.operation === 'rollback' ? state.current : null,
-      last_applied: {
-        operation: pending.operation,
-        plan_digest: pending.plan_digest,
-        plan: pending.plan,
-        completed_at: '<apply-time>',
-        recovered: true,
-      },
-      pending: null,
-    }
+      pending.operation === 'update' || pending.operation === 'rollback' ? state.current : null,
+      appliedReceipt(
+        /** @type {string} */ (pending.operation),
+        /** @type {string} */ (pending.plan_digest),
+        pending.plan,
+        '<apply-time>',
+        true,
+      ),
+    )
   }
   const plan = {
     schema_version: PLAN_SCHEMA,
@@ -3360,20 +3405,17 @@ function applyRepair(profile, paths, reviewed) {
           ? recoveredState.current
           : null
       }
-      atomicWriteJson(paths.state, {
-        schema_version: STATE_SCHEMA,
-        profile,
-        current: installed,
+      atomicWriteJson(paths.state, versionedOperationsState(profile, terminalStateFields(
+        installed,
         previous,
-        pending: null,
-        last_applied: {
-          operation: pending.operation,
-          plan_digest: pending.plan_digest,
-          plan: pending.plan,
-          completed_at: new Date().toISOString(),
-          recovered: true,
-        },
-      })
+        appliedReceipt(
+          pending.operation,
+          pending.plan_digest,
+          pending.plan,
+          new Date().toISOString(),
+          true,
+        ),
+      )))
     }
     reconcileArtifacts(paths)
     return { mode: 'applied', plan: reviewed.plan, plan_digest: reviewed.plan_digest }

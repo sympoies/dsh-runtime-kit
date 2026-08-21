@@ -7,6 +7,12 @@ import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
+import { boundedUtf8Segments } from '../src/policy/index.js'
+import {
+  createChildPluginStatus,
+  observeChildPluginActivation,
+  snapshotChildPluginStatus,
+} from '../src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../src/policy/nils-transport.js'
 
 const sha256 = `sha256:${'0'.repeat(64)}`
@@ -18,6 +24,44 @@ const dshRuntime = Object.freeze({
   approveEscalation,
   canonicalPath,
   validateEscalationArgs,
+})
+
+test('lifecycle prompt projection stops consuming segments at its UTF-8 budget', () => {
+  function *segments() {
+    yield '好'.repeat(30_000)
+    throw new Error('bounded projection consumed a discarded prompt suffix')
+  }
+  const projected = boundedUtf8Segments(segments(), 64 * 1024)
+  assert.equal(Buffer.byteLength(projected, 'utf8') <= 64 * 1024, true)
+  assert.doesNotMatch(projected, /\uFFFD/)
+})
+
+test('optional child-plugin activation distinguishes pending active and failed states', async () => {
+  const status = createChildPluginStatus()
+  assert.deepEqual(snapshotChildPluginStatus(status), {
+    main_agent_mode: { state: 'pending' },
+    review_specialists: { state: 'pending' },
+  })
+  const warnings = []
+  observeChildPluginActivation(
+    status,
+    'review_specialists',
+    async () => {},
+    { warn: (...args) => warnings.push(args) },
+  )
+  observeChildPluginActivation(
+    status,
+    'main_agent_mode',
+    async () => { throw new TypeError('fixture detail must stay out of status') },
+    { warn: (...args) => warnings.push(args) },
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(snapshotChildPluginStatus(status), {
+    main_agent_mode: { state: 'failed', reason: 'activation-rejected', error_name: 'TypeError' },
+    review_specialists: { state: 'active' },
+  })
+  assert.equal(warnings.length, 1)
+  assert.doesNotMatch(JSON.stringify(snapshotChildPluginStatus(status)), /fixture detail/)
 })
 
 test('policy subprocess never restores ambient provider session identity', () => {

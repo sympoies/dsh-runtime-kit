@@ -146,6 +146,10 @@ The reviewer runtime is a child plugin gated on `agents`, `subagents`, and
 `tools`. Its exact-Agent authority is created by the parent before child
 activation, so an absent subagent provider leaves that authority empty while
 the parent policy, skills, context, and finish-line runtime continue to load.
+The runtime service exposes a bounded snapshot for both optional children so a
+caller can distinguish pending activation from active service and a rejected
+activation. Failed snapshots retain only the stable reason and exception name;
+details remain in the ordinary runtime log.
 
 Reviewer classification is a process-local authority boundary. The runtime
 opens an `AsyncLocalStorage` admission only around rc.7's trusted in-process
@@ -158,10 +162,13 @@ final `sandbox/mode: read-only` override and installs a guard through that
 child's scoped `tools` service.
 
 The guard is monotonic and capability-based rather than prompt-based. It
-allows only the fixed local inspection surface (`read`, `grep`, `glob`, image
-read, runtime context, skills, structured completion, and agent listing) and denies every
-other name, including Bash, write/edit/replace, code mode, nested tool calls,
-subagent delegation, recursive specialist review, and outbound web fetch/search. DSH evaluates this guard
+allows only the fixed local inspection surface (`read`, single-file `grep`,
+`glob`, and structured completion) and denies every other name, including image
+read, runtime context, skills, agent listing, Bash, write/edit/replace, code
+mode, nested tool calls, subagent delegation, recursive specialist review, and
+outbound web fetch/search. Every path-bearing inspection is canonicalized
+against the exact session workspace; symlink escapes and credential-bearing
+paths are rejected before the tool body. DSH evaluates this guard
 after the extensible pre-tool waterfall but before any tool body. The broader
 nils edit/operation/finish-line lifecycle therefore recognizes only the exact
 authenticated reviewer and steps aside; the scoped guard remains the final

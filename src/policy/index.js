@@ -8,6 +8,7 @@ import { createNilsContextClient } from '../context/nils-context.js'
 import { createFinishLineCoordinator } from '../finish-line/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
 import { createNilsTransport } from './nils-transport.js'
+import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-status.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-fs').FsObservation} FsObservation */
@@ -78,27 +79,45 @@ function denial(reason) {
   return { kind: /** @type {const} */ ('deny'), reason: `dsh-runtime-kit:${reason}` }
 }
 
-/** @param {string} text @param {number} maxBytes */
-function boundedUtf8(text, maxBytes) {
-  const bytes = Buffer.from(text, 'utf8')
-  if (bytes.length <= maxBytes) return text
-  let bounded = bytes.subarray(0, maxBytes).toString('utf8')
-  if (bounded.endsWith('\uFFFD')) bounded = bounded.slice(0, -1)
-  return bounded
+/** @param {Iterable<string>} segments @param {number} maxBytes */
+export function boundedUtf8Segments(segments, maxBytes) {
+  let result = ''
+  let remaining = maxBytes
+  for (const segment of segments) {
+    if (result.length > 0) {
+      if (remaining < 1) break
+      result += '\n'
+      remaining -= 1
+    }
+    const candidate = segment.length > remaining ? segment.slice(0, remaining) : segment
+    const bytes = Buffer.from(candidate, 'utf8')
+    if (bytes.length <= remaining) {
+      result += candidate
+      remaining -= bytes.length
+      if (candidate.length !== segment.length) break
+      continue
+    }
+    let bounded = bytes.subarray(0, remaining).toString('utf8')
+    while (bounded.endsWith('\uFFFD')) bounded = bounded.slice(0, -1)
+    result += bounded
+    break
+  }
+  return result
 }
 
 /** @param {unknown[]} messages */
 function lifecyclePrompt(messages) {
-  const text = []
-  for (const message of messages) {
-    if (message === null || typeof message !== 'object') continue
-    const candidate = /** @type {Record<string, any>} */ (message)
-    if (candidate.source?.kind !== 'user' || !Array.isArray(candidate.content)) continue
-    for (const block of candidate.content) {
-      if (block?.type === 'text' && typeof block.text === 'string') text.push(block.text)
+  function *textSegments() {
+    for (const message of messages) {
+      if (message === null || typeof message !== 'object') continue
+      const candidate = /** @type {Record<string, any>} */ (message)
+      if (candidate.source?.kind !== 'user' || !Array.isArray(candidate.content)) continue
+      for (const block of candidate.content) {
+        if (block?.type === 'text' && typeof block.text === 'string') yield block.text
+      }
     }
   }
-  return boundedUtf8(text.join('\n'), MAX_LIFECYCLE_PROMPT_BYTES)
+  return boundedUtf8Segments(textSegments(), MAX_LIFECYCLE_PROMPT_BYTES)
 }
 
 /** @param {(input: any) => any} createUserMessage @param {string} text */
@@ -154,8 +173,9 @@ function matchesAuthorization(authorization, exec) {
  * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number }} config
  * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
  * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
+ * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
  */
-export function applyPolicy(ctx, config = {}, reviewers, dshRuntime) {
+export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugins = createChildPluginStatus()) {
   if (dshRuntime === undefined) {
     throw new TypeError('dsh-runtime-kit: validated DSH runtime dependencies are required')
   }
@@ -610,6 +630,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime) {
 
   ctx.provide('dshRuntimeKit', Object.freeze({
     apiVersion: 1,
+    get childPluginStatus() { return snapshotChildPluginStatus(childPlugins) },
     get plusOneExecutions() { return plusOneExecutions },
     get activePolicyChecks() { return transport.active },
     get activeContextRequests() { return contextClient.active },

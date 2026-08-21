@@ -672,6 +672,21 @@ review and new exact-head hosted acceptance.
   record establishes the next signed semantic candidate boundary. The private
   trust root and hosted workflow must bind that signed descendant before local
   activation resumes; Task 6.2 and dispatch closeout remain incomplete.
+- 2026-08-21: The one full review of hosted-created PR #24 found seven
+  actionable boundaries in reviewer read containment, executable ancestor
+  trust, legacy digest migration, lifecycle prompt materialization, optional
+  child-plugin observability, launcher process ownership, and duplicated
+  operations terminal-state construction. Meaningful regressions reproduced
+  each behavior defect; the structural state-construction consolidation uses
+  the complete operations matrix as its preservation proof. Directly affected
+  reviewer/launcher tests pass 26/26, operations/policy-plugin tests pass
+  115/115, and typecheck/diff checks pass. The single targeted repair review
+  found one remaining `.envrc` read boundary; its exact RED 0/1 and GREEN 1/1
+  now prove the complete `.env*` family is rejected while ordinary source names
+  remain readable. Per maintainer instruction, the full specialist matrix is
+  not repeated and no further review cycle is opened. PR #24 remains unmerged
+  until the repaired plan head is delivered, hosted acceptance is rebound, and
+  the local DeepSeek proof is repeated.
 
 ## Decision Log
 

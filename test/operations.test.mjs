@@ -581,11 +581,35 @@ test('base operations-state v1 migrates explicitly before update rollback and re
     assert.match(state.current.target.assets.asset_set_sha256, /^[0-9a-f]{64}$/)
     assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), true)
 
-    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
     applyPlan(subject, ['rollback', '--profile', 'work'])
+    assert.equal(
+      JSON.parse(readFileSync(statePath, 'utf8')).current.installed_version,
+      '1.0.0',
+    )
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
     applyPlan(subject, ['remove', '--profile', 'work'])
     assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
     assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).current, null)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('legacy migration rejects a retained previous receipt whose installed digest is not bound to its artifact', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const { statePath, legacy } = writeLegacyTerminalState(subject)
+    legacy.previous.installed_digest = 'f'.repeat(64)
+    writeJson(statePath, legacy)
+    const before = readFileSync(statePath)
+
+    const rejected = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'artifact-drift')
+    assert.deepEqual(readFileSync(statePath), before)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
   } finally {
     subject.cleanup()
   }
@@ -893,6 +917,20 @@ test('apply rejects DSH or pnpm tool replacement after preview before profile mu
     } finally {
       subject.cleanup()
     }
+  }
+})
+
+test('operations reject toolchain executables reached through an untrusted writable directory', () => {
+  const subject = fixture()
+  try {
+    chmodSync(subject.root, 0o755)
+    chmodSync(subject.commandDir, 0o777)
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(rejected.status, 70, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'command-unavailable')
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+  } finally {
+    subject.cleanup()
   }
 })
 
