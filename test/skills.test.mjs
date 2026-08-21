@@ -203,7 +203,7 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
   }
 })
 
-test('nils-cli compatibility is machine-readable and pinned to the first DSH-capable release', () => {
+test('nils-cli compatibility is machine-readable and pinned to the current DSH-capable release', () => {
   const path = join(projectRoot, 'compatibility', 'nils-cli.json')
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
