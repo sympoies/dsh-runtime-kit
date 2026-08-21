@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
@@ -20,12 +20,16 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
 const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
+const pnpmBin = process.env.PNPM_BIN ?? 'pnpm'
 
 assert.notEqual(
   process.env.DSH_SOURCE_ROOT,
   undefined,
   'set DSH_SOURCE_ROOT to a DeepSeek Harness source checkout',
 )
+if (process.env.PNPM_BIN !== undefined) {
+  assert.equal(isAbsolute(pnpmBin), true, 'PNPM_BIN must be absolute when supplied')
+}
 assert.notEqual(
   process.env.AGENT_HOOK_BIN,
   undefined,
@@ -99,6 +103,7 @@ const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const profile = 'runtime-kit-smoke'
+const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
 const validationCommand = 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
@@ -218,7 +223,11 @@ const environment = {
   ...providerSessionFixture,
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_NOSYSTEM: '1',
-  PATH: `${dirname(agentHookBin)}:${process.env.PATH ?? ''}`,
+  PATH: [
+    dirname(agentHookBin),
+    ...(process.env.PNPM_BIN === undefined ? [] : [dirname(pnpmBin)]),
+    process.env.PATH ?? '',
+  ].join(':'),
   XDG_CONFIG_HOME: configHome,
   XDG_STATE_HOME: stateHome,
 }
@@ -351,7 +360,7 @@ function runDsh(args, options = {}) {
     ownerLauncher,
     '--runtime-root', runtimeRoot,
     '--',
-    'pnpm', 'dsh', ...args,
+    pnpmBin, 'dsh', ...args,
   ], {
     cwd: dshRoot,
     env: environment,
@@ -401,7 +410,7 @@ try {
     { mode: 0o600 },
   )
   const forbiddenEnvironment = spawnSync(
-    'pnpm',
+    pnpmBin,
     ['dsh', '--profile', 'headless', 'bootstrap environment rejection probe'],
     {
     cwd: dshRoot,
@@ -411,8 +420,13 @@ try {
     },
   )
   assert.notEqual(forbiddenEnvironment.status, 0)
-  assert.match(forbiddenEnvironment.stderr, /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u)
-  assert.match(forbiddenEnvironment.stderr, /export/u)
+  const forbiddenEnvironmentOutput = `${forbiddenEnvironment.stdout}\n${forbiddenEnvironment.stderr}`
+  assert.match(
+    forbiddenEnvironmentOutput,
+    /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u,
+    JSON.stringify({ status: forbiddenEnvironment.status, error: forbiddenEnvironment.error?.message }),
+  )
+  assert.match(forbiddenEnvironmentOutput, /export/u)
   rmSync(forbiddenEnvironmentPath)
 
   mkdirSync(projectWorkspace, { recursive: true })
@@ -511,6 +525,7 @@ description = "packed rc.7 finish-line smoke"
     'policy.js',
     'bin/dsh-runtime-kit-launch.js',
     'src/compat/dsh-rc7.js',
+    'src/compat/agent-console.js',
     'src/context/index.js',
     'src/context/nils-context.js',
     'src/finish-line/index.js',
@@ -530,6 +545,7 @@ description = "packed rc.7 finish-line smoke"
     'agent-docs/PROJECT_DEV_EDIT.md',
     'cordis.patch.yml',
     'compatibility/dsh.json',
+    'compatibility/agent-console.json',
     'compatibility/nils-cli.json',
     'scripts/benchmark-policy.mjs',
     'scripts/check-dsh-compatibility.mjs',
@@ -592,12 +608,25 @@ description = "packed rc.7 finish-line smoke"
     assert.equal(extracted.status, 0, `could not inspect packed ${relative}`)
     assert.doesNotMatch(extracted.stdout, privateIdentityPattern)
   }
+  if (agentConsoleTuiPackage !== undefined) {
+    assert.equal(
+      agentConsoleTuiPackage,
+      '@deepseek-harness-tui/dsh-tui@0.8.1',
+      'the Agent Console smoke accepts only the authenticated TUI release',
+    )
+    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])
+  }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
 
   const dump = runDsh(['--profile', profile, '--dump-config']).stdout
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
+  if (agentConsoleTuiPackage !== undefined) {
+    assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
+    assert.match(dump, /id: dsh-tui/)
+    assert.match(dump, /id: user-questions/)
+  }
   assert.doesNotMatch(dump, /agent-runtime-kit/u)
   assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
 
@@ -610,9 +639,13 @@ description = "packed rc.7 finish-line smoke"
   const sessionModuleUrl = pathToFileURL(
     join(dshRoot, 'packages', 'core', 'session', 'src', 'index.ts'),
   ).href
+  const scopeModuleUrl = pathToFileURL(
+    join(dshRoot, 'packages', 'core', 'scope', 'src', 'index.ts'),
+  ).href
   writeFileSync(driverPath, `
 import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
 import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
+import { scopeOf } from ${JSON.stringify(scopeModuleUrl)}
 import { rmSync } from 'node:fs'
 
 export const name = 'dsh-runtime-kit-smoke-driver'
@@ -627,6 +660,8 @@ export const inject = [
   'tools',
   'dshRuntimeKit',
   'mainAgentOrchestration',
+  'userQuestions',
+  ${agentConsoleTuiPackage === undefined ? '' : "'agentPresets',"}
 ]
 
 function toolCallResponse(name, value, suffix) {
@@ -789,28 +824,6 @@ class SmokeAdapter extends LlmAdapter {
 export function apply(ctx) {
   void (async () => {
     try {
-      const skillOptions = { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT }
-      const skills = await ctx.skills.list(skillOptions)
-      const bootstrap = await ctx.skills.get('bootstrap', skillOptions)
-      const privateOnly = await ctx.skills.get('private-only', skillOptions)
-      const projectOnly = await ctx.skills.get('project-only', skillOptions)
-      const privateOverride = await ctx.skills.get('topic-radar', skillOptions)
-      const bundled = await ctx.skills.get('daily-brief', skillOptions)
-      process.stdout.write('${skillMarker}' + JSON.stringify({
-        count: skills.length,
-        names: skills.map(skill => skill.name),
-        bootstrapSource: bootstrap?.source,
-        bootstrapContent: bootstrap?.content,
-        privateSource: privateOnly?.source,
-        privateContent: privateOnly?.content,
-        projectSource: projectOnly?.source,
-        projectContent: projectOnly?.content,
-        privateOverrideSource: privateOverride?.source,
-        privateOverrideContent: privateOverride?.content,
-        bundledSource: bundled?.source,
-        bundledContent: bundled?.content,
-      }) + '\\n')
-
       const targetId = process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID
         ?? 'dsh-runtime-kit-smoke-' + process.pid
       const lifecycle = []
@@ -927,13 +940,50 @@ export function apply(ctx) {
         ? await ctx.agents.resume({
           resumeSessionId: SessionId(targetId),
           agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+          setup: ${agentConsoleTuiPackage === undefined
+            ? 'undefined'
+            : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
         })
         : await ctx.agents.create({
           sessionId: SessionId(targetId),
           agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
-          meta: { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT },
+          meta: {
+            cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT,
+            ${agentConsoleTuiPackage === undefined ? '' : "agentPreset: 'standard',"}
+          },
+          setup: ${agentConsoleTuiPackage === undefined
+            ? 'undefined'
+            : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
         })
       const agent = handle.agent
+      // Web/TUI profiles keep filesystem-backed skill discovery on the
+      // official agent preset. Read through the composed agent scope so this
+      // receipt proves the same catalog the model sees, while headless keeps
+      // resolving its equivalent global catalog.
+      const skillOptions = {
+        cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT,
+        scope: scopeOf(agent.ctx),
+      }
+      const skills = await ctx.skills.list(skillOptions)
+      const bootstrap = await ctx.skills.get('bootstrap', skillOptions)
+      const privateOnly = await ctx.skills.get('private-only', skillOptions)
+      const projectOnly = await ctx.skills.get('project-only', skillOptions)
+      const privateOverride = await ctx.skills.get('topic-radar', skillOptions)
+      const bundled = await ctx.skills.get('daily-brief', skillOptions)
+      process.stdout.write('${skillMarker}' + JSON.stringify({
+        count: skills.length,
+        names: skills.map(skill => skill.name),
+        bootstrapSource: bootstrap?.source,
+        bootstrapContent: bootstrap?.content,
+        privateSource: privateOnly?.source,
+        privateContent: privateOnly?.content,
+        projectSource: projectOnly?.source,
+        projectContent: projectOnly?.content,
+        privateOverrideSource: privateOverride?.source,
+        privateOverrideContent: privateOverride?.content,
+        bundledSource: bundled?.source,
+        bundledContent: bundled?.content,
+      }) + '\\n')
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: 'review and run plus one' }],
         source: { kind: 'user' },
@@ -985,6 +1035,7 @@ export function apply(ctx) {
             controllerTools: ctx.mainAgentOrchestration.tools.controller,
             laneTools: ctx.mainAgentOrchestration.tools.lane,
           },
+        userQuestions: ctx.userQuestions !== undefined,
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
@@ -1014,7 +1065,11 @@ fi
 shift
 exec "$@"
 `, { mode: 0o700 })
+  const agentConsoleTuiOverlay = agentConsoleTuiPackage === undefined
+    ? ''
+    : '- id: dsh-tui\n  disabled: true\n'
   writeFileSync(overlayPath, `
+${agentConsoleTuiOverlay}
 - id: sandbox
   config:
     runnerCommand:
@@ -1115,6 +1170,7 @@ exec "$@"
   assert.equal(receipt.pendingPolicyMarkers, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
+  if (agentConsoleTuiPackage !== undefined) assert.equal(receipt.userQuestions, true)
   for (const laneTool of [
     'main_agent_worker_launch',
     'main_agent_worker_interrupt',
@@ -1216,7 +1272,7 @@ exec "$@"
   const skillLine = boot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
   assert.ok(skillLine, `missing ${skillMarker} output:\n${boot.stdout}\n${boot.stderr}`)
   const skillReceipt = JSON.parse(skillLine.slice(skillMarker.length))
-  assert.equal(skillReceipt.count, 31)
+  assert.equal(skillReceipt.count, 31, JSON.stringify(skillReceipt))
   assert.equal(new Set(skillReceipt.names).size, 31)
   assert.equal(skillReceipt.bootstrapSource, 'project-agents')
   assert.match(skillReceipt.bootstrapContent, /project-bootstrap-marker/)

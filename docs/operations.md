@@ -7,10 +7,13 @@ and health checks around those native operations.
 
 ## Activation boundary
 
-Use DSH's native `headless` profile. DSH initializes an unknown profile name
-with only `@deepseek-ai/dsh-base`, while `headless` composes both the base and
-headless agent bundles. Save the complete pre-activation `headless` profile and
-the owner-only runtime root as the rollback point.
+Use DSH's native `headless` profile, or the exact Agent Console `dsh-tui`
+profile. DSH initializes an unknown profile name with only
+`@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
+composes the base and headless agent bundles. Agent Console must already have
+created the ordered base + `@deepseek-harness-tui/dsh-tui@0.8.1` profile before
+runtime-kit is added as its final bundle. Save the complete pre-activation
+profile and the owner-only runtime root as the rollback point.
 
 Create one absolute owner-only directory that does not overlap DSH home, Codex
 home, Claude Code home, or another runtime's state:
@@ -54,6 +57,11 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   --apply --expected-plan-digest <plan-digest> --format json
 ```
 
+For the Agent Console composition, substitute `--profile dsh-tui` only after
+its provisioner has authenticated the exact TUI package and profile bundle
+order. Setup does not reinterpret an arbitrary custom profile as `headless` or
+silently add the TUI surface.
+
 Registry targets must use an exact version. A local target must be a directory
 whose manifest is exactly `@sympoies/dsh-runtime-kit` with an exact version.
 Both forms are resolved through script-free `npm pack`; the plan binds the
@@ -77,6 +85,28 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh --profile headless "run the requested task"
 ```
+
+For Agent Console, run doctor with `--profile dsh-tui`, inspect the composed
+tree with `dsh --profile dsh-tui --dump-config`, then invoke `dsh-tui` through
+the same launcher. The composed evidence must satisfy
+`inspectAgentConsoleRc7Profile`: the official `userQuestions` and TUI rows,
+runtime-kit tools/skills/Main Agent service, and the inherited controller/worker
+route must all be present.
+
+## Agent Console authority boundary
+
+Runtime-kit's patch owns only the `dsh-runtime-kit` row. It does not rewrite
+`sandbox-policy`, `approval`, provider rows, or credential stores. The Agent
+Console launch surface must set `DSH_PERMISSION_MODE` explicitly; supported
+pairs are `workspace-write` + `ask`, or the currently required
+`danger-full-access` + `never`. Provider credentials remain environment-name
+references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
+of profile evidence.
+
+The supported UI boundary is exact: DSH `0.1.0-rc.7`, dsh-tui `0.8.1`, and the
+ordered three-bundle composition. rc.8, other TUI releases, arbitrary custom
+profiles, and live lane re-adoption after a harness restart remain outside this
+contract.
 
 Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils

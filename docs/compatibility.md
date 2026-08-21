@@ -5,6 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness | `0.1.0-rc.7` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.8.1` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | `1.27.1` |
@@ -29,6 +30,12 @@ for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, Linux archive, and the six acceptance binary hashes.
 A local nils checkout or ambient prototype binary is not release compatibility
 evidence.
+
+[`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
+the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
+and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
+authority facts a sanitized live observation must prove. It does not broaden
+the generic DSH version range or authorize another custom profile.
 
 ## Promotion checks
 
