@@ -1,0 +1,93 @@
+{
+  "name": "@sympoies/dsh-runtime-kit",
+  "version": "0.0.0",
+  "description": "Out-of-tree DeepSeek Harness runtime policy, skills, and workflow bundle for Sympoies agents",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "dsh-runtime-kit": "./bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-launch": "./bin/dsh-runtime-kit-launch.js",
+    "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
+    "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "bin",
+    "policy.js",
+    "src",
+    "agent-docs",
+    "agents",
+    "cordis.patch.yml",
+    "compatibility",
+    "policy",
+    "scripts/check-rule-parity-source.mjs",
+    "docs",
+    "scripts",
+    "test/smoke.mjs",
+    "test/operations-smoke.mjs",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-bash-local": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-fs": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-sandbox": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-subagent": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-subprocess": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-skill-filesystem": "0.1.0-rc.7"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "1.1.0",
+    "chokidar": "5.0.0",
+    "js-yaml": "4.1.0",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "bundledDependencies": [
+    "@standard-schema/spec",
+    "chokidar",
+    "js-yaml",
+    "yaml",
+    "zod"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "test:operations-smoke": "node test/operations-smoke.mjs",
+    "check:compatibility": "node scripts/check-dsh-compatibility.mjs",
+    "pack:compatibility-peers": "node scripts/pack-dsh-compatibility-peers.mjs",
+    "stage:compatibility-peers": "node scripts/stage-dsh-compatibility-peers.mjs",
+    "acceptance": "node scripts/run-acceptance.mjs",
+    "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
+    "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
+    "verify:policy-source": "node scripts/verify-policy-parity.mjs",
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sympoies/dsh-runtime-kit.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

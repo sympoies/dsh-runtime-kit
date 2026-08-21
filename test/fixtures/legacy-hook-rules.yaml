@@ -1,0 +1,2648 @@
+{
+  "schema_version": "agent-runtime-kit.hook-rules.v1",
+  "policy_bundle": "core/policies/agent-hook/runtime-kit-v1.toml",
+  "legacy_handler_count": 21,
+  "legacy_registration_count": 67,
+  "rules": [
+    {
+      "id": "runtime.shared.pre-tool-use.bash.read-only-shadow",
+      "products": [
+        "codex",
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "execution.read-only.v1",
+        "reason_code": "read-only-capability"
+      },
+      "mode": "shadow",
+      "priority": 90,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "shadow-evidence-only",
+      "recovery": "none",
+      "docs": "core/policies/agent-hook/README.md",
+      "test_owner": "tests/agent-hook/test_executable_contract.py::AgentHookExecutableContractTests.test_read_only_capability_shadow_is_product_parity_evidence_only",
+      "disposition": "added-read-only-shadow",
+      "legacy_handler": null
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.pre-edit-intent-gate",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "pre-edit-intent-gate"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-docs.session",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "pre-edit-intent-gate"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.checkout-lease-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-direct-git-commit",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-git-commit"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-git-commit"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-unsafe-default-delivery",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-unsafe-default-delivery"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-unsafe-default-delivery"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-direct-git-worktree",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-git-worktree"
+      },
+      "mode": "enforce",
+      "priority": 140,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-git-worktree"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.semantic-commit-body-gate",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "semantic-commit-body-gate"
+      },
+      "mode": "enforce",
+      "priority": 150,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "semantic-commit-body-gate"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-direct-python",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-python"
+      },
+      "mode": "enforce",
+      "priority": 160,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-python"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.mcp-secret-scan",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "mcp-secret-scan"
+      },
+      "mode": "enforce",
+      "priority": 170,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "mcp-secret-scan"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-project-memory-write",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-project-memory-write"
+      },
+      "mode": "enforce",
+      "priority": 180,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-project-memory-write"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.memory-write-principle-reminder",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "memory-write-principle-reminder"
+      },
+      "mode": "enforce",
+      "priority": 190,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "memory-write-principle-reminder"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.portable-paths-scan",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "portable-paths-scan"
+      },
+      "mode": "enforce",
+      "priority": 200,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "portable-paths-scan"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.block-direct-pr-create",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-pr-create"
+      },
+      "mode": "enforce",
+      "priority": 210,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-pr-create"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.forge-label-reminder",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "forge-label-reminder"
+      },
+      "mode": "enforce",
+      "priority": 220,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "forge-label-reminder"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.bash.finish-line-record",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "finish-line-record"
+      },
+      "mode": "enforce",
+      "priority": 230,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "provider-input-replacement",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.block-project-memory-write",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-project-memory-write"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-project-memory-write"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.memory-write-principle-reminder",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "memory-write-principle-reminder"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "memory-write-principle-reminder"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.mcp-secret-scan",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "mcp-secret-scan"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "mcp-secret-scan"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.portable-paths-scan",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "portable-paths-scan"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "portable-paths-scan"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.agent-scope-lock-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "agent-scope-lock-guard"
+      },
+      "mode": "enforce",
+      "priority": 140,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "git.agent-scope-lock",
+      "transformation": "block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "agent-scope-lock-guard"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.pre-edit-intent-gate",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "pre-edit-intent-gate"
+      },
+      "mode": "enforce",
+      "priority": 150,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-docs.session",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "pre-edit-intent-gate"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.checkout-lease-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 160,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.finish-line-record",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "finish-line-record"
+      },
+      "mode": "enforce",
+      "priority": 170,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "provider-input-replacement",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "runtime.codex.user-prompt-submit.all.user-prompt-agent-docs",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "user-prompt-agent-docs"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "agent-docs.session",
+      "transformation": "additional-context",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "user-prompt-agent-docs"
+    },
+    {
+      "id": "runtime.codex.user-prompt-submit.all.checkout-lease-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.codex.session-start.startup-resume-clear.user-prompt-agent-memory",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "SessionStart"
+      ],
+      "matcher": "startup|resume|clear",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "user-prompt-agent-memory"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "relocated-startup-capability",
+      "legacy_handler": null
+    },
+    {
+      "id": "runtime.codex.user-prompt-submit.all.skill-usage-reminder",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "skill-usage-reminder"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "skill-usage-reminder"
+    },
+    {
+      "id": "runtime.codex.session-start.startup-resume-clear.session-start-healthcheck",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "SessionStart"
+      ],
+      "matcher": "startup|resume|clear",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "session-start-healthcheck"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "agent-runtime-kit.health-cache",
+      "transformation": "additional-context",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "session-start-healthcheck"
+    },
+    {
+      "id": "runtime.codex.stop.all.stop-pre-pr-reminder",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "stop-pre-pr-reminder"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "agent-runtime-kit.pr-readiness-cache",
+      "transformation": "system-message",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "stop-pre-pr-reminder"
+    },
+    {
+      "id": "runtime.codex.stop.all.agent-scope-lock-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "agent-scope-lock-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "git.agent-scope-lock",
+      "transformation": "block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "agent-scope-lock-guard"
+    },
+    {
+      "id": "runtime.codex.stop.all.checkout-lease-guard",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.codex.stop.all.stop-finish-line-gate",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "stop-finish-line-gate"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "stop-finish-line-gate"
+    },
+    {
+      "id": "runtime.claude.user-prompt-submit.all.user-prompt-agent-docs",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "user-prompt-agent-docs"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "agent-docs.session",
+      "transformation": "additional-context",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "user-prompt-agent-docs"
+    },
+    {
+      "id": "runtime.claude.user-prompt-submit.all.checkout-lease-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.claude.session-start.startup-resume-clear.user-prompt-agent-memory",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "SessionStart"
+      ],
+      "matcher": "startup|resume|clear",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "user-prompt-agent-memory"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "relocated-startup-capability",
+      "legacy_handler": null
+    },
+    {
+      "id": "runtime.claude.user-prompt-submit.all.skill-usage-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "skill-usage-reminder"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "skill-usage-reminder"
+    },
+    {
+      "id": "runtime.claude.stop.all.stop-pre-pr-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "stop-pre-pr-reminder"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "agent-runtime-kit.pr-readiness-cache",
+      "transformation": "system-message",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "stop-pre-pr-reminder"
+    },
+    {
+      "id": "runtime.claude.stop.all.agent-scope-lock-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "agent-scope-lock-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "git.agent-scope-lock",
+      "transformation": "block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "agent-scope-lock-guard"
+    },
+    {
+      "id": "runtime.claude.stop.all.checkout-lease-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.claude.stop.all.stop-finish-line-gate",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "stop-finish-line-gate"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "stop-finish-line-gate"
+    },
+    {
+      "id": "runtime.claude.session-start.startup-resume-clear.session-start-healthcheck",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "SessionStart"
+      ],
+      "matcher": "startup|resume|clear",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "session-start-healthcheck"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "agent-runtime-kit.health-cache",
+      "transformation": "additional-context",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "session-start-healthcheck"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.pre-edit-intent-gate",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "pre-edit-intent-gate"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-docs.session",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "pre-edit-intent-gate"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.checkout-lease-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-direct-git-commit",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-git-commit"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-git-commit"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-unsafe-default-delivery",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-unsafe-default-delivery"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-unsafe-default-delivery"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-direct-git-worktree",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-git-worktree"
+      },
+      "mode": "enforce",
+      "priority": 140,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-git-worktree"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.semantic-commit-body-gate",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "semantic-commit-body-gate"
+      },
+      "mode": "enforce",
+      "priority": 150,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "semantic-commit-body-gate"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-claude-coauthor-trailer",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-claude-coauthor-trailer"
+      },
+      "mode": "enforce",
+      "priority": 160,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-claude-coauthor-trailer"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-direct-pr-create",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-pr-create"
+      },
+      "mode": "enforce",
+      "priority": 170,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-pr-create"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.forge-label-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "forge-label-reminder"
+      },
+      "mode": "enforce",
+      "priority": 180,
+      "failure_posture": "warn",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/policies/git-delivery.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "forge-label-reminder"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-direct-python",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-direct-python"
+      },
+      "mode": "enforce",
+      "priority": 190,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "downgrade-only",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "config-downgrade-or-exact-capability",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-direct-python"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.mcp-secret-scan",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "mcp-secret-scan"
+      },
+      "mode": "enforce",
+      "priority": 200,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "mcp-secret-scan"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.block-project-memory-write",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-project-memory-write"
+      },
+      "mode": "enforce",
+      "priority": 210,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-project-memory-write"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.memory-write-principle-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "memory-write-principle-reminder"
+      },
+      "mode": "enforce",
+      "priority": 220,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "memory-write-principle-reminder"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.portable-paths-scan",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "portable-paths-scan"
+      },
+      "mode": "enforce",
+      "priority": 230,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "portable-paths-scan"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.bash.finish-line-record",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "finish-line-record"
+      },
+      "mode": "enforce",
+      "priority": 240,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "provider-input-replacement",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.mcp-secret-scan",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "mcp-secret-scan"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "mcp-secret-scan"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.block-project-memory-write",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-project-memory-write"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-project-memory-write"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.memory-write-principle-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "memory-write-principle-reminder"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "memory-write-principle-reminder"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.agent-scope-lock-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "agent-scope-lock-guard"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "git.agent-scope-lock",
+      "transformation": "block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "agent-scope-lock-guard"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.portable-paths-scan",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "portable-paths-scan"
+      },
+      "mode": "enforce",
+      "priority": 140,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "portable-paths-scan"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.pre-edit-intent-gate",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "pre-edit-intent-gate"
+      },
+      "mode": "enforce",
+      "priority": 150,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-docs.session",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "pre-edit-intent-gate"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.checkout-lease-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 160,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.finish-line-record",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "finish-line-record"
+      },
+      "mode": "enforce",
+      "priority": 170,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "provider-input-replacement",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.block-project-memory-write",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "block-project-memory-write"
+      },
+      "mode": "enforce",
+      "priority": 100,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "block-project-memory-write"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.memory-write-principle-reminder",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "memory-write-principle-reminder"
+      },
+      "mode": "enforce",
+      "priority": 110,
+      "failure_posture": "open",
+      "timeout_posture": "warn",
+      "override_class": "free",
+      "state_owner": "none",
+      "transformation": "additional-context",
+      "recovery": "config-or-exact-capability",
+      "docs": "core/policies/memory.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "memory-write-principle-reminder"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.agent-scope-lock-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "agent-scope-lock-guard"
+      },
+      "mode": "enforce",
+      "priority": 120,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "git.agent-scope-lock",
+      "transformation": "block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "agent-scope-lock-guard"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.pre-edit-intent-gate",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "pre-edit-intent-gate"
+      },
+      "mode": "enforce",
+      "priority": 130,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-docs.session",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/intent-cards.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "pre-edit-intent-gate"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.checkout-lease-guard",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "checkout-lease-guard"
+      },
+      "mode": "enforce",
+      "priority": 140,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-runtime.checkout-lease.v2",
+      "transformation": "context-block-stop-audit",
+      "recovery": "exact-capability-only",
+      "docs": "core/hooks/README.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "checkout-lease-guard"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.finish-line-record",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "finish-line-record"
+      },
+      "mode": "enforce",
+      "priority": 150,
+      "failure_posture": "closed",
+      "timeout_posture": "effect_gated",
+      "override_class": "locked",
+      "state_owner": "agent-runtime-validation",
+      "transformation": "provider-input-replacement",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/evidence-control-plane.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "coord.activity.prompt-stop",
+      "products": [
+        "codex",
+        "claude"
+      ],
+      "events": [
+        "UserPromptSubmit",
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.stop-failure.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "StopFailure"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/test_policy_contract.py::test_claude_stop_failure_activity_ingress_is_required",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.notification.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "Notification"
+      ],
+      "matcher": "agent_needs_input|idle_prompt",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/test_policy_contract.py::test_claude_notification_activity_ingress_is_required",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.permission-request.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PermissionRequest"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/test_policy_contract.py::test_claude_permission_request_activity_ingress_is_required",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.ask-user-question.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "AskUserQuestion",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/test_policy_contract.py::test_claude_ask_user_question_activity_ingress_is_required",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.post-tool.ask-user-question.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PostToolUse",
+        "PostToolUseFailure"
+      ],
+      "matcher": "AskUserQuestion",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/test_policy_contract.py::test_claude_ask_user_question_activity_ingress_is_required",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.activity.session-start",
+      "products": [
+        "codex",
+        "claude"
+      ],
+      "events": [
+        "SessionStart"
+      ],
+      "matcher": "startup|resume|clear",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.bash.activity",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.bash.semantic-conflict",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.bash.owner-liveness",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.owner-liveness.v1",
+        "reason_code": "foreign-writer-liveness",
+        "legacy_ttl_seconds": 300
+      },
+      "mode": "enforce",
+      "priority": 30,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.activity",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.semantic-conflict",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.owner-liveness",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "agent-session.owner-liveness.v1",
+        "reason_code": "foreign-writer-liveness",
+        "legacy_ttl_seconds": 300
+      },
+      "mode": "enforce",
+      "priority": 30,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.bash.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.bash.semantic-conflict",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.bash.owner-liveness",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.owner-liveness.v1",
+        "reason_code": "foreign-writer-liveness",
+        "legacy_ttl_seconds": 300
+      },
+      "mode": "enforce",
+      "priority": 30,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.write-edit-notebook-edit.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.write-edit-notebook-edit.semantic-conflict",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.write-edit-notebook-edit.owner-liveness",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "agent-session.owner-liveness.v1",
+        "reason_code": "foreign-writer-liveness",
+        "legacy_ttl_seconds": 300
+      },
+      "mode": "enforce",
+      "priority": 30,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.multi-edit.activity",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "agent-session.activity.v1",
+        "reason_code": "agent-activity"
+      },
+      "mode": "enforce",
+      "priority": 10,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "activity",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.multi-edit.semantic-conflict",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.multi-edit.owner-liveness",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "agent-session.owner-liveness.v1",
+        "reason_code": "foreign-writer-liveness",
+        "legacy_ttl_seconds": 300
+      },
+      "mode": "enforce",
+      "priority": 30,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.semantic-conflict.user-prompt-submit",
+      "products": [
+        "codex",
+        "claude"
+      ],
+      "events": [
+        "UserPromptSubmit"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "agent-session.semantic-conflict.v1",
+        "reason_code": "semantic-conflict"
+      },
+      "mode": "enforce",
+      "priority": 20,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.coordination",
+      "transformation": "admission",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/coordination-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.bash.transaction",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "admit-after-allow",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.transaction",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "admit-after-allow",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.codex.post-tool.transaction",
+      "products": [
+        "codex"
+      ],
+      "events": [
+        "PostToolUse",
+        "PostToolUseFailure"
+      ],
+      "matcher": "Bash|Write|Edit|NotebookEdit|apply_patch",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "complete-or-reconcile",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.bash.transaction",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Bash",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "admit-after-allow",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.write-edit-notebook-edit.transaction",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "Write|Edit|NotebookEdit",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "admit-after-allow",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.pre-tool-use.multi-edit.transaction",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "admit-after-allow",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.claude.post-tool.transaction",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PostToolUse",
+        "PostToolUseFailure"
+      ],
+      "matcher": "Bash|Write|Edit|NotebookEdit|MultiEdit",
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "complete-or-reconcile",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    },
+    {
+      "id": "coord.stop.transaction",
+      "products": [
+        "codex",
+        "claude"
+      ],
+      "events": [
+        "Stop"
+      ],
+      "matcher": null,
+      "capability": {
+        "id": "agent-session.coordination.v1",
+        "reason_code": "operation-lifecycle"
+      },
+      "mode": "enforce",
+      "priority": 900,
+      "failure_posture": "closed",
+      "timeout_posture": "closed",
+      "override_class": "locked",
+      "state_owner": "agent-session.work-context.v1",
+      "transformation": "reconcile",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/session-coordination.md",
+      "test_owner": "tests/agent-hook/fixtures/cutover-sequencing-cases.json",
+      "disposition": "added-coordination",
+      "legacy_handler": null
+    }
+  ]
+}

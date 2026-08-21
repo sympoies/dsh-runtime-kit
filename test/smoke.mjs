@@ -1,0 +1,1519 @@
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { spawnSync } from 'node:child_process'
+import { parse as parseYaml } from 'yaml'
+
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
+const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
+const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
+
+assert.notEqual(
+  process.env.DSH_SOURCE_ROOT,
+  undefined,
+  'set DSH_SOURCE_ROOT to a DeepSeek Harness source checkout',
+)
+assert.notEqual(
+  process.env.AGENT_HOOK_BIN,
+  undefined,
+  'set AGENT_HOOK_BIN to the nils-cli agent-hook binary under test',
+)
+assert.notEqual(
+  process.env.AGENT_DOCS_BIN,
+  undefined,
+  'set AGENT_DOCS_BIN to the nils-cli agent-docs binary under test',
+)
+
+const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
+assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
+assert.ok(manifest.files.includes('src'))
+assert.deepEqual(manifest.peerDependencies, {
+  '@deepseek-ai/cordis': '4.0.1',
+  '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-fs': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-llm': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
+})
+const nilsCompatibility = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
+)
+assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
+assert.equal(nilsCompatibility.status, 'released')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.27.0')
+assert.equal(nilsCompatibility.validated_release, '1.27.0')
+const dshIngressCompatibility = nilsCompatibility.commands.find(
+  command => command.id === 'agent-hook.dispatch.dsh',
+)
+assert.equal(dshIngressCompatibility?.status, 'released')
+assert.equal(dshIngressCompatibility?.validation, 'release-artifact-validated')
+assert.deepEqual(dshIngressCompatibility?.contracts, [
+  'agent-hook.dsh-ingress.v1',
+  'agent-hook.dsh-ingress.v2',
+  'agent-hook.dsh-ingress.v3',
+  'agent-hook.dsh-ingress.v4',
+  'agent-hook.policy.v1',
+  'dsh.policy.v1',
+  'cli.agent-hook.dispatch.v1',
+  'agent-hook.normalized-decision.v1',
+])
+const dshManifest = JSON.parse(readFileSync(join(dshRoot, 'package.json'), 'utf8'))
+assert.equal(dshManifest.name, '@deepseek-ai/dsh-root')
+assert.equal(dshManifest.version, '0.1.0-rc.7')
+
+const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
+const userHome = join(temporaryRoot, 'home')
+const dshHome = join(temporaryRoot, 'dsh-home')
+const codexHome = join(userHome, '.codex')
+const claudeHome = join(userHome, '.claude')
+const configHome = join(temporaryRoot, 'config')
+const stateHome = join(temporaryRoot, 'state')
+const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
+const agentHookRoot = join(runtimeRoot, 'agent-hook')
+const agentHookConfig = join(agentHookRoot, 'config.toml')
+const agentHookPolicy = join(agentHookRoot, 'policy.toml')
+const agentHookStateDir = join(agentHookRoot, 'state')
+const agentHookWrapper = join(temporaryRoot, 'agent-hook-isolation-wrapper')
+const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed')
+const agentDocsHome = join(runtimeRoot, 'agent-docs')
+const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
+const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
+const privateSkillsRoot = join(temporaryRoot, 'private-skills')
+const projectWorkspace = join(temporaryRoot, 'project')
+const profile = 'runtime-kit-smoke'
+const marker = 'DSH_RUNTIME_KIT_SMOKE='
+const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
+const validationCommand = 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
+const ordinaryCommand = "printf 'ordinary mutation\\n' > finish-line-native-mutation.txt"
+const managedWorktreeCommand = 'git-cli worktree add dsh-delivery-rehearsal --from main --format json'
+const unsafeDefaultCommand = 'git merge feat/dsh-delivery-rehearsal'
+const stageDeliveryCommand = 'git add --all'
+const privateIdentityPattern = new RegExp(
+  `\\b${'ter' + 'ry'}\\b|${'ter' + 'ry'}-ai-tech`,
+  'i',
+)
+
+function fixtureDigest(values) {
+  const hash = createHash('sha256')
+  for (const value of values) {
+    hash.update(String(Buffer.byteLength(value)))
+    hash.update('\0')
+    hash.update(value)
+    hash.update('\0')
+  }
+  return hash.digest('hex')
+}
+
+function providerSkillDocument(provider) {
+  return `---
+name: ${provider}-only
+description: >
+  Valid provider-only skill that DSH must never load.
+---
+
+# ${provider}-only
+
+${provider.toUpperCase()}_PROVIDER_SKILL_MUST_NOT_LOAD
+`
+}
+
+function stageProviderSentinel(root, provider) {
+  mkdirSync(join(root, 'hooks'), { recursive: true, mode: 0o700 })
+  mkdirSync(join(root, 'sessions'), { recursive: true, mode: 0o700 })
+  mkdirSync(join(root, 'skills', `${provider}-only`), { recursive: true, mode: 0o700 })
+  writeFileSync(
+    join(root, 'hooks', `${provider}-only.txt`),
+    `${provider}:hooks:must-not-load\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(root, 'sessions', `${provider}-only.txt`),
+    `${provider}:sessions:must-not-load\n`,
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(root, 'skills', `${provider}-only`, 'SKILL.md'),
+    providerSkillDocument(provider),
+    { mode: 0o600 },
+  )
+  writeFileSync(
+    join(root, provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'),
+    '# Provider-only runtime docs\n\nARK_PROVIDER_DOCS_MUST_NOT_LOAD\n',
+    { mode: 0o600 },
+  )
+}
+
+function assertProviderSentinel(root, provider) {
+  assert.deepEqual(
+    readdirSync(root).sort(),
+    [provider === 'codex' ? 'AGENTS.md' : 'CLAUDE.md', 'hooks', 'sessions', 'skills'],
+  )
+  for (const directory of ['hooks', 'skills', 'sessions']) {
+    assert.deepEqual(readdirSync(join(root, directory)), [
+      directory === 'skills' ? `${provider}-only` : `${provider}-only.txt`,
+    ])
+    if (directory === 'skills') {
+      assert.equal(
+        readFileSync(join(root, directory, `${provider}-only`, 'SKILL.md'), 'utf8'),
+        providerSkillDocument(provider),
+      )
+      continue
+    }
+    assert.equal(
+      readFileSync(join(root, directory, `${provider}-only.txt`), 'utf8'),
+      `${provider}:${directory}:must-not-load\n`,
+    )
+  }
+}
+
+stageProviderSentinel(codexHome, 'codex')
+stageProviderSentinel(claudeHome, 'claude')
+const providerSkillFixtureSha256 = fixtureDigest([
+  providerSkillDocument('codex'),
+  providerSkillDocument('claude'),
+])
+const providerSessionFixture = Object.freeze({
+  AGENT_SESSION_ID: 'codex-provider-session',
+  AGENT_SESSION_RUNTIME_ID: 'claude-provider-runtime',
+  AGENT_SESSION_BIN: join(codexHome, 'sessions', 'provider-agent-session'),
+  AGENT_SESSION_CAPABILITY_FILE: join(codexHome, 'sessions', 'provider-capability'),
+  AGENT_SESSION_STATE_DIR: join(claudeHome, 'sessions'),
+})
+const providerSessionFixtureSha256 = fixtureDigest(
+  Object.entries(providerSessionFixture).flatMap(([name, value]) => [name, value]),
+)
+let providerHookFixtureSha256
+const environment = {
+  ...process.env,
+  HOME: userHome,
+  CODEX_HOME: codexHome,
+  CLAUDE_CONFIG_DIR: claudeHome,
+  DSH_HOME: dshHome,
+  DSH_AGENTS_HOME: join(temporaryRoot, 'empty-agents-home'),
+  DSH_TELEMETRY_DISABLED: '1',
+  DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookWrapper,
+  DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+  DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
+  DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
+  DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-primary',
+  DSH_PERMISSION_MODE: 'workspace-write',
+  ...providerSessionFixture,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  PATH: `${dirname(agentHookBin)}:${process.env.PATH ?? ''}`,
+  XDG_CONFIG_HOME: configHome,
+  XDG_STATE_HOME: stateHome,
+}
+
+function installPolicy(action) {
+  const capability = action === 'block'
+    ? 'capability = { id = "decision.block.v1", reason_code = "plus-one-blocked", message = "blocked by the DSH smoke policy" }'
+    : 'capability = { id = "decision.allow.v1", reason_code = "plus-one-allowed" }'
+  const policy = `${readFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml'), 'utf8')}
+
+[[rules]]
+id = "dsh.plus-one"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "runtime_kit_plus_one"
+priority = 10
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+${capability}
+
+[[rules]]
+id = "dsh.runtime-context"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "runtime_context"
+priority = 20
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "decision.allow.v1", reason_code = "runtime-context-allowed" }
+`
+  const digest = `sha256:${createHash('sha256').update(policy).digest('hex')}`
+  mkdirSync(agentHookRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(agentHookStateDir, { recursive: true, mode: 0o700 })
+  mkdirSync(join(configHome, 'agent-hook'), { recursive: true, mode: 0o700 })
+  mkdirSync(stateHome, { recursive: true })
+  writeFileSync(agentHookPolicy, policy, { mode: 0o600 })
+  writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(agentHookPolicy)}
+digest = "${digest}"
+`, { mode: 0o600 })
+  const providerPolicy = `${policy}
+
+[[rules]]
+id = "ambient.provider-hook-must-not-load"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "runtime_kit_plus_one"
+priority = 1000
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "decision.block.v1", reason_code = "ambient-provider-hook-must-not-load", message = "ambient provider hook loaded" }
+`
+  const providerPolicyPath = join(configHome, 'agent-hook', 'provider-policy.toml')
+  const providerPolicyDigest = `sha256:${createHash('sha256').update(providerPolicy).digest('hex')}`
+  const providerConfig = `schema_version = "agent-hook.config.v1"
+
+[policy]
+path = ${JSON.stringify(providerPolicyPath)}
+digest = "${providerPolicyDigest}"
+`
+  writeFileSync(providerPolicyPath, providerPolicy, { mode: 0o600 })
+  writeFileSync(join(configHome, 'agent-hook', 'config.toml'), providerConfig, { mode: 0o600 })
+  providerHookFixtureSha256 = fixtureDigest([providerConfig, providerPolicy])
+  const wrapper = `#!/bin/sh
+if /usr/bin/env | /usr/bin/grep -q '^AGENT_SESSION_'; then
+  /usr/bin/printf '%s\\n' 'provider-session-env-observed' > ${JSON.stringify(providerSessionMarker)}
+  exit 91
+fi
+exec ${JSON.stringify(agentHookBin)} "$@"
+`
+  writeFileSync(agentHookWrapper, wrapper, { mode: 0o700 })
+  for (const path of [agentHookConfig, agentHookPolicy]) {
+    const metadata = statSync(path)
+    assert.equal(metadata.isFile(), true)
+    assert.equal(metadata.nlink, 1)
+    assert.equal(metadata.mode & 0o077, 0)
+  }
+}
+
+function installSkill(root, name, markerText) {
+  const directory = join(root, name)
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, 'SKILL.md'), `---
+name: ${name}
+description: >
+  Smoke fixture for ${name}.
+---
+
+# ${name}
+
+${markerText}
+`)
+}
+
+function cleanSmokeMutations() {
+  for (const name of [
+    '.dsh-validation-count',
+    'finish-line-edit.txt',
+    'finish-line-native-mutation.txt',
+    'finish-line-resumable-edit.txt',
+    'finish-line-resumed-edit.txt',
+    'reviewer-mutation-must-not-exist.txt',
+  ]) {
+    rmSync(join(projectWorkspace, name), { force: true })
+  }
+}
+
+function resetCheckoutLease() {
+  cleanSmokeMutations()
+  const reset = spawnSync('git', ['reset', '--hard', '--quiet', 'HEAD'], {
+    cwd: projectWorkspace,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 10_000,
+  })
+  assert.equal(reset.status, 0, reset.stderr)
+  rmSync(join(agentDocsStateHome, 'agent-hook', 'dsh-checkout-leases'), {
+    recursive: true,
+    force: true,
+  })
+}
+
+function runDsh(args, options = {}) {
+  const result = spawnSync(process.execPath, [
+    ownerLauncher,
+    '--runtime-root', runtimeRoot,
+    '--',
+    'pnpm', 'dsh', ...args,
+  ], {
+    cwd: dshRoot,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 120_000,
+    ...options,
+  })
+
+  assert.equal(
+    result.status,
+    0,
+    [
+      `dsh ${args.join(' ')} failed`,
+      result.error?.stack ?? '',
+      result.stdout,
+      result.stderr,
+    ].filter(Boolean).join('\n'),
+  )
+  return result
+}
+
+function collectFiles(directory, prefix = '') {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+    return entry.isDirectory()
+      ? collectFiles(join(directory, entry.name), relative)
+      : [relative]
+  })
+}
+
+try {
+  mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
+  mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
+  for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
+    writeFileSync(
+      join(agentDocsHome, name),
+      readFileSync(join(projectRoot, 'agent-docs', name)),
+      { mode: 0o600 },
+    )
+  }
+  mkdirSync(dshHome, { recursive: true, mode: 0o700 })
+  const forbiddenEnvironmentPath = join(dshHome, '.env')
+  writeFileSync(
+    forbiddenEnvironmentPath,
+    `DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG=${agentHookConfig}\n`,
+    { mode: 0o600 },
+  )
+  const forbiddenEnvironment = spawnSync(
+    'pnpm',
+    ['dsh', '--profile', 'headless', 'bootstrap environment rejection probe'],
+    {
+    cwd: dshRoot,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 120_000,
+    },
+  )
+  assert.notEqual(forbiddenEnvironment.status, 0)
+  assert.match(forbiddenEnvironment.stderr, /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u)
+  assert.match(forbiddenEnvironment.stderr, /export/u)
+  rmSync(forbiddenEnvironmentPath)
+
+  mkdirSync(projectWorkspace, { recursive: true })
+  const initializedProject = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], {
+    cwd: projectWorkspace,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 10_000,
+  })
+  assert.equal(initializedProject.status, 0, initializedProject.stderr)
+  mkdirSync(agentDocsStateHome, { recursive: true })
+  writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), `
+[[validation]]
+context = "project-dev"
+product = "dsh"
+commands = [${JSON.stringify(validationCommand)}]
+description = "packed rc.7 finish-line smoke"
+`)
+  installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
+  installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')
+  installSkill(privateSkillsRoot, 'topic-radar', 'private-topic-radar-marker')
+  installSkill(join(projectWorkspace, '.agents', 'skills'), 'bootstrap', 'project-bootstrap-marker')
+  installSkill(join(projectWorkspace, '.agents', 'skills'), 'project-only', 'project-only-marker')
+  for (const args of [
+    ['config', 'user.email', 'dsh-runtime-kit@example.invalid'],
+    ['config', 'user.name', 'DSH Runtime Kit Smoke'],
+    ['add', '--all'],
+    ['commit', '--quiet', '-m', 'test: establish clean smoke fixture'],
+  ]) {
+    const prepared = spawnSync('git', args, {
+      cwd: projectWorkspace,
+      env: environment,
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(prepared.status, 0, prepared.stderr)
+  }
+  const remoteRepository = join(temporaryRoot, 'origin.git')
+  const initializedRemote = spawnSync(
+    'git',
+    ['init', '--bare', '--quiet', '--initial-branch=main', remoteRepository],
+    { env: environment, encoding: 'utf8', timeout: 10_000 },
+  )
+  assert.equal(initializedRemote.status, 0, initializedRemote.stderr)
+  for (const args of [
+    ['remote', 'add', 'origin', remoteRepository],
+    ['push', '--quiet', '--set-upstream', 'origin', 'main'],
+    ['remote', 'set-head', 'origin', 'main'],
+  ]) {
+    const prepared = spawnSync('git', args, {
+      cwd: projectWorkspace,
+      env: environment,
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(prepared.status, 0, prepared.stderr)
+  }
+  const resolvedHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: projectWorkspace,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 10_000,
+  })
+  assert.equal(resolvedHead.status, 0, resolvedHead.stderr)
+  const deliveryHead = resolvedHead.stdout.trim()
+  assert.match(deliveryHead, /^[0-9a-f]{40,64}$/)
+  const shellQuote = value => `'${value.replaceAll("'", `'"'"'`)}'`
+  const governedDeliveryCommand = [
+    'semantic-commit default-branch',
+    `--expect-head ${deliveryHead}`,
+    '--dry-run --automation --format json',
+    `--repo ${shellQuote(projectWorkspace)}`,
+    `--message ${shellQuote('chore: rehearse governed delivery\\n\\nValidate the default-branch recovery contract.')}`,
+  ].join(' ')
+  installPolicy('allow')
+  const packed = spawnSync('npm', [
+    'pack',
+    '--json',
+    '--ignore-scripts',
+    '--pack-destination',
+    temporaryRoot,
+  ], {
+    cwd: projectRoot,
+    env: environment,
+    encoding: 'utf8',
+    timeout: 120_000,
+  })
+  assert.equal(packed.status, 0, `${packed.stdout}\n${packed.stderr}`)
+  const packReceipt = JSON.parse(packed.stdout)[0]
+  const packedFiles = new Set(packReceipt.files.map(file => file.path))
+  assert.equal(manifest.dependencies?.['agent-runtime-kit'], undefined)
+  const tarball = join(temporaryRoot, packReceipt.filename)
+  for (const required of [
+    'package.json',
+    'index.js',
+    'policy.js',
+    'bin/dsh-runtime-kit-launch.js',
+    'src/compat/dsh-rc7.js',
+    'src/context/index.js',
+    'src/context/nils-context.js',
+    'src/finish-line/index.js',
+    'src/finish-line/nils-client.js',
+    'src/policy/index.js',
+    'src/policy/nils-transport.js',
+    'src/review/index.js',
+    'agents/reviewers/reviewer-api-contract.md',
+    'agents/reviewers/reviewer-data-migration.md',
+    'agents/reviewers/reviewer-maintainability.md',
+    'agents/reviewers/reviewer-performance.md',
+    'agents/reviewers/reviewer-quick.md',
+    'agents/reviewers/reviewer-red-team.md',
+    'agents/reviewers/reviewer-security.md',
+    'agents/reviewers/reviewer-testing.md',
+    'agent-docs/AGENT_DOCS.toml',
+    'agent-docs/PROJECT_DEV_EDIT.md',
+    'cordis.patch.yml',
+    'compatibility/dsh.json',
+    'compatibility/nils-cli.json',
+    'scripts/benchmark-policy.mjs',
+    'scripts/check-dsh-compatibility.mjs',
+    'scripts/pack-dsh-compatibility-peers.mjs',
+    'scripts/stage-dsh-compatibility-peers.mjs',
+    'src/compat/contract.js',
+    'src/compat/git-checkout.js',
+    'src/compat/package-artifact.js',
+    'src/compat/performance.js',
+    'policy/dsh-runtime-kit-v1.toml',
+    'policy/rule-parity.yaml',
+    'policy/runtime-rule-parity.yaml',
+    'scripts/check-rule-parity-source.mjs',
+    'scripts/verify-policy-parity.mjs',
+    'docs/policies/git-delivery.md',
+    'docs/policies/review-thread-convergence.md',
+    'skills/bootstrap/SKILL.md',
+  ]) {
+    assert.ok(packedFiles.has(required), `packed artifact is missing ${required}`)
+  }
+  const packedText = relative => {
+    const extracted = spawnSync('tar', ['-xOf', tarball, `package/${relative}`], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(extracted.status, 0, `could not inspect packed ${relative}`)
+    return extracted.stdout
+  }
+  assert.equal(
+    parseYaml(packedText('policy/rule-parity.yaml')).schema_version,
+    'dsh-runtime-kit.rule-parity.v1',
+  )
+  assert.equal(
+    parseYaml(packedText('policy/runtime-rule-parity.yaml')).schema_version,
+    'dsh-runtime-kit.runtime-rule-parity.v1',
+  )
+  assert.match(packedText('scripts/check-rule-parity-source.mjs'), /policy\/rule-parity\.yaml/u)
+  assert.match(packedText('scripts/verify-policy-parity.mjs'), /policy\/runtime-rule-parity\.yaml/u)
+  const sourceSkillFiles = collectFiles(join(projectRoot, 'skills'))
+    .map(relative => `skills/${relative}`)
+    .sort()
+  const packedSkillFiles = [...packedFiles]
+    .filter(relative => relative.startsWith('skills/'))
+    .sort()
+  assert.deepEqual(packedSkillFiles, sourceSkillFiles)
+  const sourceReviewerFiles = collectFiles(join(projectRoot, 'agents', 'reviewers'))
+    .map(relative => `agents/reviewers/${relative}`)
+    .sort()
+  const packedReviewerFiles = [...packedFiles]
+    .filter(relative => relative.startsWith('agents/reviewers/'))
+    .sort()
+  assert.deepEqual(packedReviewerFiles, sourceReviewerFiles)
+
+  for (const relative of packedFiles) {
+    if (!/\.(?:js|json|md|mjs|py|sh|toml|ya?ml)$/.test(relative)) continue
+    const extracted = spawnSync('tar', ['-xOf', tarball, `package/${relative}`], {
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(extracted.status, 0, `could not inspect packed ${relative}`)
+    assert.doesNotMatch(extracted.stdout, privateIdentityPattern)
+  }
+  runDsh(['plugin', '--profile', profile, 'add', tarball])
+
+  const dump = runDsh(['--profile', profile, '--dump-config']).stdout
+  assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
+  assert.match(dump, /id: dsh-runtime-kit/)
+  assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
+  assert.doesNotMatch(dump, /agent-runtime-kit/u)
+  assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
+
+  const driverPath = join(temporaryRoot, 'smoke-driver.mjs')
+  const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
+  const sandboxRunnerPath = join(temporaryRoot, 'smoke-sandbox-runner.sh')
+  const llmModuleUrl = pathToFileURL(
+    join(dshRoot, 'packages', 'llm', 'llm', 'src', 'index.ts'),
+  ).href
+  const sessionModuleUrl = pathToFileURL(
+    join(dshRoot, 'packages', 'core', 'session', 'src', 'index.ts'),
+  ).href
+  writeFileSync(driverPath, `
+import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
+import { rmSync } from 'node:fs'
+
+export const name = 'dsh-runtime-kit-smoke-driver'
+export const inject = ['agents', 'llm', 'skills', 'tools', 'dshRuntimeKit']
+
+function toolCallResponse(name, value, suffix) {
+  const id = CallId('dsh-runtime-kit-smoke-' + suffix)
+  const args = JSON.stringify(value)
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+
+function textResponse(text) {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text },
+    { type: 'block-end', index: 0, block: { type: 'text', text } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: text.length } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+
+class SmokeAdapter extends LlmAdapter {
+  parentCalls = 0
+  reviewerCalls = 0
+  contextVisibility = []
+  providerContextVisibility = []
+  policyContextVisibility = []
+  resolveModel(provider, model) {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+  async *stream(options) {
+    const isReviewer = String(options.system ?? '')
+      .includes('read-only quick-pass reviewer')
+    if (isReviewer) {
+      const call = this.reviewerCalls++
+      const chunks = call === 0
+        ? toolCallResponse('write', {
+            file_path: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT
+              + '/reviewer-mutation-must-not-exist.txt',
+            content: 'reviewer mutation escaped',
+          }, 'reviewer-forbidden-write')
+        : toolCallResponse('structured_output', {
+            verdict: 'findings',
+            summary: 'reviewer completed after the denied mutation',
+            findings: [{
+              severity: 'medium',
+              confidence: 0.9,
+              path: 'test/smoke.mjs',
+              line: 1,
+              category: 'testing',
+              summary: 'The reviewer write attempt was denied.',
+              evidence: 'The scoped reviewer guard returned a pre-body tool error.',
+              recommendation: 'Keep the packed mutation-denial regression.',
+              fingerprint: 'testing:reviewer:mutation-denial',
+            }],
+          }, 'reviewer-structured-output')
+      for (const chunk of chunks) {
+        if (options.signal?.aborted) throw new Error('reviewer smoke adapter aborted')
+        yield chunk
+      }
+      return
+    }
+    const isAgentLoopRequest = options.tools?.some(tool => tool.name === 'runtime_context') === true
+    if (!isAgentLoopRequest) {
+      for (const chunk of textResponse('smoke title')) yield chunk
+      return
+    }
+    this.contextVisibility.push(JSON.stringify(options.messages).includes('# DSH project development'))
+    this.providerContextVisibility.push(JSON.stringify(options.messages).includes('ARK_PROVIDER_DOCS_MUST_NOT_LOAD'))
+    this.policyContextVisibility.push(JSON.stringify(options.messages).includes('skill-backed workflow'))
+    const call = this.parentCalls++
+    const sequence = process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
+      ? [
+          toolCallResponse('review_specialists', {
+            task: 'Inspect the packed smoke fixture without mutating it.',
+            roles: ['reviewer-quick'],
+          }, 'review-specialists-call'),
+          textResponse('review smoke done'),
+        ]
+      : [
+      toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call'),
+      toolCallResponse('write', {
+          file_path: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT
+            + (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
+              ? '/finish-line-resumed-edit.txt'
+              : process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID
+                ? '/finish-line-resumable-edit.txt'
+                : '/finish-line-edit.txt'),
+          content: 'committed edit',
+      }, 'finish-line-edit'),
+      toolCallResponse('bash', {
+        command: ${JSON.stringify(validationCommand)},
+        description: 'fail the declared validation once',
+      }, 'validation-failure'),
+      textResponse('attempt to stop before validation succeeds'),
+      toolCallResponse('bash', {
+        command: ${JSON.stringify(validationCommand)},
+        description: 'rerun the exact declared validation',
+      }, 'validation-success'),
+      toolCallResponse('bash', {
+        command: ${JSON.stringify(ordinaryCommand)},
+        description: 'mutate through an ordinary foreground shell',
+      }, 'ordinary-mutation'),
+      textResponse('attempt to stop after ordinary mutation'),
+      toolCallResponse('bash', {
+        command: ${JSON.stringify(validationCommand)},
+        description: 'revalidate after the ordinary mutation',
+      }, 'validation-after-ordinary'),
+      ]
+    if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1') {
+      sequence.push(
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(managedWorktreeCommand)},
+          description: 'create a managed feature worktree through git-cli',
+        }, 'managed-worktree'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after managed worktree creation',
+        }, 'validation-after-worktree'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(unsafeDefaultCommand)},
+          description: 'prove raw default-branch delivery stays blocked',
+        }, 'unsafe-default-delivery'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(stageDeliveryCommand)},
+          description: 'stage the smoke changes for governed preflight',
+        }, 'stage-delivery'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after staging',
+        }, 'validation-after-stage'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(governedDeliveryCommand)},
+          description: 'rehearse governed default-branch delivery without committing',
+        }, 'governed-delivery'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after governed delivery preflight',
+        }, 'validation-after-delivery'),
+      )
+    }
+    if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1') {
+      sequence.push(
+        toolCallResponse('runtime_kit_plus_one', { value: 41 }, 'plus-one-call'),
+        textResponse('done'),
+      )
+    }
+    const chunks = sequence[call] ?? textResponse('done')
+    for (const chunk of chunks) {
+      if (options.signal?.aborted) throw new Error('smoke adapter aborted')
+      yield chunk
+    }
+  }
+}
+
+export function apply(ctx) {
+  void (async () => {
+    try {
+      const skillOptions = { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT }
+      const skills = await ctx.skills.list(skillOptions)
+      const bootstrap = await ctx.skills.get('bootstrap', skillOptions)
+      const privateOnly = await ctx.skills.get('private-only', skillOptions)
+      const projectOnly = await ctx.skills.get('project-only', skillOptions)
+      const privateOverride = await ctx.skills.get('topic-radar', skillOptions)
+      const bundled = await ctx.skills.get('daily-brief', skillOptions)
+      process.stdout.write('${skillMarker}' + JSON.stringify({
+        count: skills.length,
+        names: skills.map(skill => skill.name),
+        bootstrapSource: bootstrap?.source,
+        bootstrapContent: bootstrap?.content,
+        privateSource: privateOnly?.source,
+        privateContent: privateOnly?.content,
+        projectSource: projectOnly?.source,
+        projectContent: projectOnly?.content,
+        privateOverrideSource: privateOverride?.source,
+        privateOverrideContent: privateOverride?.content,
+        bundledSource: bundled?.source,
+        bundledContent: bundled?.content,
+      }) + '\\n')
+
+      const targetId = process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID
+        ?? 'dsh-runtime-kit-smoke-' + process.pid
+      const lifecycle = []
+      let preExec
+      let postExec
+      let finalExec
+      let result
+      let contextResult
+      let editResult
+      let ordinaryResult
+      let managedWorktreeResult
+      let unsafeDefaultResult
+      let stageDeliveryResult
+      let governedDeliveryResult
+      let reviewResult
+      let reviewerChild
+      let reviewerMutationResult
+      const validationResults = []
+      const errors = []
+      ctx.on('agent/session-start', ({ agent, source }) => {
+        if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
+      })
+      ctx.on('agent/created', ({ agent }) => {
+        if (agent.session?.header?.parentSession === targetId) reviewerChild = agent
+      })
+      ctx.on('agent/pre-step', ({ agent, turn, step }, next) => {
+        if (String(agent.id) === targetId) lifecycle.push('pre-step:' + turn + ':' + step)
+        return next()
+      })
+      ctx.on('tools/pre-execute', (exec, next) => {
+        if (String(exec.agent?.id) !== targetId) return next()
+        lifecycle.push('pre-tool')
+        preExec = exec
+        if (exec.name === 'runtime_kit_plus_one'
+          && process.env.DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT === '1') {
+          return Promise.resolve({ kind: 'allow' })
+        }
+        return next()
+      }, { prepend: true })
+      ctx.on('tools/pre-execute', async (exec, next) => {
+        const decision = await next()
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS === '1') {
+          exec.arguments = { value: 99 }
+        }
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION === '1') {
+          const current = exec.agent.session
+          exec.agent.session = Session.create(SessionId(targetId), current.events, current.header)
+        }
+        if (exec.name === 'runtime_kit_plus_one'
+          && String(exec.agent?.id) === targetId
+          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN === '1') {
+          exec.token = Symbol('substituted-token')
+        }
+        return decision
+      })
+      ctx.on('tools/post-execute', (exec, _candidate, next) => {
+        if (String(exec.agent?.id) === targetId) {
+          lifecycle.push('post-tool')
+          postExec = exec
+        }
+        return next()
+      })
+      ctx.on('tools/result', (exec, finalResult) => {
+        if (reviewerChild !== undefined && exec.agent === reviewerChild && exec.name === 'write') {
+          reviewerMutationResult = finalResult
+        }
+        if (String(exec.agent?.id) === targetId) {
+          lifecycle.push('result')
+          if (exec.name === 'runtime_context') {
+            contextResult = finalResult
+          } else if (exec.name === 'write') {
+            editResult = finalResult
+          } else if (exec.name === 'bash') {
+            if (exec.arguments?.command === ${JSON.stringify(ordinaryCommand)}) {
+              ordinaryResult = finalResult
+            } else if (exec.arguments?.command === ${JSON.stringify(managedWorktreeCommand)}) {
+              managedWorktreeResult = finalResult
+            } else if (exec.arguments?.command === ${JSON.stringify(unsafeDefaultCommand)}) {
+              unsafeDefaultResult = finalResult
+            } else if (exec.arguments?.command === ${JSON.stringify(stageDeliveryCommand)}) {
+              stageDeliveryResult = finalResult
+            } else if (exec.arguments?.command === ${JSON.stringify(governedDeliveryCommand)}) {
+              governedDeliveryResult = finalResult
+            } else {
+              validationResults.push(finalResult)
+            }
+          } else if (exec.name === 'runtime_kit_plus_one') {
+            finalExec = exec
+            result = finalResult
+          } else if (exec.name === 'review_specialists') {
+            reviewResult = finalResult
+          }
+        }
+      })
+      ctx.on('agent/turn-stopping', ({ agent, turn }) => {
+        if (String(agent.id) === targetId) lifecycle.push('turn-stop:' + turn)
+      })
+      ctx.on('agent/error', ({ agent, turn, step, error }) => {
+        if (String(agent.id) === targetId) {
+          errors.push({ turn, step, message: String(error?.stack ?? error) })
+        }
+      })
+
+      const adapter = new SmokeAdapter()
+      ctx.llm.registerAdapter(['runtime-kit-smoke'], adapter)
+      rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/.dsh-validation-count', { force: true })
+      rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/finish-line-native-mutation.txt', { force: true })
+      rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/reviewer-mutation-must-not-exist.txt', { force: true })
+      const handle = process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
+        ? await ctx.agents.resume({
+          resumeSessionId: SessionId(targetId),
+          agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+        })
+        : await ctx.agents.create({
+          sessionId: SessionId(targetId),
+          agentOptions: { provider: 'runtime-kit-smoke', model: 'scripted' },
+          meta: { cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT },
+        })
+      const agent = handle.agent
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'review and run plus one' }],
+        source: { kind: 'user' },
+      }))
+      await agent.whenIdle()
+
+      process.stdout.write('${marker}' + JSON.stringify({
+        result,
+        contextResult,
+        editResult,
+        ordinaryResult,
+        managedWorktreeResult,
+        unsafeDefaultResult,
+        stageDeliveryResult,
+        governedDeliveryResult,
+        reviewResult,
+        reviewerMutationResult,
+        reviewerChildEvents: reviewerChild?.session.events.map(event => event.type),
+        reviewerChildLive: reviewerChild === undefined
+          ? undefined
+          : ctx.agents.get(reviewerChild.id) === reviewerChild,
+        reviewerCalls: adapter.reviewerCalls,
+        validationResults,
+        contextVisibility: adapter.contextVisibility,
+        providerContextVisibility: adapter.providerContextVisibility,
+        policyContextVisibility: adapter.policyContextVisibility,
+        lifecycle,
+        errors,
+        sessionEvents: agent.session.events.map(event => event.type),
+        exactCorrelation: preExec !== undefined
+          && postExec?.token === preExec.token
+          && finalExec?.token === preExec.token
+          && finalExec.callId === preExec.callId
+          && finalExec.rootCallId === preExec.rootCallId,
+        plusOneExecutions: ctx.dshRuntimeKit.plusOneExecutions,
+        activePolicyChecks: ctx.dshRuntimeKit.activePolicyChecks,
+        activeFinishLineRequests: ctx.dshRuntimeKit.activeFinishLineRequests,
+        activeFinishLineReservations: ctx.dshRuntimeKit.activeFinishLineReservations,
+        finishLineDegraded: ctx.dshRuntimeKit.finishLineDegraded,
+        pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
+        pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
+        providers: ctx.llm.listProviders().map(provider => provider.id),
+        tools: ctx.tools.schemas(agent).map(tool => tool.name),
+      }) + '\\n')
+      const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
+        if (reviewResult?.value?.status !== 'completed') process.exitCode = 1
+        if (reviewerMutationResult?.isError !== true) process.exitCode = 1
+      } else if (contextResult?.value?.documents?.[0]?.content?.includes('# DSH project development') !== true) {
+        process.exitCode = 1
+      }
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+        && expectation === 'allow' && result?.value !== 42) process.exitCode = 1
+      if (expectation === 'block' && !result?.isError) process.exitCode = 1
+    } catch (error) {
+      process.stderr.write(String(error?.stack ?? error) + '\\n')
+      process.exitCode = 1
+    } finally {
+      await ctx.root.fiber.dispose()
+    }
+  })()
+}
+`)
+  writeFileSync(sandboxRunnerPath, `#!/bin/sh
+while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
+if [ "$#" -eq 0 ]; then
+  printf 'dsh-runtime-kit-smoke-runner: missing separator\\n' >&2
+  exit 125
+fi
+shift
+exec "$@"
+`, { mode: 0o700 })
+  writeFileSync(overlayPath, `
+- id: sandbox
+  config:
+    runnerCommand:
+      - ${JSON.stringify(sandboxRunnerPath)}
+    runnerFailureSignatures:
+      - 'dsh-runtime-kit-smoke-runner:'
+- insert:
+    - id: dsh-runtime-kit-smoke-driver
+      name: ${JSON.stringify(driverPath)}
+`)
+
+  const boot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '1',
+      },
+    },
+  )
+  const line = boot.stdout.split('\n').find(candidate => candidate.startsWith(marker))
+  assert.ok(line, `missing ${marker} output:\n${boot.stdout}\n${boot.stderr}`)
+
+  const receipt = JSON.parse(line.slice(marker.length))
+  assert.ok(receipt.managedWorktreeResult, 'packed DSH must exercise the managed-worktree route')
+  const result = receipt.result
+  const contextResult = receipt.contextResult
+  const editResult = receipt.editResult
+  const ordinaryResult = receipt.ordinaryResult
+  const managedWorktreeResult = receipt.managedWorktreeResult
+  const unsafeDefaultResult = receipt.unsafeDefaultResult
+  const stageDeliveryResult = receipt.stageDeliveryResult
+  const governedDeliveryResult = receipt.governedDeliveryResult
+  const validationResults = receipt.validationResults
+  assert.equal(contextResult.isError, false)
+  assert.equal(contextResult.value.schema_version, 'dsh-runtime-context.result.v1')
+  assert.equal(contextResult.value.intent, 'project-dev')
+  assert.equal(contextResult.value.status, 'prepared')
+  assert.equal(contextResult.value.document_count, 1)
+  assert.match(contextResult.value.documents[0].content, /# DSH project development/)
+  assert.equal(receipt.contextVisibility[0], false)
+  assert.ok(receipt.contextVisibility.length >= 2)
+  assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
+  assert.ok(receipt.providerContextVisibility.every(value => value === false))
+  assert.equal(receipt.policyContextVisibility[0], true)
+  assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
+  assert.equal(validationResults.length, 6)
+  assert.ok(validationResults[0].value, JSON.stringify(validationResults[0]))
+  assert.notEqual(validationResults[0].value.exitCode, 0)
+  assert.equal(validationResults[1].value.exitCode, 0)
+  assert.equal(validationResults[2].value.exitCode, 0)
+  assert.equal(validationResults[3].value.exitCode, 0)
+  assert.equal(validationResults[4].value.exitCode, 0)
+  assert.equal(validationResults[5].value.exitCode, 0)
+  assert.equal(ordinaryResult.value.exitCode, 0)
+  assert.equal(ordinaryResult.value.kind, 'foreground')
+  assert.equal(managedWorktreeResult.isError, false, JSON.stringify(managedWorktreeResult))
+  assert.equal(managedWorktreeResult.value.exitCode, 0)
+  const managedWorktreeReceipt = JSON.parse(managedWorktreeResult.value.stdout.text.trim())
+  assert.equal(managedWorktreeReceipt.schema_version, 'cli.git-cli.worktree.add.v1')
+  assert.equal(managedWorktreeReceipt.ok, true)
+  assert.equal(managedWorktreeReceipt.data.slug, 'dsh-delivery-rehearsal')
+  assert.equal(managedWorktreeReceipt.data.branch, 'feat/dsh-delivery-rehearsal')
+  assert.equal(managedWorktreeReceipt.data.managed, undefined)
+  assert.equal(existsSync(managedWorktreeReceipt.data.path), true)
+  assert.equal(unsafeDefaultResult.isError, true, JSON.stringify(unsafeDefaultResult))
+  assert.match(unsafeDefaultResult.content[0].text, /block-unsafe-default-delivery/)
+  assert.equal(stageDeliveryResult.isError, false, JSON.stringify(stageDeliveryResult))
+  assert.equal(stageDeliveryResult.value.exitCode, 0)
+  assert.equal(governedDeliveryResult.isError, false, JSON.stringify(governedDeliveryResult))
+  assert.equal(governedDeliveryResult.value.exitCode, 0)
+  const governedDeliveryReceipts = governedDeliveryResult.value.stdout.text
+    .trim()
+    .split('\n')
+    .map(entry => JSON.parse(entry))
+  const governedDeliveryReceipt = governedDeliveryReceipts.find(
+    entry => entry.schema_version === 'cli.semantic-commit.default-branch.preview.v1',
+  )
+  assert.ok(governedDeliveryReceipt, JSON.stringify(governedDeliveryReceipts))
+  assert.equal(governedDeliveryReceipt.ok, true)
+  assert.equal(governedDeliveryReceipt.data.mode, 'default-branch')
+  assert.equal(governedDeliveryReceipt.data.head, deliveryHead)
+  assert.equal(governedDeliveryReceipt.data.completion.default_branch_committed, false)
+  assert.equal(governedDeliveryReceipt.data.completion.provider_delivery_attempted, false)
+  assert.equal(readFileSync(join(projectWorkspace, '.dsh-validation-count'), 'utf8'), 'validated')
+  assert.equal(
+    readFileSync(join(projectWorkspace, 'finish-line-native-mutation.txt'), 'utf8'),
+    'ordinary mutation\n',
+  )
+  assert.equal(result.isError, false)
+  assert.equal(result.value, 42)
+  assert.deepEqual(result.content, [{ type: 'text', text: '42' }])
+  assert.equal(receipt.plusOneExecutions, 1)
+  assert.equal(receipt.activePolicyChecks, 0)
+  assert.equal(receipt.activeFinishLineRequests, 0)
+  assert.equal(receipt.activeFinishLineReservations, 0)
+  assert.equal(receipt.finishLineDegraded, false)
+  assert.equal(receipt.pendingPolicyMarkers, 0)
+  assert.equal(receipt.pendingCorrelations, 0)
+  assert.equal(receipt.exactCorrelation, true)
+  for (const laneTool of [
+    'main_agent_worker_launch',
+    'main_agent_worker_interrupt',
+    'main_agent_lane_close',
+  ]) {
+    assert.ok(
+      receipt.tools.includes(laneTool),
+      `Main Agent Mode did not activate in real DSH: ${laneTool} is unregistered `
+        + `(tools: ${receipt.tools.join(', ')})`,
+    )
+  }
+  assert.equal(
+    [...receipt.providers, ...receipt.tools]
+      .some(name => /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i.test(name)),
+    false,
+  )
+  assert.deepEqual(receipt.lifecycle, [
+    'session-start:startup',
+    'pre-step:1:1',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:2',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:3',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:4',
+    'turn-stop:1',
+    'pre-step:1:5',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:6',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:7',
+    'turn-stop:1',
+    'pre-step:1:8',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:9',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:10',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:11',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:12',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:13',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:14',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:15',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:16',
+    'pre-tool',
+    'post-tool',
+    'result',
+    'pre-step:1:17',
+    'turn-stop:1',
+  ])
+
+  const skillLine = boot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
+  assert.ok(skillLine, `missing ${skillMarker} output:\n${boot.stdout}\n${boot.stderr}`)
+  const skillReceipt = JSON.parse(skillLine.slice(skillMarker.length))
+  assert.equal(skillReceipt.count, 31)
+  assert.equal(new Set(skillReceipt.names).size, 31)
+  assert.equal(skillReceipt.bootstrapSource, 'project-agents')
+  assert.match(skillReceipt.bootstrapContent, /project-bootstrap-marker/)
+  assert.equal(skillReceipt.privateSource, 'custom')
+  assert.match(skillReceipt.privateContent, /private-only-marker/)
+  assert.equal(skillReceipt.projectSource, 'project-agents')
+  assert.match(skillReceipt.projectContent, /project-only-marker/)
+  assert.equal(skillReceipt.privateOverrideSource, 'custom')
+  assert.match(skillReceipt.privateOverrideContent, /private-topic-radar-marker/)
+  assert.equal(skillReceipt.bundledSource, 'bundled')
+  assert.match(skillReceipt.bundledContent, /# Daily Brief/)
+  assert.equal(skillReceipt.names.includes('codex-only'), false)
+  assert.equal(skillReceipt.names.includes('claude-only'), false)
+  const providerSkillLoaded = skillReceipt.names.some(
+    name => name === 'codex-only' || name === 'claude-only',
+  ) || JSON.stringify(skillReceipt).includes('PROVIDER_SKILL_MUST_NOT_LOAD')
+  const providerHookLoaded = JSON.stringify(receipt).includes('ambient-provider-hook-must-not-load')
+  const providerSessionStateLoaded = existsSync(providerSessionMarker)
+  assert.equal(providerSkillLoaded, false)
+  assert.equal(providerHookLoaded, false)
+  assert.equal(providerSessionStateLoaded, false)
+  assert.match(providerSkillFixtureSha256, /^[0-9a-f]{64}$/u)
+  assert.match(providerHookFixtureSha256, /^[0-9a-f]{64}$/u)
+  assert.match(providerSessionFixtureSha256, /^[0-9a-f]{64}$/u)
+
+  resetCheckoutLease()
+  const reviewerBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-reviewer',
+        DSH_RUNTIME_KIT_SMOKE_REVIEWER: '1',
+      },
+    },
+  )
+  const reviewerLine = reviewerBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    reviewerLine,
+    `missing reviewer ${marker} output:\n${reviewerBoot.stdout}\n${reviewerBoot.stderr}`,
+  )
+  const reviewerReceipt = JSON.parse(reviewerLine.slice(marker.length))
+  assert.equal(reviewerReceipt.reviewResult.isError, false, JSON.stringify(reviewerReceipt))
+  assert.equal(
+    reviewerReceipt.reviewResult.value.schema_version,
+    'dsh-runtime-kit.review-specialists.result.v1',
+  )
+  assert.equal(reviewerReceipt.reviewResult.value.status, 'completed')
+  assert.deepEqual(reviewerReceipt.reviewResult.value.results.map(entry => entry.role), [
+    'reviewer-quick',
+  ])
+  assert.match(
+    reviewerReceipt.reviewResult.value.results[0].summary,
+    /reviewer completed after the denied mutation/,
+  )
+  assert.equal(reviewerReceipt.reviewResult.value.results[0].verdict, 'findings')
+  assert.equal(reviewerReceipt.reviewResult.value.results[0].finding_count, 1)
+  assert.equal(reviewerReceipt.reviewResult.value.red_team, 'not-run')
+  assert.match(reviewerReceipt.reviewResult.value.findings_jsonl, /"specialist":"quick"/)
+  const reviewerFindingsPath = join(temporaryRoot, 'reviewer-findings.jsonl')
+  writeFileSync(reviewerFindingsPath, reviewerReceipt.reviewResult.value.findings_jsonl)
+  const reviewSpecialistsBin = join(dirname(agentHookBin), 'review-specialists')
+  const reviewerValidation = spawnSync(
+    reviewSpecialistsBin,
+    ['validate', '--input', reviewerFindingsPath, '--format', 'json'],
+    { encoding: 'utf8', env: environment },
+  )
+  assert.equal(
+    reviewerValidation.status,
+    0,
+    `review-specialists validate failed:\n${reviewerValidation.stdout}\n${reviewerValidation.stderr}`,
+  )
+  assert.equal(JSON.parse(reviewerValidation.stdout).data.findings_count, 1)
+  assert.equal(reviewerReceipt.reviewerMutationResult.isError, true)
+  assert.match(
+    reviewerReceipt.reviewerMutationResult.content[0].text,
+    /read-only reviewer reviewer-quick cannot execute "write"/,
+  )
+  assert.equal(reviewerReceipt.reviewerCalls, 2)
+  assert.equal(reviewerReceipt.reviewerChildLive, false)
+  assert.ok(reviewerReceipt.reviewerChildEvents.includes('dsh-runtime-kit/reviewer'))
+  assert.ok(reviewerReceipt.reviewerChildEvents.includes('sandbox/mode'))
+  assert.equal(
+    existsSync(join(projectWorkspace, 'reviewer-mutation-must-not-exist.txt')),
+    false,
+  )
+
+  resetCheckoutLease()
+  const resumeSessionId = 'dsh-runtime-kit-smoke-resume'
+  const resumableBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    { env: { ...environment, DSH_RUNTIME_KIT_SMOKE_SESSION_ID: resumeSessionId } },
+  )
+  const resumableLine = resumableBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    resumableLine,
+    `missing resumable ${marker} output:\n${resumableBoot.stdout}\n${resumableBoot.stderr}`,
+  )
+  const resumableReceipt = JSON.parse(resumableLine.slice(marker.length))
+  assert.equal(resumableReceipt.result.value, 42)
+  assert.equal(resumableReceipt.editResult.isError, false, JSON.stringify(resumableReceipt))
+  assert.equal(resumableReceipt.finishLineDegraded, false)
+  assert.equal(resumableReceipt.lifecycle[0], 'session-start:startup')
+
+  const resumedBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: resumeSessionId,
+        DSH_RUNTIME_KIT_SMOKE_RESUME: '1',
+      },
+    },
+  )
+  const resumedLine = resumedBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    resumedLine,
+    `missing resumed ${marker} output:\n${resumedBoot.stdout}\n${resumedBoot.stderr}`,
+  )
+  const resumedReceipt = JSON.parse(resumedLine.slice(marker.length))
+  assert.equal(resumedReceipt.result.value, 42)
+  assert.equal(resumedReceipt.editResult.isError, false, JSON.stringify(resumedReceipt))
+  assert.equal(resumedReceipt.validationResults.length, 3)
+  assert.equal(resumedReceipt.activeFinishLineRequests, 0)
+  assert.equal(resumedReceipt.activeFinishLineReservations, 0)
+  assert.equal(resumedReceipt.finishLineDegraded, false)
+  assert.equal(resumedReceipt.lifecycle[0], 'session-start:resume')
+
+  resetCheckoutLease()
+  installPolicy('block')
+  const blockedBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-blocked',
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+      },
+    },
+  )
+  const blockedLine = blockedBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(blockedLine, `missing blocked ${marker} output:\n${blockedBoot.stdout}\n${blockedBoot.stderr}`)
+  const blockedReceipt = JSON.parse(blockedLine.slice(marker.length))
+  const blocked = blockedReceipt.result
+  assert.equal(blocked.isError, true)
+  assert.equal(blocked.value, undefined)
+  assert.match(blocked.content[0].text, /plus-one-blocked/)
+  assert.equal(blockedReceipt.plusOneExecutions, 0)
+  assert.equal(blockedReceipt.activePolicyChecks, 0)
+  assert.equal(blockedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(blockedReceipt.pendingCorrelations, 0)
+  assert.equal(blockedReceipt.exactCorrelation, true)
+
+  installPolicy('allow')
+  resetCheckoutLease()
+  const shortCircuitedBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-short-circuit',
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_SHORT_CIRCUIT: '1',
+      },
+    },
+  )
+  const shortCircuitedLine = shortCircuitedBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    shortCircuitedLine,
+    `missing short-circuit ${marker} output:\n${shortCircuitedBoot.stdout}\n${shortCircuitedBoot.stderr}`,
+  )
+  const shortCircuitedReceipt = JSON.parse(shortCircuitedLine.slice(marker.length))
+  assert.equal(shortCircuitedReceipt.result.isError, true)
+  assert.match(shortCircuitedReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.equal(shortCircuitedReceipt.plusOneExecutions, 0)
+  assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
+  assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(shortCircuitedReceipt.pendingCorrelations, 0)
+
+  resetCheckoutLease()
+  const replacedArgumentsBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-arguments',
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS: '1',
+      },
+    },
+  )
+  const replacedArgumentsLine = replacedArgumentsBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedArgumentsLine,
+    `missing argument-replacement ${marker} output:\n${replacedArgumentsBoot.stdout}\n${replacedArgumentsBoot.stderr}`,
+  )
+  const replacedArgumentsReceipt = JSON.parse(replacedArgumentsLine.slice(marker.length))
+  assert.equal(replacedArgumentsReceipt.result.isError, true)
+  assert.match(replacedArgumentsReceipt.result.content[0].text, /policy-marker-missing/)
+  assert.equal(replacedArgumentsReceipt.plusOneExecutions, 0)
+  assert.equal(replacedArgumentsReceipt.activePolicyChecks, 0)
+  assert.equal(replacedArgumentsReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedArgumentsReceipt.pendingCorrelations, 0)
+
+  resetCheckoutLease()
+  const replacedSessionBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-session',
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION: '1',
+      },
+    },
+  )
+  const replacedSessionLine = replacedSessionBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedSessionLine,
+    `missing session-replacement ${marker} output:\n${replacedSessionBoot.stdout}\n${replacedSessionBoot.stderr}`,
+  )
+  const replacedSessionReceipt = JSON.parse(replacedSessionLine.slice(marker.length))
+  assert.equal(replacedSessionReceipt.result.isError, true)
+  assert.match(replacedSessionReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.equal(replacedSessionReceipt.plusOneExecutions, 0)
+  assert.equal(replacedSessionReceipt.activePolicyChecks, 0)
+  assert.equal(replacedSessionReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedSessionReceipt.pendingCorrelations, 0)
+
+  resetCheckoutLease()
+  const replacedTokenBoot = runDsh(
+    ['--profile', profile, '--patch', overlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-token',
+        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
+        DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN: '1',
+      },
+    },
+  )
+  const replacedTokenLine = replacedTokenBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    replacedTokenLine,
+    `missing token-replacement ${marker} output:\n${replacedTokenBoot.stdout}\n${replacedTokenBoot.stderr}`,
+  )
+  const replacedTokenReceipt = JSON.parse(replacedTokenLine.slice(marker.length))
+  assert.equal(replacedTokenReceipt.result.isError, true)
+  assert.match(replacedTokenReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.equal(replacedTokenReceipt.plusOneExecutions, 0)
+  assert.equal(replacedTokenReceipt.activePolicyChecks, 0)
+  assert.equal(replacedTokenReceipt.pendingPolicyMarkers, 0)
+  assert.equal(replacedTokenReceipt.pendingCorrelations, 0)
+  assertProviderSentinel(codexHome, 'codex')
+  assertProviderSentinel(claudeHome, 'claude')
+
+  process.stdout.write(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
+    ok: true,
+    producer: 'packed-runtime',
+    scenarios: [
+      { id: 'edit', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:edit-generation-recorded'] },
+      { id: 'validate', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:exact-validation-executed'] },
+      { id: 'review', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:mutation-denied-before-body'] },
+      {
+        id: 'private-project-skill',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'skills:private-project-precedence',
+          'coexistence:no-cross-loaded-hooks-skills-session-state',
+          'coexistence:dsh-hook-docs-state-isolated',
+        ],
+        isolation: {
+          schema_version: 'dsh-runtime-kit.runtime-isolation.v1',
+          provider_skill_loaded: providerSkillLoaded,
+          provider_hook_loaded: providerHookLoaded,
+          provider_session_state_loaded: providerSessionStateLoaded,
+          provider_skill_fixture_sha256: providerSkillFixtureSha256,
+          provider_hook_fixture_sha256: providerHookFixtureSha256,
+          provider_session_fixture_sha256: providerSessionFixtureSha256,
+        },
+      },
+      { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
+      { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
+      { id: 'finish-line', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:result-driven-stop-satisfied'] },
+      { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: ['policy:blocked-before-body', 'policy:correlation-replacement-rejected'] },
+    ],
+    dshVersion: dshManifest.version,
+    dshProfile: profile,
+    tool: 'runtime_kit_plus_one',
+    input: 41,
+    output: result.value,
+    runtimeContextVerified: true,
+    startupContextAbsent: true,
+    policyBlockVerified: true,
+    shortCircuitGuardVerified: true,
+    argumentReplacementGuardVerified: true,
+    sessionReplacementGuardVerified: true,
+    tokenReplacementGuardVerified: true,
+    lifecycleCorrelationVerified: true,
+    cancellationAndDisposalVerified: true,
+    rejectedLifecycleAttemptsVerified: true,
+    providerRetirementVerified: true,
+    resultDrivenFinishLineVerified: true,
+    resumeFinishLineVerified: true,
+    managedWorktreeRehearsalVerified: true,
+    unsafeDefaultDeliveryBlocked: true,
+    governedDefaultDeliveryDryRunVerified: true,
+    nativeReviewSpecialistsVerified: true,
+    reviewerMutationBlockedBeforeBody: true,
+    externalProviderMutationAttempted: false,
+    nilsCompatibilityStatus: nilsCompatibility.status,
+    skillCount: skillReceipt.count,
+    skillPrecedenceVerified: true,
+  }) + '\n')
+} finally {
+  rmSync(temporaryRoot, { recursive: true, force: true })
+}

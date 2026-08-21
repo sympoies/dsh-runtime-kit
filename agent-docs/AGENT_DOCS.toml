@@ -1,0 +1,9 @@
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "PROJECT_DEV_EDIT.md"
+product = "dsh"
+phase = "edit"
+required = true
+when = "always"
+notes = "Compact DSH-native project development guidance"

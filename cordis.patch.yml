@@ -1,0 +1,30 @@
+- insert:
+    - id: dsh-runtime-kit
+      name: '@sympoies/dsh-runtime-kit'
+      config:
+        agentHook: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'
+        agentHookConfig: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
+        agentHookPolicy: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY
+        agentHookStateDir: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
+        agentDocs: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? 'agent-docs'
+        agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
+        agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
+        privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
+        contextMaxBytes: 20480
+        contextTimeoutMs: 5000
+        contextTeardownTimeoutMs: 2000
+        maxActiveContextRequests: 2
+        policyTimeoutMs: 5000
+        policyTeardownTimeoutMs: 2000
+        maxActivePolicyChecks: 4
+        finishLineTimeoutMs: 5000
+        finishLineTeardownTimeoutMs: 2000
+        maxActiveFinishLineRequests: 4
+        maxSameTurnFinishLineSteers: 2
+        maxActiveReviewers: 4
+        maxQueuedReviewers: 16
+        reviewerTaskMaxBytes: 32768
+        reviewerOutputMaxBytes: 65536
+        reviewerRedTeamContextMaxBytes: 131072
+        reviewerTimeoutMs: 600000
+        reviewerMaxDepth: 2

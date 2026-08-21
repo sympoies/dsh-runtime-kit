@@ -1,0 +1,262 @@
+# DSH Runtime Kit Migration Implementation Handoff
+
+## Document control
+
+- Status: approved and implementation-ready
+- Date: 2026-08-18
+- Source: maintainer requirements, local source inspection, and an executed
+  DeepSeek Harness acceptance probe
+- Target repositories: `sympoies/dsh-runtime-kit` and `sympoies/nils-cli`
+- Intended next step: execute the linked L3 dispatch plan through phased PRs
+- Open architecture questions: none
+
+## Purpose
+
+Add an out-of-tree, public DeepSeek Harness runtime alongside the existing
+provider runtimes. DSH uses `dsh-runtime-kit` plus nils-cli; Codex and Claude
+Code continue to use `agent-runtime-kit` plus nils-cli. The finished system must
+not fork DeepSeek Harness, must keep each runtime's hooks, skills, sessions, and
+configuration isolated, and must not make DSH depend on `agent-runtime-kit`.
+
+## Confirmed facts
+
+- DeepSeek Harness `0.1.0-rc.7` supports out-of-tree bundles through
+  `package.json` bundle metadata and a Cordis patch.
+- Its public lifecycle includes `agent/session-start`, `agent/pre-step`,
+  `tools/pre-execute`, `tools/post-execute`, `tools/result`, and
+  `agent/turn-stopping`.
+- Its public skill filesystem provider discovers project roots at
+  `<git-root>/.dsh/skills` and `<git-root>/.agents/skills` and accepts isolated
+  custom and bundled roots.
+- A packaged `@sympoies/dsh-runtime-kit` prototype has been installed into a
+  clean DSH profile and booted without modifying the upstream checkout.
+- The probe executed a DSH-native `runtime_kit_plus_one` tool (`41 -> 42`),
+  proved a nils-cli policy block ran before the tool body, and proved project,
+  private, and bundled skill precedence through DSH's standard filesystem
+  provider.
+- The legacy runtime exposes 29 public skills, eight reviewer personas, 101
+  policy rules, 69 handler-capability registrations across 22 handler IDs, and
+  a declared 67-registration/21-handler legacy provider subset. Some
+  registrations are provider duplicates or provider-specific compatibility;
+  final parity is behavior- and invariant-based, not a requirement to retain
+  obsolete provider names or Python processes.
+- nils-cli owns the deterministic `agent-hook` policy engine and the
+  workflow/domain CLIs used by the skills. Release `v1.27.0` publishes the
+  strict DSH ingress, native allow/block response seam, finish-line, and DSH
+  external-runtime capabilities.
+- The public package must contain no private skill name, body, personal topic
+  profile, absolute private path, or private telemetry. Private support is a
+  runtime loader only.
+
+## Decisions
+
+1. `dsh-runtime-kit` is a public package and DSH bundle in the `sympoies`
+   organization. It is not a DeepSeek Harness fork.
+2. Upstream DSH source and installed packages are never patched in place.
+   Compatibility code is isolated behind a narrow adapter and tested against
+   supported upstream versions.
+3. DeepSeek Harness owns the agent loop, tool pipeline, sessions, approvals,
+   sandbox, skill registry, and subagent runtime.
+4. `dsh-runtime-kit` owns bundle composition, lifecycle wiring, public/private
+   skill providers, compact runtime context, reviewer selection, diagnostics,
+   and DSH-to-nils transport.
+5. nils-cli owns deterministic policy, state machines, command classification,
+   finish-line accounting, coordination, setup diagnostics, and durable
+   workflow primitives.
+6. Final DSH production policy must not call `agent-runtime-kit` Python
+   handlers. Each DSH behavior is implemented as a typed nils-cli capability or
+   a DSH lifecycle adapter over that capability. Codex and Claude Code retain
+   their supported `agent-runtime-kit` runtime paths.
+7. Project skills use DSH's native provider. An optional private root is
+   loaded at runtime after ownership, mode, ancestor, containment, and symlink
+   checks. Project wins over private; private wins over bundled public.
+8. Reviewers are exposed as one `review_specialists` tool selecting one or
+   more of eight server-side personas. Reviewer mutation denial is enforced by
+   exact runtime identity and a monotonic guard, not prompt text or tool
+   filtering alone.
+9. Large delivery is one shared dispatch outcome with independently reviewed
+   PR lanes. DSH repository lanes target the plan branch; the nils-cli lane is
+   a linked cross-repository dependency PR targeting nils-cli `main`.
+10. `agent-runtime-kit` remains active for Codex and Claude Code. DSH activation
+    is an additive, reversible profile change and may not disable, rewrite, or
+    archive the existing provider wiring.
+
+## Scope
+
+- Public DSH bundle, package, lifecycle plugins, policy adapter, diagnostics,
+  compatibility boundary, and release assets.
+- All 29 public skills and their resource closure.
+- Project and private skill discovery with explicit precedence and trust.
+- Strict DSH ingress and response contracts in nils-cli.
+- Session start, pre-step, pre-tool, post-tool, result, and turn-stop behavior.
+- Runtime context preparation and selective agent-docs disclosure.
+- Behavior parity for all active legacy guards, reminders, coordination,
+  validation, finish-line, secret, memory, Git, delivery, and scope policies.
+- One reviewer tool, eight personas, parallel reviewer execution, red-team
+  routing, and read-only authority.
+- Setup, doctor, update, rollback, compatibility testing, and reversible local
+  DSH-profile activation.
+- Final coexistence audit proving DSH has zero `agent-runtime-kit` dependency
+  while Codex and Claude Code wiring remains unchanged.
+
+## Non-scope
+
+- Forking DeepSeek Harness or copying its standard preset.
+- Changing or retiring Codex, Claude Code, or Hermes runtime support.
+- Publishing private skills or personal profiles.
+- Reimplementing nils-cli workflow commands in TypeScript.
+- Preserving provider-specific duplicate registration counts when one typed DSH
+  event implements the same invariant.
+- Deleting historical issues, plans, commits, or audit evidence from the old
+  repository.
+
+## Implementation boundaries
+
+```text
+DSH typed lifecycle event
+  -> dsh-runtime-kit bounded adapter
+  -> nils-cli agent-hook typed request
+  -> deterministic capability/state evaluation
+  -> typed DSH allow/deny/context/continuation decision
+```
+
+- No shell interpolation is used to start nils-cli.
+- Requests, responses, stderr, time, child count, and retained output are
+  bounded. Caller cancellation terminates owned child work.
+- Missing binary, timeout, malformed response, request replay, policy drift,
+  target spoofing, or effect ambiguity fails closed whenever mutation is
+  possible.
+- DSH's `ToolExecution.token` and monotonic guard are used so a later plugin
+  cannot reverse an authoritative denial.
+- Nils-supervised foreground Bash execution and nils-observed results replace
+  the legacy shell `EXIT` trap and caller-reported validation accounting.
+- Ordinary foreground Bash advances repository generation without validation
+  evidence; background Bash and unsupported authoritative-execution hosts fail
+  closed.
+- Observed execution requires exactly one non-null `exitCode`/`signal`, a
+  canonical `NodeJS.Signals` value for any signal, and mutually exclusive
+  timeout/abort flags. An impossible combination invalidates the
+  execution-bearing response and enters authenticated private quiesce before
+  failure returns.
+- Contained runner configuration is sealed in-memory and delivered with the
+  exact runner inode through systemd descriptors; a trusted ELF interpreter and
+  pidfd supervisor watch prevent path substitution and orphaned execution.
+- Every failed execution-bearing run, whether from transport, unexpected
+  agent-hook exit or signal, response validation, cancellation, deadline, or
+  disposal, must await private nils quiesce before returning its error.
+  Uncertain exact-unit cleanup degrades
+  future finish-line admission closed.
+- Session state and finish-line records use opaque session identities and do
+  not retain prompts, raw tool output, or credentials.
+
+## Requirements
+
+- Install, boot, update, remove, and rollback without editing the DSH checkout.
+- Load exactly the expected 29 bundled skills and every declared resource.
+- Support absent and present private roots, malformed entries, collisions,
+  project overrides, and restart/revalidation behavior.
+- Cover every legacy handler and rule with a parity row that is implemented,
+  replaced by stronger DSH-native behavior, or explicitly retired as
+  provider-obsolete with evidence.
+- Enforce edit intent, checkout ownership, semantic conflict, owner liveness,
+  direct Git/PR/worktree restrictions, semantic commit requirements, secret
+  scans, portable paths, memory boundaries, agent scope, operation lifecycle,
+  validation recording, and finish-line stopping.
+- Prepare only requested agent-docs intents and return bounded required context.
+- Require explicit DSH-only agent-hook config/policy/state and agent-docs
+  catalog/state paths. Copy the packaged sources into owner-only activation
+  roots; never fall back to ambient Codex, Claude Code, or XDG configuration.
+- Select and execute all eight reviewer personas while denying reviewer
+  mutation independently of model compliance.
+- Keep deterministic workflow commands in nils-cli and expose them through
+  skills rather than copying their mechanics into the harness.
+- Prove supported DSH versions in CI and surface a typed incompatibility when a
+  breaking upstream change is detected.
+- Keep Codex and Claude Code `agent-runtime-kit` installation, sync, policy,
+  skill, reviewer, and workflow wiring unchanged while ensuring the DSH profile
+  cannot resolve those hooks, skills, or session state.
+- Activate only DSH's native `headless` profile. Private loading remains
+  optional and never auto-enrolls an existing provider bundle.
+
+## Acceptance criteria
+
+- A clean machine/profile can install the public package and complete real DSH
+  sessions for bootstrap, inspect, edit, validation, review, private/project
+  skill use, semantic commit, and PR delivery.
+- The policy parity matrix has no `pending` active behavior.
+- Finish-line E2E proves edit -> failed validation -> blocked stop -> successful
+  validation -> allowed stop -> ordinary mutation -> blocked stop -> exact
+  revalidation -> allowed stop.
+- Failed execution-bearing runs prove private quiesce prevents late mutation
+  before transport, agent-hook exit/signal, response-validation, cancellation,
+  deadline, or disposal failure settles.
+- Eight of eight reviewer personas are selectable; attempted reviewer mutation
+  is blocked before the tool body.
+- The upstream DSH checkout remains clean in every compatibility run.
+- Security, API-contract, testing, maintainability, performance, and red-team
+  review gates have no unresolved blocking finding.
+- A DSH-profile audit returns zero runtime dependency on `agent-runtime-kit`;
+  Codex and Claude Code still resolve `agent-runtime-kit` plus nils-cli, and
+  their hook, skill, and session-state sentinels remain byte-for-byte unchanged.
+- Live acceptance proves every DSH dispatch, finish-line, doctor, and context
+  call resolves the explicit DSH-only hook/docs roots and rejects ambient
+  provider fallback.
+
+## Validation plan
+
+- Unit and contract tests for every adapter, capability, trust boundary, and
+  response branch.
+- Real packed-bundle DSH smoke on the pinned release and an upstream
+  compatibility lane.
+- nils-cli focused tests, formatting, clippy, docs, and local-fast gate.
+- Full skill catalog/resource/precedence/private-content package audit.
+- Legacy parity fixtures plus DSH-native lifecycle integration tests.
+- Performance measurement for pre-tool policy p95 and repeated-call process,
+  parse, and binary-resolution cost.
+- Managed reviewer and finish-line E2E sessions.
+- Install/update/remove/rollback and final coexistence/isolation audits.
+
+## Risks and guardrails
+
+- DSH is pre-1.0 and can break public APIs. Keep imports in one compatibility
+  layer, pin a tested range, and fail with a typed diagnostic outside it.
+- Per-tool subprocess startup can become a hot-path cost. Measure it before
+  cutover and move to a bounded persistent sidecar only if the agreed p95
+  budget cannot be met safely.
+- Cross-repository changes can drift. The nils-cli PR lands and releases before
+  DSH policy code raises its minimum compatible version.
+- Private skills are executable instruction authority. Reject unsafe roots and
+  never watch a trusted root without equivalent revalidation.
+- A compatibility migration must not weaken policy. Unknown parity remains a
+  blocker, not an implicit allow.
+
+## Read first
+
+- `README.md`
+- `docs/architecture.md`
+- `docs/private-skills.md`
+- nils-cli `crates/agent-hook/docs/specs/agent-hook-v1.md`
+- DeepSeek Harness `packages/core/tools/README.md`
+- DeepSeek Harness `packages/core/agent/README.md`
+- DeepSeek Harness `packages/skill/skill-filesystem/README.md`
+
+## Execution
+
+Recommended plan: docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-plan.md
+
+Recommended execution state: docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md
+
+Retention intent: keep this source and the final plan as historical migration
+evidence after closeout; promote only stable operational contracts into normal
+repository documentation.
+
+## Task 3.4 implementation resolution
+
+The implementation resolves the earlier coordination question without adding a
+DSH fork or a second policy engine. DSH emits strict pre/post/lifecycle ingress;
+nils owns activity normalization and delegates operation authority to the
+same-release `agent-session` show/admit/complete contract. Only exact target and
+lease facts persist in private bounded state. Managed uncertainty blocks Stop,
+fully unmanaged use is explicit, and partial identity fails closed. Production
+still contains no legacy handler execution path; Task 3.5 now proves and freezes
+that removal across every active parity row.

@@ -1,0 +1,187 @@
+{
+  "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
+  "status": "released",
+  "minimum_supported_release": "1.27.0",
+  "validated_release": "1.27.0",
+  "release": {
+    "source_revision": "v1.27.0",
+    "source_commit": "cf997a39ef64127c6b925a3cba0294760b8d31b6",
+    "platform": "x86_64-unknown-linux-gnu",
+    "archive": {
+      "name": "nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "192f2e9b0225d730ff870f16654d9cec99a70ccec8dafe3199ea35a8672d421c"
+    },
+    "artifacts": {
+      "agent-hook": {
+        "sha256": "123de15f8ee21f98722b7cbc457726da5e2fd38479a4dff060839251052bd68d"
+      },
+      "agent-docs": {
+        "sha256": "6ada95412c092e520ce0d0bb8247545dad443ec3e59ef21b7d6af047d61079c2"
+      },
+      "forge-cli": {
+        "sha256": "4c6365a7c88d7fbe8fb1c242c2fb7016926f166bc72633694fe244ad85aeb6f9"
+      },
+      "git-cli": {
+        "sha256": "0df55358c9bab60d1db0586bd465081d84e9f02942c4d2712c11761f052d91f0"
+      },
+      "review-specialists": {
+        "sha256": "eff050352341b62ff37d00965090556249af79050a89c85123456c458bfe94a8"
+      },
+      "semantic-commit": {
+        "sha256": "f2a0ca47f8d034832fff9c0e5847c7b138fde822e5e6fb96c16512eefdc0224a"
+      }
+    }
+  },
+  "commands": [
+    {
+      "id": "agent-hook.dispatch.dsh",
+      "binary": "agent-hook",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "agent-hook.dsh-ingress.v1",
+        "agent-hook.dsh-ingress.v2",
+        "agent-hook.dsh-ingress.v3",
+        "agent-hook.dsh-ingress.v4",
+        "agent-hook.policy.v1",
+        "dsh.policy.v1",
+        "cli.agent-hook.dispatch.v1",
+        "agent-hook.normalized-decision.v1"
+      ],
+      "source_tasks": [
+        "sympoies/nils-cli task 1.3",
+        "sympoies/nils-cli task 3.2",
+        "sympoies/nils-cli task 3.3",
+        "sympoies/nils-cli task 3.4"
+      ]
+    },
+    {
+      "id": "agent-docs.session.context.dsh",
+      "binary": "agent-docs",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "cli.agent-docs.session.context.v1",
+        "decision.context.v1",
+        "agent-docs.session.v2"
+      ],
+      "source_task": "sympoies/nils-cli task 2.2"
+    },
+    {
+      "id": "agent-hook.finish-line.dsh",
+      "binary": "agent-hook",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "agent-hook.finish-line.open.v1",
+        "cli.agent-hook.finish-line-open.v1",
+        "agent-hook.finish-line.open-result.v1",
+        "agent-hook.finish-line.begin.v1",
+        "cli.agent-hook.finish-line-begin.v1",
+        "agent-hook.finish-line.begin-result.v1",
+        "agent-hook.finish-line.run.v1",
+        "cli.agent-hook.finish-line-run.v1",
+        "agent-hook.finish-line.run-result.v1",
+        "agent-hook.finish-line.stop.v1",
+        "cli.agent-hook.finish-line-stop.v1",
+        "agent-hook.finish-line.stop-result.v1",
+        "agent-hook.finish-line.quiesce.v1",
+        "cli.agent-hook.finish-line-quiesce.v1",
+        "agent-hook.finish-line.quiesce-result.v1",
+        "agent-hook.finish-line.release.v1",
+        "cli.agent-hook.finish-line-release.v1",
+        "agent-hook.finish-line.release-result.v1"
+      ],
+      "source_task": "sympoies/nils-cli task 2.3"
+    },
+    {
+      "id": "main-agent.dsh-external-runtime",
+      "binary": "main-agent",
+      "status": "released",
+      "validation": "release-bundle-validated",
+      "contracts": [
+        "main-agent.capabilities.v1",
+        "main-agent.worker-start-result.v1",
+        "main-agent.external-launch.v1",
+        "main-agent.dsh-runtime-liveness.v1"
+      ],
+      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
+    },
+    {
+      "id": "agent-session.broker-heartbeat",
+      "binary": "agent-session",
+      "status": "released",
+      "validation": "release-bundle-validated",
+      "contracts": [
+        "per-lane broker heartbeat and stop argv from main-agent.external-launch.v1"
+      ],
+      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
+    },
+    {
+      "id": "forge-cli.pr-deliver",
+      "binary": "forge-cli",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "pr delivery lifecycle",
+        "head-bound evidence and review convergence"
+      ]
+    },
+    {
+      "id": "git-cli.worktree",
+      "binary": "git-cli",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "managed worktree lifecycle",
+        "checkout lease guard"
+      ]
+    },
+    {
+      "id": "semantic-commit.create",
+      "binary": "semantic-commit",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "signed semantic commit"
+      ]
+    },
+    {
+      "id": "test-first-evidence.v2",
+      "binary": "test-first-evidence",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "test-first evidence record",
+        "delivery head binding"
+      ]
+    },
+    {
+      "id": "plan-issue.tracking",
+      "binary": "plan-issue",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "plan issue tracking and closeout"
+      ]
+    },
+    {
+      "id": "plan-tooling.ledger",
+      "binary": "plan-tooling",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "dispatch lane ledger"
+      ]
+    },
+    {
+      "id": "agent-run.project-script",
+      "binary": "agent-run",
+      "status": "released",
+      "validation": "skill-declared",
+      "contracts": [
+        "repository-owned script dispatch"
+      ]
+    }
+  ]
+}
