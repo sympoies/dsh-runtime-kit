@@ -1817,14 +1817,57 @@ function settleSupervisorGroup(pgid) {
   return { supported: true, found, quiescent: true }
 }
 
+/** @param {unknown} raw */
+function supervisorControlBody(raw) {
+  if (typeof raw === 'string') return raw
+  if (Buffer.isBuffer(raw) || raw instanceof Uint8Array) return Buffer.from(raw).toString('utf8')
+  return ''
+}
+
+/** @param {unknown} raw */
+function supervisorControl(raw) {
+  const body = supervisorControlBody(raw)
+  const lines = body.trim().split('\n').filter(Boolean)
+  if (lines.length < 1 || lines.length > 2) throw new Error('invalid supervisor control rows')
+  const records = lines.map(line => JSON.parse(line))
+  if (lines.length === 1) return { pgid: undefined, control: records[0] }
+  const started = records[0]
+  if (!plainRecord(started)
+    || Object.keys(started).sort().join(',') !== 'kind,pgid'
+    || started.kind !== 'started'
+    || typeof started.pgid !== 'number'
+    || !Number.isSafeInteger(started.pgid)
+    || started.pgid < 1) {
+    throw new Error('invalid supervisor process group')
+  }
+  return { pgid: /** @type {number} */ (started.pgid), control: records[1] }
+}
+
+/** @param {unknown} raw */
+function supervisorPgid(raw) {
+  try {
+    const body = supervisorControlBody(raw)
+    const first = JSON.parse(body.split('\n', 1)[0] ?? '')
+    return plainRecord(first)
+      && Object.keys(first).sort().join(',') === 'kind,pgid'
+      && first.kind === 'started'
+      && typeof first.pgid === 'number'
+      && Number.isSafeInteger(first.pgid)
+      && first.pgid > 0
+      ? /** @type {number} */ (first.pgid)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** @param {string} bin @param {string[]} args @param {string} home @param {{cwd?:string,extraEnv?:Record<string,string>,timeoutMs?:number}} [options] */
 function spawn(bin, args, home, options = {}) {
   const timeoutMs = commandTimeout(options.timeoutMs ?? HEALTH_COMMAND_TIMEOUT_MS)
   if (process.platform === 'win32') {
-    throw new OperationsError('command-containment-unavailable', 'operations command containment requires POSIX setsid', 70)
+    throw new OperationsError('command-containment-unavailable', 'operations command containment requires POSIX process groups', 70)
   }
-  const setsidBin = resolveExecutable('setsid')
-  const result = spawnSync(setsidBin, [process.execPath, COMMAND_SUPERVISOR, bin, ...args], {
+  const result = spawnSync(process.execPath, [COMMAND_SUPERVISOR, bin, ...args], {
     encoding: 'utf8',
     env: minimalEnvironment(home, {
       ...options.extraEnv,
@@ -1837,7 +1880,14 @@ function spawn(bin, args, home, options = {}) {
     timeout: timeoutMs + SUPERVISOR_SETTLEMENT_MS,
     killSignal: 'SIGKILL',
   })
-  const settlement = settleSupervisorGroup(result.pid)
+  const rawControl = result.output[3]
+  let envelope
+  try { envelope = supervisorControl(rawControl) } catch {}
+  const pgid = envelope?.pgid ?? supervisorPgid(rawControl)
+  const noChild = envelope?.pgid === undefined && envelope?.control?.kind === 'spawn-error'
+  const settlement = noChild
+    ? { supported: true, found: false, quiescent: true }
+    : settleSupervisorGroup(pgid)
   if (result.error !== undefined) {
     if (/** @type {NodeJS.ErrnoException} */ (result.error).code === 'ETIMEDOUT') {
       if (!settlement.quiescent) {
@@ -1859,8 +1909,8 @@ function spawn(bin, args, home, options = {}) {
   }
   let control
   try {
-    const raw = result.output[3]
-    control = JSON.parse(typeof raw === 'string' ? raw : Buffer.from(raw ?? []).toString('utf8'))
+    if (envelope === undefined) throw new Error('invalid supervisor result')
+    control = envelope.control
   } catch {
     if (!settlement.quiescent) {
       throw new OperationsError('command-quiescence-unknown', `${basename(bin)} process group did not become quiescent`, 70)
