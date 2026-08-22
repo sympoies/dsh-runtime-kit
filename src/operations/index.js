@@ -62,6 +62,12 @@ const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
 const MIN_COMMAND_TIMEOUT_MS = 100
 const COMMAND_SUPERVISOR = fileURLToPath(new URL('./supervise-command.mjs', import.meta.url))
+const NILS_COMPATIBILITY = JSON.parse(readFileSync(
+  fileURLToPath(new URL('../../compatibility/nils-cli.json', import.meta.url)),
+  'utf8',
+))
+const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
+const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
 const SUPERVISOR_SETTLEMENT_MS = 7_000
 const PROCESS_GROUP_SETTLEMENT_MS = 5_000
 const PACKED_TARGETS = new WeakMap()
@@ -3053,6 +3059,30 @@ function agentHookDoctor(agentHook, home) {
   }
 }
 
+/** @param {string} value */
+function stableReleaseTuple(value) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.exec(value)
+  return match === null ? null : match.slice(1).map(Number)
+}
+
+/** @param {number[]} left @param {number[]} right */
+function compareReleaseTuples(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index]
+  }
+  return 0
+}
+
+/** @param {string} value @param {string} minimum @param {string} validated */
+function supportedStableRelease(value, minimum, validated) {
+  const candidate = stableReleaseTuple(value)
+  const lower = stableReleaseTuple(minimum)
+  const upper = stableReleaseTuple(validated)
+  return candidate !== null && lower !== null && upper !== null
+    && compareReleaseTuples(candidate, lower) >= 0
+    && compareReleaseTuples(candidate, upper) <= 0
+}
+
 /**
  * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
  * @param {string} home
@@ -3076,9 +3106,16 @@ function agentDocsDoctor(config, home) {
     if (result.status !== 0) {
       return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
     }
-    const match = /^agent-docs (1\.27\.1) \([^\r\n]+\)$/u.exec(result.stdout.trim())
-    if (match === null) {
-      return { ok: false, error: 'agent-docs version is not the supported 1.27.1 release' }
+    const match = /^agent-docs ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
+    if (match === null || !supportedStableRelease(
+      match[1],
+      AGENT_DOCS_MINIMUM_RELEASE,
+      AGENT_DOCS_VALIDATED_RELEASE,
+    )) {
+      return {
+        ok: false,
+        error: `agent-docs version is outside the supported range ${AGENT_DOCS_MINIMUM_RELEASE} through ${AGENT_DOCS_VALIDATED_RELEASE}`,
+      }
     }
     return { ok: true, version: match[1], catalog, state_home: stateHome }
   } catch (error) {
