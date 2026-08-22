@@ -56,7 +56,10 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_SETS = 16
 const RUNTIME_ROOT_OWNER_SCHEMA = 'dsh-runtime-kit.runtime-root-owner.v1'
-const DSH_SOURCE_REVISION = '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca'
+const DSH_COMPATIBILITY = JSON.parse(readFileSync(
+  fileURLToPath(new URL('../../compatibility/dsh.json', import.meta.url)),
+  'utf8',
+))
 const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
@@ -304,6 +307,18 @@ function atomicWriteJson(path, value) {
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function plainRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** @param {unknown} version */
+function reviewedDshRevision(version) {
+  if (typeof version !== 'string' || !plainRecord(DSH_COMPATIBILITY.validated_releases)) return null
+  const release = DSH_COMPATIBILITY.validated_releases[version]
+  if (!plainRecord(release)
+    || Object.keys(release).sort().join(',') !== 'ref,revision'
+    || typeof release.ref !== 'string'
+    || typeof release.revision !== 'string'
+    || !/^[a-f0-9]{40}$/.test(release.revision)) return null
+  return release.revision
 }
 
 /** @param {string} profile */
@@ -1698,8 +1713,10 @@ function validateToolchain(value) {
     || Object.keys(value.pnpm).sort().join(',') !== 'executable,executable_sha256,version'
     || typeof value.dsh.executable !== 'string' || !isAbsolute(value.dsh.executable)
     || typeof value.dsh.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.dsh.executable_sha256)
-    || value.dsh.source_revision !== DSH_SOURCE_REVISION
-    || value.dsh.version !== '0.1.0-rc.7'
+    || typeof value.dsh.version !== 'string'
+    || typeof value.dsh.source_revision !== 'string' || !/^[a-f0-9]{40}$/.test(value.dsh.source_revision)
+    || reviewedDshRevision(value.dsh.version) === null
+    || reviewedDshRevision(value.dsh.version) !== value.dsh.source_revision
     || typeof value.pnpm.executable !== 'string' || !isAbsolute(value.pnpm.executable)
     || typeof value.pnpm.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.pnpm.executable_sha256)
     || typeof value.pnpm.version !== 'string' || !EXACT_VERSION_PATTERN.test(value.pnpm.version)) {
@@ -1725,8 +1742,9 @@ function resolveToolchain(dshInput, home) {
   const pnpmResult = spawn(pnpm, ['--version'], home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
   const dshVersion = dshResult.status === 0 ? dshResult.stdout.trim() : ''
   const pnpmVersion = pnpmResult.status === 0 ? pnpmResult.stdout.trim() : ''
-  if (dshVersion !== '0.1.0-rc.7') {
-    throw new OperationsError('command-unavailable', 'DSH toolchain must be exactly 0.1.0-rc.7', 70)
+  const dshSourceRevision = reviewedDshRevision(dshVersion)
+  if (dshSourceRevision === null) {
+    throw new OperationsError('command-unavailable', 'DSH toolchain is not an exact reviewed release', 70)
   }
   if (!EXACT_VERSION_PATTERN.test(pnpmVersion)) {
     throw new OperationsError('command-unavailable', 'pnpm toolchain did not report an exact version', 70)
@@ -1735,7 +1753,7 @@ function resolveToolchain(dshInput, home) {
     dsh: {
       executable: dsh,
       executable_sha256: executableDigest(dsh),
-      source_revision: DSH_SOURCE_REVISION,
+      source_revision: dshSourceRevision,
       version: dshVersion,
     },
     pnpm: {
@@ -3131,9 +3149,9 @@ function dshVersion(dshBin, home) {
   const result = spawn(dshBin, ['--version'], home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
   if (result.status !== 0) return { ok: false, ...commandFailure(result), error: 'DSH version check failed' }
   const version = result.stdout.trim()
-  return version === '0.1.0-rc.7'
+  return reviewedDshRevision(version) !== null
     ? { ok: true, version }
-    : { ok: false, error: 'DSH version is not the supported 0.1.0-rc.7 release' }
+    : { ok: false, error: 'DSH version is not an exact reviewed release' }
 }
 
 /**

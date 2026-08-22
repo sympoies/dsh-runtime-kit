@@ -952,6 +952,44 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   }
 })
 
+test('operations bind the exact reviewed DSH rc.8 toolchain identity', () => {
+  const subject = fixture()
+  try {
+    const source = readFileSync(subject.dsh, 'utf8')
+    assert.match(source, /console\.log\('0\.1\.0-rc\.7'\)/)
+    writeFileSync(subject.dsh, source.replace(
+      "console.log('0.1.0-rc.7')",
+      "console.log('0.1.0-rc.8')",
+    ))
+    chmodSync(subject.dsh, 0o755)
+
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.0-rc.8')
+    assert.equal(
+      setup.preview.plan.toolchain.dsh.source_revision,
+      '141eb6fef83422698aef7a981029e843e8161534',
+    )
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.0-rc.8')
+  } finally {
+    subject.cleanup()
+  }
+
+  const unknown = fixture()
+  try {
+    const source = readFileSync(unknown.dsh, 'utf8')
+    writeFileSync(unknown.dsh, source.replace(
+      "console.log('0.1.0-rc.7')",
+      "console.log('0.1.0-rc.9')",
+    ))
+    chmodSync(unknown.dsh, 0o755)
+    const rejected = run(unknown, ['setup', '--profile', 'work', '--package', unknown.v1])
+    assert.equal(rejected.status, 70)
+    assert.equal(rejected.value.error.code, 'command-unavailable')
+  } finally {
+    unknown.cleanup()
+  }
+})
+
 test('apply rejects DSH or pnpm tool replacement after preview before profile mutation', () => {
   for (const executable of ['dsh', 'pnpm']) {
     const subject = fixture()
@@ -3035,6 +3073,16 @@ test('doctor refuses a forged pending receipt instead of adopting it', () => {
     const targetRejected = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(targetRejected.status, 65)
     assert.equal(targetRejected.value.error.code, 'invalid-operations-state')
+
+    const unknownToolchain = structuredClone(original)
+    unknownToolchain.pending.plan.toolchain.dsh.version = '0.1.0-rc.9'
+    unknownToolchain.pending.plan.toolchain.dsh.source_revision = null
+    unknownToolchain.pending.plan_digest = sha256(stableJson(unknownToolchain.pending.plan))
+    writeJson(statePath, unknownToolchain)
+    chmodSync(statePath, 0o600)
+    const unknownToolchainRejected = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(unknownToolchainRejected.status, 65)
+    assert.equal(unknownToolchainRejected.value.error.code, 'invalid-operations-state')
   } finally {
     subject.cleanup()
   }
