@@ -734,9 +734,88 @@ function unownedLock(lock, removed) {
   return projected
 }
 
-/** @param {string | null} leftRaw @param {string | null} rightRaw */
-function lockProjections(leftRaw, rightRaw) {
-  if (leftRaw === null || rightRaw === null) return [leftRaw, rightRaw]
+/**
+ * Accept a lock created from an empty profile only when it contains exactly
+ * the one reviewed artifact root. Runtime-kit-prefixed keys and dependency
+ * edges are not ownership evidence: both can be supplied by the mutating DSH
+ * process itself.
+ * @param {string} raw
+ * @param {ReturnType<typeof validateTarget> | null} target
+ * @param {ReturnType<typeof pathsFor> | null} paths
+ */
+function generatedLockContainsOnlyReviewedRoot(raw, target, paths) {
+  if (target === null || paths === null) return false
+  const lock = parseYaml(raw)
+  if (!plainRecord(lock)
+    || Object.keys(lock).sort().join(',') !== 'importers,lockfileVersion,packages,settings,snapshots'
+    || lock.lockfileVersion !== '9.0'
+    || stableJson(lock.settings) !== stableJson({
+      autoInstallPeers: false,
+      excludeLinksFromLockfile: false,
+    })
+    || !plainRecord(lock.importers)
+    || Object.keys(lock.importers).join(',') !== '.'
+    || !plainRecord(lock.importers['.'])
+    || Object.keys(lock.importers['.']).join(',') !== 'dependencies'
+    || !plainRecord(lock.importers['.'].dependencies)
+    || Object.keys(lock.importers['.'].dependencies).join(',') !== PACKAGE_NAME) return false
+
+  const dependency = lock.importers['.'].dependencies[PACKAGE_NAME]
+  if (!plainRecord(dependency)
+    || Object.keys(dependency).sort().join(',') !== 'specifier,version'
+    || typeof dependency.specifier !== 'string'
+    || typeof dependency.version !== 'string') return false
+
+  const artifact = artifactPathFor(paths, target)
+  if (dependencyPath(dependency.specifier, paths) !== artifact
+    || dependencyPath(dependency.version, paths) !== artifact) return false
+
+  const root = `${PACKAGE_NAME}@${dependency.version}`
+  if (!plainRecord(lock.packages)
+    || Object.keys(lock.packages).join(',') !== root
+    || !plainRecord(lock.snapshots)
+    || Object.keys(lock.snapshots).join(',') !== root) return false
+
+  const packageEntry = lock.packages[root]
+  const snapshotEntry = lock.snapshots[root]
+  if (!plainRecord(packageEntry)
+    || Object.keys(packageEntry).some(key => ![
+      'resolution', 'version', 'engines', 'hasBin', 'peerDependencies', 'bundledDependencies',
+    ].includes(key))
+    || !plainRecord(packageEntry.resolution)
+    || Object.keys(packageEntry.resolution).sort().join(',') !== 'integrity,tarball'
+    || typeof packageEntry.resolution.integrity !== 'string'
+    || packageEntry.resolution.integrity.length === 0
+    || typeof packageEntry.resolution.tarball !== 'string'
+    || dependencyPath(packageEntry.resolution.tarball, paths) !== artifact
+    || packageEntry.version !== target.expected_version
+    || (Object.hasOwn(packageEntry, 'engines') && !plainRecord(packageEntry.engines))
+    || (Object.hasOwn(packageEntry, 'hasBin') && typeof packageEntry.hasBin !== 'boolean')
+    || (Object.hasOwn(packageEntry, 'peerDependencies') && !plainRecord(packageEntry.peerDependencies))
+    || (Object.hasOwn(packageEntry, 'bundledDependencies') && !Array.isArray(packageEntry.bundledDependencies))
+    || !plainRecord(snapshotEntry)
+    || Object.keys(snapshotEntry).length !== 0) return false
+  return true
+}
+
+/**
+ * @param {string | null} leftRaw
+ * @param {string | null} rightRaw
+ * @param {ReturnType<typeof validateTarget> | null} [ownedTarget]
+ * @param {ReturnType<typeof pathsFor> | null} [paths]
+ */
+function lockProjections(leftRaw, rightRaw, ownedTarget = null, paths = null) {
+  if (leftRaw === null && rightRaw === null) return [null, null]
+  if (leftRaw === null) {
+    return generatedLockContainsOnlyReviewedRoot(/** @type {string} */ (rightRaw), ownedTarget, paths)
+      ? [null, null]
+      : [leftRaw, rightRaw]
+  }
+  if (rightRaw === null) {
+    return generatedLockContainsOnlyReviewedRoot(leftRaw, ownedTarget, paths)
+      ? [null, null]
+      : [leftRaw, rightRaw]
+  }
   const left = parseYaml(leftRaw)
   const right = parseYaml(rightRaw)
   if (!plainRecord(left) || !plainRecord(right)) return [left, right]
@@ -755,8 +834,20 @@ function lockProjections(leftRaw, rightRaw) {
   return [unownedLock(left, leftRemoved), unownedLock(right, rightRemoved)]
 }
 
-/** @param {ReturnType<typeof captureProfileSnapshot>} before @param {ReturnType<typeof captureProfileSnapshot>} after @param {boolean} [allowInitialization] */
-function profileHasCollateralMutation(before, after, allowInitialization = false) {
+/**
+ * @param {ReturnType<typeof captureProfileSnapshot>} before
+ * @param {ReturnType<typeof captureProfileSnapshot>} after
+ * @param {boolean} [allowInitialization]
+ * @param {ReturnType<typeof validateTarget> | null} [ownedTarget]
+ * @param {ReturnType<typeof pathsFor> | null} [paths]
+ */
+function profileHasCollateralMutation(
+  before,
+  after,
+  allowInitialization = false,
+  ownedTarget = null,
+  paths = null,
+) {
   const beforeMap = new Map(before.files.map(file => [file.name, file]))
   const afterMap = new Map(after.files.map(file => [file.name, file]))
   const beforeManifest = beforeMap.get('package.json')
@@ -780,7 +871,7 @@ function profileHasCollateralMutation(before, after, allowInitialization = false
     const leftRaw = left?.present ? /** @type {string} */ (left.content) : null
     const rightRaw = right?.present ? /** @type {string} */ (right.content) : null
     try {
-      const [leftProjection, rightProjection] = lockProjections(leftRaw, rightRaw)
+      const [leftProjection, rightProjection] = lockProjections(leftRaw, rightRaw, ownedTarget, paths)
       if (stableJson(leftProjection) !== stableJson(rightProjection)) return true
     } catch {
       return true
@@ -2728,7 +2819,13 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
     }
     const profileAfter = captureProfileSnapshot(paths)
-    if (profileHasCollateralMutation(profileBefore, profileAfter, true)) {
+    const collateralTarget = operation === 'remove'
+      && plainRecord(state)
+      && state.current !== null
+      && state.current !== undefined
+      ? validateSnapshot(state.current).target
+      : target
+    if (profileHasCollateralMutation(profileBefore, profileAfter, true, collateralTarget, paths)) {
       try {
         restoreAfterCollateral(
           dshBin,
@@ -2809,9 +2906,17 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
 function recoveryFor(actual, state, paths) {
   if (state?.pending === null || state?.pending === undefined) return null
   const pending = validatePending(state.pending, state.profile)
+  const collateralTarget = pending.operation === 'remove' && state.current !== null
+    ? validateTarget(state.current.target)
+    : pending.operation === 'remove'
+      ? null
+      : validateTarget(pending.target)
   if (profileHasCollateralMutation(
     validateProfileSnapshot(pending.profile_before),
     captureProfileSnapshot(paths),
+    false,
+    collateralTarget,
+    paths,
   )) {
     return { action: 'restore-collateral', pending }
   }

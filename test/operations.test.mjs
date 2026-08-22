@@ -229,6 +229,73 @@ if (existsSync(join(home, 'collateral-profile-mutation'))) {
   writeFileSync(join(profileDir, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\\nimporters:\\n  .: {}\\npackages:\\n  unrelated@1.0.0:\\n    resolution: {integrity: forged}\\nsnapshots:\\n  unrelated@1.0.0: {}\\n")
 }
 writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
+if (verb === 'add' && existsSync(join(home, 'generate-owned-lockfile'))) {
+  const spec = manifest.dependencies[packageName]
+  const lockKey = packageName + '@' + spec
+  const installedManifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'))
+  const lockLines = [
+    "lockfileVersion: '9.0'",
+    '',
+    'settings:',
+    '  autoInstallPeers: false',
+    '  excludeLinksFromLockfile: false',
+    '',
+    'importers:',
+    '',
+    '  .:',
+    '    dependencies:',
+    "      '" + packageName + "':",
+    '        specifier: ' + spec,
+    '        version: ' + spec,
+    '',
+    'packages:',
+    '',
+    "  '" + lockKey + "':",
+    '    resolution: {integrity: fixture, tarball: ' + spec + '}',
+    '    version: ' + installedManifest.version,
+    '',
+    'snapshots:',
+    '',
+    "  '" + lockKey + "': {}",
+    '',
+  ]
+  const mutationPath = join(home, 'generated-owned-lock-mutation')
+  if (existsSync(mutationPath)) {
+    const mutation = readFileSync(mutationPath, 'utf8').trim()
+    if (mutation === 'second-owned-root') {
+      lockLines.splice(lockLines.indexOf('snapshots:'), 0,
+        "  '" + packageName + "@forged':",
+        '    resolution: {integrity: forged, tarball: ' + spec + '}',
+        '')
+      lockLines.push("  '" + packageName + "@forged': {}", '')
+    } else if (mutation === 'attached-dependency') {
+      lockLines.splice(lockLines.indexOf('snapshots:'), 0,
+        "  'unrelated@1.0.0':",
+        '    resolution: {integrity: forged}',
+        '')
+      const snapshot = lockLines.indexOf("  '" + lockKey + "': {}")
+      lockLines.splice(snapshot, 1,
+        "  '" + lockKey + "':",
+        '    dependencies:',
+        '      unrelated: 1.0.0',
+        "  'unrelated@1.0.0': {}")
+    } else if (mutation === 'unrelated-importer') {
+      lockLines.splice(lockLines.indexOf('packages:'), 0, '  other: {}', '')
+    } else if (mutation === 'unrelated-setting') {
+      lockLines.splice(lockLines.indexOf('importers:'), 0, '  injected: true', '')
+    } else if (mutation === 'unrelated-package') {
+      lockLines.splice(lockLines.indexOf('snapshots:'), 0,
+        "  'unrelated@1.0.0':",
+        '    resolution: {integrity: forged}',
+        '')
+    } else if (mutation === 'unrelated-snapshot') {
+      lockLines.push("  'unrelated@1.0.0': {}", '')
+    } else if (mutation === 'unrelated-metadata') {
+      lockLines.push('metadata:', '  injected: true', '')
+    }
+  }
+  writeFileSync(join(profileDir, 'pnpm-lock.yaml'), lockLines.join('\\n'))
+}
 if (existsSync(join(home, 'block-asset-activation'))) {
   const assets = join(dirname(home), 'dsh-runtime', 'assets')
   rmSync(assets, { recursive: true, force: true })
@@ -839,6 +906,56 @@ test('manifest-less setup still rejects mutation of a pre-existing lockfile', ()
     subject.cleanup()
   }
 })
+
+test('setup accepts a newly generated lockfile containing only the owned package', () => {
+  const subject = fixture()
+  try {
+    const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+    assert.equal(existsSync(lockfile), false)
+    writeFileSync(join(subject.home, 'generate-owned-lockfile'), '')
+
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+
+    assert.equal(existsSync(lockfile), true)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+for (const mutation of [
+  'second-owned-root',
+  'attached-dependency',
+  'unrelated-importer',
+  'unrelated-setting',
+  'unrelated-package',
+  'unrelated-snapshot',
+  'unrelated-metadata',
+]) {
+  test(`setup rejects a generated owned lockfile with ${mutation}`, () => {
+    const subject = fixture()
+    try {
+      const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
+      const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'), 'utf8')
+      assert.equal(existsSync(lockfile), false)
+      writeFileSync(join(subject.home, 'generate-owned-lockfile'), '')
+      writeFileSync(join(subject.home, 'generated-owned-lock-mutation'), mutation)
+
+      const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const rejected = run(subject, [
+        'setup', '--profile', 'work', '--package', subject.v1,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+
+      assert.equal(rejected.status, 65)
+      assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
+      assert.equal(existsSync(lockfile), false)
+      assert.equal(readFileSync(join(subject.profileDir, 'package.json'), 'utf8'), manifestBefore)
+    } finally {
+      subject.cleanup()
+    }
+  })
+}
 
 test('clean-profile recovery does not clear while a newly created manifest remains', () => {
   const subject = fixture()
