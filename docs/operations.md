@@ -152,7 +152,8 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may pin
-the released v1.27.1 executables. Missing or non-absolute isolation paths fail
+the released v1.27.1 through validated v1.27.2 executables. Missing or
+non-absolute isolation paths fail
 plugin activation; ambient XDG, Codex, and Claude Code paths are not fallbacks.
 
 Activation retains only asset sets referenced by current, previous, pending, or

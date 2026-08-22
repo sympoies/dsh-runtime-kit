@@ -2,33 +2,33 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.27.1",
-  "validated_release": "1.27.1",
+  "validated_release": "1.27.2",
   "release": {
-    "source_revision": "v1.27.1",
-    "source_commit": "a12a48f07d2bc2c40ab6c832c1d63c37170298e1",
+    "source_revision": "v1.27.2",
+    "source_commit": "c248b9f5f6041189ed7a0e1efac59a87e20f429c",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.1-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "db0bc121812f1e171029617fcd60d1930878baa350960ddf6bedbe2681740c9a"
+      "name": "nils-cli-v1.27.2-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "9e664dc0006aab48a8c764faa6d72d462b5ca2a61220fbfca7ab64f6907ee553"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "163d62819dc204a2c5b64a4550763c0a969678393902836d0507004a0f696b04"
+          "sha256": "8fc1bba1e8b190c804a6762d056e6d4792a3e975e75e3df52565d36a30c1db83"
       },
       "agent-docs": {
-        "sha256": "77f49c9485a6aaa6e2982949f5b9c44fbe19ec553530b1a8f51b7784c647e15c"
+          "sha256": "3552ceffc23db63fac9051de85a11b878e4cceeb537a6483917794b7b91bb882"
       },
       "forge-cli": {
-        "sha256": "b019bd1c0a28d15bad172d0579539d6a3aa95e67b53ec2793801f8d5e1384804"
+          "sha256": "648eb444c879eee0595b28f09e028735840619d92e44d394eadc7ab2030b2c65"
       },
       "git-cli": {
-        "sha256": "e3ba417507ad0e98821d93e17fe1ce139818ce37072c668f89a25a5b7906b62b"
+          "sha256": "4c66b0a838a8fa6ba26dee7880e142c8447c611d7be9a4c864908e82c483e8c4"
       },
       "review-specialists": {
-        "sha256": "3448084f8ccf283047937f027169e1d0fd0d1d372c5816aa5b7d8207dd0fcda5"
+          "sha256": "bf584b272738da1faaa8bc16fbb72b7cc99f597773139b2109c614589b1fe706"
       },
       "semantic-commit": {
-        "sha256": "bb480aab9e642aeb41f2d544b338b732ea68910b796022985ac0c5e2acbd2c96"
+          "sha256": "c886686e45544fa8d5930682f66f8d35579f7712f45c012c6b63c4ab28bc620f"
       }
     }
   },
