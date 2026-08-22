@@ -55,7 +55,11 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   required_skills: ['main-agent-mode', 'code-review-specialists'],
   required_services: ['userQuestions', 'mainAgentOrchestration'],
-  default_route: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+  default_route: {
+    provider: 'codex-proxy',
+    model: 'gpt-5.6-sol',
+    reasoning_effort: 'high',
+  },
   authority: {
     runtime_kit_patch_rows: ['dsh-runtime-kit'],
     permission_mode_source: 'DSH_PERMISSION_MODE',
@@ -82,8 +86,16 @@ const VALID_OBSERVATION = Object.freeze({
     skills: EXPECTED_CONTRACT.required_skills,
     services: EXPECTED_CONTRACT.required_services,
   },
-  controllerRoute: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
-  workerRoute: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+  controllerRoute: {
+    provider: 'codex-proxy',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+  },
+  workerRoute: {
+    provider: 'codex-proxy',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+  },
   authority: {
     runtimeKitPatchRowIds: ['dsh-runtime-kit'],
     sandboxMode: 'workspace-write',
@@ -123,8 +135,16 @@ test('the package pins the complete Agent Console rc.7 composition contract', ()
     profile: 'dsh-tui',
     dsh_version: '0.1.0-rc.7',
     tui_version: '0.8.1',
-    controller_route: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
-    worker_route: { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+    controller_route: {
+      provider: 'codex-proxy',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    },
+    worker_route: {
+      provider: 'codex-proxy',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    },
     authority: {
       runtime_kit_patch_rows: ['dsh-runtime-kit'],
       sandbox_mode: 'workspace-write',
@@ -207,12 +227,14 @@ test('every required row, scoped tool, skill, and service has a specific failing
   }
 })
 
-test('Sol workers inherit the exact controller route and route evidence is closed', () => {
+test('Sol workers inherit the exact high-effort controller route and route evidence is closed', () => {
   const mutations = [
     value => { value.controllerRoute.provider = 'deepseek-official' },
     value => { value.controllerRoute.model = 'gpt-5.6-terra' },
+    value => { value.controllerRoute.reasoningEffort = 'max' },
     value => { value.workerRoute.provider = 'deepseek-official' },
     value => { value.workerRoute.model = 'gpt-5.6-terra' },
+    value => { value.workerRoute.reasoningEffort = 'max' },
   ]
   for (const mutate of mutations) {
     const observation = copyObservation()
@@ -232,6 +254,12 @@ test('Sol workers inherit the exact controller route and route evidence is close
       error => error?.code === 'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_SHAPE_INVALID'
         && !JSON.stringify(error).includes('must-not-serialize'),
     )
+  }
+
+  for (const route of ['controllerRoute', 'workerRoute']) {
+    const observation = copyObservation()
+    delete observation[route].reasoningEffort
+    expectCode(observation, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_SHAPE_INVALID')
   }
 })
 

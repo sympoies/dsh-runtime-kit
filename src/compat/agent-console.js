@@ -180,29 +180,34 @@ export function inspectAgentConsoleRc7Profile(observation) {
   const worker = record(input.workerRoute)
   if (controller === undefined
     || worker === undefined
-    || !hasExactKeys(controller, ['provider', 'model'])
-    || !hasExactKeys(worker, ['provider', 'model'])
+    || !hasExactKeys(controller, ['provider', 'model', 'reasoningEffort'])
+    || !hasExactKeys(worker, ['provider', 'model', 'reasoningEffort'])
     || typeof controller.provider !== 'string'
     || typeof controller.model !== 'string'
+    || typeof controller.reasoningEffort !== 'string'
     || typeof worker.provider !== 'string'
-    || typeof worker.model !== 'string') {
+    || typeof worker.model !== 'string'
+    || typeof worker.reasoningEffort !== 'string') {
     // Do not echo the supplied route or its keys: rejected evidence may carry
     // credential-shaped extensions and error objects are commonly serialized.
     fail(
       'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_SHAPE_INVALID',
-      'dsh-runtime-kit: Agent Console route evidence must contain provider and model only',
+      'dsh-runtime-kit: Agent Console route evidence must contain provider, model, and reasoningEffort only',
     )
   }
   if (controller.provider !== CONTRACT.default_route.provider
     || controller.model !== CONTRACT.default_route.model
+    || controller.reasoningEffort !== CONTRACT.default_route.reasoning_effort
     || worker.provider !== controller.provider
-    || worker.model !== controller.model) {
+    || worker.model !== controller.model
+    || worker.reasoningEffort !== controller.reasoningEffort) {
     fail(
       'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_MISMATCH',
-      'dsh-runtime-kit: Agent Console worker route must inherit the Sol controller route',
+      'dsh-runtime-kit: Agent Console worker route must inherit the high-effort Sol controller route',
       {
         expected_provider: CONTRACT.default_route.provider,
         expected_model: CONTRACT.default_route.model,
+        expected_reasoning_effort: CONTRACT.default_route.reasoning_effort,
       },
     )
   }
@@ -261,10 +266,12 @@ export function inspectAgentConsoleRc7Profile(observation) {
     controller_route: Object.freeze({
       provider: controller.provider,
       model: controller.model,
+      reasoningEffort: controller.reasoningEffort,
     }),
     worker_route: Object.freeze({
       provider: worker.provider,
       model: worker.model,
+      reasoningEffort: worker.reasoningEffort,
     }),
     authority: Object.freeze({
       runtime_kit_patch_rows: Object.freeze([...runtimeRows]),

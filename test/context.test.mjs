@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { createRuntimeContextTool } from '../src/context/index.js'
 import { createNilsContextClient } from '../src/context/nils-context.js'
+import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 function execution(overrides = {}) {
   const signal = new AbortController().signal
@@ -193,12 +194,7 @@ test('the context client invokes one bounded atomic agent-docs command for the e
   assert.equal(spec.stdio.stdin, 'ignore')
   assert.deepEqual(spec.stdio.stdout, { maxBytes: 155_648 })
   assert.deepEqual(spec.stdio.stderr, { maxBytes: 8_192 })
-  assert.equal(
-    Object.entries(spec.env ?? {}).every(
-      ([name, value]) => name.startsWith('AGENT_SESSION_') && value === undefined,
-    ),
-    true,
-  )
+  assert.deepEqual(spec.env, isolatedNilsEnvironment(undefined))
 })
 
 test('the context client rejects ambient Codex or Claude agent-docs fallback', () => {
