@@ -33,13 +33,13 @@ tools, sandbox, approvals, skills, and subagents.
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7` |
+| DeepSeek Harness | `0.1.0-rc.7` or `0.1.0-rc.8` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | `1.27.1` through validated `1.27.2` |
 
-The package deliberately does not claim compatibility with later DSH release
-candidates or the eventual `0.1.x` line. See the
+The package deliberately does not claim compatibility with DSH release
+candidates after rc.8 or the eventual `0.1.x` line. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.
 

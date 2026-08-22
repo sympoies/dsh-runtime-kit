@@ -4,15 +4,16 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7` |
+| DeepSeek Harness | `0.1.0-rc.7` or `0.1.0-rc.8` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | `1.27.1` through validated `1.27.2` |
 
-The package does not claim compatibility with later DSH release candidates or
-the eventual `0.1.x` line. Runtime startup resolves every installed public peer
-version and validates the consumed public exports and service methods before
-registering a listener, tool, service, or skill. Incompatibility returns a typed
+The package does not claim compatibility with DSH release candidates after
+rc.8 or the eventual `0.1.x` line. Runtime startup requires one homogeneous
+rc.7 or rc.8 public peer set and validates the consumed public exports and
+service methods before registering a listener, tool, service, or skill. Mixed
+or unknown peer versions fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
 `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; it never patches DSH sources or partially
 activates the plugin.
@@ -20,9 +21,9 @@ activates the plugin.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, public package/export
-surface, complete DSH workspace closure, artifact bounds, and runtime
-performance budgets.
+pinned DSH tag, reviewed `upstream-next` revision, exact rc.7 and rc.8 release
+identities, public package/export surface, complete pinned workspace closure,
+artifact bounds, and runtime performance budgets.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
@@ -37,10 +38,11 @@ verifies exact Git identity, package versions, public entrypoint digests, export
 kinds, and the complete selected workspace dependency closure without executing
 checkout bytes.
 
-CI keeps separate blocking `pinned` and `upstream-next` matrix rows even when
-they currently select the same revision. Advancing `upstream-next` is therefore
-a reviewed compatibility decision and does not silently broaden the released
-peer range.
+CI keeps separate blocking `pinned` and `upstream-next` matrix rows for the
+source-artifact contract. The rc.8 release is independently pinned and must
+pass the same packed runtime composition smoke before its peer range is
+advertised. Advancing either selection is therefore a reviewed compatibility
+decision and does not silently broaden the released peer range.
 
 Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture

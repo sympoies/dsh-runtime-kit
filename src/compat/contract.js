@@ -11,6 +11,17 @@ const SHA1_PATTERN = /^[0-9a-f]{40}$/
 const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/
 const CHANNELS = Object.freeze(['pinned', 'upstream-next'])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
+const SUPPORTED_DSH_RELEASES = Object.freeze({
+  '0.1.0-rc.7': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.0-rc.7',
+    revision: '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
+  }),
+  '0.1.0-rc.8': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.0-rc.8',
+    revision: '141eb6fef83422698aef7a981029e843e8161534',
+  }),
+})
+const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
 
 export const DSH_RC7_RUNTIME_MODULES = Object.freeze({
   '@deepseek-ai/dsh-bash-local': Object.freeze({
@@ -46,7 +57,12 @@ export const DSH_RC7_PEER_VERSIONS = Object.freeze({
   '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
 })
 
-const DSH_RC7_PEER_RANGES = DSH_RC7_PEER_VERSIONS
+const DSH_RC7_PEER_RANGES = Object.freeze(Object.fromEntries(
+  Object.keys(DSH_RC7_PEER_VERSIONS).map(name => [
+    name,
+    name === '@deepseek-ai/cordis' ? '4.0.1' : SUPPORTED_DSH_VERSION_RANGE,
+  ]),
+))
 
 export const DSH_RC7_RUNTIME_SURFACE = Object.freeze([
   'on',
@@ -158,6 +174,16 @@ export function validateDshCompatibilityManifest(input) {
         `DSH compatibility channel ${name} is invalid`,
       )
     }
+  }
+  const validatedReleases = requireRecord(
+    manifest.validated_releases,
+    'DSH validated releases are missing',
+  )
+  if (!sameRecord(validatedReleases, SUPPORTED_DSH_RELEASES)) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH validated releases do not match the reviewed release set',
+    )
   }
   const packages = requireRecord(manifest.public_packages, 'DSH public package contracts are missing')
   if (!sameRecord(
@@ -373,18 +399,34 @@ export async function loadDshRc7Runtime(options = {}) {
   /** @type {Record<string, string>} */
   const versions = {}
   const missing = []
-  for (const [specifier, expectedVersion] of Object.entries(DSH_RC7_PEER_VERSIONS)) {
+  const selectedDshVersions = new Set()
+  for (const [specifier, expectedVersion] of Object.entries(DSH_RC7_PEER_RANGES)) {
     const version = await packageVersion(specifier)
-    if (version !== expectedVersion) {
-      missing.push(`${specifier}:version:${expectedVersion}`)
+    const supported = specifier === '@deepseek-ai/cordis'
+      ? version === expectedVersion
+      : typeof version === 'string' && Object.hasOwn(SUPPORTED_DSH_RELEASES, version)
+    if (!supported) {
+      const diagnosticVersion = /** @type {Record<string, string>} */ (
+        DSH_RC7_PEER_VERSIONS
+      )[specifier] ?? expectedVersion
+      missing.push(`${specifier}:version:${diagnosticVersion}`)
     } else {
       versions[specifier] = version
+      if (specifier !== '@deepseek-ai/cordis') selectedDshVersions.add(version)
+    }
+  }
+  if (missing.length === 0 && selectedDshVersions.size !== 1) {
+    const retainedPeerVersions = /** @type {Record<string, string>} */ (DSH_RC7_PEER_VERSIONS)
+    for (const [specifier, version] of Object.entries(versions)) {
+      if (specifier !== '@deepseek-ai/cordis' && version !== retainedPeerVersions[specifier]) {
+        missing.push(`${specifier}:version:${retainedPeerVersions[specifier]}`)
+      }
     }
   }
   if (missing.length > 0) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-      `Installed DSH peer identities do not match rc.7: ${missing.join(', ')}`,
+      `Installed DSH peer identities do not match one reviewed release: ${missing.join(', ')}`,
       { adapter: 'dsh-rc7', missing },
     )
   }
@@ -406,7 +448,7 @@ export async function loadDshRc7Runtime(options = {}) {
   if (missing.length > 0) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-      `Installed DSH runtime values do not match rc.7: ${missing.join(', ')}`,
+      `Installed DSH runtime values do not match the reviewed release: ${missing.join(', ')}`,
       { adapter: 'dsh-rc7', missing },
     )
   }

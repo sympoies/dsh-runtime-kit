@@ -127,6 +127,52 @@ async function selectedCheckoutState(input) {
 }
 
 /**
+ * Authenticate one exact clean Git checkout when the caller already owns the
+ * reviewed revision selection (for example a validated release entry).
+ * @param {{sourceRoot: string, expectedRevision: string, gitBin: string}} input
+ */
+export async function inspectExactDshCheckoutIdentity(input) {
+  if (!isAbsolute(input.sourceRoot) || !/^[0-9a-f]{40}$/u.test(input.expectedRevision)) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_DSH_SOURCE_INVALID',
+      'DSH exact source identity is invalid',
+    )
+  }
+  const [sourceRoot, gitBin] = await Promise.all([
+    realpath(input.sourceRoot),
+    trustedGit(input.gitBin),
+  ])
+  const topLevel = await realpath(resolve(await git(gitBin, sourceRoot, [
+    'rev-parse', '--show-toplevel',
+  ])))
+  if (topLevel !== sourceRoot) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_DSH_SOURCE_INVALID',
+      'DSH source root must be the exact Git checkout root',
+    )
+  }
+  const revision = await git(gitBin, sourceRoot, ['rev-parse', 'HEAD'])
+  if (revision !== input.expectedRevision) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_UNSELECTED_DSH_REVISION',
+      'DSH release revision does not match the reviewed selection',
+      { expected_revision: input.expectedRevision, actual_revision: revision },
+    )
+  }
+  const status = await git(gitBin, sourceRoot, [
+    'status', '--porcelain=v1', '--untracked-files=all',
+  ])
+  if (status.length !== 0) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
+      'DSH compatibility checkout must remain clean',
+      { revision },
+    )
+  }
+  return Object.freeze({ revision, upstream_checkout_clean: true })
+}
+
+/**
  * Authenticate an exact clean selected Git checkout before its build outputs exist.
  * @param {{sourceRoot: string, channel: string, gitBin: string, manifest: unknown}} input
  */

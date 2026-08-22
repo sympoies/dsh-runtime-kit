@@ -524,11 +524,14 @@ Failure to prove settlement remains closed.
 Upstream compatibility is executable: pack the bundle, install it into a clean
 profile, dump the composed config, boot DSH, discover skills, and drive a real
 Agent/AgentLoop allow/block probe plus cancellation and plugin-disposal drains.
-All `@deepseek-ai/dsh-*` peers used by this rc.7 adapter are pinned exactly to
-`0.1.0-rc.7`; Cordis is pinned exactly to `4.0.1`.
+All `@deepseek-ai/dsh-*` peers used by the compatibility adapter must form one
+homogeneous exact `0.1.0-rc.7` or `0.1.0-rc.8` set; Cordis remains pinned
+exactly to `4.0.1`. The adapter uses the same reviewed public surface for both
+releases and rejects mixed or later prerelease identities before import.
 
-`compatibility/dsh.json` is the closed promotion input. It records the pinned
-tag, one exact upstream-next revision, every consumed public package/export,
+`compatibility/dsh.json` is the closed promotion input. It records the exact
+rc.7 and rc.8 release identities, the pinned tag, one exact upstream-next
+revision, every consumed public package/export,
 the runtime service-method surface, the deterministic in-memory pre-tool
 budget, and the packed released-agent-hook subprocess budget. The
 checkout inspector requires an exact clean Git root, hashes the declared built
