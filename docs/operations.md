@@ -83,6 +83,11 @@ the DSH-only policy and agent-docs roots, receipt state, and the released nils
 executables. Missing, drifted, cross-home, unsafe, or ambiguous state fails
 closed.
 
+Management plans bind the reported DSH version to the matching exact source
+revision in `compatibility/dsh.json`. Only releases present in that reviewed
+set are accepted; changing the executable, version, or version-to-revision
+pair after preview is plan drift.
+
 ## Update, rollback, and remove
 
 Preview each command first, then repeat it with `--apply` and the returned
