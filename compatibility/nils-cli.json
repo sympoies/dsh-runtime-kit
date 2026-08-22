@@ -13,22 +13,22 @@
     },
     "artifacts": {
       "agent-hook": {
-          "sha256": "8fc1bba1e8b190c804a6762d056e6d4792a3e975e75e3df52565d36a30c1db83"
+        "sha256": "8fc1bba1e8b190c804a6762d056e6d4792a3e975e75e3df52565d36a30c1db83"
       },
       "agent-docs": {
-          "sha256": "3552ceffc23db63fac9051de85a11b878e4cceeb537a6483917794b7b91bb882"
+        "sha256": "3552ceffc23db63fac9051de85a11b878e4cceeb537a6483917794b7b91bb882"
       },
       "forge-cli": {
-          "sha256": "648eb444c879eee0595b28f09e028735840619d92e44d394eadc7ab2030b2c65"
+        "sha256": "648eb444c879eee0595b28f09e028735840619d92e44d394eadc7ab2030b2c65"
       },
       "git-cli": {
-          "sha256": "4c66b0a838a8fa6ba26dee7880e142c8447c611d7be9a4c864908e82c483e8c4"
+        "sha256": "4c66b0a838a8fa6ba26dee7880e142c8447c611d7be9a4c864908e82c483e8c4"
       },
       "review-specialists": {
-          "sha256": "bf584b272738da1faaa8bc16fbb72b7cc99f597773139b2109c614589b1fe706"
+        "sha256": "bf584b272738da1faaa8bc16fbb72b7cc99f597773139b2109c614589b1fe706"
       },
       "semantic-commit": {
-          "sha256": "c886686e45544fa8d5930682f66f8d35579f7712f45c012c6b63c4ab28bc620f"
+        "sha256": "c886686e45544fa8d5930682f66f8d35579f7712f45c012c6b63c4ab28bc620f"
       }
     }
   },
