@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import {
   chmodSync,
+  closeSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -23,6 +25,7 @@ import { test } from 'node:test'
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+const commandSupervisor = join(projectRoot, 'src', 'operations', 'supervise-command.mjs')
 
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 
@@ -338,6 +341,14 @@ function run(subject, args, extraEnv = {}) {
   return { ...result, value }
 }
 
+function pathWithoutSetsid(subject) {
+  const path = join(subject.root, 'portable-command-bin')
+  mkdirSync(path)
+  cpSync(process.execPath, join(path, 'node'))
+  chmodSync(join(path, 'node'), 0o755)
+  return path
+}
+
 function applyPlan(subject, args, extraEnv = {}) {
   const preview = run(subject, args, extraEnv)
   assert.equal(preview.status, 0, preview.stderr)
@@ -348,6 +359,49 @@ function applyPlan(subject, args, extraEnv = {}) {
   assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
   return { preview: preview.value.data, applied: applied.value.data }
 }
+
+test('POSIX command containment does not depend on an external setsid executable', () => {
+  if (process.platform === 'win32') return
+  const subject = fixture()
+  try {
+    const portablePath = pathWithoutSetsid(subject)
+    const result = run(subject, ['doctor', '--profile', 'work'], { PATH: portablePath })
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.value.ok, true)
+    assert.equal(result.value.data.dsh.ok, true)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a governed command cannot start before its process group is published', () => {
+  if (process.platform === 'win32') return
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-command-gate-'))
+  const sentinel = join(root, 'command-started')
+  const readOnlyControl = openSync('/dev/null', 'r')
+  try {
+    const result = spawnSync(process.execPath, [
+      commandSupervisor,
+      process.execPath,
+      '-e',
+      "require('node:fs').writeFileSync(process.argv[1], 'started')",
+      sentinel,
+    ], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DSH_RUNTIME_KIT_SUPERVISOR_TIMEOUT_MS: '1000',
+      },
+      stdio: ['ignore', 'pipe', 'pipe', readOnlyControl],
+    })
+    assert.notEqual(result.status, 0, result.stderr)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300)
+    assert.equal(existsSync(sentinel), false)
+  } finally {
+    closeSync(readOnlyControl)
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 function interruptCollateralUpdate(subject) {
   const lockfile = join(subject.profileDir, 'pnpm-lock.yaml')
@@ -1840,13 +1894,13 @@ test('doctor rejects missing DSH-only agent-hook isolation paths before executio
     unlinkSync(join(subject.runtimeRoot, '.dsh-runtime-kit.lock'))
     const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
     assert.equal(repair.status, 0, repair.stderr)
-    const unavailableSupervisor = run(subject, [
+    const repairedWithoutSetsid = run(subject, [
       'doctor', '--profile', 'work', '--repair', '--apply',
       '--expected-plan-digest', repair.value.data.plan_digest,
     ], { PATH: subject.commandDir })
-    assert.equal(unavailableSupervisor.status, 70, unavailableSupervisor.stderr)
-    assert.equal(unavailableSupervisor.value.error.code, 'command-unavailable')
-    assert.equal(existsSync(ownerPath), false)
+    assert.equal(repairedWithoutSetsid.status, 0, repairedWithoutSetsid.stderr)
+    assert.equal(repairedWithoutSetsid.value.ok, true)
+    assert.equal(existsSync(ownerPath), true)
   } finally {
     subject.cleanup()
   }
