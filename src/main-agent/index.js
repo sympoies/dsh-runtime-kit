@@ -592,7 +592,15 @@ export function applyMainAgentMode(ctx, config = {}) {
     if (typeof provider !== 'string' || typeof model !== 'string') {
       throw laneError('main-agent-worker-route-unavailable')
     }
-    return Object.freeze({ provider, model })
+    const inheritsControllerRoute = provider === controllerRoute.provider
+      && model === controllerRoute.model
+    return Object.freeze({
+      provider,
+      model,
+      ...inheritsControllerRoute && typeof controllerRoute.reasoningEffort === 'string'
+        ? { reasoningEffort: controllerRoute.reasoningEffort }
+        : {},
+    })
   }
 
   /**
@@ -963,11 +971,11 @@ export function applyMainAgentMode(ctx, config = {}) {
         /** @type {Lane | undefined} */
         let lane
         try {
-          const { provider, model } = workerRoute(exec?.agent)
+          const route = workerRoute(exec?.agent)
           anchorHandle = await ctx.agents.create({
             sessionId: /** @type {any} */ (randomUUID()),
             meta: { cwd: anchorCwd },
-            agentOptions: { provider, model },
+            agentOptions: route,
           })
           const anchor = anchorHandle.agent
           const anchorId = dshRc7SessionHeader(anchor).id

@@ -1044,9 +1044,11 @@ export function apply(ctx) {
 
       const controllerTools = ctx.tools.schemas(agent).map(tool => tool.name)
       const laneTools = [...ctx.mainAgentOrchestration.tools.lane]
+      const requestConfig = agent.session.requestHeader()?.config
       const routeObservation = {
-        provider: agent.options.provider,
-        model: agent.options.model,
+        provider: requestConfig?.provider ?? agent.options.provider,
+        model: requestConfig?.model ?? agent.options.model,
+        reasoningEffort: requestConfig?.reasoningEffort,
       }
       const sandboxEvent = [...agent.session.events]
         .reverse()
@@ -1221,7 +1223,7 @@ ${agentConsoleTuiOverlay}
     )
     assert.deepEqual(
       receipt.agentConsoleInspection.controller_route,
-      { provider: 'codex-proxy', model: 'gpt-5.6-sol' },
+      { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
     )
     assert.deepEqual(
       receipt.agentConsoleInspection.worker_route,
@@ -1752,7 +1754,8 @@ ${agentConsoleTuiOverlay}
     agentConsoleSolInheritanceVerified: agentConsoleTuiPackage === undefined
       ? false
       : receipt.agentConsoleInspection.worker_route.provider === 'codex-proxy'
-        && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol',
+        && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol'
+        && receipt.agentConsoleInspection.worker_route.reasoningEffort === 'high',
     externalProviderMutationAttempted: false,
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,

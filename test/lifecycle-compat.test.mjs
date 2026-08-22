@@ -12,6 +12,15 @@ test('the rc.7 adapter owns session, route, and run-info shape probes', () => {
   const agent = {
     options: { provider: 'deepseek-official', model: 'deepseek-v4' },
     session: {
+      requestHeader() {
+        return {
+          config: {
+            provider: 'deepseek-official',
+            model: 'deepseek-v4',
+            reasoningEffort: 'high',
+          },
+        }
+      },
       header: {
         id: 'child-one',
         parentSession: 'anchor-one',
@@ -27,6 +36,7 @@ test('the rc.7 adapter owns session, route, and run-info shape probes', () => {
   assert.deepEqual(dshRc7AgentRoute(agent), {
     provider: 'deepseek-official',
     model: 'deepseek-v4',
+    reasoningEffort: 'high',
   })
   assert.deepEqual(dshRc7RunInfo({ id: 'child-one', stopReason: 'completed' }), {
     id: 'child-one',
