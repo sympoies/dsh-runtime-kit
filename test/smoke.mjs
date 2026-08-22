@@ -16,6 +16,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 
+import { inspectExactDshCheckoutIdentity } from '../src/compat/git-checkout.js'
+
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
@@ -43,15 +45,15 @@ assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
   '@deepseek-ai/cordis': '4.0.1',
-  '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-fs': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-llm': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
+  '@deepseek-ai/dsh-agent': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-fs': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-llm': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-tools': '0.1.0-rc.7 || 0.1.0-rc.8',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -77,7 +79,16 @@ assert.deepEqual(dshIngressCompatibility?.contracts, [
 ])
 const dshManifest = JSON.parse(readFileSync(join(dshRoot, 'package.json'), 'utf8'))
 assert.equal(dshManifest.name, '@deepseek-ai/dsh-root')
-assert.equal(dshManifest.version, '0.1.0-rc.7')
+const dshCompatibility = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
+)
+const selectedDshRelease = dshCompatibility.validated_releases?.[dshManifest.version]
+assert.ok(selectedDshRelease, `unsupported DSH release ${dshManifest.version}`)
+const initialDshCheckout = await inspectExactDshCheckoutIdentity({
+  sourceRoot: dshRoot,
+  expectedRevision: selectedDshRelease.revision,
+  gitBin: '/usr/bin/git',
+})
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
 const userHome = join(temporaryRoot, 'home')
@@ -429,7 +440,7 @@ try {
 context = "project-dev"
 product = "dsh"
 commands = [${JSON.stringify(validationCommand)}]
-description = "packed rc.7 finish-line smoke"
+description = "packed ${dshManifest.version} finish-line smoke"
 `)
   installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
   installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')
@@ -1488,6 +1499,13 @@ exec "$@"
   assert.equal(replacedTokenReceipt.pendingCorrelations, 0)
   assertProviderSentinel(codexHome, 'codex')
   assertProviderSentinel(claudeHome, 'claude')
+
+  const finalDshCheckout = await inspectExactDshCheckoutIdentity({
+    sourceRoot: dshRoot,
+    expectedRevision: selectedDshRelease.revision,
+    gitBin: '/usr/bin/git',
+  })
+  assert.deepEqual(finalDshCheckout, initialDshCheckout)
 
   process.stdout.write(JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',

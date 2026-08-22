@@ -10,9 +10,9 @@ vendor DSH implementation code.
 - Linux for authoritative finish-line, process-containment, and acceptance
   validation.
 - Node.js `22.19` or `24` and npm.
-- A clean, built DeepSeek Harness `0.1.0-rc.7` source checkout for compatibility
-  and packed smoke validation.
-- Released nils-cli `1.27.0` binaries when exercising the real policy,
+- A clean, built DeepSeek Harness `0.1.0-rc.7` or `0.1.0-rc.8` source checkout
+  for compatibility and packed smoke validation.
+- Released nils-cli `1.27.2` binaries when exercising the real policy,
   agent-docs, Git, review, or delivery boundaries.
 
 Install the package dependencies without running dependency lifecycle scripts:
@@ -35,7 +35,7 @@ owner of this repository's contributor documentation.
 ## Source-of-truth boundaries
 
 - `package.json` owns package entrypoints, supported Node versions, scripts,
-  bundled files, and exact DSH/Cordis peer versions.
+  bundled files, and the closed DSH/Cordis peer ranges.
 - `compatibility/dsh.json` and `compatibility/nils-cli.json` own the validated
   upstream revisions, released nils artifacts, public export surface, and
   promotion budgets.

@@ -25,7 +25,10 @@ import {
   inspectCanonicalPackageArtifact,
   prepareAuthenticatedPackageScope,
 } from '../src/compat/package-artifact.js'
-import { inspectSelectedDshCheckoutIdentity } from '../src/compat/git-checkout.js'
+import {
+  inspectExactDshCheckoutIdentity,
+  inspectSelectedDshCheckoutIdentity,
+} from '../src/compat/git-checkout.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifestPath = join(projectRoot, 'compatibility', 'dsh.json')
@@ -70,7 +73,7 @@ function validRuntime() {
   }
 }
 
-test('DSH compatibility manifest pins rc.7 and one selected upstream-next revision', () => {
+test('DSH compatibility manifest pins the retained rc.7 and Workbench rc.8 releases', () => {
   const manifest = validateDshCompatibilityManifest(
     JSON.parse(readFileSync(manifestPath, 'utf8')),
   )
@@ -82,6 +85,16 @@ test('DSH compatibility manifest pins rc.7 and one selected upstream-next revisi
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
+  assert.deepEqual(manifest.validated_releases, {
+    '0.1.0-rc.7': {
+      ref: 'refs/tags/dsh-v0.1.0-rc.7',
+      revision: '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
+    },
+    '0.1.0-rc.8': {
+      ref: 'refs/tags/dsh-v0.1.0-rc.8',
+      revision: '141eb6fef83422698aef7a981029e843e8161534',
+    },
+  })
   assert.equal(
     manifest.performance.pre_tool.iterations * manifest.performance.pre_tool.batches >= 2_000,
     true,
@@ -104,11 +117,9 @@ test('DSH compatibility manifest pins rc.7 and one selected upstream-next revisi
   )
   for (const [name, contract] of Object.entries(manifest.public_packages)) {
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
-    assert.equal(
-      contract.peer,
-      contract.version ?? manifest.channels.pinned.version,
-      `${name} must not advertise versions that runtime preflight rejects`,
-    )
+    assert.equal(contract.peer, name === '@deepseek-ai/cordis'
+      ? '4.0.1'
+      : '0.1.0-rc.7 || 0.1.0-rc.8')
   }
 
   const exportDrift = structuredClone(manifest)
@@ -374,6 +385,14 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   assert.equal(typeof loaded.createUserMessage, 'function')
   assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
 
+  const rc8 = await loadDshRc7Runtime({
+    ...options(),
+    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+      ? '4.0.1'
+      : '0.1.0-rc.8',
+  })
+  assert.deepEqual(new Set(Object.values(rc8.versions)), new Set(['0.1.0-rc.8', '4.0.1']))
+
   await assert.rejects(
     loadDshRc7Runtime(options({
       '@deepseek-ai/dsh-llm': { HarnessError: class extends Error {}, createUserMessage: undefined },
@@ -392,7 +411,13 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
           : '0.1.0-rc.7',
     }),
     error => error instanceof DshCompatibilityError
-      && error.diagnostic.missing.includes('@deepseek-ai/dsh-tools:version:0.1.0-rc.7'),
+      && assert.deepEqual(error.diagnostic, {
+        adapter: 'dsh-rc7',
+        schema_version: 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1',
+        compatible: false,
+        code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+        missing: ['@deepseek-ai/dsh-tools:version:0.1.0-rc.7'],
+      }) === undefined,
   )
 
   let importCalls = 0
@@ -409,7 +434,10 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
           : '0.1.0-rc.7',
     }),
     error => error instanceof DshCompatibilityError
-      && error.diagnostic.missing.includes('@deepseek-ai/dsh-subprocess:version:0.1.0-rc.7'),
+      && error.diagnostic.adapter === 'dsh-rc7'
+      && error.diagnostic.missing.includes(
+        '@deepseek-ai/dsh-subprocess:version:0.1.0-rc.7',
+      ),
   )
   assert.equal(importCalls, 0)
 
@@ -543,6 +571,48 @@ test('selected source-only checkout can be authenticated before its build artifa
         gitBin: '/usr/bin/git',
         manifest,
       }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('exact release checkout identity rejects tracked and untracked drift', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-exact-release-'))
+  try {
+    await run('/usr/bin/git', ['init', '--quiet', root])
+    const readme = join(root, 'README.md')
+    await writeFile(readme, 'exact release fixture\n')
+    await run('/usr/bin/git', ['-C', root, 'add', 'README.md'])
+    await run('/usr/bin/git', [
+      '-c', 'user.name=Acceptance Fixture',
+      '-c', 'user.email=acceptance@example.invalid',
+      '-C', root,
+      'commit', '--quiet', '-m', 'test: exact release fixture',
+    ])
+    const { stdout } = await run('/usr/bin/git', ['-C', root, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    })
+    const expectedRevision = stdout.trim()
+    const inspect = () => inspectExactDshCheckoutIdentity({
+      sourceRoot: root,
+      expectedRevision,
+      gitBin: '/usr/bin/git',
+    })
+
+    assert.equal((await inspect()).upstream_checkout_clean, true)
+    await writeFile(readme, 'tracked drift\n')
+    await assert.rejects(
+      inspect(),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
+    )
+    await run('/usr/bin/git', ['-C', root, 'restore', 'README.md'])
+    await writeFile(join(root, 'untracked.txt'), 'untracked drift\n')
+    await assert.rejects(
+      inspect(),
       error => error instanceof DshCompatibilityError
         && error.code === 'DSH_RUNTIME_KIT_DIRTY_UPSTREAM',
     )
