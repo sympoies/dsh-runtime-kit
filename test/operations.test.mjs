@@ -1919,6 +1919,36 @@ test('doctor reports DSH-only agent-docs executable, catalog, and state health',
       state_home: subject.agentDocsStateHome,
     })
 
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.2 (v1.27.2, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
+    const validated = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(validated.status, 0, validated.stderr)
+    assert.deepEqual(validated.value.data.agent_docs, {
+      ok: true,
+      version: '1.27.2',
+      catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
+      state_home: subject.agentDocsStateHome,
+    })
+
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.3 (v1.27.3, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
+    const newer = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(newer.status, 65)
+    assert.equal(newer.value.data.agent_docs.ok, false)
+    assert.match(newer.value.data.agent_docs.error, /supported range 1\.27\.1 through 1\.27\.2/)
+
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.1 (v1.27.1, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
+
     const absent = run(subject, ['doctor', '--profile', 'work'], {
       DSH_RUNTIME_KIT_AGENT_DOCS_HOME: '',
     })
