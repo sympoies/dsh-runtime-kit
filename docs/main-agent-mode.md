@@ -60,8 +60,10 @@ Mode simply never activates and the rest of the bundle is unaffected.
   capability, checkpoint, and pinned activity-helper fields; readiness must
   match the session id, incarnation, and checkpoint before `init` runs, and the
   helper must resolve to the trusted companion of the configured Main Agent
-  CLI. Foreign subagents and failed initialization attempts create no binding,
-  and plugin teardown removes it.
+  CLI. Portable CLI names are first resolved through DSH's host executable
+  seam; the resulting real filesystem identity must still match. Foreign
+  subagents and failed initialization attempts create no binding, and plugin
+  teardown removes it.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the
