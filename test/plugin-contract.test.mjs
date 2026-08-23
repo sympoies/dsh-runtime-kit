@@ -528,6 +528,7 @@ test('policy ingress uses the authenticated managed worker principal for a bridg
           AGENT_SESSION_ID: 'worker-one',
           AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
           AGENT_SESSION_STATE_DIR: '/private/state',
+          AGENT_SESSION_BIN: '/private/bin/agent-session',
         },
       }
     : undefined)
@@ -538,6 +539,7 @@ test('policy ingress uses the authenticated managed worker principal for a bridg
   const ingress = JSON.parse(subject.spawnSpecs[0].stdio.stdin.data)
   assert.equal(ingress.subject.session_id, 'worker-one')
   assert.equal(subject.spawnSpecs[0].env.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(subject.spawnSpecs[0].env.AGENT_SESSION_BIN, '/private/bin/agent-session')
   assert.equal(
     Object.prototype.hasOwnProperty.call(
       subject.spawnSpecs[0].env,

@@ -76,6 +76,7 @@ const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_STATE_DIR',
   'AGENT_SESSION_CAPABILITY_FILE',
   'AGENT_SESSION_CHECKPOINT_FILE',
+  'AGENT_SESSION_BIN',
 ])
 
 /** @param {string} code @param {unknown} [details] */
@@ -722,6 +723,12 @@ export function applyMainAgentMode(ctx, config = {}) {
       }
       environment[name] = value
     }
+    let helperMatches = false
+    try {
+      helperMatches = realpathSync(environment.AGENT_SESSION_BIN) === realpathSync(agentSessionCli)
+    } catch {
+      helperMatches = false
+    }
     if (readiness.session_id !== environment.AGENT_SESSION_ID
       || readiness.session_incarnation !== environment.AGENT_SESSION_RUNTIME_ID
       || readiness.checkpoint_file !== environment.AGENT_SESSION_CHECKPOINT_FILE) {
@@ -730,7 +737,9 @@ export function applyMainAgentMode(ctx, config = {}) {
     if (!SESSION_ID.test(environment.AGENT_SESSION_ID)
       || !isAbsolute(environment.AGENT_SESSION_STATE_DIR)
       || !isAbsolute(environment.AGENT_SESSION_CAPABILITY_FILE)
-      || !isAbsolute(environment.AGENT_SESSION_CHECKPOINT_FILE)) {
+      || !isAbsolute(environment.AGENT_SESSION_CHECKPOINT_FILE)
+      || !isAbsolute(environment.AGENT_SESSION_BIN)
+      || !helperMatches) {
       throw laneError('main-agent-controller-principal-invalid')
     }
     return Object.freeze({

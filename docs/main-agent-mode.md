@@ -56,10 +56,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   private to this bundle and disappears when the lane or plugin closes.
 - **Controller identity bridge**: successful native run initialization binds
   only the exact top-level DSH controller id to the authenticated readiness
-  principal. The bridge restores only the five session-owned identity, state,
-  capability, and checkpoint fields; readiness must match the session id,
-  incarnation, and checkpoint before `init` runs. Foreign subagents and failed
-  initialization attempts create no binding, and plugin teardown removes it.
+  principal. The bridge restores only the six session-owned identity, state,
+  capability, checkpoint, and pinned activity-helper fields; readiness must
+  match the session id, incarnation, and checkpoint before `init` runs, and the
+  helper must resolve to the trusted companion of the configured Main Agent
+  CLI. Foreign subagents and failed initialization attempts create no binding,
+  and plugin teardown removes it.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the

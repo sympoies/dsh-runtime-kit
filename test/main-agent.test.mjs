@@ -318,6 +318,7 @@ const TEST_CONTROLLER_ENVIRONMENT = Object.freeze({
   AGENT_SESSION_STATE_DIR: '/private/state',
   AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
   AGENT_SESSION_CHECKPOINT_FILE: '/private/checkpoint.json',
+  AGENT_SESSION_BIN: AGENT_SESSION_CLI,
 })
 
 async function withControllerEnvironment(run) {
@@ -524,6 +525,48 @@ test('controller principal mismatch fails before run creation and leaves no brid
       /main-agent-controller-principal-mismatch/,
     )
     assert.equal(harness.spawned.length, 2, 'init never runs after readiness identity mismatch')
+    assert.equal(managedSessionBridge.resolve('controller-one'), undefined)
+  })
+})
+
+test('controller principal rejects an arbitrary absolute activity helper before run creation', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    process.env.AGENT_SESSION_BIN = '/private/untrusted-agent-session'
+    const harness = createContext({
+      envelope: (spec) => spec.argv.includes('capabilities')
+        ? {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        : {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    await assert.rejects(
+      harness.registeredTools.get('main_agent_run_initialize').execute({
+        objective_file: '/private/objective.json',
+        idempotency_key: 'initialize-1',
+      }, controllerExec()),
+      /main-agent-controller-principal-invalid/,
+    )
+    assert.equal(harness.spawned.length, 2, 'init never runs with an untrusted helper path')
     assert.equal(managedSessionBridge.resolve('controller-one'), undefined)
   })
 })
