@@ -97,6 +97,20 @@ AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 npm run test:smoke
 ```
 
+Exercise the exact Agent Console layer on the same smoke by selecting the only
+authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
+inspects the unmodified TUI tree, disables only the interactive front door in
+its test overlay, and boots the real rc.7 runtime to prove `userQuestions`,
+runtime-kit tools/skills, and Main Agent service together:
+
+```sh
+DSH_SOURCE_ROOT=/path/to/deepseek-harness \
+AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
+AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
+DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.8.1' \
+npm run test:smoke
+```
+
 The smoke must not contact or mutate an external provider. It may create
 temporary local profiles and managed worktrees under its disposable test root.
 

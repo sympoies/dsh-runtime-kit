@@ -1620,3 +1620,41 @@ behavior change and therefore has no additional RED; the signed reviewed head,
 verification contract. A new signed semantic descendant and private trust-root
 rebind remain required before the hosted 12-scenario rerun and final local
 DeepSeek proof.
+
+## Issue 213 Agent Console integration evidence
+
+PR #41 delivered the Agent Console rc.7 runtime repair at exact reviewed head
+`b25e4bbeb68821ca9ae0175e12600db75c675e59` and was squash-integrated into
+`feat/dsh-ui-fleet-integration` as
+`c925b903abf5ceb1dd024fc0666d5e708fbcbfc1`. The route contract now binds the
+default, controller, worker, and sanitized inspection result to
+`codex-proxy` / `gpt-5.6-sol` / `high`; the same integration also restores the
+canonical Linux user-runtime route required by isolated nils children without
+forwarding ambient home, path, bus, session, or unrelated secret state.
+
+The focused API-contract review found one high-confidence downstream-consumer
+gap, `agent-console-effort-real-route-observer-missing`: the real rc.7 adapter
+and Main Agent lane path still narrowed the controller route to provider and
+model. Its targeted repair observes the effective request-header effort and
+preserves it through worker and lane-anchor inheritance when provider/model are
+unchanged. The same reviewer then returned `RESOLVED/PASS` for that exact
+fingerprint; no broad review cycle was repeated. The independent focused
+security review of the nils child environment returned pass with no finding.
+
+The behavior changes retained their two meaningful RED records: the original
+Agent Console profile test rejected the new high-effort contract, and the
+review follow-up reproduced effort loss through the real controller-to-anchor
+path. Final affected coverage passed 72/72 with strict typechecking and diff
+checks green. A keyless packed smoke against exact DSH rc.7 and authenticated
+dsh-tui 0.8.1 also passed, including high-effort controller and worker profile
+inspection. All delivery commits carried `[skip ci]`; the provider recorded
+zero required checks because the account Actions storage budget was exhausted.
+
+This retained integration record is not another behavior change, so no new RED
+is meaningful. The outer fleet workflow must next bind this signed semantic
+descendant in sympoies-infra, provision both target machines locally, and run
+live Agent Console and Workbench acceptance. That acceptance must prove a new
+GPT session defaults to `high`, a saved `/effort` preference survives a later
+session, project context and finish-line operations complete, and Main Agent
+workers inherit the effective route. Issue 213 remains open until those live
+checks and infrastructure closeout complete; no fleet cutover is claimed here.
