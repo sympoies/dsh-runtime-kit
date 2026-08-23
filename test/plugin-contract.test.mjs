@@ -541,6 +541,11 @@ test('policy ingress uses the authenticated managed worker principal for a bridg
   assert.equal(subject.spawnSpecs[0].env.AGENT_SESSION_ID, 'worker-one')
   assert.equal(subject.spawnSpecs[0].env.AGENT_SESSION_BIN, '/private/bin/agent-session')
   assert.equal(
+    subject.spawnSpecs[0].env.DSH_RUNTIME_KIT_PROVIDER_SESSION_ID,
+    'session-1',
+    'activity correlation keeps the DSH provider session separate from the owner principal',
+  )
+  assert.equal(
     Object.prototype.hasOwnProperty.call(
       subject.spawnSpecs[0].env,
       'AGENT_SESSION_CAPABILITY_FILE',

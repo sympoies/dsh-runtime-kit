@@ -52,8 +52,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   CLI's `main-agent.external-launch.v1` payload is bound in memory to that
   lane's DSH child and descendants. Policy, selective context, and finish-line
   nils subprocesses receive the authenticated worker session id and environment;
-  ordinary DSH sessions retain the scrubbed, ownerless boundary. The bridge is
-  private to this bundle and disappears when the lane or plugin closes.
+  ordinary DSH sessions retain the scrubbed, ownerless boundary. Policy keeps
+  the owner id in its ingress subject and transports the original DSH session
+  separately on the private agent-hook subprocess edge, so provider activity
+  correlation cannot be replaced by the coordination owner. The public ingress
+  schema is unchanged. The bridge is private to this bundle and disappears
+  when the lane or plugin closes.
 - **Controller identity bridge**: successful native run initialization binds
   only the exact top-level DSH controller id to the authenticated readiness
   principal. The bridge restores only the six session-owned identity, state,
