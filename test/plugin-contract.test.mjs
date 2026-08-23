@@ -457,6 +457,7 @@ test('policy ingress resolves a bare agent-hook command before spawning', async 
   assert.equal(result.result.kind, 'allow')
   assert.ok(subject.resolutions.length >= 2)
   assert.ok(subject.resolutions.every(candidate => candidate.command === 'agent-hook'))
+  assert.ok(subject.resolutions.every(candidate => candidate.env === undefined))
   assert.equal(subject.spawnSpecs[0].argv[0], '/resolved/agent-hook')
 })
 

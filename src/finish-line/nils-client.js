@@ -366,7 +366,6 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       const argv = await resolveSubprocessArgv(
         ctx,
         agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
-        environment,
         AbortSignal.timeout(teardownTimeoutMs),
       )
       handle = ctx.subprocess.spawn({
@@ -494,7 +493,6 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['finish-line', action, '--format', 'json']),
-          environment,
           operation.controller.signal,
         )
         operation.handle = ctx.subprocess.spawn({

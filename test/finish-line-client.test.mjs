@@ -185,6 +185,7 @@ test('finish-line resolves a bare agent-hook command before spawning', async () 
   await subject.client.open(identity)
   assert.equal(subject.resolutions.length, 1)
   assert.equal(subject.resolutions[0].command, 'agent-hook')
+  assert.equal(subject.resolutions[0].env, undefined)
   assert.equal(subject.spawns[0].spec.argv[0], '/resolved/agent-hook')
 })
 

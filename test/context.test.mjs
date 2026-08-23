@@ -159,6 +159,11 @@ test('the context client resolves a bare agent-docs command before spawning', as
   assert.equal(result.intent, 'project-dev')
   assert.equal(subject.resolutions.length, 1)
   assert.equal(subject.resolutions[0].command, 'agent-docs')
+  assert.equal(
+    subject.resolutions[0].env,
+    undefined,
+    'portable helper lookup must use the DSH host execution PATH, not the isolated child PATH',
+  )
   assert.equal(subject.specs[0].argv[0], '/resolved/agent-docs')
 })
 
