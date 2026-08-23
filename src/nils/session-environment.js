@@ -50,8 +50,8 @@ function selectNilsHostEnvironment(environment, runtime) {
 
 /**
  * Convert every ambient managed-session field into an explicit subprocess
- * tombstone. DSH has no authenticated session bridge yet, so no inherited
- * provider session identity is valid input to a nils child.
+ * tombstone. Inherited provider session identity is never valid input to a
+ * nils child until the in-process bridge authenticates and restores it.
  *
  * @param {NodeJS.ProcessEnv} environment
  * @returns {Readonly<NodeJS.ProcessEnv>}
@@ -112,9 +112,9 @@ export function authenticatedNilsEnvironment(
 }
 
 /**
- * Resolve a DSH child session to the authenticated Main Agent worker principal
- * owned by the live lane registry. The service is optional because ordinary
- * DSH sessions deliberately remain isolated from ambient provider identity.
+ * Resolve a DSH session to the authenticated managed principal owned by the
+ * live bridge. The service is optional because unmanaged DSH sessions
+ * deliberately remain isolated from ambient provider identity.
  *
  * @param {unknown} _ctx retained for the transport call signature; never used
  * @param {string} sessionId

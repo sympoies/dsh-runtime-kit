@@ -416,6 +416,8 @@ export function applyMainAgentMode(ctx, config = {}) {
   const lanes = createLaneRegistry()
   /** @type {Map<string, Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>} */
   const controllers = new Map()
+  /** @type {Map<string, Promise<Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>>} */
+  const authenticatingControllers = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const launching = new Map()
   // Run boundaries published before `startContinuable` resolves cannot be
@@ -443,6 +445,52 @@ export function applyMainAgentMode(ctx, config = {}) {
   }
   const disposeSessionBridge = config.managedSessionBridge?.register?.(resolveSessionPrincipal)
 
+  /**
+   * Agent Console injects one capability-bearing managed-session principal
+   * into the top-level DSH process. Authenticate it before the first policy
+   * lifecycle request so an ordinary single-agent session is not forced to
+   * initialize an unrelated Main Agent run merely to use shell, context, and
+   * finish-line capabilities. No ambient field is restored until the
+   * producer-owned self-readiness command proves the exact id, incarnation,
+   * checkpoint, and trusted helper path.
+   *
+   * @param {string} controllerSessionId
+   * @param {any} exec
+   */
+  const authenticateManagedController = async (controllerSessionId, exec) => {
+    const bound = controllers.get(controllerSessionId)
+    if (bound !== undefined) return bound
+    const pending = authenticatingControllers.get(controllerSessionId)
+    if (pending !== undefined) return pending
+    const authentication = (async () => {
+      const readiness = await runEnvelope([
+        mainAgentCli,
+        'self',
+        'readiness',
+        '--format',
+        'json',
+      ], exec, controllerCwd(exec))
+      if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
+        throw laneError('main-agent-controller-not-ready')
+      }
+      const principal = await controllerPrincipal(readiness, exec.signal)
+      const existing = controllers.get(controllerSessionId)
+      if (existing !== undefined && !sameControllerPrincipal(existing, principal)) {
+        throw laneError('main-agent-controller-binding-conflict')
+      }
+      controllers.set(controllerSessionId, principal)
+      return principal
+    })()
+    authenticatingControllers.set(controllerSessionId, authentication)
+    try {
+      return await authentication
+    } finally {
+      if (authenticatingControllers.get(controllerSessionId) === authentication) {
+        authenticatingControllers.delete(controllerSessionId)
+      }
+    }
+  }
+
   ctx.effect(() => () => {
     closing = true
     // A fiber teardown or plugin reload leaves the process alive, so the
@@ -458,6 +506,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       lane.disposeAnchor?.()
     }
     pendingRunEvents.length = 0
+    authenticatingControllers.clear()
     controllers.clear()
     lanes.clear()
     if (typeof disposeSessionBridge === 'function') disposeSessionBridge()
@@ -488,11 +537,27 @@ export function applyMainAgentMode(ctx, config = {}) {
   // Anchor agents exist only to carry a lane's worktree cwd and lineage; they
   // must never spend model turns on settlement notices.
   ctx.on('agent/pre-step', async (payload, next) => {
-    const { id: sessionId } = dshRc7SessionHeader(payload?.agent)
+    const { id: sessionId, parentSession } = dshRc7SessionHeader(payload?.agent)
     if (typeof sessionId === 'string' && lanes.byAnchor(sessionId) !== undefined) {
       return {
         kind: /** @type {const} */ ('reject'),
         reason: 'dsh-runtime-kit:main-agent-anchor-parked',
+      }
+    }
+    const hasManagedSessionCandidate = CONTROLLER_PRINCIPAL_ENV_KEYS.some(
+      name => typeof process.env[name] === 'string' && process.env[name].length > 0,
+    )
+    if (typeof sessionId === 'string'
+      && sessionId.length > 0
+      && (typeof parentSession !== 'string' || parentSession.length === 0)
+      && hasManagedSessionCandidate) {
+      try {
+        await authenticateManagedController(sessionId, payload)
+      } catch {
+        return {
+          kind: /** @type {const} */ ('reject'),
+          reason: 'dsh-runtime-kit:managed-controller-authentication-failed',
+        }
       }
     }
     return next()
