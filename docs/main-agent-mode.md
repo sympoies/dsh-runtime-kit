@@ -54,6 +54,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   nils subprocesses receive the authenticated worker session id and environment;
   ordinary DSH sessions retain the scrubbed, ownerless boundary. The bridge is
   private to this bundle and disappears when the lane or plugin closes.
+- **Controller identity bridge**: successful native run initialization binds
+  only the exact top-level DSH controller id to the authenticated readiness
+  principal. The bridge restores only the five session-owned identity, state,
+  capability, and checkpoint fields; readiness must match the session id,
+  incarnation, and checkpoint before `init` runs. Foreign subagents and failed
+  initialization attempts create no binding, and plugin teardown removes it.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the
@@ -69,8 +75,10 @@ Mode simply never activates and the rest of the bundle is unaffected.
 - `main_agent_run_initialize({objective_file, idempotency_key})` — runs the
   fixed DSH compatibility and authenticated controller-readiness gates, then
   initializes the durable run from the private objective packet. A failed gate
-  creates no run, and the controller never has to route capability-bearing
-  identity through an ordinary shell call.
+  creates no run or identity binding. On success the exact top-level DSH
+  controller is bound to its readiness-authenticated managed-session principal,
+  so later policy, selective-context, shell, and finish-line subprocesses can
+  authenticate without routing capability material through tool arguments.
 - `main_agent_worker_launch({assignment_file, idempotency_key})` — runs the
   fenced `main-agent worker start --await-ready 0`, validates the
   external-launch payload, spawns the anchor and lane child, starts the

@@ -33,7 +33,9 @@ limitation when either gate fails:
 2. Call `main_agent_run_initialize` with the private objective packet and a
    stable idempotency key. The tool runs the fixed DSH capabilities and
    authenticated controller-readiness gates before it invokes `main-agent
-   init`; a failed gate creates no run.
+   init`; a failed gate creates no run or controller binding. Success binds
+   only this top-level DSH controller to the readiness-authenticated session
+   principal for later policy, context, shell, and finish-line admission.
 
 ## Workflow
 
@@ -43,8 +45,9 @@ limitation when either gate fails:
 2. Create the durable run: write a private `main-agent.objective-packet.v1`
    JSON file (owner-only mode, outside every repository checkout) and call
    `main_agent_run_initialize` (`objective_file`, `idempotency_key`). Do not
-   use a controller shell command: ordinary DSH sessions intentionally carry
-   no managed-session identity into policy or nils subprocesses.
+   use a controller shell command for readiness/init: before this native tool
+   succeeds, the DSH controller intentionally carries no managed-session
+   identity into policy or nils subprocesses.
 3. Prepare one isolated worktree per mutating lane with `git-cli worktree
    add`, then write one private `main-agent.assignment-input.v1` packet per
    lane with `launch.agent` set to `dsh`, a non-overlapping path scope,

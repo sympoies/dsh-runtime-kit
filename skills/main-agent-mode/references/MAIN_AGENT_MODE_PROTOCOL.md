@@ -20,8 +20,11 @@ retry; it is never re-recorded, because the fence already moved.
 
 The controller initializes through `main_agent_run_initialize`, which owns the
 fixed DSH capability and authenticated self-readiness checks before the store
-init call. Ordinary DSH shell calls intentionally do not inherit a controller
-capability and are not an initialization fallback.
+init call. Before it succeeds, ordinary DSH shell calls intentionally do not
+inherit a controller capability and are not an initialization fallback. After
+success, the exact top-level DSH controller id is bound in memory to the
+readiness-authenticated session principal so its later policy, context, shell,
+and finish-line subprocesses restore only the session-owned identity fields.
 
 ## Controller packet
 

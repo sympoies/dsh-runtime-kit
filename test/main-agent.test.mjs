@@ -312,7 +312,31 @@ function controllerExec() {
   }
 }
 
+const TEST_CONTROLLER_ENVIRONMENT = Object.freeze({
+  AGENT_SESSION_ID: 'controller-managed',
+  AGENT_SESSION_RUNTIME_ID: 'controller-runtime',
+  AGENT_SESSION_STATE_DIR: '/private/state',
+  AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+  AGENT_SESSION_CHECKPOINT_FILE: '/private/checkpoint.json',
+})
+
+async function withControllerEnvironment(run) {
+  const previous = new Map(
+    Object.keys(TEST_CONTROLLER_ENVIRONMENT).map(name => [name, process.env[name]]),
+  )
+  Object.assign(process.env, TEST_CONTROLLER_ENVIRONMENT)
+  try {
+    return await run(TEST_CONTROLLER_ENVIRONMENT)
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+}
+
 test('controller initialization is a native readiness-fenced tool', async () => {
+  await withControllerEnvironment(async (controllerEnvironment) => {
   const harness = createContext({
     envelope: (spec) => {
       if (spec.argv.includes('capabilities')) {
@@ -331,7 +355,13 @@ test('controller initialization is a native readiness-fenced tool', async () => 
         return {
           schema_version: 'cli.main-agent.self-readiness.v1',
           ok: true,
-          data: { schema_version: 'main-agent.runtime-readiness.v1', ready: true },
+          data: {
+            schema_version: 'main-agent.runtime-readiness.v1',
+            ready: true,
+            session_id: controllerEnvironment.AGENT_SESSION_ID,
+            session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+            checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+          },
         }
       }
       return {
@@ -370,6 +400,7 @@ test('controller initialization is a native readiness-fenced tool', async () => 
     harness.spawned.every(record => record.spec.cwd === '/controller/checkout'),
     'every readiness and init call stays bound to the controller cwd',
   )
+  })
 })
 
 test('controller initialization creates no run when compatibility is unproven', async () => {
@@ -395,6 +426,122 @@ test('controller initialization creates no run when compatibility is unproven', 
     /main-agent-capabilities-incompatible/,
   )
   assert.equal(harness.spawned.length, 1, 'readiness and init never run after a failed capability gate')
+})
+
+test('successful native initialization binds only the exact DSH controller principal', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: (spec) => {
+        if (spec.argv.includes('capabilities')) {
+          return {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        }
+        if (spec.argv.includes('readiness')) {
+          return {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.main-agent.init.v1',
+          ok: true,
+          data: {
+            schema_version: 'main-agent.init-result.v1',
+            run: { run_id: 'run-one', revision: 1, state: 'active' },
+          },
+        }
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    await harness.registeredTools.get('main_agent_run_initialize').execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-1',
+    }, controllerExec())
+
+    assert.deepEqual(managedSessionBridge.resolve('controller-one'), {
+      sessionId: 'controller-managed',
+      environment: controllerEnvironment,
+    })
+    assert.equal(
+      managedSessionBridge.resolve('foreign-controller'),
+      undefined,
+      'the authenticated principal is bound only to the exact initializing DSH session',
+    )
+  })
+})
+
+test('controller principal mismatch fails before run creation and leaves no bridge binding', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: (spec) => spec.argv.includes('capabilities')
+        ? {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        : {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: 'different-incarnation',
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    await assert.rejects(
+      harness.registeredTools.get('main_agent_run_initialize').execute({
+        objective_file: '/private/objective.json',
+        idempotency_key: 'initialize-1',
+      }, controllerExec()),
+      /main-agent-controller-principal-mismatch/,
+    )
+    assert.equal(harness.spawned.length, 2, 'init never runs after readiness identity mismatch')
+    assert.equal(managedSessionBridge.resolve('controller-one'), undefined)
+  })
+})
+
+test('controller initialization refuses a foreign non-lane subagent caller', async () => {
+  const harness = createContext()
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  const exec = controllerExec()
+  exec.agent.session.header.parentSession = 'foreign-parent'
+
+  await assert.rejects(
+    harness.registeredTools.get('main_agent_run_initialize').execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-1',
+    }, exec),
+    /main-agent-controller-top-level-required/,
+  )
+  assert.equal(harness.spawned.length, 0)
 })
 
 test('worker launch executes the external-launch contract without duplicating lanes', async (t) => {

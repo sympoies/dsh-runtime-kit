@@ -70,6 +70,13 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
+const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
+  'AGENT_SESSION_ID',
+  'AGENT_SESSION_RUNTIME_ID',
+  'AGENT_SESSION_STATE_DIR',
+  'AGENT_SESSION_CAPABILITY_FILE',
+  'AGENT_SESSION_CHECKPOINT_FILE',
+])
 
 /** @param {string} code @param {unknown} [details] */
 function laneError(code, details) {
@@ -381,6 +388,8 @@ export function applyMainAgentMode(ctx, config = {}) {
     : DEFAULT_BROKER_READY_TIMEOUT_MS
   const client = createCliClient(ctx, config)
   const lanes = createLaneRegistry()
+  /** @type {Map<string, Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>} */
+  const controllers = new Map()
   /** @type {Map<string, Promise<unknown>>} */
   const launching = new Map()
   // Run boundaries published before `startContinuable` resolves cannot be
@@ -397,6 +406,8 @@ export function applyMainAgentMode(ctx, config = {}) {
   /** @param {string} sessionId */
   const resolveSessionPrincipal = sessionId => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined
+    const controller = controllers.get(sessionId)
+    if (controller !== undefined) return controller
     const lane = lanes.byMember(sessionId) ?? lanes.byChild(sessionId)
     if (lane === undefined || lane.state !== 'open') return undefined
     return Object.freeze({
@@ -421,6 +432,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       lane.disposeAnchor?.()
     }
     pendingRunEvents.length = 0
+    controllers.clear()
     lanes.clear()
     if (typeof disposeSessionBridge === 'function') disposeSessionBridge()
   }, 'dsh-runtime-kit main-agent lanes')
@@ -675,6 +687,66 @@ export function applyMainAgentMode(ctx, config = {}) {
   }
 
   /**
+   * Run initialization authenticates the one top-level DSH controller. A
+   * foreign subagent outside a managed lane must not be able to bind the
+   * process-wide controller principal merely because it is not in the lane
+   * registry yet.
+   *
+   * @param {any} exec
+   * @returns {string}
+   */
+  const requireTopLevelControllerCaller = (exec) => {
+    requireControllerCaller(exec)
+    const header = dshRc7SessionHeader(exec?.agent)
+    if (typeof header.parentSession === 'string' && header.parentSession.length > 0) {
+      throw laneError('main-agent-controller-top-level-required')
+    }
+    return /** @type {string} */ (header.id)
+  }
+
+  /**
+   * Rehydrate only the private session fields the hook admission layer owns.
+   * Readiness independently authenticates the session id, incarnation, and
+   * checkpoint; no provider tokens or arbitrary process environment cross the
+   * bridge.
+   *
+   * @param {Record<string, any>} readiness
+   */
+  const controllerPrincipal = (readiness) => {
+    /** @type {Record<string, string>} */
+    const environment = {}
+    for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
+      const value = process.env[name]
+      if (typeof value !== 'string' || value.length === 0) {
+        throw laneError('main-agent-controller-principal-unavailable')
+      }
+      environment[name] = value
+    }
+    if (readiness.session_id !== environment.AGENT_SESSION_ID
+      || readiness.session_incarnation !== environment.AGENT_SESSION_RUNTIME_ID
+      || readiness.checkpoint_file !== environment.AGENT_SESSION_CHECKPOINT_FILE) {
+      throw laneError('main-agent-controller-principal-mismatch')
+    }
+    if (!SESSION_ID.test(environment.AGENT_SESSION_ID)
+      || !isAbsolute(environment.AGENT_SESSION_STATE_DIR)
+      || !isAbsolute(environment.AGENT_SESSION_CAPABILITY_FILE)
+      || !isAbsolute(environment.AGENT_SESSION_CHECKPOINT_FILE)) {
+      throw laneError('main-agent-controller-principal-invalid')
+    }
+    return Object.freeze({
+      sessionId: environment.AGENT_SESSION_ID,
+      environment: Object.freeze(environment),
+    })
+  }
+
+  /**
+   * @param {Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>} left
+   * @param {Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>} right
+   */
+  const sameControllerPrincipal = (left, right) => left.sessionId === right.sessionId
+    && CONTROLLER_PRINCIPAL_ENV_KEYS.every(name => left.environment[name] === right.environment[name])
+
+  /**
    * The lane's declared checkpoint file, or undefined when the launch payload
    * did not name one inside this lane's own coordination directory. A lane
    * without a contained checkpoint path gets no checkpoint tool at all: it is
@@ -868,7 +940,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     },
     async execute(args, exec) {
       if (closing) throw laneError('main-agent-mode-disposed')
-      requireControllerCaller(exec)
+      const controllerSessionId = requireTopLevelControllerCaller(exec)
       const record = /** @type {Record<string, unknown>} */ (args)
       const objectiveFile = requireNonEmptyString(
         record.objective_file,
@@ -906,6 +978,12 @@ export function applyMainAgentMode(ctx, config = {}) {
       if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
         throw laneError('main-agent-controller-not-ready')
       }
+      const principal = controllerPrincipal(readiness)
+      const existingPrincipal = controllers.get(controllerSessionId)
+      if (existingPrincipal !== undefined
+        && !sameControllerPrincipal(existingPrincipal, principal)) {
+        throw laneError('main-agent-controller-binding-conflict')
+      }
       const initialized = await runEnvelope([
         mainAgentCli,
         'init',
@@ -917,6 +995,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         '--format',
         'json',
       ], exec, cwd)
+      controllers.set(controllerSessionId, principal)
       return {
         ...initialized,
         readiness: {
