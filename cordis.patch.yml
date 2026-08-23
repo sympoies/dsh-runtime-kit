@@ -10,6 +10,8 @@
         agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
         agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
         privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
+        mainAgentCli: !!js process.env.DSH_RUNTIME_KIT_MAIN_AGENT_BIN ?? 'main-agent'
+        agentSessionCli: !!js process.env.DSH_RUNTIME_KIT_AGENT_SESSION_BIN ?? 'agent-session'
         contextMaxBytes: 20480
         contextTimeoutMs: 5000
         contextTeardownTimeoutMs: 2000
