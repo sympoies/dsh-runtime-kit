@@ -64,6 +64,8 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
  * other session can reach another lane's checkpoint authority.
  */
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
+const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
 
 /** @param {string} code @param {unknown} [details] */
 function laneError(code, details) {
@@ -144,6 +146,22 @@ function validWorkerEnv(workerEnv) {
     }))
 }
 
+/** @param {unknown} prompt */
+function bootstrapKeyFromPrompt(prompt) {
+  if (typeof prompt !== 'string') return undefined
+  const matches = [...prompt.matchAll(/--idempotency-key ([A-Za-z0-9._:-]{8,128}) --format json/g)]
+  return matches.length === 1 ? matches[0][1] : undefined
+}
+
+/** @param {string} bootstrapKey */
+function nativeBootstrapPrompt(bootstrapKey) {
+  return 'Main Agent Mode is explicitly active for this managed worker assignment. '
+    + `Call the native \`${LANE_BOOTSTRAP_TOOL}\` tool now with \`idempotency_key\` `
+    + `set to \`${bootstrapKey}\`. Do not run the shell bootstrap command and do not `
+    + 'perform any other action before the native tool succeeds; then follow the returned '
+    + '`worker_instructions` and private assignment.'
+}
+
 /**
  * Map an rc.7 subagent stop reason onto the sidecar contract's documented
  * `completed | failed | interrupted` vocabulary. An unknown or absent reason
@@ -216,6 +234,7 @@ function validExternalLaunch(externalLaunch, agentSessionCli) {
     && externalLaunch.launch_id.length > 0
     && typeof externalLaunch.prompt === 'string'
     && externalLaunch.prompt.length > 0
+    && bootstrapKeyFromPrompt(externalLaunch.prompt) !== undefined
     && externalLaunch.worker_env !== null
     && typeof externalLaunch.worker_env === 'object'
     && typeof externalLaunch.liveness_file === 'string'
@@ -255,14 +274,16 @@ function laneEnvironmentSection(lane) {
     .join('\n')
   return [
     `You are the managed worker lane for assignment ${lane.assignmentId}.`,
-    'Export this exact session environment before running any `main-agent` or',
-    '`agent-session` command (copy verbatim, no substitutions):',
+    'The native lane tools already apply this authenticated session environment.',
+    'For any other `main-agent` or `agent-session` shell command, prefix that',
+    'same command with every assignment below (copy verbatim, no substitutions).',
+    'A standalone export tool call does not persist into the next shell process:',
     '',
     '```sh',
     rows,
     '```',
     '',
-    'Without this environment the coordination CLI cannot authenticate you.',
+    'Without this same-process environment the coordination CLI cannot authenticate you.',
     'Never invent, reorder, or omit any of these values.',
   ].join('\n')
 }
@@ -309,6 +330,7 @@ function launchSummary(lane, disposition) {
  *   cliTeardownTimeoutMs?: number,
  *   maxActiveCliCalls?: number,
  *   brokerReadyTimeoutMs?: number,
+ *   managedSessionBridge?: {register?: (resolver:(id:string) => unknown) => (() => void)},
  * }} [config]
  */
 export function applyMainAgentMode(ctx, config = {}) {
@@ -368,6 +390,18 @@ export function applyMainAgentMode(ctx, config = {}) {
   let reservedLanes = 0
   let closing = false
 
+  /** @param {string} sessionId */
+  const resolveSessionPrincipal = sessionId => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined
+    const lane = lanes.byMember(sessionId) ?? lanes.byChild(sessionId)
+    if (lane === undefined || lane.state !== 'open') return undefined
+    return Object.freeze({
+      sessionId: lane.workerSessionId,
+      environment: Object.freeze({ ...lane.workerEnv }),
+    })
+  }
+  const disposeSessionBridge = config.managedSessionBridge?.register?.(resolveSessionPrincipal)
+
   ctx.effect(() => () => {
     closing = true
     // A fiber teardown or plugin reload leaves the process alive, so the
@@ -384,6 +418,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     }
     pendingRunEvents.length = 0
     lanes.clear()
+    if (typeof disposeSessionBridge === 'function') disposeSessionBridge()
   }, 'dsh-runtime-kit main-agent lanes')
 
   /**
@@ -548,6 +583,12 @@ export function applyMainAgentMode(ctx, config = {}) {
     // ever checkpoint its own assignment: there is no argument through which it
     // could name another lane.
     const checkpointFile = laneCheckpointFile(lane)
+    if (typeof childCtx.tools.register === 'function') {
+      const disposeBootstrap = childCtx.tools.register(
+        Object.freeze(laneBootstrapTool(lane)),
+      )
+      if (typeof disposeBootstrap === 'function') disposers.push(disposeBootstrap)
+    }
     if (checkpointFile !== undefined && typeof childCtx.tools.register === 'function') {
       const disposeCheckpoint = childCtx.tools.register(
         Object.freeze(laneCheckpointTool(lane, checkpointFile)),
@@ -723,6 +764,55 @@ export function applyMainAgentMode(ctx, config = {}) {
         String(ifRevision),
         '--idempotency-key',
         idempotencyKey,
+        '--format',
+        'json',
+      ], exec, lane.worktree, lane.workerEnv)
+    },
+  })
+
+  /**
+   * Authenticate a DSH lane without asking a model shell subprocess to retain
+   * process-local environment from an earlier export. The launch envelope is
+   * the sole source of the worker principal and this tool is installed only in
+   * descendants of that lane's anchor.
+   *
+   * @param {Lane} lane
+   * @returns {ToolDefinition}
+   */
+  const laneBootstrapTool = lane => ({
+    name: LANE_BOOTSTRAP_TOOL,
+    description: 'Authenticate this managed worker lane and acquire its assignment claim. '
+      + 'Use the exact idempotency key from the startup prompt.',
+    parameters: {
+      type: 'object',
+      properties: {
+        idempotency_key: {
+          type: 'string',
+          description: 'Exact runtime-issued bootstrap key from this lane startup prompt.',
+        },
+      },
+      required: ['idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      if (lane.state !== 'open') {
+        throw laneError('main-agent-lane-closed', { assignment_id: lane.assignmentId })
+      }
+      const key = requireNonEmptyString(
+        /** @type {Record<string, unknown>} */ (args).idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      if (!IDEMPOTENCY_KEY.test(key)) throw laneError('main-agent-idempotency-key-invalid')
+      return runEnvelope([
+        mainAgentCli,
+        'bootstrap',
+        '--idempotency-key',
+        key,
         '--format',
         'json',
       ], exec, lane.worktree, lane.workerEnv)
@@ -1004,6 +1094,7 @@ export function applyMainAgentMode(ctx, config = {}) {
               lastTurn: undefined,
             },
             workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
+            bootstrapKey: /** @type {string} */ (bootstrapKeyFromPrompt(externalLaunch.prompt)),
             brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
             disposeAnchor: () => {
               try { anchorHandle?.dispose() } catch {}
@@ -1038,7 +1129,7 @@ export function applyMainAgentMode(ctx, config = {}) {
             provider: workerSubagentProvider,
             label: `main-agent:${assignmentId}`,
             request: {
-              prompt: [{ type: 'text', text: externalLaunch.prompt }],
+              prompt: [{ type: 'text', text: nativeBootstrapPrompt(lane.bootstrapKey) }],
               parent: anchor,
               toolFilter: { deny: [...laneDeniedTools] },
             },
@@ -1589,7 +1680,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         acceptTool.name,
         closeoutTool.name,
       ]),
-      lane: Object.freeze([LANE_CHECKPOINT_TOOL]),
+      lane: Object.freeze([LANE_BOOTSTRAP_TOOL, LANE_CHECKPOINT_TOOL]),
     }),
   })
   ctx.provide('mainAgentOrchestration', orchestrationService)

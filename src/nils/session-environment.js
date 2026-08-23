@@ -82,3 +82,62 @@ export function isolatedNilsEnvironment(
     ...selectManagedSessionEnvironment({ ...environment, ...explicit }),
   }
 }
+
+/**
+ * Build the same scrubbed nils environment, then restore only the managed
+ * session fields supplied by an authenticated in-process lane bridge. Ambient
+ * managed fields stay tombstoned and unrelated explicit values stay filtered.
+ *
+ * @param {Readonly<NodeJS.ProcessEnv>} explicit
+ * @param {Readonly<NodeJS.ProcessEnv>} [environment]
+ * @param {{uid?: number, platform?: NodeJS.Platform}} [runtime]
+ */
+export function authenticatedNilsEnvironment(
+  explicit,
+  environment = process.env,
+  runtime = { uid: process.getuid?.(), platform: process.platform },
+) {
+  const restored = /** @type {NodeJS.ProcessEnv} */ ({})
+  for (const [name, value] of Object.entries(explicit)) {
+    if (name.toUpperCase().startsWith(MANAGED_SESSION_PREFIX)
+      && typeof value === 'string'
+      && value.length > 0) {
+      restored[name] = value
+    }
+  }
+  return {
+    ...isolatedNilsEnvironment(explicit, environment, runtime),
+    ...restored,
+  }
+}
+
+/**
+ * Resolve a DSH child session to the authenticated Main Agent worker principal
+ * owned by the live lane registry. The service is optional because ordinary
+ * DSH sessions deliberately remain isolated from ambient provider identity.
+ *
+ * @param {unknown} _ctx retained for the transport call signature; never used
+ * @param {string} sessionId
+ * @param {{resolve?: (id:string) => unknown} | undefined} [bridge]
+ * @returns {{sessionId:string, environment:Readonly<Record<string,string>>} | undefined}
+ */
+export function resolveManagedSessionPrincipal(_ctx, sessionId, bridge) {
+  const raw = bridge?.resolve?.(sessionId)
+  if (raw === null || typeof raw !== 'object') return undefined
+  const principal = /** @type {Record<string, unknown>} */ (raw)
+  if (typeof principal.sessionId !== 'string' || principal.sessionId.length === 0
+    || principal.environment === null
+    || typeof principal.environment !== 'object'
+    || Array.isArray(principal.environment)) return undefined
+  const environment = /** @type {Record<string, unknown>} */ (principal.environment)
+  if (environment.AGENT_SESSION_ID !== principal.sessionId
+    || !Object.entries(environment).every(([name, value]) => (
+      name.toUpperCase().startsWith(MANAGED_SESSION_PREFIX)
+      && typeof value === 'string'
+      && value.length > 0
+    ))) return undefined
+  return {
+    sessionId: principal.sessionId,
+    environment: /** @type {Readonly<Record<string,string>>} */ (environment),
+  }
+}

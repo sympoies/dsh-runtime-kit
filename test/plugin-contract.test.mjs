@@ -8,6 +8,7 @@ import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deeps
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
 import { boundedUtf8Segments } from '../src/policy/index.js'
+import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 import {
   createChildPluginStatus,
   observeChildPluginActivation,
@@ -516,6 +517,34 @@ test('policy ingress v2 binds the exact DSH session position and agent-docs root
     '--state-dir', '/runtime/agent-hook/state',
     'dispatch', '--product', 'dsh', '--format', 'json',
   ])
+})
+
+test('policy ingress uses the authenticated managed worker principal for a bridged DSH child', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  managedSessionBridge.register(sessionId => sessionId === 'session-1'
+    ? {
+        sessionId: 'worker-one',
+        environment: {
+          AGENT_SESSION_ID: 'worker-one',
+          AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+          AGENT_SESSION_STATE_DIR: '/private/state',
+        },
+      }
+    : undefined)
+  const subject = harness({ config: { managedSessionBridge } })
+
+  const { result } = await subject.invoke({ value: 41 }, { callId: 'call-bridged' })
+  assert.equal(result.kind, 'allow')
+  const ingress = JSON.parse(subject.spawnSpecs[0].stdio.stdin.data)
+  assert.equal(ingress.subject.session_id, 'worker-one')
+  assert.equal(subject.spawnSpecs[0].env.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      subject.spawnSpecs[0].env,
+      'AGENT_SESSION_CAPABILITY_FILE',
+    ),
+    true,
+  )
 })
 
 test('post-tool ingress v4 sends only the terminal fact and blocks before downstream on lifecycle denial', async () => {

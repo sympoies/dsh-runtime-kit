@@ -3,7 +3,11 @@
 import { createHash } from 'node:crypto'
 
 import { resolveAgentHookRuntime, requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
-import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import {
+  authenticatedNilsEnvironment,
+  isolatedNilsEnvironment,
+  resolveManagedSessionPrincipal,
+} from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 export { selectManagedSessionEnvironment } from '../nils/session-environment.js'
@@ -316,7 +320,7 @@ function cancellationDenial(cause) {
  * sibling operation, so possible survivors can never create reusable capacity.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number }} config
+ * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} }} config
  */
 export function createNilsTransport(ctx, config = {}) {
   const agentHook = resolveAgentHookRuntime(config)
@@ -325,6 +329,7 @@ export function createNilsTransport(ctx, config = {}) {
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
   const agentDocsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   const agentDocsStateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
+  const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveOperation>} */
   const active = new Set()
   let open = true
@@ -395,8 +400,9 @@ export function createNilsTransport(ctx, config = {}) {
    * @param {AbortSignal} signal
    * @param {string} cwd
    * @param {'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'UserPromptSubmit' | 'Stop'} expectedEvent
+   * @param {{sessionId:string, environment:Readonly<Record<string,string>>} | undefined} principal
    */
-  async function evaluateIngress(ingress, signal, cwd, expectedEvent) {
+  async function evaluateIngress(ingress, signal, cwd, expectedEvent, principal) {
     const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
     if (!measurement.ok) return denial(`policy-input-${measurement.reason}`)
     let payload
@@ -448,7 +454,9 @@ export function createNilsTransport(ctx, config = {}) {
       }, timeoutMs)
 
       try {
-        const childEnvironment = isolatedNilsEnvironment(undefined)
+        const childEnvironment = principal === undefined
+          ? isolatedNilsEnvironment(undefined)
+          : authenticatedNilsEnvironment(principal.environment)
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
@@ -537,13 +545,14 @@ export function createNilsTransport(ctx, config = {}) {
      * @param {{sessionId: string, cwd: string, turn: number, step: number}} context
      */
     async evaluate(exec, context) {
+      const principal = resolveManagedSessionPrincipal(ctx, context.sessionId, managedSessionBridge)
       return evaluateIngress({
         schema_version: 'agent-hook.dsh-ingress.v2',
         event: 'tools/pre-execute',
         call_id: String(exec.callId),
         cwd: context.cwd,
         subject: {
-          session_id: context.sessionId,
+          session_id: principal?.sessionId ?? context.sessionId,
           turn: context.turn,
           step: context.step,
           agent_docs_home: agentDocsHome,
@@ -553,7 +562,7 @@ export function createNilsTransport(ctx, config = {}) {
           name: exec.name,
           arguments: exec.arguments,
         },
-      }, exec.signal, context.cwd, 'PreToolUse')
+      }, exec.signal, context.cwd, 'PreToolUse', principal)
     },
 
     /**
@@ -566,13 +575,14 @@ export function createNilsTransport(ctx, config = {}) {
      * @param {{sessionId: string, cwd: string, turn: number, step: number}} context
      */
     async evaluatePost(exec, result, context) {
+      const principal = resolveManagedSessionPrincipal(ctx, context.sessionId, managedSessionBridge)
       return evaluateIngress({
         schema_version: 'agent-hook.dsh-ingress.v4',
         event: 'tools/post-execute',
         call_id: String(exec.callId),
         cwd: context.cwd,
         subject: {
-          session_id: context.sessionId,
+          session_id: principal?.sessionId ?? context.sessionId,
           turn: context.turn,
           step: context.step,
           agent_docs_home: agentDocsHome,
@@ -583,7 +593,7 @@ export function createNilsTransport(ctx, config = {}) {
           arguments: exec.arguments,
         },
         result: { is_error: result.isError === true },
-      }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse')
+      }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse', principal)
     },
 
     /**
@@ -591,13 +601,14 @@ export function createNilsTransport(ctx, config = {}) {
      */
     async evaluateLifecycle(request) {
       const preStep = request.event === 'agent/pre-step'
+      const principal = resolveManagedSessionPrincipal(ctx, request.context.sessionId, managedSessionBridge)
       const ingress = {
         schema_version: 'agent-hook.dsh-ingress.v3',
         event: request.event,
         cwd: request.context.cwd,
         ...preStep ? { prompt: request.prompt } : {},
         subject: {
-          session_id: request.context.sessionId,
+          session_id: principal?.sessionId ?? request.context.sessionId,
           turn: request.context.turn,
           ...preStep ? { step: request.context.step } : {},
           ...preStep && request.sessionStartSource !== undefined
@@ -612,6 +623,7 @@ export function createNilsTransport(ctx, config = {}) {
         request.signal,
         request.context.cwd,
         preStep ? 'UserPromptSubmit' : 'Stop',
+        principal,
       )
     },
 

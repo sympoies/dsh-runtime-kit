@@ -4,7 +4,11 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
-import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import {
+  authenticatedNilsEnvironment,
+  isolatedNilsEnvironment,
+  resolveManagedSessionPrincipal,
+} from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
@@ -292,7 +296,7 @@ function runExecution(value, command) {
 
 /**
  * @param {Context} ctx
- * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number}} config
+ * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown}}} config
  */
 export function createNilsFinishLineClient(ctx, config = {}) {
   const agentHook = resolveAgentHookRuntime(config)
@@ -303,6 +307,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     HARD_TEARDOWN_TIMEOUT_MS,
   )
   const maxActive = positiveInteger(config.maxActiveFinishLineRequests, DEFAULT_MAX_ACTIVE, HARD_MAX_ACTIVE)
+  const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveRequest>} */
   const active = new Set()
   /** @type {Set<Promise<boolean>>} */
@@ -351,10 +356,12 @@ export function createNilsFinishLineClient(ctx, config = {}) {
    * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
    */
   async function quiesceCancelledRun(request, childEnvironment) {
+    const sessionId = typeof request.session_id === 'string' ? request.session_id : ''
+    const principal = resolveManagedSessionPrincipal(ctx, sessionId, managedSessionBridge)
     const payload = serialize({
       schema_version: 'agent-hook.finish-line.quiesce.v1',
       product: request.product,
-      session_id: request.session_id,
+      session_id: principal?.sessionId ?? request.session_id,
       turn_id: request.turn_id,
       cwd: request.cwd,
       operation_id: request.operation_id,
@@ -362,7 +369,13 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     })
     let handle
     try {
-      const environment = isolatedNilsEnvironment(childEnvironment)
+      const explicitEnvironment = {
+        ...childEnvironment,
+        ...principal?.environment,
+      }
+      const environment = principal === undefined
+        ? isolatedNilsEnvironment(childEnvironment)
+        : authenticatedNilsEnvironment(explicitEnvironment)
       const argv = await resolveSubprocessArgv(
         ctx,
         agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
@@ -455,7 +468,11 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     childEnvironment = undefined,
     requestTimeoutMs = timeoutMs,
   ) {
-    const payload = serialize(request)
+    const sessionId = typeof request.session_id === 'string' ? request.session_id : ''
+    const principal = resolveManagedSessionPrincipal(ctx, sessionId, managedSessionBridge)
+    const payload = serialize(principal === undefined
+      ? request
+      : { ...request, session_id: principal.sessionId })
     if (!open || degraded || (!accepting && action !== 'release')) {
       throw new Error('dsh-runtime-kit: finish-line unavailable')
     }
@@ -489,7 +506,13 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       if (operation.cause !== undefined) throw new Error('dsh-runtime-kit: finish-line request cancelled')
       timer = setTimeout(() => cancel(operation, 'timeout'), requestTimeoutMs)
       try {
-        const environment = isolatedNilsEnvironment(childEnvironment)
+        const explicitEnvironment = {
+          ...childEnvironment,
+          ...principal?.environment,
+        }
+        const environment = principal === undefined
+          ? isolatedNilsEnvironment(childEnvironment)
+          : authenticatedNilsEnvironment(explicitEnvironment)
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['finish-line', action, '--format', 'json']),

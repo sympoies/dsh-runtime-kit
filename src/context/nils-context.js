@@ -5,7 +5,11 @@ import { isAbsolute } from 'node:path'
 
 import { runtimeContextPhase } from './intents.js'
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
-import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import {
+  authenticatedNilsEnvironment,
+  isolatedNilsEnvironment,
+  resolveManagedSessionPrincipal,
+} from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
@@ -168,12 +172,13 @@ function executionScope(exec) {
  * only this context surface; it never relaxes or rewrites policy admission.
  *
  * @param {Context} ctx
- * @param {{ agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number }} config
+ * @param {{ agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} }} config
  */
 export function createNilsContextClient(ctx, config = {}) {
   const command = commandName(config.agentDocs, 'agent-docs', 'agentDocs')
   const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   const stateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
+  const managedSessionBridge = config.managedSessionBridge
   const maxBytes = boundedPositiveInteger(config.contextMaxBytes, DEFAULT_CONTEXT_BYTES, MAX_CONTEXT_BYTES)
   const timeoutMs = boundedPositiveInteger(
     config.contextTimeoutMs,
@@ -254,7 +259,10 @@ export function createNilsContextClient(ctx, config = {}) {
     /** @param {ToolRunContext} exec @param {string} intent */
     async prepare(exec, intent) {
       const phase = runtimeContextPhase(intent)
-      const { sessionId, cwd } = executionScope(exec)
+      const scope = executionScope(exec)
+      const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
+      const sessionId = principal?.sessionId ?? scope.sessionId
+      const { cwd } = scope
       if (!open) throw failure(degraded ? 'unavailable' : 'disposed')
       if (exec.signal.aborted) throw failure('caller-aborted')
       if (active.size >= maxActive) throw failure('overloaded')
@@ -305,7 +313,9 @@ export function createNilsContextClient(ctx, config = {}) {
           operation.cancel('timeout', failure('timeout'))
         }, timeoutMs)
         try {
-          const childEnvironment = isolatedNilsEnvironment(undefined)
+          const childEnvironment = principal === undefined
+            ? isolatedNilsEnvironment(undefined)
+            : authenticatedNilsEnvironment(principal.environment)
           const resolvedArgv = await resolveSubprocessArgv(
             ctx,
             argv,
