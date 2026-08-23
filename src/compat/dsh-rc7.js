@@ -45,7 +45,9 @@ export function dshRc7AgentRoute(agent) {
       : typeof options.model === 'string' ? { model: options.model } : {},
     ...typeof requestConfig?.reasoningEffort === 'string'
       ? { reasoningEffort: requestConfig.reasoningEffort }
-      : {},
+      : typeof options.reasoningEffort === 'string'
+        ? { reasoningEffort: options.reasoningEffort }
+        : {},
   })
 }
 

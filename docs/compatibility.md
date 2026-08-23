@@ -4,15 +4,16 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7` or `0.1.0-rc.8` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.8.1` |
+| DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.0` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | `1.27.1` through validated `1.27.2` |
 
-The package does not claim compatibility with DSH release candidates after
-rc.8 or the eventual `0.1.x` line. Runtime startup requires one homogeneous
-rc.7 or rc.8 public peer set and validates the consumed public exports and
+The package does not claim compatibility with DSH release candidates after the
+exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
+Runtime startup requires one homogeneous `0.1.0-rc.7`, `0.1.0-rc.8`, or
+`0.1.1-rc.2` public peer set and validates the consumed public exports and
 service methods before registering a listener, tool, service, or skill. Mixed
 or unknown peer versions fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
@@ -22,9 +23,10 @@ activates the plugin.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact rc.7 and rc.8 release
-identities, public package/export surface, complete pinned workspace closure,
-artifact bounds, and runtime performance budgets.
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.0-rc.7`,
+`0.1.0-rc.8`, and `0.1.1-rc.2` release identities, public package/export
+surface, complete pinned workspace closure, artifact bounds, and runtime
+performance budgets.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,

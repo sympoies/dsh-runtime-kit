@@ -47,6 +47,27 @@ test('the rc.7 adapter owns session, route, and run-info shape probes', () => {
   assert.deepEqual(dshRc7RunInfo({}), {})
 })
 
+test('the compatibility route retains configured effort before rc.2 materializes it', () => {
+  const agent = {
+    options: {
+      provider: 'codex-proxy',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'high',
+    },
+    session: {
+      requestHeader() {
+        return { config: { provider: 'codex-proxy', model: 'gpt-5.6-sol' } }
+      },
+    },
+  }
+
+  assert.deepEqual(dshRc7AgentRoute(agent), {
+    provider: 'codex-proxy',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+  })
+})
+
 function agentFixture({
   id = 'session-1',
   cwd = '/workspace/project',

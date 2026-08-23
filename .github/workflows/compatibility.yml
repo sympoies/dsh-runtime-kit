@@ -50,9 +50,9 @@ jobs:
       matrix:
         include:
           - channel: pinned
-            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
           - channel: upstream-next
-            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

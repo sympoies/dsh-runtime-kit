@@ -574,6 +574,11 @@ export function createFinishLineCoordinator(ctx, options) {
         steer(ledger, payload.turn, `Finish-line blocked: ${details}`, payload.agent)
         return false
       }
+      await queueRelease(payload.agent.session)
+      if (releaseDegraded || ledgers.has(payload.agent.session)) {
+        steer(ledger, payload.turn, 'Finish-line release is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
+        return false
+      }
       return true
     },
 

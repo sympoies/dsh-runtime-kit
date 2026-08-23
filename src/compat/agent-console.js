@@ -79,9 +79,10 @@ function fail(code, message, details) {
 }
 
 /**
- * Return the immutable, machine-readable Agent Console rc.7 composition
- * contract. The caller supplies only observations; this module does not
- * discover profile homes, read credentials, or mutate DSH state.
+ * Return the immutable, machine-readable Agent Console composition contract.
+ * The retained function name preserves the public adapter API while the exact
+ * reviewed DSH/TUI pair advances. The caller supplies only observations; this
+ * module does not discover profile homes, read credentials, or mutate DSH state.
  */
 export function agentConsoleRc7ProfileContract() {
   return CONTRACT
@@ -109,7 +110,7 @@ export function inspectAgentConsoleRc7Profile(observation) {
   if (dsh?.version !== CONTRACT.dsh.version || dsh?.revision !== CONTRACT.dsh.revision) {
     fail(
       'DSH_RUNTIME_KIT_AGENT_CONSOLE_DSH_MISMATCH',
-      'dsh-runtime-kit: Agent Console requires the authenticated DSH rc.7 revision',
+      'dsh-runtime-kit: Agent Console requires the authenticated DSH revision',
     )
   }
 

@@ -89,10 +89,12 @@ function fixture({
   waitForExit = true,
   quiesceWaitForExit = true,
   agentHook = '/test/agent-hook',
+  onTerminate = () => {},
 } = {}) {
   const effects = []
   const spawns = []
   const resolutions = []
+  const pendingSettlers = new Map()
   let terminateCount = 0
   let settleQuiesce
   const ctx = {
@@ -115,6 +117,7 @@ function fixture({
         const done = shouldPend
           ? new Promise(resolve => {
               settle = resolve
+              pendingSettlers.set(action, () => resolve({ exitCode, signal: null }))
               if (action === 'quiesce') {
                 settleQuiesce = () => resolve({ exitCode, signal: null })
               }
@@ -130,6 +133,7 @@ function fixture({
           terminate() {
             terminateCount += 1
             settle?.({ exitCode: null, signal: 'SIGTERM' })
+            onTerminate(action)
           },
           async waitForExit() {
             const observation = action === 'quiesce' ? quiesceWaitForExit : waitForExit
@@ -158,6 +162,7 @@ function fixture({
     spawns,
     resolutions,
     get terminateCount() { return terminateCount },
+    settle(action) { pendingSettlers.get(action)?.() },
     settleQuiesce() { settleQuiesce?.() },
     async dispose() {
       for (const effect of effects.reverse()) if (typeof effect === 'function') await effect()
@@ -334,6 +339,92 @@ test('drain closes ordinary admission but leaves authenticated release available
     ...identity,
     runnerCapability: 'finish-line-runner:opaque',
   }), /finish-line unavailable/)
+})
+
+test('drain preserves an authenticated release already crossing subprocess resolution', async () => {
+  const subject = fixture({ pending: true })
+  const release = subject.client.release({
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const draining = subject.client.drain()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(subject.terminateCount, 0)
+
+  subject.settle('release')
+  assert.deepEqual(await release, { correlationId })
+  await draining
+})
+
+test('drain bounds a wedged authenticated release by teardown grace', async () => {
+  const subject = fixture({ pending: true })
+  const release = subject.client.release({
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+  })
+  await new Promise(resolve => setImmediate(resolve))
+
+  const drainedWithinGrace = await Promise.race([
+    subject.client.drain().then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 60)),
+  ])
+  assert.equal(drainedWithinGrace, true)
+  await assert.rejects(release, /finish-line request cancelled/)
+  assert.equal(subject.terminateCount, 1)
+})
+
+test('an authenticated release has its own bounded control-plane timeout', async () => {
+  const subject = fixture({ pending: true })
+  const releasedWithinBound = await Promise.race([
+    subject.client.release({
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+    }).then(
+      () => false,
+      error => {
+        assert.match(String(error), /finish-line request cancelled/)
+        return true
+      },
+    ),
+    new Promise(resolve => setTimeout(() => resolve(false), 60)),
+  ])
+
+  assert.equal(releasedWithinBound, true)
+  assert.equal(subject.terminateCount, 1)
+  assert.equal(subject.client.active, 0)
+})
+
+test('drain joins an authenticated release admitted after its first active snapshot', async (t) => {
+  let startLateRelease = () => {}
+  let started = false
+  const subject = fixture({
+    pending: true,
+    onTerminate(action) {
+      if (action !== 'open' || started) return
+      started = true
+      startLateRelease()
+    },
+  })
+  t.after(async () => { await subject.dispose() })
+  let lateRelease
+  startLateRelease = () => {
+    lateRelease = subject.client.release({
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+    })
+    void lateRelease.catch(() => {})
+  }
+  const opening = subject.client.open(identity)
+  void opening.catch(() => {})
+  await new Promise(resolve => setImmediate(resolve))
+
+  await subject.client.drain()
+
+  await assert.rejects(opening, /finish-line request cancelled/)
+  assert.equal(subject.client.active, 0)
+  await assert.rejects(lateRelease, /finish-line request cancelled/)
 })
 
 test('run sends no outcome and preserves exact command bytes and observed execution facts', async () => {
