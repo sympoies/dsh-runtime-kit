@@ -147,6 +147,7 @@ function harness({
   const registeredTools = new Map()
   const handles = []
   const spawnSpecs = []
+  const resolutions = []
   const session = {
     id: 'session-1',
     header: { id: 'session-1', cwd: '/tmp' },
@@ -206,6 +207,10 @@ function harness({
       if (name === 'dshRuntimeKit') service = value
     },
     subprocess: {
+      async resolveExecutable(command, env, candidateSignal) {
+        resolutions.push({ command, env, signal: candidateSignal })
+        return `/resolved/${command}`
+      },
       spawn(spec) {
         if (typeof throwOnSpawn === 'function' ? throwOnSpawn(spec) : throwOnSpawn) {
           throw new Error('spawn failed')
@@ -441,8 +446,19 @@ function harness({
     get signal() { return signal },
     get service() { return service },
     get spawnSpecs() { return spawnSpecs },
+    get resolutions() { return resolutions },
   }
 }
+
+test('policy ingress resolves a bare agent-hook command before spawning', async () => {
+  const subject = harness({ config: { agentHook: 'agent-hook' } })
+
+  const result = await subject.invoke({ value: 41 })
+  assert.equal(result.result.kind, 'allow')
+  assert.ok(subject.resolutions.length >= 2)
+  assert.ok(subject.resolutions.every(candidate => candidate.command === 'agent-hook'))
+  assert.equal(subject.spawnSpecs[0].argv[0], '/resolved/agent-hook')
+})
 
 test('the policy bundle exposes one explicit selective runtime-context tool', () => {
   const subject = harness()

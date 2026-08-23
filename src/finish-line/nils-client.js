@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -361,8 +362,15 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     })
     let handle
     try {
+      const environment = isolatedNilsEnvironment(childEnvironment)
+      const argv = await resolveSubprocessArgv(
+        ctx,
+        agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
+        environment,
+        AbortSignal.timeout(teardownTimeoutMs),
+      )
       handle = ctx.subprocess.spawn({
-        argv: agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
+        argv,
         cwd: /** @type {string} */ (request.cwd),
         stdio: {
           stdin: { data: payload },
@@ -370,7 +378,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           stderr: { maxBytes: MAX_ERROR_BYTES },
         },
         graceMs: 1_000,
-        env: isolatedNilsEnvironment(childEnvironment),
+        env: environment,
       })
     } catch {
       return false
@@ -480,9 +488,17 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       if (callerSignal?.aborted) cancel(operation, 'caller')
       if (!open || (!accepting && action !== 'release')) cancel(operation, 'disposed')
       if (operation.cause !== undefined) throw new Error('dsh-runtime-kit: finish-line request cancelled')
+      timer = setTimeout(() => cancel(operation, 'timeout'), requestTimeoutMs)
       try {
+        const environment = isolatedNilsEnvironment(childEnvironment)
+        const argv = await resolveSubprocessArgv(
+          ctx,
+          agentHook.argv(['finish-line', action, '--format', 'json']),
+          environment,
+          operation.controller.signal,
+        )
         operation.handle = ctx.subprocess.spawn({
-          argv: agentHook.argv(['finish-line', action, '--format', 'json']),
+          argv,
           cwd: /** @type {string} */ (request.cwd),
           stdio: {
             stdin: { data: payload },
@@ -491,13 +507,12 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           },
           graceMs: 1_000,
           signal: operation.controller.signal,
-          env: isolatedNilsEnvironment(childEnvironment),
+          env: environment,
         })
       } catch {
         throw new Error('dsh-runtime-kit: finish-line unavailable')
       }
       const handle = operation.handle
-      timer = setTimeout(() => cancel(operation, 'timeout'), requestTimeoutMs)
       const done = Promise.resolve(handle.done).then(
         outcome => ({ kind: /** @type {const} */ ('done'), outcome }),
         () => ({ kind: /** @type {const} */ ('failed'), outcome: undefined }),

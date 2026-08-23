@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 
 import { resolveAgentHookRuntime, requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 export { selectManagedSessionEnvironment } from '../nils/session-environment.js'
 
@@ -442,10 +443,20 @@ export function createNilsTransport(ctx, config = {}) {
       if (signal.aborted) operation.cancel('caller-aborted', signal.reason)
       if (!open) operation.cancel('disposed')
       if (operation.cause !== undefined) return cancellationDenial(operation.cause)
+      timer = setTimeout(() => {
+        operation.cancel('timeout', new Error('dsh-runtime-kit policy deadline exceeded'))
+      }, timeoutMs)
 
       try {
+        const childEnvironment = isolatedNilsEnvironment(undefined)
+        const argv = await resolveSubprocessArgv(
+          ctx,
+          agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
+          childEnvironment,
+          operation.controller.signal,
+        )
         operation.handle = ctx.subprocess.spawn({
-          argv: agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
+          argv,
           cwd,
           stdio: {
             stdin: { data: payload },
@@ -454,7 +465,7 @@ export function createNilsTransport(ctx, config = {}) {
           },
           graceMs: 1_000,
           signal: operation.controller.signal,
-          env: isolatedNilsEnvironment(undefined),
+          env: childEnvironment,
         })
       } catch {
         return operation.cause === undefined
@@ -465,9 +476,6 @@ export function createNilsTransport(ctx, config = {}) {
       if (operation.cause !== undefined) {
         try { handle.terminate() } catch {}
       }
-      timer = setTimeout(() => {
-        operation.cancel('timeout', new Error('dsh-runtime-kit policy deadline exceeded'))
-      }, timeoutMs)
 
       const doneObserved = Promise.resolve(handle.done).then(
         outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),

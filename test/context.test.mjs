@@ -77,8 +77,11 @@ function contextTransportHarness({
   lossy = false,
   pending = false,
   quiescent = true,
+  requireResolved = false,
+  resolutionPending = false,
 } = {}) {
   const specs = []
+  const resolutions = []
   const disposers = []
   let terminateCount = 0
   let settle
@@ -90,7 +93,20 @@ function contextTransportHarness({
       if (typeof disposer === 'function') disposers.push(disposer)
     },
     subprocess: {
+      async resolveExecutable(command, env, signal) {
+        resolutions.push({ command, env, signal })
+        if (resolutionPending) {
+          return new Promise((resolve, reject) => {
+            if (signal?.aborted) reject(signal.reason)
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        }
+        return `/resolved/${command}`
+      },
       spawn(spec) {
+        if (requireResolved && !spec.argv[0].startsWith('/')) {
+          throw new Error('subprocess contract requires a resolved executable')
+        }
         specs.push(spec)
         const output = JSON.stringify(response(spec))
         const done = pending
@@ -121,6 +137,7 @@ function contextTransportHarness({
   return {
     ctx,
     specs,
+    resolutions,
     get terminateCount() { return terminateCount },
     settle(result = outcome) { settle?.(result) },
     releaseTree() { resolveTree() },
@@ -129,6 +146,35 @@ function contextTransportHarness({
     },
   }
 }
+
+test('the context client resolves a bare agent-docs command before spawning', async () => {
+  const subject = contextTransportHarness({ requireResolved: true })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocs: 'agent-docs',
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
+
+  const result = await client.prepare(execution(), 'project-dev')
+  assert.equal(result.intent, 'project-dev')
+  assert.equal(subject.resolutions.length, 1)
+  assert.equal(subject.resolutions[0].command, 'agent-docs')
+  assert.equal(subject.specs[0].argv[0], '/resolved/agent-docs')
+})
+
+test('the context deadline covers executable resolution before spawn', async () => {
+  const subject = contextTransportHarness({ resolutionPending: true })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocs: 'agent-docs',
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+    contextTimeoutMs: 20,
+  })
+
+  await assert.rejects(client.prepare(execution(), 'project-dev'), /runtime-context-timeout/)
+  assert.equal(subject.specs.length, 0)
+  assert.equal(client.active, 0)
+})
 
 test('runtime_context returns one sanitized bounded intent result on demand', async () => {
   const calls = []
