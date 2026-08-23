@@ -2,33 +2,33 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.27.1",
-  "validated_release": "1.27.2",
+  "validated_release": "1.27.4",
   "release": {
-    "source_revision": "v1.27.2",
-    "source_commit": "c248b9f5f6041189ed7a0e1efac59a87e20f429c",
+    "source_revision": "v1.27.4",
+    "source_commit": "389580b8413a90c4b09160111110ace54733d57a",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.2-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "9e664dc0006aab48a8c764faa6d72d462b5ca2a61220fbfca7ab64f6907ee553"
+      "name": "nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "3df3789fc3808dd806e592e2a1eceda8fec0bd528e1658cbcc0685a102defa3c"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "8fc1bba1e8b190c804a6762d056e6d4792a3e975e75e3df52565d36a30c1db83"
+        "sha256": "cd5ad61dee0cab1665087ec5fcf23e124ac0a04cbbb8e0b9e7df58256b14bd63"
       },
       "agent-docs": {
-        "sha256": "3552ceffc23db63fac9051de85a11b878e4cceeb537a6483917794b7b91bb882"
+        "sha256": "1509e632cda191b0ea79c746187d8cfa1d74da800c32a1cfeaf7141a56574d61"
       },
       "forge-cli": {
-        "sha256": "648eb444c879eee0595b28f09e028735840619d92e44d394eadc7ab2030b2c65"
+        "sha256": "1dca3f33331be9363f21824007d099de0880fce33f6ab238de6ea768420f09e5"
       },
       "git-cli": {
-        "sha256": "4c66b0a838a8fa6ba26dee7880e142c8447c611d7be9a4c864908e82c483e8c4"
+        "sha256": "d729ed2e1e25e964f60c0d0fab5ecfbeb70b378619c4f7c8f56f412c60beb542"
       },
       "review-specialists": {
-        "sha256": "bf584b272738da1faaa8bc16fbb72b7cc99f597773139b2109c614589b1fe706"
+        "sha256": "b662218fb2294619f0d4b69885672e8f845389ad8b41aafd6b8be6b6489acfc0"
       },
       "semantic-commit": {
-        "sha256": "c886686e45544fa8d5930682f66f8d35579f7712f45c012c6b63c4ab28bc620f"
+        "sha256": "a59ce8993ef3c1f602b5f6e4b3ba295e332afc7ab1fa695e26ec3a55b758e5d6"
       }
     }
   },

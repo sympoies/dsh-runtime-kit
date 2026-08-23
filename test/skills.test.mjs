@@ -209,7 +209,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.1')
-  assert.equal(manifest.validated_release, '1.27.2')
+  assert.equal(manifest.validated_release, '1.27.4')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
