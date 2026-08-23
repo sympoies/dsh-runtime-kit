@@ -6,6 +6,7 @@ import { isAbsolute } from 'node:path'
 import { runtimeContextPhase } from './intents.js'
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
@@ -300,9 +301,19 @@ export function createNilsContextClient(ctx, config = {}) {
         if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
         if (!open) operation.cancel('disposed')
         if (operation.cause !== undefined) throw failure(operation.cause)
+        timer = setTimeout(() => {
+          operation.cancel('timeout', failure('timeout'))
+        }, timeoutMs)
         try {
-          operation.handle = ctx.subprocess.spawn({
+          const childEnvironment = isolatedNilsEnvironment(undefined)
+          const resolvedArgv = await resolveSubprocessArgv(
+            ctx,
             argv,
+            childEnvironment,
+            operation.controller.signal,
+          )
+          operation.handle = ctx.subprocess.spawn({
+            argv: resolvedArgv,
             cwd,
             stdio: {
               stdin: 'ignore',
@@ -311,7 +322,7 @@ export function createNilsContextClient(ctx, config = {}) {
             },
             graceMs: 1_000,
             signal: operation.controller.signal,
-            env: isolatedNilsEnvironment(undefined),
+            env: childEnvironment,
           })
         } catch {
           if (operation.cause !== undefined) throw failure(operation.cause)
@@ -321,9 +332,6 @@ export function createNilsContextClient(ctx, config = {}) {
         if (operation.cause !== undefined) {
           try { handle.terminate() } catch {}
         }
-        timer = setTimeout(() => {
-          operation.cancel('timeout', failure('timeout'))
-        }, timeoutMs)
         const doneObserved = Promise.resolve(handle.done).then(
           outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),
           () => ({ kind: /** @type {const} */ ('done'), outcome: undefined, failed: true }),

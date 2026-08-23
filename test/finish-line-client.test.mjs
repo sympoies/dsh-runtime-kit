@@ -88,14 +88,20 @@ function fixture({
   doneDelayMs = 0,
   waitForExit = true,
   quiesceWaitForExit = true,
+  agentHook = '/test/agent-hook',
 } = {}) {
   const effects = []
   const spawns = []
+  const resolutions = []
   let terminateCount = 0
   let settleQuiesce
   const ctx = {
     effect(execute) { effects.push(execute()) },
     subprocess: {
+      async resolveExecutable(command, env, signal) {
+        resolutions.push({ command, env, signal })
+        return `/resolved/${command}`
+      },
       spawn(spec) {
         const finishLineIndex = spec.argv.indexOf('finish-line')
         const action = spec.argv[finishLineIndex + 1]
@@ -139,7 +145,7 @@ function fixture({
     },
   }
   const client = createNilsFinishLineClient(ctx, {
-    agentHook: '/test/agent-hook',
+    agentHook,
     agentHookConfig: '/runtime/agent-hook/config.toml',
     agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
     agentHookStateDir: '/runtime/agent-hook/state',
@@ -150,6 +156,7 @@ function fixture({
   return {
     client,
     spawns,
+    resolutions,
     get terminateCount() { return terminateCount },
     settleQuiesce() { settleQuiesce?.() },
     async dispose() {
@@ -171,6 +178,15 @@ const dangerFullAccessExecution = {
   outputMaxBytes: 64 * 1024,
   runner: { kind: 'danger-full-access' },
 }
+
+test('finish-line resolves a bare agent-hook command before spawning', async () => {
+  const subject = fixture({ agentHook: 'agent-hook' })
+
+  await subject.client.open(identity)
+  assert.equal(subject.resolutions.length, 1)
+  assert.equal(subject.resolutions[0].command, 'agent-hook')
+  assert.equal(subject.spawns[0].spec.argv[0], '/resolved/agent-hook')
+})
 
 test('open carries one private retry token without exposing it in the result', async () => {
   const subject = fixture()
