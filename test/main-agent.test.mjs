@@ -8,6 +8,7 @@ import test from 'node:test'
 
 import { applyMainAgentMode } from '../src/main-agent/index.js'
 import { createLaneRegistry } from '../src/main-agent/lanes.js'
+import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 
 const projectRoot = dirname(fileURLToPath(new URL('.', import.meta.url)))
 // The module derives the trusted coordination binary from an absolute
@@ -107,7 +108,10 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
       external_launch: {
         schema_version: 'main-agent.external-launch.v1',
         launch_id: 'launch-1',
-        prompt: 'Main Agent Mode is explicitly active for this managed worker assignment.',
+        prompt: 'Main Agent Mode is explicitly active for this managed worker assignment. '
+          + `Run exactly \`${MAIN_AGENT_CLI} bootstrap --idempotency-key bootstrap-0123456789abcdef0123456789abcdef --format json\` now. `
+          + 'Do not perform any other action before it succeeds; then follow the returned '
+          + '`worker_instructions` and private assignment.',
         worker_env: {
           AGENT_SESSION_ID: sessionId,
           AGENT_SESSION_STATE_DIR: stateDir,
@@ -366,7 +370,11 @@ test('worker launch executes the external-launch contract without duplicating la
   assert.equal(continuation.request.parent, harness.anchors[0])
   assert.deepEqual(continuation.request.prompt, [{
     type: 'text',
-    text: 'Main Agent Mode is explicitly active for this managed worker assignment.',
+    text: 'Main Agent Mode is explicitly active for this managed worker assignment. '
+      + 'Call the native `main_agent_bootstrap` tool now with `idempotency_key` set to '
+      + '`bootstrap-0123456789abcdef0123456789abcdef`. Do not run the shell bootstrap '
+      + 'command and do not perform any other action before the native tool succeeds; '
+      + 'then follow the returned `worker_instructions` and private assignment.',
   }])
   assert.ok(continuation.request.toolFilter.deny.includes('subagent'))
 
@@ -646,6 +654,89 @@ test('lane children get the deny guard and environment section; foreign children
     },
   }
   harness.setup()(foreignChildCtx)()
+})
+
+test('lane bootstrap is a native authenticated tool instead of an unauthenticated shell command', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const bootstrapKey = 'bootstrap-0123456789abcdef0123456789abcdef'
+  const launchEnvelope = workerStartEnvelope(livenessFile, {
+    external_launch: {
+      prompt: 'Main Agent Mode is explicitly active for this managed worker assignment. '
+        + `Run exactly \`${MAIN_AGENT_CLI} bootstrap --idempotency-key ${bootstrapKey} --format json\` now. `
+        + 'Do not perform any other action before it succeeds; then follow the returned '
+        + '`worker_instructions` and private assignment.',
+    },
+  })
+  const harness = createContext({
+    envelope(spec) {
+      if (spec.argv.includes('bootstrap')) {
+        return {
+          schema_version: 'cli.main-agent.bootstrap.v1',
+          ok: true,
+          data: {
+            schema_version: 'main-agent.bootstrap-result.v1',
+            claim: 'active',
+          },
+        }
+      }
+      return launchEnvelope
+    },
+  })
+  const managedSessionBridge = createManagedSessionBridge()
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+  await harness.registeredTools.get('main_agent_worker_launch').execute(
+    { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+    controllerExec(),
+  )
+
+  const firstPrompt = harness.continuations[0].request.prompt[0].text
+  assert.match(firstPrompt, /main_agent_bootstrap/)
+  assert.doesNotMatch(firstPrompt, /Run exactly .*main-agent bootstrap/)
+
+  const anchorId = harness.anchors[0].session.header.id
+  const childTools = new Map()
+  const dispose = harness.setup()({
+    agent: { session: { header: { id: 'lane-child-one', parentSession: anchorId } } },
+    tools: {
+      guard() { return () => {} },
+      register(definition) {
+        childTools.set(definition.name, definition)
+        return () => childTools.delete(definition.name)
+      },
+    },
+    systemPrompt: { section() { return () => {} } },
+  })
+  const bootstrap = childTools.get('main_agent_bootstrap')
+  assert.ok(bootstrap, 'lane child gets its authenticated bootstrap tool')
+  const principal = managedSessionBridge.resolve('lane-child-one')
+  assert.equal(principal.sessionId, 'worker-one')
+  assert.equal(principal.environment.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(managedSessionBridge.resolve('foreign-child'), undefined)
+  const result = await bootstrap.execute(
+    { idempotency_key: bootstrapKey },
+    { signal: new AbortController().signal },
+  )
+  assert.equal(result.schema_version, 'main-agent.bootstrap-result.v1')
+  const bootstrapSpawn = harness.spawned.at(-1)
+  assert.deepEqual(bootstrapSpawn.spec.argv, [
+    MAIN_AGENT_CLI,
+    'bootstrap',
+    '--idempotency-key',
+    bootstrapKey,
+    '--format',
+    'json',
+  ])
+  assert.equal(bootstrapSpawn.spec.env.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      bootstrapSpawn.spec.env,
+      'AGENT_SESSION_CAPABILITY_FILE',
+    ),
+    true,
+  )
+  dispose()
 })
 
 test('anchors are parked, lanes interrupt and close, and run boundaries update the sidecar', async (t) => {
@@ -1470,6 +1561,6 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
   )
   assert.deepEqual(
     harness.provided.get('mainAgentOrchestration').tools.lane,
-    ['main_agent_checkpoint'],
+    ['main_agent_bootstrap', 'main_agent_checkpoint'],
   )
 })

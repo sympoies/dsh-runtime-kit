@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+import {
+  authenticatedNilsEnvironment,
+  isolatedNilsEnvironment,
+} from '../src/nils/session-environment.js'
 
 test('nils subprocess keeps only the trusted user-runtime route needed by finish-line', () => {
   assert.deepEqual(
@@ -47,5 +50,32 @@ test('nils subprocess does not project a noncanonical runtime directory or user 
       { uid: 1000, platform: 'linux' },
     ),
     { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' },
+  )
+})
+
+test('an authenticated lane bridge restores explicit managed fields while ambient identity stays scrubbed', () => {
+  assert.deepEqual(
+    authenticatedNilsEnvironment(
+      {
+        AGENT_SESSION_ID: 'worker-one',
+        AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+        AGENT_SESSION_STATE_DIR: '/private/state',
+        UNRELATED_SECRET: 'must-not-cross',
+      },
+      {
+        AGENT_SESSION_ID: 'ambient-attacker',
+        AGENT_SESSION_TOKEN: 'ambient-token',
+        UNRELATED_SECRET: 'ambient-secret',
+      },
+      { uid: 1000, platform: 'linux' },
+    ),
+    {
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      UNRELATED_SECRET: 'must-not-cross',
+      AGENT_SESSION_ID: 'worker-one',
+      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+      AGENT_SESSION_STATE_DIR: '/private/state',
+      AGENT_SESSION_TOKEN: undefined,
+    },
   )
 })

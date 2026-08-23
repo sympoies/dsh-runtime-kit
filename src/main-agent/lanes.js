@@ -30,6 +30,7 @@ export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
  * @property {'open' | 'terminated'} state
  * @property {LaneTurnEvidence | undefined} turn
  * @property {Readonly<Record<string, string>>} workerEnv
+ * @property {string} bootstrapKey the runtime-issued initial bootstrap key
  * @property {readonly string[]} brokerStopArgv
  * @property {(() => void) | undefined} stopHeartbeat
  * @property {(() => void) | undefined} disposeAnchor

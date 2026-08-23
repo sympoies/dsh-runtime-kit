@@ -18,6 +18,7 @@ import { parse as parseYaml } from 'yaml'
 
 import { applyPolicy, plusOneTool } from './policy.js'
 import { mainAgentMode } from './src/main-agent/index.js'
+import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
 import {
   createReviewerAuthority,
@@ -458,7 +459,9 @@ export async function apply(ctx, config = {}) {
     }
     const reviewers = createReviewerAuthority()
     const childPlugins = createChildPluginStatus()
-    applyPolicy(ctx, config, reviewers, dshRuntime, childPlugins)
+    const managedSessionBridge = createManagedSessionBridge()
+    const runtimeConfig = { ...config, managedSessionBridge }
+    applyPolicy(ctx, runtimeConfig, reviewers, dshRuntime, childPlugins)
     observeChildPluginActivation(
       childPlugins,
       'review_specialists',
@@ -473,7 +476,7 @@ export async function apply(ctx, config = {}) {
     observeChildPluginActivation(
       childPlugins,
       'main_agent_mode',
-      () => ctx.plugin(mainAgentMode, config),
+      () => ctx.plugin(mainAgentMode, runtimeConfig),
       ctx.logger,
     )
   } catch (error) {

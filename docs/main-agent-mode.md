@@ -21,7 +21,7 @@ Tracking: sympoies/dsh-runtime-kit#6. The nils-cli side of the contract is
 | Spawning the lane child, prompt delivery       | this bundle (`src/main-agent/`)              |
 | Per-lane broker heartbeat process              | this bundle (spawns `agent-session broker heartbeat`) |
 | Liveness/turn evidence sidecar                 | this bundle (schema `main-agent.dsh-runtime-liveness.v1`) |
-| Worker-side bootstrap                          | the worker runs `main-agent bootstrap`       |
+| Worker-side bootstrap                          | this bundle's per-lane `main_agent_bootstrap` tool runs the authenticated CLI |
 | Worker-side checkpoint                         | this bundle's per-lane `main_agent_checkpoint` tool, which writes the private input and runs the fenced CLI |
 | Review decision (what to change, what to accept) | the controller agent and its review skills |
 | Review-loop transport (record the decision, deliver it into the lane) | this bundle's tools |
@@ -48,10 +48,16 @@ Mode simply never activates and the rest of the bundle is unaffected.
   authority), installed through `registerContinuableSetup` for children of
   this registry's anchors only. The bundle's process-wide nils policy lane
   applies on top.
-- **Worker environment**: the lane child receives a per-child system-prompt
-  section naming the exact `AGENT_SESSION_*` environment for its `main-agent`
-  and `agent-session` commands; the values come from the CLI's
-  `main-agent.external-launch.v1` payload, never from guesswork.
+- **Worker identity bridge**: the exact `AGENT_SESSION_*` environment from the
+  CLI's `main-agent.external-launch.v1` payload is bound in memory to that
+  lane's DSH child and descendants. Policy, selective context, and finish-line
+  nils subprocesses receive the authenticated worker session id and environment;
+  ordinary DSH sessions retain the scrubbed, ownerless boundary. The bridge is
+  private to this bundle and disappears when the lane or plugin closes.
+- **Worker shell guidance**: the lane system prompt still renders the exact
+  environment for worker-owned CLI commands not represented by a native tool.
+  Because DSH shell calls are separate processes, assignments must prefix the
+  same command; a standalone `export` call is explicitly non-persistent.
 - **Liveness sidecar**: written atomically on lane transitions with the
   harness process identity (pid plus Linux starttime pin), the lane state,
   and optional turn evidence folded from `subagent/start` / `subagent/end`.
@@ -92,7 +98,14 @@ Mode simply never activates and the rest of the bundle is unaffected.
   `drainContinuableDescendants()` on the lane anchors and disposes them. The
   controller session survives to deliver the final answer.
 
-## Lane tool
+## Lane tools
+
+- `main_agent_bootstrap({idempotency_key})` — registered only inside a live
+  lane child and its descendants. It runs the exact trusted `main-agent
+  bootstrap` argv with the lane's authenticated environment and worktree, so
+  the first claim acquisition cannot be blocked by an ownerless DSH shell
+  process. The initial prompt carries the runtime-issued key and directs the
+  worker to this native tool rather than to Bash.
 
 - `main_agent_checkpoint({summary, next_action, state?, result_summary?,
   blocker_summary?, if_revision, idempotency_key})` — registered **inside each
