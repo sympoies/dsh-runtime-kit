@@ -46,8 +46,11 @@ Mode simply never activates and the rest of the bundle is unaffected.
 - **Authority**: each lane child gets a monotonic deny-only tool guard for
   delegation and lane-management tools (visibility filtering alone is not
   authority), installed through `registerContinuableSetup` for children of
-  this registry's anchors only. The bundle's process-wide nils policy lane
-  applies on top.
+  this registry's anchors only. The rc.7 visibility filter separately hides
+  only bundle-owned global controller tools because rc.7 rejects unknown names;
+  legacy, cross-product, and configured names remain in the monotonic execution
+  guard, so a later registration cannot grant them. The bundle's process-wide
+  nils policy lane applies on top.
 - **Worker identity bridge**: the exact `AGENT_SESSION_*` environment from the
   CLI's `main-agent.external-launch.v1` payload is bound in memory to that
   lane's DSH child and descendants. Policy, selective context, and finish-line
