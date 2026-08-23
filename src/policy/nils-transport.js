@@ -401,8 +401,16 @@ export function createNilsTransport(ctx, config = {}) {
    * @param {string} cwd
    * @param {'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'UserPromptSubmit' | 'Stop'} expectedEvent
    * @param {{sessionId:string, environment:Readonly<Record<string,string>>} | undefined} principal
+   * @param {string} providerSessionId
    */
-  async function evaluateIngress(ingress, signal, cwd, expectedEvent, principal) {
+  async function evaluateIngress(
+    ingress,
+    signal,
+    cwd,
+    expectedEvent,
+    principal,
+    providerSessionId,
+  ) {
     const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
     if (!measurement.ok) return denial(`policy-input-${measurement.reason}`)
     let payload
@@ -456,7 +464,15 @@ export function createNilsTransport(ctx, config = {}) {
       try {
         const childEnvironment = principal === undefined
           ? isolatedNilsEnvironment(undefined)
-          : authenticatedNilsEnvironment(principal.environment)
+          : {
+              ...authenticatedNilsEnvironment(principal.environment),
+              // The ingress subject changes to the authenticated coordination
+              // owner once a Main Agent controller/lane binds. Activity still
+              // belongs to the stable DSH provider session, so carry that
+              // metadata on this private subprocess edge instead of widening
+              // the public ingress schema or overloading owner identity.
+              DSH_RUNTIME_KIT_PROVIDER_SESSION_ID: providerSessionId,
+            }
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
@@ -562,7 +578,7 @@ export function createNilsTransport(ctx, config = {}) {
           name: exec.name,
           arguments: exec.arguments,
         },
-      }, exec.signal, context.cwd, 'PreToolUse', principal)
+      }, exec.signal, context.cwd, 'PreToolUse', principal, context.sessionId)
     },
 
     /**
@@ -593,7 +609,7 @@ export function createNilsTransport(ctx, config = {}) {
           arguments: exec.arguments,
         },
         result: { is_error: result.isError === true },
-      }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse', principal)
+      }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse', principal, context.sessionId)
     },
 
     /**
@@ -624,6 +640,7 @@ export function createNilsTransport(ctx, config = {}) {
         request.context.cwd,
         preStep ? 'UserPromptSubmit' : 'Stop',
         principal,
+        request.context.sessionId,
       )
     },
 
