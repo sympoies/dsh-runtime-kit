@@ -9,26 +9,16 @@ import { isAbsolute } from 'node:path'
  *
  * @param {import('@deepseek-ai/cordis').Context} ctx
  * @param {string[]} argv
- * @param {Readonly<NodeJS.ProcessEnv> | undefined} environment
  * @param {AbortSignal | undefined} signal
  */
-export async function resolveSubprocessArgv(ctx, argv, environment, signal) {
+export async function resolveSubprocessArgv(ctx, argv, signal) {
   const [command, ...args] = argv
   if (command === undefined || command.length === 0) {
     throw new TypeError('dsh-runtime-kit: subprocess command is required')
   }
   if (isAbsolute(command)) return argv
-  // The resolver contract accepts string overrides only. Undefined entries are
-  // spawn-time tombstones and cannot affect PATH lookup, so omit them here and
-  // retain the complete environment on the subsequent spawn call.
-  /** @type {Record<string, string> | undefined} */
-  let resolverEnvironment
-  if (environment !== undefined) {
-    resolverEnvironment = {}
-    for (const [name, value] of Object.entries(environment)) {
-      if (typeof value === 'string') resolverEnvironment[name] = value
-    }
-  }
-  const executable = await ctx.subprocess.resolveExecutable(command, resolverEnvironment, signal)
+  // Resolve portable helper names against the DSH host execution PATH. The
+  // caller still supplies its isolated environment to spawn after resolution.
+  const executable = await ctx.subprocess.resolveExecutable(command, undefined, signal)
   return [executable, ...args]
 }

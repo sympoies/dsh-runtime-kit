@@ -452,7 +452,6 @@ export function createNilsTransport(ctx, config = {}) {
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
-          childEnvironment,
           operation.controller.signal,
         )
         operation.handle = ctx.subprocess.spawn({

@@ -309,7 +309,6 @@ export function createNilsContextClient(ctx, config = {}) {
           const resolvedArgv = await resolveSubprocessArgv(
             ctx,
             argv,
-            childEnvironment,
             operation.controller.signal,
           )
           operation.handle = ctx.subprocess.spawn({
