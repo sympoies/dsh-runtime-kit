@@ -358,6 +358,22 @@ export function applyMainAgentMode(ctx, config = {}) {
     : isAbsolute(mainAgentCli)
       ? resolve(dirname(mainAgentCli), AGENT_SESSION_BASENAME)
       : AGENT_SESSION_BASENAME
+  /**
+   * Portable bundle configuration names the released CLI instead of pinning
+   * one host path. Resolve that name through DSH's trusted host executable
+   * seam before comparing it with producer-owned absolute argv/env values.
+   *
+   * @param {AbortSignal | undefined} signal
+   */
+  const resolveTrustedAgentSessionCli = async (signal) => {
+    if (isAbsolute(agentSessionCli)) return agentSessionCli
+    try {
+      const executable = await ctx.subprocess.resolveExecutable(agentSessionCli, undefined, signal)
+      return isAbsolute(executable) ? executable : undefined
+    } catch {
+      return undefined
+    }
+  }
   // When configured, every lane worktree must live under this root; the
   // worktree becomes the lane worker's shell workdir and sandbox root, so an
   // unconstrained value is a lane-isolation hole.
@@ -712,8 +728,9 @@ export function applyMainAgentMode(ctx, config = {}) {
    * bridge.
    *
    * @param {Record<string, any>} readiness
+   * @param {AbortSignal | undefined} signal
    */
-  const controllerPrincipal = (readiness) => {
+  const controllerPrincipal = async (readiness, signal) => {
     /** @type {Record<string, string>} */
     const environment = {}
     for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
@@ -725,7 +742,9 @@ export function applyMainAgentMode(ctx, config = {}) {
     }
     let helperMatches = false
     try {
-      helperMatches = realpathSync(environment.AGENT_SESSION_BIN) === realpathSync(agentSessionCli)
+      const trustedAgentSessionCli = await resolveTrustedAgentSessionCli(signal)
+      helperMatches = trustedAgentSessionCli !== undefined
+        && realpathSync(environment.AGENT_SESSION_BIN) === realpathSync(trustedAgentSessionCli)
     } catch {
       helperMatches = false
     }
@@ -987,7 +1006,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
         throw laneError('main-agent-controller-not-ready')
       }
-      const principal = controllerPrincipal(readiness)
+      const principal = await controllerPrincipal(readiness, exec.signal)
       const existingPrincipal = controllers.get(controllerSessionId)
       if (existingPrincipal !== undefined
         && !sameControllerPrincipal(existingPrincipal, principal)) {
@@ -1141,8 +1160,10 @@ export function applyMainAgentMode(ctx, config = {}) {
           '--format',
           'json',
         ], exec, cwd)
+        const trustedAgentSessionCli = await resolveTrustedAgentSessionCli(exec.signal)
         if (data?.schema_version !== WORKER_START_RESULT_SCHEMA
-          || !validExternalLaunch(data.external_launch, agentSessionCli)) {
+          || trustedAgentSessionCli === undefined
+          || !validExternalLaunch(data.external_launch, trustedAgentSessionCli)) {
           throw laneError('main-agent-external-launch-invalid')
         }
         const externalLaunch = data.external_launch

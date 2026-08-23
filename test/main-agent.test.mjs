@@ -192,6 +192,11 @@ function createContext({
       },
     },
     subprocess: {
+      async resolveExecutable(command) {
+        if (command === 'main-agent') return MAIN_AGENT_CLI
+        if (command === 'agent-session') return AGENT_SESSION_CLI
+        return command
+      },
       spawn(spec) {
         if (spawnFailure) throw new Error('spawn failed')
         const record = { spec, terminated: false }
@@ -488,6 +493,60 @@ test('successful native initialization binds only the exact DSH controller princ
   })
 })
 
+test('native initialization resolves the trusted activity helper when runtime CLI config is portable', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: (spec) => {
+        if (spec.argv.includes('capabilities')) {
+          return {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        }
+        if (spec.argv.includes('readiness')) {
+          return {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.main-agent.init.v1',
+          ok: true,
+          data: {
+            schema_version: 'main-agent.init-result.v1',
+            run: { run_id: 'run-one', revision: 1, state: 'active' },
+          },
+        }
+      },
+    })
+    applyMainAgentMode(harness.ctx, { managedSessionBridge })
+
+    await harness.registeredTools.get('main_agent_run_initialize').execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-portable-1',
+    }, controllerExec())
+
+    assert.deepEqual(managedSessionBridge.resolve('controller-one'), {
+      sessionId: 'controller-managed',
+      environment: controllerEnvironment,
+    })
+  })
+})
+
 test('controller principal mismatch fails before run creation and leaves no bridge binding', async () => {
   const managedSessionBridge = createManagedSessionBridge()
   await withControllerEnvironment(async (controllerEnvironment) => {
@@ -592,7 +651,7 @@ test('worker launch executes the external-launch contract without duplicating la
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyMainAgentMode(harness.ctx)
 
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   assert.ok(launch, 'launch tool is registered')
@@ -607,7 +666,7 @@ test('worker launch executes the external-launch contract without duplicating la
 
   const cliSpawn = harness.spawned[0]
   assert.deepEqual(cliSpawn.spec.argv, [
-    MAIN_AGENT_CLI,
+    'main-agent',
     'worker',
     'start',
     '--assignment-file',
