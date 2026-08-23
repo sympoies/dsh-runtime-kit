@@ -341,6 +341,21 @@ async function withControllerEnvironment(run) {
   }
 }
 
+async function withoutControllerEnvironment(run) {
+  const previous = new Map(
+    Object.keys(TEST_CONTROLLER_ENVIRONMENT).map(name => [name, process.env[name]]),
+  )
+  for (const name of Object.keys(TEST_CONTROLLER_ENVIRONMENT)) delete process.env[name]
+  try {
+    return await run()
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+}
+
 test('controller initialization is a native readiness-fenced tool', async () => {
   await withControllerEnvironment(async (controllerEnvironment) => {
   const harness = createContext({
@@ -490,6 +505,77 @@ test('successful native initialization binds only the exact DSH controller princ
       undefined,
       'the authenticated principal is bound only to the exact initializing DSH session',
     )
+  })
+})
+
+test('a managed top-level Agent Console session binds before its first policy boundary without starting a Main Agent run', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: {
+        schema_version: 'cli.main-agent.self-readiness.v1',
+        ok: true,
+        data: {
+          schema_version: 'main-agent.runtime-readiness.v1',
+          ready: true,
+          session_id: controllerEnvironment.AGENT_SESSION_ID,
+          session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+          checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+        },
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    const entered = await harness.listeners.get('agent/pre-step')(
+      { agent: controllerExec().agent, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(entered, { kind: 'enter', messages: [] })
+    assert.deepEqual(harness.spawned.map(record => record.spec.argv), [
+      [MAIN_AGENT_CLI, 'self', 'readiness', '--format', 'json'],
+    ])
+    assert.deepEqual(managedSessionBridge.resolve('controller-one'), {
+      sessionId: 'controller-managed',
+      environment: controllerEnvironment,
+    })
+    const enteredAgain = await harness.listeners.get('agent/pre-step')(
+      { agent: controllerExec().agent, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    assert.deepEqual(enteredAgain, { kind: 'enter', messages: [] })
+    assert.equal(harness.spawned.length, 1, 'the authenticated binding is reused')
+    const foreignChild = await harness.listeners.get('agent/pre-step')(
+      {
+        agent: { session: { header: { id: 'foreign-child', parentSession: 'foreign-parent' } } },
+        signal: new AbortController().signal,
+      },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    assert.deepEqual(foreignChild, { kind: 'enter', messages: [] })
+    assert.equal(managedSessionBridge.resolve('foreign-child'), undefined)
+    assert.equal(
+      harness.spawned.some(record => record.spec.argv.includes('init')),
+      false,
+      'single-agent admission never initializes a Main Agent run',
+    )
+  })
+})
+
+test('an unmanaged top-level DSH session remains isolated from managed-session identity', async () => {
+  await withoutControllerEnvironment(async () => {
+    const managedSessionBridge = createManagedSessionBridge()
+    const harness = createContext()
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    const entered = await harness.listeners.get('agent/pre-step')(
+      { agent: controllerExec().agent, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(entered, { kind: 'enter', messages: [] })
+    assert.equal(harness.spawned.length, 0)
+    assert.equal(managedSessionBridge.resolve('controller-one'), undefined)
   })
 })
 
@@ -1108,7 +1194,7 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     reason: 'dsh-runtime-kit:main-agent-anchor-parked',
   })
   const passedThrough = await preStep(
-    { agent: { session: { header: { id: 'controller-one' } } } },
+    { agent: { session: { header: { id: 'foreign-child', parentSession: 'foreign-parent' } } } },
     async () => ({ kind: 'enter', messages: [] }),
   )
   assert.equal(passedThrough.kind, 'enter')
@@ -1125,8 +1211,12 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     local: true,
     stopReason: 'completed',
   })
-  await new Promise(resolve => setTimeout(resolve, 20))
-  sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  const completionDeadline = Date.now() + 2_000
+  for (;;) {
+    sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+    if (sidecar.turn?.last_turn?.outcome === 'completed' || Date.now() > completionDeadline) break
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
   assert.equal(sidecar.turn.phase, 'waiting')
   assert.equal(sidecar.turn.last_turn.outcome, 'completed')
 
@@ -1530,7 +1620,9 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
 
 test('run outcomes map onto the sidecar contract vocabulary', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
-  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  t.after(async () => {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 10 })
+  })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })

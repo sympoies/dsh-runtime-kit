@@ -55,22 +55,25 @@ Mode simply never activates and the rest of the bundle is unaffected.
   CLI's `main-agent.external-launch.v1` payload is bound in memory to that
   lane's DSH child and descendants. Policy, selective context, and finish-line
   nils subprocesses receive the authenticated worker session id and environment;
-  ordinary DSH sessions retain the scrubbed, ownerless boundary. Policy keeps
+  unmanaged DSH sessions retain the scrubbed, ownerless boundary. Policy keeps
   the owner id in its ingress subject and transports the original DSH session
   separately on the private agent-hook subprocess edge, so provider activity
   correlation cannot be replaced by the coordination owner. The public ingress
   schema is unchanged. The bridge is private to this bundle and disappears
   when the lane or plugin closes.
-- **Controller identity bridge**: successful native run initialization binds
-  only the exact top-level DSH controller id to the authenticated readiness
-  principal. The bridge restores only the six session-owned identity, state,
-  capability, checkpoint, and pinned activity-helper fields; readiness must
-  match the session id, incarnation, and checkpoint before `init` runs, and the
-  helper must resolve to the trusted companion of the configured Main Agent
-  CLI. Portable CLI names are first resolved through DSH's host executable
-  seam; the resulting real filesystem identity must still match. Foreign
-  subagents and failed initialization attempts create no binding, and plugin
-  teardown removes it.
+- **Controller identity bridge**: when Agent Console supplies a managed-session
+  candidate, the first top-level DSH pre-step authenticates it through the
+  producer-owned self-readiness command before policy runs. This gives an
+  ordinary single-agent session shell, selective-context, and finish-line
+  authority without initializing a Main Agent run. The bridge restores only
+  the six session-owned identity, state, capability, checkpoint, and pinned
+  activity-helper fields; readiness must match the session id, incarnation,
+  and checkpoint, and the helper must resolve to the trusted companion of the
+  configured Main Agent CLI. Native run initialization rechecks and reuses the
+  same principal before `init`. Portable CLI names are first resolved through
+  DSH's host executable seam; the resulting real filesystem identity must
+  still match. Unmanaged sessions, foreign subagents, and failed authentication
+  attempts create no binding, and plugin teardown removes it.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the
@@ -86,10 +89,10 @@ Mode simply never activates and the rest of the bundle is unaffected.
 - `main_agent_run_initialize({objective_file, idempotency_key})` — runs the
   fixed DSH compatibility and authenticated controller-readiness gates, then
   initializes the durable run from the private objective packet. A failed gate
-  creates no run or identity binding. On success the exact top-level DSH
-  controller is bound to its readiness-authenticated managed-session principal,
-  so later policy, selective-context, shell, and finish-line subprocesses can
-  authenticate without routing capability material through tool arguments.
+  creates no run or new identity binding. The exact top-level DSH controller
+  principal must match the readiness-authenticated binding already established
+  for single-agent policy, so initialization cannot replace it or route
+  capability material through tool arguments.
 - `main_agent_worker_launch({assignment_file, idempotency_key})` — runs the
   fenced `main-agent worker start --await-ready 0`, validates the
   external-launch payload, spawns the anchor and lane child, starts the
