@@ -710,7 +710,12 @@ test('worker launch executes the external-launch contract without duplicating la
       + 'command and do not perform any other action before the native tool succeeds; '
       + 'then follow the returned `worker_instructions` and private assignment.',
   }])
-  assert.ok(continuation.request.toolFilter.deny.includes('subagent'))
+  assert.ok(continuation.request.toolFilter.deny.includes('main_agent_worker_launch'))
+  assert.equal(
+    continuation.request.toolFilter.deny.includes('subagent'),
+    false,
+    'the rc.7 visibility filter names only globals this bundle guarantees are registered',
+  )
 
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
   assert.equal(sidecar.schema_version, 'main-agent.dsh-runtime-liveness.v1')
@@ -935,7 +940,10 @@ test('lane children get the deny guard and environment section; foreign children
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyMainAgentMode(harness.ctx, {
+    mainAgentCli: MAIN_AGENT_CLI,
+    laneDeniedTools: ['custom_tool'],
+  })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -966,6 +974,11 @@ test('lane children get the deny guard and environment section; foreign children
     'dsh-runtime-kit:main-agent-lane-tool-denied',
   )
   assert.equal(guards[0]({ name: 'bash' }), undefined)
+  assert.equal(
+    guards[0]({ name: 'custom_tool' }),
+    'dsh-runtime-kit:main-agent-lane-tool-denied',
+    'configured denies remain monotonic execution authority',
+  )
   assert.equal(sections.length, 1, 'lane child gets the environment section')
   // Values are shell-quoted, one per line inside a fenced block, so a path
   // containing whitespace or a metacharacter can never become a command.
@@ -1463,14 +1476,22 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
   )
   const denied = harness.continuations[0].request.toolFilter.deny
   for (const mandatory of [
-    'subagent',
     'main_agent_run_initialize',
     'main_agent_worker_launch',
     'main_agent_lane_close',
   ]) {
     assert.ok(denied.includes(mandatory), `${mandatory} stays denied under a partial override`)
   }
-  assert.ok(denied.includes('custom_tool'), 'the configured extra tool is denied too')
+  assert.equal(
+    denied.includes('subagent'),
+    false,
+    'legacy cross-product names stay in the execution guard, not the strict rc.7 filter',
+  )
+  assert.equal(
+    denied.includes('custom_tool'),
+    false,
+    'configured execution-only denies cannot make the strict visibility filter invalid',
+  )
 
   // A lane child (or its anchor) can never drive the lane surface.
   const laneChildExec = {

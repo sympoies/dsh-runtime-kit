@@ -43,15 +43,11 @@ const BROKER_READY_POLL_MS = 100
 const BROKER_STATUS_SCHEMA = 'agent-session.coordination-broker.v1'
 
 /**
- * Tools a managed worker lane must never reach: delegation and the
- * controller-side lane management surface. Visibility filtering alone is not
- * authority, so the same set is also denied by a per-child monotonic guard.
+ * Bundle-owned global tools hidden from a managed worker lane. rc.7 validates
+ * visibility filters against the exact global registry, so this list contains
+ * only tools this bundle guarantees it registered before launch.
  */
-const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
-  'subagent',
-  'send_message',
-  'list_agents',
-  'workflow',
+const DEFAULT_LANE_VISIBILITY_DENIED_TOOLS = Object.freeze([
   'main_agent_run_initialize',
   'main_agent_worker_launch',
   'main_agent_worker_interrupt',
@@ -60,6 +56,19 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
   'main_agent_worker_request_changes',
   'main_agent_worker_accept',
   'main_agent_run_closeout',
+])
+
+/**
+ * Tools a managed worker lane must never execute. The monotonic child guard
+ * retains legacy and cross-product names even when they are absent from the
+ * current global registry, so a later registration cannot grant authority.
+ */
+const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
+  'subagent',
+  'send_message',
+  'list_agents',
+  'workflow',
+  ...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS,
 ])
 
 /**
@@ -1332,7 +1341,7 @@ export function applyMainAgentMode(ctx, config = {}) {
             request: {
               prompt: [{ type: 'text', text: nativeBootstrapPrompt(lane.bootstrapKey) }],
               parent: anchor,
-              toolFilter: { deny: [...laneDeniedTools] },
+              toolFilter: { deny: [...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS] },
             },
             signal: exec.signal,
           })
