@@ -42,6 +42,7 @@ const IDENTIFIER = /^[\x21-\x7e]{1,256}$/
 
 /**
  * @typedef ActiveRequest
+ * @property {'open' | 'begin' | 'run' | 'stop' | 'release'} action
  * @property {AbortController} controller
  * @property {SubprocessHandle | undefined} handle
  * @property {'caller' | 'timeout' | 'disposed' | 'degraded' | undefined} cause
@@ -487,6 +488,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     const settled = new Promise(resolve => { resolveSettled = () => resolve() })
     /** @type {ActiveRequest} */
     const operation = {
+      action,
       controller: new AbortController(),
       handle: undefined,
       cause: undefined,
@@ -565,9 +567,31 @@ export function createNilsFinishLineClient(ctx, config = {}) {
 
   async function drain() {
     accepting = false
-    const pending = [...active]
-    for (const operation of pending) cancel(operation, 'disposed')
-    await Promise.allSettled(pending.map(operation => operation.settled))
+    const releaseDeadlineAt = Date.now() + teardownTimeoutMs
+    for (;;) {
+      const pending = [...active]
+      if (pending.length === 0) {
+        await Promise.resolve()
+        if (active.size === 0) break
+        continue
+      }
+      /** @type {ActiveRequest[]} */
+      const releases = []
+      for (const operation of pending) {
+        if (operation.action === 'release') releases.push(operation)
+        else cancel(operation, 'disposed')
+      }
+      const releaseDeadline = releases.length === 0
+        ? undefined
+        : setTimeout(() => {
+            for (const operation of releases) cancel(operation, 'disposed')
+          }, Math.max(0, releaseDeadlineAt - Date.now()))
+      try {
+        await Promise.allSettled(pending.map(operation => operation.settled))
+      } finally {
+        if (releaseDeadline !== undefined) clearTimeout(releaseDeadline)
+      }
+    }
     for (;;) {
       await Promise.resolve()
       const pendingCleanups = [...cleanups]
@@ -682,7 +706,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         schema_version: 'agent-hook.finish-line.release.v1',
         ...identityPayload(request),
         runner_capability: request.runnerCapability,
-      }, signal)
+      }, signal, undefined, teardownTimeoutMs)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }

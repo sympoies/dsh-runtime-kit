@@ -562,10 +562,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(operationsSmoke, /DSH_OPERATIONS_/u)
   assert.match(operationsSmoke, /operations:full-package-setup-update-rollback-remove/u)
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
-  assert.doesNotMatch(
-    runtimeSmoke,
-    /(?:from\s+|import\s*\()\s*['"]\.\.\//u,
-    'the trusted runtime scenario controller must not load candidate modules in-process',
+  assert.deepEqual(
+    [...runtimeSmoke.matchAll(/(?:from\s+|import\s*\()\s*['"](\.\.\/[^'"]+)['"]/gu)]
+      .map(match => match[1]),
+    ['../src/compat/git-checkout.js'],
+    'the trusted runtime scenario controller may load only the reviewed checkout inspector',
   )
 
   await assert.rejects(

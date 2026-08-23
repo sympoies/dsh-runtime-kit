@@ -33,14 +33,14 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.2-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.2/nils-cli-v1.27.2-x86_64-unknown-linux-gnu.tar.gz"
-          echo "9e664dc0006aab48a8c764faa6d72d462b5ca2a61220fbfca7ab64f6907ee553  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.4/nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz"
+          echo "3df3789fc3808dd806e592e2a1eceda8fec0bd528e1658cbcc0685a102defa3c  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.2-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.4-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
 
   upstream:
@@ -50,9 +50,9 @@ jobs:
       matrix:
         include:
           - channel: pinned
-            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
           - channel: upstream-next
-            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

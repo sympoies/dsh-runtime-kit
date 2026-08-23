@@ -12,7 +12,7 @@ vendor DSH implementation code.
 - Node.js `22.19` or `24` and npm.
 - A clean, built DeepSeek Harness `0.1.0-rc.7` or `0.1.0-rc.8` source checkout
   for compatibility and packed smoke validation.
-- Released nils-cli `1.27.2` binaries when exercising the real policy,
+- Released nils-cli `1.27.4` binaries when exercising the real policy,
   agent-docs, Git, review, or delivery boundaries.
 
 Install the package dependencies without running dependency lifecycle scripts:

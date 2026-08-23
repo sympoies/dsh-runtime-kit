@@ -11,7 +11,7 @@ Use DSH's native `headless` profile, or the exact Agent Console `dsh-tui`
 profile. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
-created the ordered base + `@deepseek-harness-tui/dsh-tui@0.8.1` profile before
+created the ordered base + `@deepseek-harness-tui/dsh-tui@0.9.0` profile before
 runtime-kit is added as its final bundle. Save the complete pre-activation
 profile and the owner-only runtime root as the rollback point.
 
@@ -105,8 +105,8 @@ pairs are `workspace-write` + `ask`, or the currently required
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
-The supported UI boundary is exact: DSH `0.1.0-rc.7`, dsh-tui `0.8.1`, and the
-ordered three-bundle composition. rc.8, other TUI releases, arbitrary custom
+The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui `0.9.0`, and the
+ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
 contract.
 
@@ -189,8 +189,9 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may pin
-the released v1.27.1 through validated v1.27.2 executables. Missing or
-non-absolute isolation paths fail
+the released v1.27.1 through validated v1.27.4 executables for DSH rc.7 and
+rc.8. The exact reviewed DSH rc.2 path requires v1.27.4 for its lifecycle and
+finish-line repairs. Missing or non-absolute isolation paths fail
 plugin activation; ambient XDG, Codex, and Claude Code paths are not fallbacks.
 
 Activation retains only asset sets referenced by current, previous, pending, or

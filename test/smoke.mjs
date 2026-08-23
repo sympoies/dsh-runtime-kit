@@ -49,15 +49,15 @@ assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
   '@deepseek-ai/cordis': '4.0.1',
-  '@deepseek-ai/dsh-agent': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-fs': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-llm': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7 || 0.1.0-rc.8',
-  '@deepseek-ai/dsh-tools': '0.1.0-rc.7 || 0.1.0-rc.8',
+  '@deepseek-ai/dsh-agent': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-fs': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-llm': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/dsh-tools': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -65,7 +65,7 @@ const nilsCompatibility = JSON.parse(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.27.1')
-assert.equal(nilsCompatibility.validated_release, '1.27.2')
+assert.equal(nilsCompatibility.validated_release, '1.27.4')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -115,12 +115,15 @@ const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
+const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL !== '0'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
 const validationCommand = 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
 const ordinaryCommand = "printf 'ordinary mutation\\n' > finish-line-native-mutation.txt"
-const managedWorktreeCommand = 'git-cli worktree add dsh-delivery-rehearsal --from main --format json'
+const smokeGitCli = process.env.DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN ?? 'git-cli'
+const smokeSemanticCommit = process.env.DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN ?? 'semantic-commit'
+const managedWorktreeCommand = `${JSON.stringify(smokeGitCli)} worktree add dsh-delivery-rehearsal --from main --format json`
 const unsafeDefaultCommand = 'git merge feat/dsh-delivery-rehearsal'
 const stageDeliveryCommand = 'git add --all'
 const privateIdentityPattern = new RegExp(
@@ -308,7 +311,7 @@ digest = "${providerPolicyDigest}"
   writeFileSync(providerPolicyPath, providerPolicy, { mode: 0o600 })
   writeFileSync(join(configHome, 'agent-hook', 'config.toml'), providerConfig, { mode: 0o600 })
   providerHookFixtureSha256 = fixtureDigest([providerConfig, providerPolicy])
-  const wrapper = `#!/bin/sh
+const wrapper = `#!/bin/sh
 if /usr/bin/env | /usr/bin/grep -q '^AGENT_SESSION_'; then
   /usr/bin/printf '%s\\n' 'provider-session-env-observed' > ${JSON.stringify(providerSessionMarker)}
   exit 91
@@ -512,7 +515,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
   assert.match(deliveryHead, /^[0-9a-f]{40,64}$/)
   const shellQuote = value => `'${value.replaceAll("'", `'"'"'`)}'`
   const governedDeliveryCommand = [
-    'semantic-commit default-branch',
+    `${shellQuote(smokeSemanticCommit)} default-branch`,
     `--expect-head ${deliveryHead}`,
     '--dry-run --automation --format json',
     `--repo ${shellQuote(projectWorkspace)}`,
@@ -628,7 +631,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
-      '@deepseek-harness-tui/dsh-tui@0.8.1',
+      '@deepseek-harness-tui/dsh-tui@0.9.0',
       'the Agent Console smoke accepts only the authenticated TUI release',
     )
     runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])
@@ -660,7 +663,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
       'package.json',
     ), 'utf8'))
     installedTuiVersion = installedTuiManifest.version
-    assert.equal(installedTuiVersion, '0.8.1')
+    assert.equal(installedTuiVersion, '0.9.0')
     assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
     assert.match(dump, /id: dsh-tui/)
     assert.match(dump, /id: user-questions/)
@@ -702,7 +705,7 @@ const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === und
       })}
 const smokeRoute = ${JSON.stringify(agentConsoleTuiPackage === undefined
     ? { provider: 'runtime-kit-smoke', model: 'scripted' }
-    : { provider: 'codex-proxy', model: 'gpt-5.6-sol' })}
+    : { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' })}
 
 export const name = 'dsh-runtime-kit-smoke-driver'
 // Cordis inject is required-only, so listing the orchestration service here
@@ -879,6 +882,7 @@ class SmokeAdapter extends LlmAdapter {
 
 export function apply(ctx) {
   void (async () => {
+    let handle
     try {
       const targetId = process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID
         ?? 'dsh-runtime-kit-smoke-' + process.pid
@@ -992,7 +996,7 @@ export function apply(ctx) {
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/.dsh-validation-count', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/finish-line-native-mutation.txt', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/reviewer-mutation-must-not-exist.txt', { force: true })
-      const handle = process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
+      handle = process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
         ? await ctx.agents.resume({
           resumeSessionId: SessionId(targetId),
           agentOptions: smokeRoute,
@@ -1052,7 +1056,7 @@ export function apply(ctx) {
       const routeObservation = {
         provider: requestConfig?.provider ?? agent.options.provider,
         model: requestConfig?.model ?? agent.options.model,
-        reasoningEffort: requestConfig?.reasoningEffort,
+        reasoningEffort: requestConfig?.reasoningEffort ?? agent.options.reasoningEffort,
       }
       const sandboxEvent = [...agent.session.events]
         .reverse()
@@ -1161,7 +1165,13 @@ export function apply(ctx) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
     } finally {
-      await ctx.root.fiber.dispose()
+      try {
+        await handle?.dispose()
+      } catch (error) {
+        process.stderr.write(String(error?.stack ?? error) + '\\n')
+        process.exitCode = 1
+      }
+      ctx.get('appExit')?.(process.exitCode ?? 0)
     }
   })()
 }
@@ -1196,7 +1206,7 @@ ${agentConsoleTuiOverlay}
     {
       env: {
         ...environment,
-        DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '1',
+        DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: deliveryRehearsal ? '1' : '0',
       },
     },
   )
@@ -1223,7 +1233,7 @@ ${agentConsoleTuiOverlay}
     )
     assert.deepEqual(
       receipt.agentConsoleObservation.composition.laneTools,
-      ['main_agent_checkpoint'],
+      ['main_agent_bootstrap', 'main_agent_checkpoint'],
     )
     assert.deepEqual(
       receipt.agentConsoleInspection.controller_route,
@@ -1240,7 +1250,9 @@ ${agentConsoleTuiOverlay}
       credentials: 'environment-reference-only',
     })
   }
-  assert.ok(receipt.managedWorktreeResult, 'packed DSH must exercise the managed-worktree route')
+  if (deliveryRehearsal) {
+    assert.ok(receipt.managedWorktreeResult, 'packed DSH must exercise the managed-worktree route')
+  }
   const result = receipt.result
   const contextResult = receipt.contextResult
   const editResult = receipt.editResult
@@ -1262,44 +1274,48 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
   assert.equal(receipt.policyContextVisibility[0], true)
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
-  assert.equal(validationResults.length, 6)
+  assert.equal(validationResults.length, deliveryRehearsal ? 6 : 3)
   assert.ok(validationResults[0].value, JSON.stringify(validationResults[0]))
   assert.notEqual(validationResults[0].value.exitCode, 0)
   assert.equal(validationResults[1].value.exitCode, 0)
   assert.equal(validationResults[2].value.exitCode, 0)
-  assert.equal(validationResults[3].value.exitCode, 0)
-  assert.equal(validationResults[4].value.exitCode, 0)
-  assert.equal(validationResults[5].value.exitCode, 0)
+  if (deliveryRehearsal) {
+    assert.equal(validationResults[3].value.exitCode, 0)
+    assert.equal(validationResults[4].value.exitCode, 0)
+    assert.equal(validationResults[5].value.exitCode, 0)
+  }
   assert.equal(ordinaryResult.value.exitCode, 0)
   assert.equal(ordinaryResult.value.kind, 'foreground')
-  assert.equal(managedWorktreeResult.isError, false, JSON.stringify(managedWorktreeResult))
-  assert.equal(managedWorktreeResult.value.exitCode, 0)
-  const managedWorktreeReceipt = JSON.parse(managedWorktreeResult.value.stdout.text.trim())
-  assert.equal(managedWorktreeReceipt.schema_version, 'cli.git-cli.worktree.add.v1')
-  assert.equal(managedWorktreeReceipt.ok, true)
-  assert.equal(managedWorktreeReceipt.data.slug, 'dsh-delivery-rehearsal')
-  assert.equal(managedWorktreeReceipt.data.branch, 'feat/dsh-delivery-rehearsal')
-  assert.equal(managedWorktreeReceipt.data.managed, undefined)
-  assert.equal(existsSync(managedWorktreeReceipt.data.path), true)
-  assert.equal(unsafeDefaultResult.isError, true, JSON.stringify(unsafeDefaultResult))
-  assert.match(unsafeDefaultResult.content[0].text, /block-unsafe-default-delivery/)
-  assert.equal(stageDeliveryResult.isError, false, JSON.stringify(stageDeliveryResult))
-  assert.equal(stageDeliveryResult.value.exitCode, 0)
-  assert.equal(governedDeliveryResult.isError, false, JSON.stringify(governedDeliveryResult))
-  assert.equal(governedDeliveryResult.value.exitCode, 0)
-  const governedDeliveryReceipts = governedDeliveryResult.value.stdout.text
-    .trim()
-    .split('\n')
-    .map(entry => JSON.parse(entry))
-  const governedDeliveryReceipt = governedDeliveryReceipts.find(
-    entry => entry.schema_version === 'cli.semantic-commit.default-branch.preview.v1',
-  )
-  assert.ok(governedDeliveryReceipt, JSON.stringify(governedDeliveryReceipts))
-  assert.equal(governedDeliveryReceipt.ok, true)
-  assert.equal(governedDeliveryReceipt.data.mode, 'default-branch')
-  assert.equal(governedDeliveryReceipt.data.head, deliveryHead)
-  assert.equal(governedDeliveryReceipt.data.completion.default_branch_committed, false)
-  assert.equal(governedDeliveryReceipt.data.completion.provider_delivery_attempted, false)
+  if (deliveryRehearsal) {
+    assert.equal(managedWorktreeResult.isError, false, JSON.stringify(managedWorktreeResult))
+    assert.equal(managedWorktreeResult.value.exitCode, 0, JSON.stringify(managedWorktreeResult))
+    const managedWorktreeReceipt = JSON.parse(managedWorktreeResult.value.stdout.text.trim())
+    assert.equal(managedWorktreeReceipt.schema_version, 'cli.git-cli.worktree.add.v1')
+    assert.equal(managedWorktreeReceipt.ok, true)
+    assert.equal(managedWorktreeReceipt.data.slug, 'dsh-delivery-rehearsal')
+    assert.equal(managedWorktreeReceipt.data.branch, 'feat/dsh-delivery-rehearsal')
+    assert.equal(managedWorktreeReceipt.data.managed, undefined)
+    assert.equal(existsSync(managedWorktreeReceipt.data.path), true)
+    assert.equal(unsafeDefaultResult.isError, true, JSON.stringify(unsafeDefaultResult))
+    assert.match(unsafeDefaultResult.content[0].text, /block-unsafe-default-delivery/)
+    assert.equal(stageDeliveryResult.isError, false, JSON.stringify(stageDeliveryResult))
+    assert.equal(stageDeliveryResult.value.exitCode, 0)
+    assert.equal(governedDeliveryResult.isError, false, JSON.stringify(governedDeliveryResult))
+    assert.equal(governedDeliveryResult.value.exitCode, 0)
+    const governedDeliveryReceipts = governedDeliveryResult.value.stdout.text
+      .trim()
+      .split('\n')
+      .map(entry => JSON.parse(entry))
+    const governedDeliveryReceipt = governedDeliveryReceipts.find(
+      entry => entry.schema_version === 'cli.semantic-commit.default-branch.preview.v1',
+    )
+    assert.ok(governedDeliveryReceipt, JSON.stringify(governedDeliveryReceipts))
+    assert.equal(governedDeliveryReceipt.ok, true)
+    assert.equal(governedDeliveryReceipt.data.mode, 'default-branch')
+    assert.equal(governedDeliveryReceipt.data.head, deliveryHead)
+    assert.equal(governedDeliveryReceipt.data.completion.default_branch_committed, false)
+    assert.equal(governedDeliveryReceipt.data.completion.provider_delivery_attempted, false)
+  }
   assert.equal(readFileSync(join(projectWorkspace, '.dsh-validation-count'), 'utf8'), 'validated')
   assert.equal(
     readFileSync(join(projectWorkspace, 'finish-line-native-mutation.txt'), 'utf8'),
@@ -1385,34 +1401,36 @@ ${agentConsoleTuiOverlay}
     'post-tool',
     'result',
     'pre-step:1:10',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:11',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:12',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:13',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:14',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:15',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:16',
-    'pre-tool',
-    'post-tool',
-    'result',
-    'pre-step:1:17',
+    ...(deliveryRehearsal ? [
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:11',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:12',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:13',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:14',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:15',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:16',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:17',
+    ] : []),
     'turn-stop:1',
   ])
 
@@ -1483,7 +1501,8 @@ ${agentConsoleTuiOverlay}
   assert.match(reviewerReceipt.reviewResult.value.findings_jsonl, /"specialist":"quick"/)
   const reviewerFindingsPath = join(temporaryRoot, 'reviewer-findings.jsonl')
   writeFileSync(reviewerFindingsPath, reviewerReceipt.reviewResult.value.findings_jsonl)
-  const reviewSpecialistsBin = join(dirname(agentHookBin), 'review-specialists')
+  const reviewSpecialistsBin = process.env.DSH_RUNTIME_KIT_SMOKE_REVIEW_SPECIALISTS_BIN
+    ?? join(dirname(agentHookBin), 'review-specialists')
   const reviewerValidation = spawnSync(
     reviewSpecialistsBin,
     ['validate', '--input', reviewerFindingsPath, '--format', 'json'],
@@ -1551,7 +1570,13 @@ ${agentConsoleTuiOverlay}
   assert.equal(resumedReceipt.validationResults.length, 3)
   assert.equal(resumedReceipt.activeFinishLineRequests, 0)
   assert.equal(resumedReceipt.activeFinishLineReservations, 0)
-  assert.equal(resumedReceipt.finishLineDegraded, false)
+  assert.equal(resumedReceipt.finishLineDegraded, false, JSON.stringify({
+    finishLineDegraded: resumedReceipt.finishLineDegraded,
+    activeFinishLineRequests: resumedReceipt.activeFinishLineRequests,
+    activeFinishLineReservations: resumedReceipt.activeFinishLineReservations,
+    pendingCorrelations: resumedReceipt.pendingCorrelations,
+    errors: resumedReceipt.errors,
+  }))
   assert.equal(resumedReceipt.lifecycle[0], 'session-start:resume')
 
   resetCheckoutLease()
@@ -1749,9 +1774,9 @@ ${agentConsoleTuiOverlay}
     providerRetirementVerified: true,
     resultDrivenFinishLineVerified: true,
     resumeFinishLineVerified: true,
-    managedWorktreeRehearsalVerified: true,
-    unsafeDefaultDeliveryBlocked: true,
-    governedDefaultDeliveryDryRunVerified: true,
+    managedWorktreeRehearsalVerified: deliveryRehearsal,
+    unsafeDefaultDeliveryBlocked: deliveryRehearsal,
+    governedDefaultDeliveryDryRunVerified: deliveryRehearsal,
     nativeReviewSpecialistsVerified: true,
     reviewerMutationBlockedBeforeBody: true,
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined

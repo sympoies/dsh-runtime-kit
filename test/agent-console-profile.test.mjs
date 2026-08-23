@@ -32,12 +32,12 @@ const EXPECTED_CONTRACT = Object.freeze({
   schema_version: 'dsh-runtime-kit.agent-console-profile.v2',
   profile: 'dsh-tui',
   dsh: {
-    version: '0.1.0-rc.7',
-    revision: '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
+    version: '0.1.1-rc.2',
+    revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.8.1',
+    version: '0.9.0',
   },
   bundles: [
     '@deepseek-ai/dsh-base',
@@ -126,7 +126,7 @@ function expectCode(observation, code) {
   )
 }
 
-test('the package pins the complete Agent Console rc.7 composition contract', () => {
+test('the package pins the complete latest Agent Console composition contract', () => {
   assert.equal(typeof runtimeKit.inspectAgentConsoleRc7Profile, 'function')
   assert.deepEqual(runtimeKit.agentConsoleRc7ProfileContract(), EXPECTED_CONTRACT)
 
@@ -135,8 +135,8 @@ test('the package pins the complete Agent Console rc.7 composition contract', ()
     schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v2',
     compatible: true,
     profile: 'dsh-tui',
-    dsh_version: '0.1.0-rc.7',
-    tui_version: '0.8.1',
+    dsh_version: '0.1.1-rc.2',
+    tui_version: '0.9.0',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -169,7 +169,7 @@ test('every pinned version and ordered bundle has a specific failing owner', () 
     ['DSH version', value => { value.dsh.version = '0.1.0-rc.8' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_DSH_MISMATCH'],
     ['DSH revision', value => { value.dsh.revision = '0'.repeat(40) }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_DSH_MISMATCH'],
     ['TUI package', value => { value.tui.package = '@deepseek-harness-tui/other' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
-    ['TUI version', value => { value.tui.version = '0.8.2' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
+    ['TUI version', value => { value.tui.version = '0.8.1' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
     ...EXPECTED_CONTRACT.bundles.map(bundle => [
       `bundle ${bundle}`,
       value => { removeValue(value.bundles, bundle) },

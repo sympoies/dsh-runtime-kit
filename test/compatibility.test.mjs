@@ -73,15 +73,15 @@ function validRuntime() {
   }
 }
 
-test('DSH compatibility manifest pins the retained rc.7 and Workbench rc.8 releases', () => {
+test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8', () => {
   const manifest = validateDshCompatibilityManifest(
     JSON.parse(readFileSync(manifestPath, 'utf8')),
   )
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.dsh-compatibility.v1')
   assert.equal(manifest.repository, 'https://github.com/deepseek-ai/deepseek-harness')
   assert.deepEqual(Object.keys(manifest.channels).sort(), ['pinned', 'upstream-next'])
-  assert.equal(manifest.channels.pinned.version, '0.1.0-rc.7')
-  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.0-rc.7')
+  assert.equal(manifest.channels.pinned.version, '0.1.1-rc.2')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.1-rc.2')
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
@@ -93,6 +93,10 @@ test('DSH compatibility manifest pins the retained rc.7 and Workbench rc.8 relea
     '0.1.0-rc.8': {
       ref: 'refs/tags/dsh-v0.1.0-rc.8',
       revision: '141eb6fef83422698aef7a981029e843e8161534',
+    },
+    '0.1.1-rc.2': {
+      ref: 'refs/tags/dsh-v0.1.1-rc.2',
+      revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
     },
   })
   assert.equal(
@@ -119,7 +123,7 @@ test('DSH compatibility manifest pins the retained rc.7 and Workbench rc.8 relea
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
       ? '4.0.1'
-      : '0.1.0-rc.7 || 0.1.0-rc.8')
+      : '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2')
   }
 
   const exportDrift = structuredClone(manifest)
@@ -393,6 +397,14 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   })
   assert.deepEqual(new Set(Object.values(rc8.versions)), new Set(['0.1.0-rc.8', '4.0.1']))
 
+  const rc2 = await loadDshRc7Runtime({
+    ...options(),
+    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+      ? '4.0.1'
+      : '0.1.1-rc.2',
+  })
+  assert.deepEqual(new Set(Object.values(rc2.versions)), new Set(['0.1.1-rc.2', '4.0.1']))
+
   await assert.rejects(
     loadDshRc7Runtime(options({
       '@deepseek-ai/dsh-llm': { HarnessError: class extends Error {}, createUserMessage: undefined },
@@ -442,9 +454,13 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   assert.equal(importCalls, 0)
 
   const installed = await loadDshRc7Runtime()
-  assert.deepEqual(
-    new Set(Object.values(installed.versions)),
-    new Set(['0.1.0-rc.7', '4.0.1']),
+  const installedVersions = new Set(Object.values(installed.versions))
+  assert.equal(installedVersions.has('4.0.1'), true)
+  assert.equal(installedVersions.size, 2)
+  assert.equal(
+    ['0.1.0-rc.7', '0.1.0-rc.8', '0.1.1-rc.2']
+      .some(version => installedVersions.has(version)),
+    true,
   )
 })
 
@@ -457,12 +473,12 @@ test('source inspection validates package versions and required public runtime e
     manifest.channels['upstream-next'].revision = '1'.repeat(40)
     await writeFile(join(root, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-root',
-      version: '0.1.0-rc.7',
+      version: manifest.channels.pinned.version,
     })}\n`)
     for (const [name, contract] of Object.entries(manifest.public_packages)) {
       const packageRoot = join(root, contract.path)
       await mkdir(join(packageRoot, 'lib'), { recursive: true })
-      const version = contract.version ?? '0.1.0-rc.7'
+      const version = contract.version ?? manifest.channels.pinned.version
       await writeFile(join(packageRoot, 'package.json'), `${JSON.stringify({
         name,
         version,
@@ -508,7 +524,7 @@ test('source inspection validates package versions and required public runtime e
 
     await writeFile(join(external, 'package.json'), `${JSON.stringify({
       name: targetName,
-      version: '0.1.0-rc.7',
+      version: manifest.channels.pinned.version,
       type: 'module',
       exports: { '.': { types: './index.d.ts', default: './index.js' } },
     })}\n`)

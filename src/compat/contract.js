@@ -20,6 +20,10 @@ const SUPPORTED_DSH_RELEASES = Object.freeze({
     ref: 'refs/tags/dsh-v0.1.0-rc.8',
     revision: '141eb6fef83422698aef7a981029e843e8161534',
   }),
+  '0.1.1-rc.2': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.1-rc.2',
+    revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
+  }),
 })
 const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
 

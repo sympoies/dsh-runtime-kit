@@ -630,6 +630,42 @@ test('agent disposal releases its capability and removes the exact session ledge
   assert.equal(subject.coordinator.trackedSessions, 0)
 })
 
+test('an allowed turn releases its capability before the agent becomes idle', async () => {
+  const subject = fixture()
+  const first = execution(subject, {
+    name: 'bash',
+    arguments: { command: ':', description: 'Validate the first turn' },
+  })
+  await subject.coordinator.begin(first, context(first))
+  const firstResult = await subject.coordinator.execute(first)
+  subject.coordinator.result(first, firstResult.result)
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.equal(subject.coordinator.trackedSessions, 0)
+  assert.deepEqual(subject.releases, [{
+    product: 'dsh',
+    sessionId: 'session-1',
+    turnId: '1',
+    cwd: '/workspace/project',
+    runnerCapability: 'finish-line-runner:opaque',
+  }])
+
+  const second = execution(subject, {
+    name: 'bash',
+    arguments: { command: ':', description: 'Validate the second turn' },
+    callId: 'call-turn-2',
+  })
+  await subject.coordinator.begin(second, { ...context(second), turn: 2 })
+  const secondResult = await subject.coordinator.execute(second)
+  subject.coordinator.result(second, secondResult.result)
+  assert.equal(subject.opens.length, 2)
+  assert.equal(subject.opens[1].turnId, '2')
+})
+
 test('same-ID resume waits for the prior capability incarnation to release', async () => {
   const subject = fixture()
   let openCount = 0
