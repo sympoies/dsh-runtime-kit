@@ -80,6 +80,14 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
     assert.match(patch, new RegExp(variable))
     assert.match(operations, new RegExp(variable))
   }
+  assert.match(
+    patch,
+    /mainAgentCli: !!js process\.env\.DSH_RUNTIME_KIT_MAIN_AGENT_BIN \?\? 'main-agent'/,
+  )
+  assert.match(
+    patch,
+    /agentSessionCli: !!js process\.env\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN \?\? 'agent-session'/,
+  )
   assert.match(operations, /native `headless` profile/i)
   assert.match(operations, /link count[\s\S]{0,120}one/i)
   assert.match(operations, /Codex[\s\S]{0,120}Claude[\s\S]{0,180}(?:unchanged|untouched)/i)
