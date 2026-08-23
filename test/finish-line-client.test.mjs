@@ -89,6 +89,7 @@ function fixture({
   waitForExit = true,
   quiesceWaitForExit = true,
   agentHook = '/test/agent-hook',
+  teardownTimeoutMs = 20,
   onTerminate = () => {},
 } = {}) {
   const effects = []
@@ -154,7 +155,7 @@ function fixture({
     agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
     agentHookStateDir: '/runtime/agent-hook/state',
     finishLineTimeoutMs: 100,
-    finishLineTeardownTimeoutMs: 20,
+    finishLineTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveFinishLineRequests: 4,
   })
   return {
@@ -342,7 +343,10 @@ test('drain closes ordinary admission but leaves authenticated release available
 })
 
 test('drain preserves an authenticated release already crossing subprocess resolution', async () => {
-  const subject = fixture({ pending: true })
+  // This scenario proves preservation, not the deadline itself. Keep the
+  // deadline comfortably above a loaded CI event-loop turn; the adjacent
+  // teardown tests retain the 20 ms bound and exercise cancellation timing.
+  const subject = fixture({ pending: true, teardownTimeoutMs: 1_000 })
   const release = subject.client.release({
     ...identity,
     runnerCapability: 'finish-line-runner:opaque',
