@@ -71,6 +71,8 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
 ))
 const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
 const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
+const DSH_RC2_RELEASE = '0.1.1-rc.2'
+const AGENT_DOCS_RC2_MINIMUM_RELEASE = '1.27.4'
 const SUPERVISOR_SETTLEMENT_MS = 7_000
 const PROCESS_GROUP_SETTLEMENT_MS = 5_000
 const PACKED_TARGETS = new WeakMap()
@@ -3209,8 +3211,9 @@ function supportedStableRelease(value, minimum, validated) {
 /**
  * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
  * @param {string} home
+ * @param {string | undefined} dshRelease
  */
-function agentDocsDoctor(config, home) {
+function agentDocsDoctor(config, home, dshRelease) {
   try {
     const executable = resolveExecutable(config.agentDocs ?? 'agent-docs')
     const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
@@ -3230,14 +3233,17 @@ function agentDocsDoctor(config, home) {
       return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
     }
     const match = /^agent-docs ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
+    const minimumRelease = dshRelease === DSH_RC2_RELEASE
+      ? AGENT_DOCS_RC2_MINIMUM_RELEASE
+      : AGENT_DOCS_MINIMUM_RELEASE
     if (match === null || !supportedStableRelease(
       match[1],
-      AGENT_DOCS_MINIMUM_RELEASE,
+      minimumRelease,
       AGENT_DOCS_VALIDATED_RELEASE,
     )) {
       return {
         ok: false,
-        error: `agent-docs version is outside the supported range ${AGENT_DOCS_MINIMUM_RELEASE} through ${AGENT_DOCS_VALIDATED_RELEASE}`,
+        error: `agent-docs version is outside the supported range ${minimumRelease} through ${AGENT_DOCS_VALIDATED_RELEASE}`,
       }
     }
     return { ok: true, version: match[1], catalog, state_home: stateHome }
@@ -3273,6 +3279,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
   const state = stateRead.value
   if (stateRead.version === 1) {
     const action = state?.pending === null ? 'migrate-v1' : 'legacy-pending'
+    const dsh = dshVersion(dshBin, paths.home)
     return {
       schema_version: 'dsh-runtime-kit.doctor.v1',
       profile,
@@ -3285,11 +3292,15 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
       },
       observed: publicActual(actual),
       agent_hook: agentHookDoctor(agentHook, paths.home),
-      agent_docs: agentDocsDoctor(agentDocs, paths.home),
+      agent_docs: agentDocsDoctor(
+        agentDocs,
+        paths.home,
+        dsh.ok === true ? dsh.version : undefined,
+      ),
       activation: activationInput.error === undefined
         ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
         : { ok: false, error: activationInput.error },
-      dsh: dshVersion(dshBin, paths.home),
+      dsh,
     }
   }
   if (state !== null && activationInput.runtimeRoot === undefined) {
@@ -3351,8 +3362,12 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
         : { ok: false, error: 'runtime activation does not match the managed package target' }
   }
   const hook = agentHookDoctor(agentHook, paths.home)
-  const docs = agentDocsDoctor(agentDocs, paths.home)
   const dsh = dshVersion(dshBin, paths.home)
+  const docs = agentDocsDoctor(
+    agentDocs,
+    paths.home,
+    dsh.ok === true ? dsh.version : undefined,
+  )
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
