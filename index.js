@@ -30,6 +30,11 @@ import {
 
 export { plusOneTool }
 export { applyMainAgentMode, mainAgentMode } from './src/main-agent/index.js'
+export {
+  AgentConsoleProfileCompatibilityError,
+  agentConsoleRc7ProfileContract,
+  inspectAgentConsoleRc7Profile,
+} from './src/compat/agent-console.js'
 
 export const name = 'dsh-runtime-kit'
 export const inject = ['agents', 'sessions', 'shell', 'shellEnv', 'skills', 'subprocess', 'tools']

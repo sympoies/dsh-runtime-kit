@@ -24,14 +24,28 @@ export function dshRc7SessionHeader(agent) {
 
 /**
  * @param {unknown} agent
- * @returns {Readonly<{provider?: string, model?: string}>}
+ * @returns {Readonly<{provider?: string, model?: string, reasoningEffort?: string}>}
  */
 export function dshRc7AgentRoute(agent) {
   const options = /** @type {any} */ (agent)?.options
   if (options === null || typeof options !== 'object') return Object.freeze({})
+  const session = /** @type {any} */ (agent)?.session
+  const requestHeader = typeof session?.requestHeader === 'function'
+    ? session.requestHeader()
+    : undefined
+  const requestConfig = requestHeader !== null && typeof requestHeader === 'object'
+    ? requestHeader.config
+    : undefined
   return Object.freeze({
-    ...typeof options.provider === 'string' ? { provider: options.provider } : {},
-    ...typeof options.model === 'string' ? { model: options.model } : {},
+    ...typeof requestConfig?.provider === 'string'
+      ? { provider: requestConfig.provider }
+      : typeof options.provider === 'string' ? { provider: options.provider } : {},
+    ...typeof requestConfig?.model === 'string'
+      ? { model: requestConfig.model }
+      : typeof options.model === 'string' ? { model: options.model } : {},
+    ...typeof requestConfig?.reasoningEffort === 'string'
+      ? { reasoningEffort: requestConfig.reasoningEffort }
+      : {},
   })
 }
 

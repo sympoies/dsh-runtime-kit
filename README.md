@@ -45,8 +45,17 @@ contract and promotion checks.
 
 ## Install and activate
 
-Use the native DSH `headless` profile. Unknown profile names contain only the
-base bundle and are not equivalent to `headless`.
+Two exact rc.7 compositions are supported:
+
+- the native DSH `headless` profile; and
+- Agent Console's `dsh-tui` profile with
+  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.8.1`, then
+  `@sympoies/dsh-runtime-kit` in that order.
+
+Unknown profile names contain only the base bundle. They are neither equivalent
+to `headless` nor accepted as Agent Console profiles. The machine-readable
+Agent Console boundary is
+[`compatibility/agent-console.json`](compatibility/agent-console.json).
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball
@@ -90,6 +99,23 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh --profile headless "run the requested task"
 ```
+
+For Agent Console, first let its provisioner create the exact `dsh-tui`
+base/TUI profile, then run the same preview/apply/doctor sequence with
+`--profile dsh-tui`. Launch the TUI through the owner launcher:
+
+```sh
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-tui
+```
+
+That composition retains the TUI's `userQuestions` interaction service and
+adds runtime-kit tools, skills, and `mainAgentOrchestration`. With no reviewed
+worker override, Main Agent workers inherit the live controller route; an Agent
+Console controller on `codex-proxy/gpt-5.6-sol` therefore launches Sol workers.
+Runtime-kit adds only its own Cordis row: the host remains responsible for an
+explicit `DSH_PERMISSION_MODE`, the matching approval policy, and environment-
+name credential references.
 
 All mutating operations are preview-first and digest-bound. The launcher owns
 the DSH-only hook, policy, agent-docs, and state paths; do not copy those values

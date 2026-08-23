@@ -38,6 +38,11 @@ Mode simply never activates and the rest of the bundle is unaffected.
   session header carries the lane worktree as `cwd`. The worker's shell
   workdir and sandbox root both derive from that header. Anchors never run
   model turns: an `agent/pre-step` listener parks them.
+- **Route inheritance**: absent an explicit reviewed `workerProvider` or
+  `workerModel`, the anchor copies the live controller's provider and model.
+  The supported Agent Console composition verifies
+  `codex-proxy/gpt-5.6-sol` on both controller and worker; the TUI provider
+  picker does not weaken this binding.
 - **Authority**: each lane child gets a monotonic deny-only tool guard for
   delegation and lane-management tools (visibility filtering alone is not
   authority), installed through `registerContinuableSetup` for children of
