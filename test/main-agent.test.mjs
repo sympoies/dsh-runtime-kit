@@ -1620,7 +1620,9 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
 
 test('run outcomes map onto the sidecar contract vocabulary', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
-  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  t.after(async () => {
+    await rm(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 10 })
+  })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
