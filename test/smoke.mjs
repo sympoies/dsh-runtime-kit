@@ -1318,6 +1318,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(receipt.exactCorrelation, true)
   if (agentConsoleTuiPackage !== undefined) assert.equal(receipt.userQuestions, true)
   for (const laneTool of [
+    'main_agent_run_initialize',
     'main_agent_worker_launch',
     'main_agent_worker_interrupt',
     'main_agent_lane_close',

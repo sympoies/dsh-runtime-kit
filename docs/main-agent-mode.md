@@ -66,6 +66,11 @@ Mode simply never activates and the rest of the bundle is unaffected.
 
 ## Controller tools
 
+- `main_agent_run_initialize({objective_file, idempotency_key})` — runs the
+  fixed DSH compatibility and authenticated controller-readiness gates, then
+  initializes the durable run from the private objective packet. A failed gate
+  creates no run, and the controller never has to route capability-bearing
+  identity through an ordinary shell call.
 - `main_agent_worker_launch({assignment_file, idempotency_key})` — runs the
   fenced `main-agent worker start --await-ready 0`, validates the
   external-launch payload, spawns the anchor and lane child, starts the

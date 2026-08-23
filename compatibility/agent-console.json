@@ -25,6 +25,7 @@
         "runtime_kit_plus_one",
         "runtime_context",
         "review_specialists",
+        "main_agent_run_initialize",
         "main_agent_worker_launch",
         "main_agent_worker_interrupt",
         "main_agent_lane_close",
@@ -39,9 +40,11 @@
     },
     "lane": {
       "required": [
+        "main_agent_bootstrap",
         "main_agent_checkpoint"
       ],
       "forbidden": [
+        "main_agent_run_initialize",
         "main_agent_worker_launch",
         "main_agent_worker_interrupt",
         "main_agent_lane_close",
