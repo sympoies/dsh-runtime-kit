@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createNilsFinishLineClient } from '../src/finish-line/nils-client.js'
+import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`
 const correlationId = 'correlation:opaque'
@@ -374,13 +375,7 @@ test('run sends no outcome and preserves exact command bytes and observed execut
       },
     },
   })
-  assert.deepEqual(
-    Object.fromEntries(
-      Object.entries(subject.spawns[0].spec.env)
-        .filter(([, value]) => value !== undefined),
-    ),
-    environment,
-  )
+  assert.deepEqual(subject.spawns[0].spec.env, isolatedNilsEnvironment(environment))
   assert.equal(
     Object.entries(subject.spawns[0].spec.env)
       .filter(([, value]) => value === undefined)
@@ -427,11 +422,7 @@ test('run probes an exact contract without execution metadata or child environme
   })
   assert.equal('execution' in subject.spawns[0].request, false)
   assert.equal('env' in subject.spawns[0].spec, true)
-  assert.equal(
-    Object.entries(subject.spawns[0].spec.env)
-      .every(([name, value]) => name.startsWith('AGENT_SESSION_') && value === undefined),
-    true,
-  )
+  assert.deepEqual(subject.spawns[0].spec.env, isolatedNilsEnvironment(undefined))
 })
 
 test('ordinary foreground run is typed across probe and nils-observed execution', async () => {
