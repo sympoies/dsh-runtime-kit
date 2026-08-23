@@ -312,6 +312,91 @@ function controllerExec() {
   }
 }
 
+test('controller initialization is a native readiness-fenced tool', async () => {
+  const harness = createContext({
+    envelope: (spec) => {
+      if (spec.argv.includes('capabilities')) {
+        return {
+          schema_version: 'cli.main-agent.capabilities.v1',
+          ok: true,
+          data: {
+            schema_version: 'main-agent.capabilities.v1',
+            provider: 'dsh',
+            compatible: true,
+            capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+          },
+        }
+      }
+      if (spec.argv.includes('readiness')) {
+        return {
+          schema_version: 'cli.main-agent.self-readiness.v1',
+          ok: true,
+          data: { schema_version: 'main-agent.runtime-readiness.v1', ready: true },
+        }
+      }
+      return {
+        schema_version: 'cli.main-agent.init.v1',
+        ok: true,
+        data: {
+          schema_version: 'main-agent.init-result.v1',
+          run: { run_id: 'run-one', revision: 1, state: 'active' },
+        },
+      }
+    },
+  })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+
+  const initialize = harness.registeredTools.get('main_agent_run_initialize')
+  assert.ok(initialize, 'controller initialization tool is registered')
+  const result = await initialize.execute({
+    objective_file: '/private/objective.json',
+    idempotency_key: 'initialize-1',
+  }, controllerExec())
+
+  assert.equal(result.run.state, 'active')
+  assert.deepEqual(harness.spawned.map(record => record.spec.argv), [
+    [MAIN_AGENT_CLI, 'capabilities', '--provider', 'dsh', '--format', 'json'],
+    [MAIN_AGENT_CLI, 'self', 'readiness', '--format', 'json'],
+    [
+      MAIN_AGENT_CLI,
+      'init',
+      '--packet-file', '/private/objective.json',
+      '--if-absent',
+      '--idempotency-key', 'initialize-1',
+      '--format', 'json',
+    ],
+  ])
+  assert.ok(
+    harness.spawned.every(record => record.spec.cwd === '/controller/checkout'),
+    'every readiness and init call stays bound to the controller cwd',
+  )
+})
+
+test('controller initialization creates no run when compatibility is unproven', async () => {
+  const harness = createContext({
+    envelope: {
+      schema_version: 'cli.main-agent.capabilities.v1',
+      ok: true,
+      data: {
+        schema_version: 'main-agent.capabilities.v1',
+        provider: 'dsh',
+        compatible: true,
+        capabilities: { external_runtime: 'unexpected-runtime' },
+      },
+    },
+  })
+  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+
+  await assert.rejects(
+    harness.registeredTools.get('main_agent_run_initialize').execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-1',
+    }, controllerExec()),
+    /main-agent-capabilities-incompatible/,
+  )
+  assert.equal(harness.spawned.length, 1, 'readiness and init never run after a failed capability gate')
+})
+
 test('worker launch executes the external-launch contract without duplicating lanes', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
@@ -1128,7 +1213,12 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
     controllerExec(),
   )
   const denied = harness.continuations[0].request.toolFilter.deny
-  for (const mandatory of ['subagent', 'main_agent_worker_launch', 'main_agent_lane_close']) {
+  for (const mandatory of [
+    'subagent',
+    'main_agent_run_initialize',
+    'main_agent_worker_launch',
+    'main_agent_lane_close',
+  ]) {
     assert.ok(denied.includes(mandatory), `${mandatory} stays denied under a partial override`)
   }
   assert.ok(denied.includes('custom_tool'), 'the configured extra tool is denied too')
@@ -1148,15 +1238,18 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
     },
   }
   for (const tool of [
+    'main_agent_run_initialize',
     'main_agent_worker_launch',
     'main_agent_worker_interrupt',
     'main_agent_lane_close',
   ]) {
     await assert.rejects(
       harness.registeredTools.get(tool).execute(
-        tool === 'main_agent_worker_launch'
-          ? { assignment_file: '/private/assignment.json', idempotency_key: 'key-2' }
-          : { assignment_id: 'assignment-one' },
+        tool === 'main_agent_run_initialize'
+          ? { objective_file: '/private/objective.json', idempotency_key: 'key-2' }
+          : tool === 'main_agent_worker_launch'
+            ? { assignment_file: '/private/assignment.json', idempotency_key: 'key-2' }
+            : { assignment_id: 'assignment-one' },
         laneChildExec,
       ),
       /main-agent-lane-caller-denied/,

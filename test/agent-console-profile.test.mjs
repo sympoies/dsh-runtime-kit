@@ -7,6 +7,7 @@ const CONTROLLER_TOOLS = [
   'runtime_kit_plus_one',
   'runtime_context',
   'review_specialists',
+  'main_agent_run_initialize',
   'main_agent_worker_launch',
   'main_agent_worker_interrupt',
   'main_agent_lane_close',
@@ -17,6 +18,7 @@ const CONTROLLER_TOOLS = [
 ]
 
 const LANE_DENIED_TOOLS = [
+  'main_agent_run_initialize',
   'main_agent_worker_launch',
   'main_agent_worker_interrupt',
   'main_agent_lane_close',
@@ -49,7 +51,7 @@ const EXPECTED_CONTRACT = Object.freeze({
       forbidden: ['main_agent_checkpoint'],
     },
     lane: {
-      required: ['main_agent_checkpoint'],
+      required: ['main_agent_bootstrap', 'main_agent_checkpoint'],
       forbidden: LANE_DENIED_TOOLS,
     },
   },
@@ -82,7 +84,7 @@ const VALID_OBSERVATION = Object.freeze({
   composition: {
     rowIds: EXPECTED_CONTRACT.required_rows,
     controllerTools: CONTROLLER_TOOLS,
-    laneTools: ['main_agent_checkpoint'],
+    laneTools: ['main_agent_bootstrap', 'main_agent_checkpoint'],
     skills: EXPECTED_CONTRACT.required_skills,
     services: EXPECTED_CONTRACT.required_services,
   },

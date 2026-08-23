@@ -30,6 +30,9 @@ import {
 
 const WORKER_START_RESULT_SCHEMA = 'main-agent.worker-start-result.v1'
 const EXTERNAL_LAUNCH_SCHEMA = 'main-agent.external-launch.v1'
+const CAPABILITIES_SCHEMA = 'main-agent.capabilities.v1'
+const READINESS_SCHEMA = 'main-agent.runtime-readiness.v1'
+const EXTERNAL_RUNTIME_CAPABILITY = 'main-agent.external-runtime.v1'
 const DEFAULT_WORKER_SUBAGENT_PROVIDER = 'spawn'
 const LANE_SECTION_ORDER = 118
 const DEFAULT_MAX_LANES = 8
@@ -49,6 +52,7 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
   'send_message',
   'list_agents',
   'workflow',
+  'main_agent_run_initialize',
   'main_agent_worker_launch',
   'main_agent_worker_interrupt',
   'main_agent_lane_close',
@@ -835,6 +839,94 @@ export function applyMainAgentMode(ctx, config = {}) {
       })
     }
     return result.envelope.data
+  }
+
+  /** @type {ToolDefinition} */
+  const initializeTool = {
+    name: 'main_agent_run_initialize',
+    description: 'Run the fixed DSH compatibility and authenticated controller-readiness '
+      + 'gates, then initialize this controller\'s durable Main Agent run from one '
+      + 'private objective packet. Use this native tool instead of a shell command.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective_file: {
+          type: 'string',
+          description: 'Absolute path to the private main-agent.objective-packet.v1 file.',
+        },
+        idempotency_key: {
+          type: 'string',
+          description: 'Stable idempotency key for this run initialization.',
+        },
+      },
+      required: ['objective_file', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = /** @type {Record<string, unknown>} */ (args)
+      const objectiveFile = requireNonEmptyString(
+        record.objective_file,
+        'main-agent-objective-file-invalid',
+      )
+      if (!isAbsolute(objectiveFile)) throw laneError('main-agent-objective-file-invalid')
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+        throw laneError('main-agent-idempotency-key-invalid')
+      }
+      const cwd = controllerCwd(exec)
+      const capabilities = await runEnvelope([
+        mainAgentCli,
+        'capabilities',
+        '--provider',
+        'dsh',
+        '--format',
+        'json',
+      ], exec, cwd)
+      if (capabilities?.schema_version !== CAPABILITIES_SCHEMA
+        || capabilities.compatible !== true
+        || capabilities.capabilities?.external_runtime !== EXTERNAL_RUNTIME_CAPABILITY) {
+        throw laneError('main-agent-capabilities-incompatible')
+      }
+      const readiness = await runEnvelope([
+        mainAgentCli,
+        'self',
+        'readiness',
+        '--format',
+        'json',
+      ], exec, cwd)
+      if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
+        throw laneError('main-agent-controller-not-ready')
+      }
+      const initialized = await runEnvelope([
+        mainAgentCli,
+        'init',
+        '--packet-file',
+        objectiveFile,
+        '--if-absent',
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd)
+      return {
+        ...initialized,
+        readiness: {
+          provider: 'dsh',
+          compatible: true,
+          controller_ready: true,
+          external_runtime: EXTERNAL_RUNTIME_CAPABILITY,
+        },
+      }
+    },
   }
 
   /**
@@ -1641,6 +1733,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     },
   }
 
+  ctx.tools.register(Object.freeze(initializeTool))
   ctx.tools.register(Object.freeze(launchTool))
   ctx.tools.register(Object.freeze(interruptTool))
   ctx.tools.register(Object.freeze(closeTool))
@@ -1672,6 +1765,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     /** The tool names this runtime owns, so a composition can audit its surface. */
     tools: Object.freeze({
       controller: Object.freeze([
+        initializeTool.name,
         launchTool.name,
         interruptTool.name,
         closeTool.name,

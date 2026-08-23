@@ -18,6 +18,11 @@ Every mutation the lane runtime performs is a store call first and a transport
 action second. A recorded decision the lane never received is a delivery gap to
 retry; it is never re-recorded, because the fence already moved.
 
+The controller initializes through `main_agent_run_initialize`, which owns the
+fixed DSH capability and authenticated self-readiness checks before the store
+init call. Ordinary DSH shell calls intentionally do not inherit a controller
+capability and are not an initialization fallback.
+
 ## Controller packet
 
 Each worker receives one private `main-agent.assignment-input.v1` packet
