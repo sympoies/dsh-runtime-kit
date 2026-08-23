@@ -1211,8 +1211,12 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     local: true,
     stopReason: 'completed',
   })
-  await new Promise(resolve => setTimeout(resolve, 20))
-  sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+  const completionDeadline = Date.now() + 2_000
+  for (;;) {
+    sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+    if (sidecar.turn?.last_turn?.outcome === 'completed' || Date.now() > completionDeadline) break
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
   assert.equal(sidecar.turn.phase, 'waiting')
   assert.equal(sidecar.turn.last_turn.outcome, 'completed')
 
