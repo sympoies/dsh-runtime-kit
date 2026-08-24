@@ -34,6 +34,11 @@ assert.notEqual(
 )
 const packageV1 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1)
 const packageV2 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2)
+const dshCompatibility = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
+)
+const pinnedDshVersion = dshCompatibility.channels?.pinned?.version
+assert.match(pinnedDshVersion, /^0\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-operations-smoke-'))
 const userHome = join(temporaryRoot, 'home')
@@ -274,7 +279,7 @@ try {
   assert.equal(doctor.agent_docs.ok, true)
   assert.equal(doctor.activation.status, 'activated')
   assert.equal(doctor.agent_docs.catalog.startsWith(`${runtimeRoot}/assets/`), true)
-  assert.match(doctor.dsh.version, /0\.1\.0-rc\.7/)
+  assert.equal(doctor.dsh.version, pinnedDshVersion)
 
   acceptanceStep = 'profile-update'
   apply(['update', '--profile', 'operations-smoke', '--package', packageV2])

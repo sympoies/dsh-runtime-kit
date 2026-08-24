@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.0` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | `1.27.1` through validated `1.27.6`; DSH rc.2 requires `1.27.5` or newer |
+| nils-cli | `1.27.1` through validated `1.27.7`; DSH rc.2 requires `1.27.5` or newer |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
