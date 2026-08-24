@@ -9,6 +9,7 @@
         agentDocs: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? 'agent-docs'
         agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
         agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
+        semanticCommit: !!js process.env.DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN ?? 'semantic-commit'
         privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
         mainAgentCli: !!js process.env.DSH_RUNTIME_KIT_MAIN_AGENT_BIN ?? 'main-agent'
         agentSessionCli: !!js process.env.DSH_RUNTIME_KIT_AGENT_SESSION_BIN ?? 'agent-session'
@@ -26,6 +27,8 @@
         workspaceLeaseTimeoutMs: 5000
         workspaceLeaseTeardownTimeoutMs: 2000
         maxActiveWorkspaceLeaseRequests: 8
+        governedCommitTimeoutMs: 30000
+        governedCommitTeardownTimeoutMs: 2000
         maxActiveReviewers: 4
         maxQueuedReviewers: 16
         reviewerTaskMaxBytes: 32768

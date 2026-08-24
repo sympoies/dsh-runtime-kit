@@ -1,0 +1,229 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { createGovernedCommitTool } from '../src/governed-commit/index.js'
+import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+
+const expectedHead = 'a'.repeat(40)
+
+function execution(overrides = {}) {
+  const signal = new AbortController().signal
+  const session = {
+    id: 'session-current',
+    header: { id: 'session-current', cwd: '/managed/worktrees/task' },
+    events: [],
+  }
+  return {
+    token: Symbol('governed-commit-call'),
+    callId: 'governed-commit-call',
+    rootCallId: 'governed-commit-call',
+    name: 'runtime_kit_governed_commit',
+    arguments: {},
+    signal,
+    agent: { id: 'session-current', session },
+    deferContext() {},
+    concludeTurn() {},
+    ...overrides,
+  }
+}
+
+function semanticReceipt() {
+  return {
+    schema_version: 'cli.semantic-commit.commit.v1',
+    ok: true,
+    operation: 'commit',
+    validate_only: false,
+    dry_run: false,
+    commit: {
+      sha: 'b'.repeat(40),
+      subject: 'feat(runtime): add native governed commit',
+    },
+    target: null,
+    staged: {
+      file_count: 1,
+      files: [{ status: 'M', path: 'src/runtime.js', old_path: null }],
+    },
+  }
+}
+
+function harness({
+  receipt = semanticReceipt(),
+  outcome = { exitCode: 0, signal: null },
+  pending = false,
+  lossy = false,
+  quiescent = true,
+} = {}) {
+  const spawns = []
+  const resolutions = []
+  let settle
+  let terminateCount = 0
+  const ctx = {
+    effect() {},
+    subprocess: {
+      async resolveExecutable(command, env, signal) {
+        resolutions.push({ command, env, signal })
+        return `/resolved/${command}`
+      },
+      spawn(spec) {
+        spawns.push(spec)
+        const done = pending
+          ? new Promise(resolve => { settle = resolve })
+          : Promise.resolve(outcome)
+        return {
+          done,
+          terminate() {
+            terminateCount += 1
+            settle?.({ exitCode: null, signal: 'SIGTERM' })
+          },
+          collected: {
+            stdout: {
+              readFrom: () => ({ text: JSON.stringify(receipt), lossy }),
+            },
+          },
+          async waitForExit() { return quiescent },
+        }
+      },
+    },
+  }
+  return {
+    ctx,
+    spawns,
+    resolutions,
+    get terminateCount() { return terminateCount },
+    settle(value = outcome) { settle?.(value) },
+  }
+}
+
+function validArgs() {
+  return {
+    type: 'feat',
+    scope: 'runtime',
+    subject: 'add native governed commit',
+    body_bullets: ['Bind delivery to the session-owned managed worktree.'],
+    expected_head: expectedHead,
+  }
+}
+
+test('governed commit binds a literal semantic-commit argv to the authenticated session worktree', async () => {
+  const subject = harness()
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+  })
+  const args = validArgs()
+
+  const result = await tool.execute(args, execution({ arguments: args }))
+
+  assert.equal(tool.name, 'runtime_kit_governed_commit')
+  assert.equal(tool.parameters.additionalProperties, false)
+  assert.deepEqual(subject.resolutions.map(value => value.command), ['semantic-commit'])
+  assert.equal(subject.spawns.length, 1)
+  assert.deepEqual(subject.spawns[0].argv, [
+    '/resolved/semantic-commit',
+    'commit',
+    '--automation',
+    '--json',
+    '--summary', 'none',
+    '--expect-head', expectedHead,
+    '--type', 'feat',
+    '--scope', 'runtime',
+    '--subject', 'add native governed commit',
+    '--body-bullet', 'Bind delivery to the session-owned managed worktree.',
+  ])
+  assert.equal(subject.spawns[0].cwd, '/managed/worktrees/task')
+  assert.deepEqual(subject.spawns[0].env, isolatedNilsEnvironment(undefined))
+  assert.equal(subject.spawns[0].argv.includes('--repo'), false)
+  assert.equal(subject.spawns[0].argv.includes('--message-file'), false)
+  assert.deepEqual(result, {
+    schema_version: 'dsh-runtime-kit.governed-commit.result.v1',
+    status: 'committed',
+    commit: {
+      sha: 'b'.repeat(40),
+      subject: 'feat(runtime): add native governed commit',
+    },
+    staged: {
+      file_count: 1,
+      files: [{ status: 'M', path: 'src/runtime.js', old_path: null }],
+    },
+  })
+})
+
+test('governed commit rejects model-authored repository routing before spawning', async () => {
+  const subject = harness()
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+  })
+  const valid = {
+    type: 'fix',
+    subject: 'preserve the authenticated target',
+    body_bullets: ['Do not accept a repository or workdir argument.'],
+    expected_head: expectedHead,
+  }
+
+  await assert.rejects(
+    tool.execute({ ...valid, repo: '/foreign/repository' }, execution()),
+    /expects exactly the governed message and expected-head fields/,
+  )
+  await assert.rejects(
+    tool.execute({ ...valid, expected_head: 'HEAD' }, execution()),
+    /expected_head must be a full object id/,
+  )
+  assert.equal(subject.spawns.length, 0)
+})
+
+test('governed commit preserves stable rejection and receipt failure codes without child output', async () => {
+  const rejected = harness({ outcome: { exitCode: 65, signal: null } })
+  const rejectedTool = createGovernedCommitTool(rejected.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+  })
+  await assert.rejects(
+    rejectedTool.execute(validArgs(), execution()),
+    error => error.code === 'GOVERNED_COMMIT_REJECTED'
+      && !error.message.includes('private child detail'),
+  )
+
+  const malformed = harness({ receipt: { schema_version: 'substituted' } })
+  const malformedTool = createGovernedCommitTool(malformed.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+  })
+  await assert.rejects(
+    malformedTool.execute(validArgs(), execution()),
+    error => error.code === 'GOVERNED_COMMIT_RECEIPT_INVALID',
+  )
+})
+
+test('governed commit cancellation terminates and joins the subprocess before returning', async () => {
+  const subject = harness({ pending: true })
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+    TOOL_ABORTED: 'TOOL_ABORTED',
+  })
+  const controller = new AbortController()
+  const running = tool.execute(validArgs(), execution({ signal: controller.signal }))
+  while (subject.spawns.length === 0) await new Promise(resolve => setImmediate(resolve))
+
+  controller.abort(new Error('caller cancelled'))
+
+  await assert.rejects(running, error => error.code === 'TOOL_ABORTED')
+  assert.equal(subject.terminateCount, 1)
+})
+
+test('governed commit refuses a primary-relative or missing authenticated cwd before resolution', async () => {
+  const subject = harness()
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+  })
+  await assert.rejects(
+    tool.execute(validArgs(), execution({
+      agent: { id: 'session-current', session: { header: { cwd: 'relative/repository' } } },
+    })),
+    error => error.code === 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE',
+  )
+  assert.equal(subject.resolutions.length, 0)
+  assert.equal(subject.spawns.length, 0)
+})

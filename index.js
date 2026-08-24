@@ -21,6 +21,7 @@ import { mainAgentMode } from './src/main-agent/index.js'
 import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
 import { applyManagedSessionAuthentication } from './src/nils/managed-session-authentication.js'
+import { applyGovernedCommit } from './src/governed-commit/index.js'
 import {
   createReviewerAuthority,
   reviewSpecialistsRuntime,
@@ -465,6 +466,12 @@ export async function apply(ctx, config = {}) {
     applyManagedSessionAuthentication(ctx, runtimeConfig, managedSessionBridge)
     const { applyNilsWorkspaceLease } = await import('./src/workspace-lease/nils-provider.js')
     await applyNilsWorkspaceLease(ctx, runtimeConfig)
+    applyGovernedCommit(ctx, {
+      ...runtimeConfig,
+      canonicalPath: dshRuntime.canonicalPath,
+      HarnessError: dshRuntime.HarnessError,
+      TOOL_ABORTED: dshRuntime.TOOL_ABORTED,
+    })
     applyPolicy(ctx, runtimeConfig, reviewers, dshRuntime, childPlugins)
     observeChildPluginActivation(
       childPlugins,

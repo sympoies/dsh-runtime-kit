@@ -24,6 +24,10 @@ tools, sandbox, approvals, skills, and subagents.
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
   DSH tool pipeline is live.
+- `runtime_kit_governed_commit`, a structured, no-shell completion path bound
+  to the current session-owned non-default managed worktree. It accepts no
+  repository/workdir routing and returns a validated `semantic-commit`
+  receipt.
 - Optional DSH-native Main Agent Mode when the host exposes its subagent
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
