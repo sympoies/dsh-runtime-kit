@@ -10,8 +10,8 @@
 - Plan branch: `feat/issue-66-native-dsh-convergence`
 - Current sprint: Sprint 1
 - Status: in-progress
-- Current task: Task 1.1
-- Next task: Task 1.2
+- Current task: Task 1.2
+- Next task: Task 1.3
 - Integration checkout: managed non-default worktree
 - Blockers: none
 - Last updated: 2026-08-24
@@ -20,8 +20,8 @@
 
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
-| 1.1 | Freeze the accepted baseline and initialize tracking | in-progress | runtime-kit origin/main `801ea88`; package SHA-256 `0c6c8f1369b1088d08d641a11f9b7b5113354ecf2ae482de34045d9a2b0e4570`; DSH `0.1.1-rc.2` at `b150a551`; nils-cli `1.27.4` at `389580b8` | Provider lifecycle still to attach; the real packed smoke captures the initial failing regression before production edits |
-| 1.2 | Add the public DSH workspace capability | pending |  | Starts only after Task 1.1 |
+| 1.1 | Freeze the accepted baseline and initialize tracking | done | runtime-kit origin/main `801ea88`; package SHA-256 `0c6c8f1369b1088d08d641a11f9b7b5113354ecf2ae482de34045d9a2b0e4570`; DSH `0.1.1-rc.2` at `b150a551`; nils-cli `1.27.4` at `389580b8`; plan commit `3ee1265` | Provider-visible lifecycle attached and reconciled; the real packed smoke captures the initial failing regression before production edits |
+| 1.2 | Add the runtime-owned native workspace capability | in-progress | Initial regression: partial ambient session evidence rejects an ordinary rc2 turn before the model boundary; an isolated prototype passed 9 focused lifecycle tests using only public DSH entrypoints | Move the uncommitted prototype into runtime-kit; do not commit, push, or deliver the DSH experiment |
 | 1.3 | Add nils-cli canonical identity and durable lease policy | pending |  | Contract follows Task 1.2; implementation may use a separate managed worktree |
 | 1.4 | Integrate the native capability through runtime-kit | pending |  | No duplicate Git or lease policy in JavaScript |
 | 1.5 | Review and deploy the immutable candidate | pending |  | Requires all linked PR heads and pre-merge deployment |
@@ -56,6 +56,16 @@
 - 2026-08-24: The local nils-cli primary checkout contains unrelated user
   changes and will not be used for implementation; a separate managed worktree
   is required.
+- 2026-08-24: The owner rejected an upstream DSH PR and did not authorize a
+  maintained fork. Architecture was reset at Gate 0: #56 will ship a
+  runtime-kit-owned Cordis/DSH plugin using only existing public Agent, Session,
+  tool lifecycle, event, and service entrypoints. The isolated DSH prototype
+  passed 9 focused tests but remains uncommitted and will not be pushed or
+  delivered.
+- 2026-08-24: A DSH source patch remains only a gated escape hatch. It requires
+  a packed-profile reproduction proving a named public seam is insufficient,
+  exact version/source digests, deterministic apply/reverse and rollback
+  acceptance, plus an explicit #56/#66 Gate 0 amendment before any patch edit.
 
 ## Acceptance Evidence
 

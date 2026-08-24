@@ -1,12 +1,13 @@
-# Plan: Add First-Party Workspace Identity And Cross-Session Leases
+# Plan: Add Runtime-Owned Native Workspace Identity And Cross-Session Leases
 
 ## Overview
 
-Deliver dsh-runtime-kit issue #56 as one serial L2 tracking outcome. Add the
-public host-owned workspace identity and lease seam to DSH, retain deterministic
-Git and lease policy in nils-cli, integrate it through dsh-runtime-kit, and
-promote the result only after candidate and post-merge deployments pass the
-real-session, compatibility, upgrade, and rollback gates required by #66.
+Deliver dsh-runtime-kit issue #56 as one serial L2 tracking outcome. Add a
+runtime-kit-owned Cordis/DSH plugin that derives host-owned workspace identity
+and lease lifecycle from DSH's existing public events and tool pipeline, retain
+deterministic Git and lease policy in nils-cli, and promote the result only
+after candidate and post-merge deployments pass the real-session,
+compatibility, upgrade, and rollback gates required by #66.
 
 ## Read First
 
@@ -15,38 +16,45 @@ real-session, compatibility, upgrade, and rollback gates required by #66.
 - Source type: discussion-to-implementation-doc
 - Owner tracker: https://github.com/sympoies/dsh-runtime-kit/issues/56
 - Umbrella tracker: https://github.com/sympoies/dsh-runtime-kit/issues/66
-- DSH target: public upstream DeepSeek Harness extension interfaces
+- DSH target: existing released public DeepSeek Harness extension interfaces;
+  no DSH source delivery
 - Deterministic policy dependency: `sympoies/nils-cli`
 - Runtime integration target: `sympoies/dsh-runtime-kit`
 - Open questions carried into execution: none
 
 ## Scope
 
-- In scope: versioned WorkspaceRef and WorkspaceLease contracts, exact host
-  binding, cross-process persistence, canonical Git/worktree identity, fencing,
-  lifecycle integration, compatibility adapters, real two-session tests,
-  restart/recovery tests, packed deployments, upgrade, rollback, and evidence.
-- Out of scope: commit and delivery policy, DSH forking or vendoring, a
-  JavaScript Git/lease engine, model-authored authority, private paths or
-  topology, and implementation from later #66 child issues.
+- In scope: a runtime-kit-owned versioned WorkspaceRef and WorkspaceLease
+  plugin, exact host binding through existing public DSH lifecycle and tool
+  events, cross-process persistence, canonical Git/worktree identity, fencing,
+  compatibility adapters, real two-session tests, restart/recovery tests,
+  packed deployments, upgrade, rollback, and evidence.
+- Out of scope: an upstream DSH PR, a maintained DSH fork or vendored Harness,
+  commit and delivery policy, a JavaScript Git/lease engine, model-authored
+  authority, private paths or topology, and implementation from later #66
+  child issues.
+- A version-pinned DSH source patch is an exception path, not the design. It may
+  be proposed only after a packed regression proves that a named public seam is
+  insufficient and #56 plus #66 are amended at Gate 0 before any such edit.
 
 ## Delivery shape and convergence rule
 
 This is one L2 tracking outcome with serial cross-repository delivery. Each
-repository receives its own reviewable PR and immutable validation evidence.
-The dsh-runtime-kit PR is the owner PR for plan closeout; linked DSH and nils-cli
-PRs must merge first or be included as immutable accepted dependencies. No #55
-production change may start until every task below is done and #56 has passed
-the #66 Gate 5 promotion.
+changed repository receives its own reviewable PR and immutable validation
+evidence. The dsh-runtime-kit PR is the owner PR for plan closeout; the linked
+nils-cli PR must merge first or be included as an immutable accepted
+dependency. The official DSH release is a pinned compatibility dependency, not
+a changed repository or linked PR. No #55 production change may start until
+every task below is done and #56 has passed the #66 Gate 5 promotion.
 
 ## Sprint 1: Contract, implementation, and accepted deployment
 
 **PR grouping intent**: `group`
 **Execution Profile**: `serial`
 
-**Goal**: replace reconstructed workspace ownership with one first-party DSH
-identity and durable nils-cli lease authority, then deploy and accept it as the
-new program baseline.
+**Goal**: replace reconstructed workspace ownership with one runtime-kit-owned
+native DSH plugin and durable nils-cli lease authority, then deploy and accept
+it as the new program baseline without modifying the official Harness.
 
 **Demo/Validation**:
 
@@ -73,13 +81,14 @@ new program baseline.
   - `plan-tooling validate --file docs/plans/2026-08-24-first-party-workspace-leases/first-party-workspace-leases-plan.md --format text --explain`
   - `plan-issue tracking status --profile tracking --expect-visible`
 
-### Task 1.2: Add the public DSH workspace capability
+### Task 1.2: Add the runtime-owned native workspace capability
 
-- **Location**: DeepSeek Harness public service, session, tool, and subagent
-  extension interfaces
+- **Location**: dsh-runtime-kit plugin and compatibility surfaces consuming
+  public DSH service, session, tool, and agent extension interfaces
 - **Description**: implement the versioned WorkspaceRef and WorkspaceLease
   contracts, host-only authority, provider lifecycle, exact binding, typed
-  states, and cancellation/resume/disposal integration without a DSH fork.
+  states, and cancellation/resume/disposal integration as a runtime-kit-owned
+  Cordis plugin without a DSH source patch, fork, or private import.
 - **Dependencies**: Task 1.1
 - **Complexity**: 10
 - **Acceptance criteria**:
@@ -87,9 +96,12 @@ new program baseline.
   - Session, tool, child, generation, cancellation, restart, and disposal
     semantics are typed and independently tested.
   - Unsupported provider state fails before mutation.
+  - Production code imports only DSH's documented package entrypoints and the
+    packed profile proves the same lifecycle behavior as focused tests.
 - **Validation**:
-  - focused DSH workspace service and lifecycle tests
-  - package typecheck and build for every affected DSH workspace package
+  - focused runtime-kit workspace service and lifecycle tests
+  - runtime-kit typecheck and packed DSH profile smoke across every supported
+    compatibility row
 
 ### Task 1.3: Add nils-cli canonical identity and durable lease policy
 
@@ -98,7 +110,7 @@ new program baseline.
 - **Description**: add the strict workspace wire contract, canonical
   Git/worktree evaluator, durable cross-process lease backend, fencing,
   idempotency, conflict states, and safe stale-clean reconciliation.
-- **Dependencies**: Task 1.2 contract
+- **Dependencies**: Task 1.2 wire contract
 - **Complexity**: 10
 - **Acceptance criteria**:
   - Equivalent path spellings resolve identically and distinct linked
@@ -115,15 +127,16 @@ new program baseline.
 - **Location**: dsh-runtime-kit compatibility, policy, lifecycle, and smoke
   surfaces
 - **Description**: register the provider, consume exact host bindings, isolate
-  old-release compatibility, eliminate native-path identity choreography, and
-  add packed two-session/restart acceptance without duplicating nils policy.
+  release-specific adapters, compose the plugin in the runtime bundle,
+  eliminate native-path identity choreography, and add packed
+  two-session/restart acceptance without duplicating nils policy.
 - **Dependencies**:
   - Task 1.2
   - Task 1.3
 - **Complexity**: 10
 - **Acceptance criteria**:
-  - Native-capable DSH uses the public service; supported older releases follow
-    the explicit compatibility contract.
+  - Every supported DSH release loads the runtime-owned plugin through public
+    extension points or follows an explicit isolated compatibility adapter.
   - Same worktree denies the second mutation before body; distinct worktrees
     mutate concurrently; copied authority and stale generations fail closed.
   - No model-visible heartbeat, shell proof, or machine path is required.
@@ -136,11 +149,12 @@ new program baseline.
 
 ### Task 1.5: Review and deploy the immutable candidate
 
-- **Location**: linked DSH, nils-cli, and dsh-runtime-kit PR heads; clean and
-  isolated-canary DSH profiles
+- **Location**: linked nils-cli and dsh-runtime-kit PR heads; pinned official
+  DSH releases; clean and isolated-canary DSH profiles
 - **Description**: complete independent specialist review, build immutable
-  artifacts from reviewed heads, install through the public profile path, and
-  run the full #56 candidate integration gate before merge.
+  artifacts from reviewed heads, install them against pinned unmodified DSH
+  releases through the public profile path, and run the full #56 candidate
+  integration gate before merge.
 - **Dependencies**: Task 1.4
 - **Complexity**: 8
 - **Acceptance criteria**:
@@ -180,8 +194,8 @@ new program baseline.
 ## Completion criteria
 
 - All six task-ledger rows are done with immutable evidence.
-- DSH, nils-cli, and runtime-kit changes are reviewed and merged through their
-  normal protected workflows.
+- nils-cli and runtime-kit changes are reviewed and merged through their normal
+  protected workflows; official DSH artifacts remain unmodified pinned inputs.
 - Candidate and post-merge deployments both satisfy #56 and #66.
 - #56 is closed through the tracking controller, #66 records the promoted
   baseline, and no #55 implementation started early.

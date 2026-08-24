@@ -1,4 +1,4 @@
-# First-Party Workspace Identity And Cross-Session Leases Implementation Handoff
+# Runtime-Owned Native Workspace Identity And Cross-Session Leases Implementation Handoff
 
 ## Status
 
@@ -10,10 +10,12 @@
 ## Purpose
 
 Move workspace identity and mutation ownership from prompt instructions,
-environment reconstruction, and runtime-kit coordination glue into one
-first-party DSH capability. The result must let DSH bind a live session to an
+environment reconstruction, and ad hoc runtime-kit coordination into one
+runtime-kit-owned plugin executing inside DSH through existing public
+extension interfaces. The result must let the host bind a live session to an
 opaque canonical workspace and let nils-cli make durable repository and lease
-decisions without creating a second JavaScript policy engine.
+decisions without creating a second JavaScript policy engine or modifying the
+official Harness.
 
 ## Confirmed facts
 
@@ -32,14 +34,18 @@ decisions without creating a second JavaScript policy engine.
 
 ## Decisions
 
-- DSH will expose a versioned WorkspaceRef and WorkspaceLease service through
-  public Cordis/DSH extension interfaces; dsh-runtime-kit will not patch or
-  vendor the harness.
+- dsh-runtime-kit will expose a versioned WorkspaceRef and WorkspaceLease
+  service as a Cordis plugin using DSH's existing public lifecycle, session,
+  tool, and service interfaces. It will not open an upstream DSH PR, fork the
+  Harness, patch released DSH packages on the accepted path, or use private
+  imports.
 - WorkspaceRef is opaque and non-bearer. The model and ordinary tool arguments
   cannot manufacture, select, or retarget authority.
-- DSH owns lifecycle binding and consumer integration. nils-cli owns canonical
-  repository inspection, cross-process lease persistence, conflict
-  classification, stale recovery, fencing, and stable reason codes.
+- DSH supplies authoritative host lifecycle and tool-pipeline facts. The
+  runtime-kit plugin owns their exact workspace binding and consumer
+  integration. nils-cli owns canonical repository inspection, cross-process
+  lease persistence, conflict classification, stale recovery, fencing, and
+  stable reason codes.
 - Mutation claims bind the exact Agent, Session, tool execution, workspace
   generation, and canonical path scope.
 - Partial, foreign-active, dirty, uncertain, unavailable, replayed, or stale
@@ -47,13 +53,20 @@ decisions without creating a second JavaScript policy engine.
   compatibility outcome rather than silently acquiring a managed lease.
 - Lifecycle transitions renew and release leases. Model-authored heartbeats and
   shell commands are not part of the success path.
-- The accepted implementation becomes the sole baseline for #55; compatibility
-  code may adapt old DSH releases but cannot define a competing identity.
+- The accepted implementation becomes the sole baseline for #55;
+  release-specific runtime-kit adapters may adapt public DSH differences but
+  cannot define a competing identity.
+- A DSH source patch is only a documented escape hatch. It requires a
+  reproducible packed-profile proof that a named public seam is insufficient,
+  exact version and source-digest binding, deterministic apply and reverse
+  checks, and an explicit Gate 0 amendment to #56 and #66 before production
+  edits. A growing or cross-package patch must be reconsidered as a separately
+  authorized downstream distribution rather than hidden in this plan.
 
 ## Scope
 
-- Public DSH service and provider definitions for workspace identity and lease
-  lifecycle.
+- A runtime-kit-owned DSH/Cordis service and provider definition for workspace
+  identity and lease lifecycle.
 - Session, resume, tool, subagent, cancellation, and disposal integration.
 - A nils-cli wire contract and durable cross-process lease backend.
 - A dsh-runtime-kit compatibility adapter and migration boundary.
@@ -65,7 +78,8 @@ decisions without creating a second JavaScript policy engine.
 
 - Commit, signing, branch, PR, merge, or default-delivery policy; #55 owns the
   governed commit consumer.
-- A DSH fork or a JavaScript copy of Git and lease policy.
+- An upstream DSH change, maintained DSH fork, released-package patch on the
+  accepted path, or a JavaScript copy of Git and lease policy.
 - Treating cwd, environment variables, prompt text, paths supplied by the model,
   or a copied opaque identifier as authority.
 - Replacing OS sandboxing, Git provider protection, or repository-specific
@@ -73,14 +87,21 @@ decisions without creating a second JavaScript policy engine.
 
 ## Implementation boundaries
 
-### DeepSeek Harness
+### DeepSeek Harness public substrate
+
+- Supply the released public Agent, Session, tool-pipeline, lifecycle, Cordis
+  service, and plugin interfaces without source modification.
+
+### dsh-runtime-kit
 
 - Define WorkspaceRef, WorkspaceLease, provider, state, and typed error
-  contracts.
-- Bind the exact workspace during session creation and resume.
-- Publish scoped lifecycle operations to tools and subagents without exposing
+  contracts as a runtime-owned Cordis plugin.
+- Bind the exact workspace at public session-start/resume lifecycle boundaries.
+- Publish scoped lifecycle operations to tools and agents without exposing
   provider tokens to model context.
-- Renew, cancel, reconcile, and release leases through host lifecycle events.
+- Renew, cancel, reconcile, and release leases through public host events.
+- Isolate supported-release adapters and prove the installed packed artifact
+  uses no DSH source patch or private module.
 
 ### nils-cli
 
@@ -91,14 +112,6 @@ decisions without creating a second JavaScript policy engine.
 - Distinguish owned, foreign-active, stale-clean, dirty, uncertain, and
   unavailable states with stable diagnostics.
 - Prove safe stale-clean reclamation and deny dirty or unknown recovery.
-
-### dsh-runtime-kit
-
-- Register and consume the public capability without importing private DSH
-  implementation modules.
-- Isolate adapters for supported DSH releases that lack the seam.
-- Remove model-visible heartbeat or identity choreography from the native path.
-- Prove two-session and restart behavior through the packed real tools pipeline.
 
 ## Requirements
 
@@ -139,8 +152,9 @@ decisions without creating a second JavaScript policy engine.
 
 ## Validation plan
 
-- DSH focused unit and integration suites for service definition, session and
-  subagent binding, opacity, replay, cancellation, restart, and disposal.
+- dsh-runtime-kit focused unit and integration suites for service definition,
+  session and agent binding, opacity, replay, cancellation, restart, and
+  disposal against public DSH packages.
 - nils-cli focused tests for canonical worktree identity, cross-process
   contention, fencing, reconciliation, stale-clean recovery, and fail-closed
   dirty/unknown states.
@@ -164,8 +178,9 @@ decisions without creating a second JavaScript policy engine.
   must rebind it to authenticated host context.
 - Compatibility adapters can become permanent policy owners. Each adapter must
   name the native replacement and retirement condition.
-- DSH upstream delivery may span a separate repository PR, but runtime-kit #56
-  remains open until immutable merged artifacts are deployed and accepted.
+- Treating a source patch as easier than an explicit fork can hide downstream
+  distribution ownership. The accepted path remains public plugin integration;
+  the patch escape hatch cannot activate without a recorded Gate 0 redesign.
 
 ## Execution
 
