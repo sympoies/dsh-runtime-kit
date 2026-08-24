@@ -1699,7 +1699,7 @@ failed scenario. Separate keyless delivery rehearsals passed on DSH
 one signed feature-worktree commit with the exact expected parent and staged
 path, rejected a stale expected HEAD without committing, denied a foreign live
 session before the tool body, and left the primary/default checkout unchanged.
-The complete rebased Node 24 package suite passes 414/414, strict typechecking passes,
+The complete rebased Node 24 package suite passes 415/415, strict typechecking passes,
 and policy-source parity verifies 101 projected rules. Final provider delivery
 and post-merge deployment remain separate gates; this evidence does not claim
 either one early.
