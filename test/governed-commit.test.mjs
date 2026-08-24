@@ -52,19 +52,27 @@ function harness({
   pending = false,
   lossy = false,
   quiescent = true,
+  waitPending = false,
+  waitError,
+  resolveError,
+  spawnError,
 } = {}) {
   const spawns = []
   const resolutions = []
   let settle
+  let settleWait
   let terminateCount = 0
+  let disposer
   const ctx = {
-    effect() {},
+    effect(register) { disposer = register() },
     subprocess: {
       async resolveExecutable(command, env, signal) {
         resolutions.push({ command, env, signal })
+        if (resolveError !== undefined) throw resolveError
         return `/resolved/${command}`
       },
       spawn(spec) {
+        if (spawnError !== undefined) throw spawnError
         spawns.push(spec)
         const done = pending
           ? new Promise(resolve => { settle = resolve })
@@ -80,7 +88,12 @@ function harness({
               readFrom: () => ({ text: JSON.stringify(receipt), lossy }),
             },
           },
-          async waitForExit() { return quiescent },
+          waitForExit() {
+            if (waitError !== undefined) throw waitError
+            return waitPending
+              ? new Promise(resolve => { settleWait = resolve })
+              : Promise.resolve(quiescent)
+          },
         }
       },
     },
@@ -91,6 +104,8 @@ function harness({
     resolutions,
     get terminateCount() { return terminateCount },
     settle(value = outcome) { settle?.(value) },
+    settleWait(value = quiescent) { settleWait?.(value) },
+    dispose() { return disposer?.() },
   }
 }
 
@@ -210,6 +225,56 @@ test('governed commit cancellation terminates and joins the subprocess before re
 
   await assert.rejects(running, error => error.code === 'TOOL_ABORTED')
   assert.equal(subject.terminateCount, 1)
+})
+
+test('governed commit disposal terminates and joins every active subprocess before settling', async () => {
+  const subject = harness({ pending: true, waitPending: true })
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+  })
+  const running = tool.execute(validArgs(), execution())
+  while (subject.spawns.length === 0) await new Promise(resolve => setImmediate(resolve))
+
+  let disposed = false
+  const disposing = Promise.resolve(subject.dispose()).then(() => { disposed = true })
+  await new Promise(resolve => setImmediate(resolve))
+
+  assert.equal(subject.terminateCount, 1)
+  assert.equal(disposed, false)
+  subject.settleWait(true)
+  await assert.rejects(running, error => error.code === 'GOVERNED_COMMIT_DISPOSED')
+  await disposing
+  assert.equal(disposed, true)
+})
+
+test('governed commit sanitizes worktree, resolution, spawn, and quiescence failures', async () => {
+  const privateDetail = 'private /machine/worktree detail'
+  const worktree = harness()
+  const worktreeTool = createGovernedCommitTool(worktree.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: () => { throw new Error(privateDetail) },
+  })
+  await assert.rejects(
+    worktreeTool.execute(validArgs(), execution()),
+    error => error.code === 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE'
+      && !error.message.includes(privateDetail),
+  )
+
+  for (const [subject, expectedCode, semanticCommit] of [
+    [harness({ resolveError: new Error(privateDetail) }), 'GOVERNED_COMMIT_UNAVAILABLE', 'semantic-commit'],
+    [harness({ spawnError: new Error(privateDetail) }), 'GOVERNED_COMMIT_UNAVAILABLE', '/tools/semantic-commit'],
+    [harness({ waitError: new Error(privateDetail) }), 'GOVERNED_COMMIT_UNAVAILABLE', '/tools/semantic-commit'],
+  ]) {
+    const tool = createGovernedCommitTool(subject.ctx, {
+      semanticCommit,
+      canonicalPath: value => value,
+    })
+    await assert.rejects(
+      tool.execute(validArgs(), execution()),
+      error => error.code === expectedCode && !error.message.includes(privateDetail),
+    )
+  }
 })
 
 test('governed commit refuses a primary-relative or missing authenticated cwd before resolution', async () => {

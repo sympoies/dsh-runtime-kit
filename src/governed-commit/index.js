@@ -8,6 +8,14 @@ import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
+/**
+ * @typedef ActiveGovernedCommit
+ * @property {AbortController} controller
+ * @property {SubprocessHandle | undefined} [handle]
+ * @property {'disposed' | 'unavailable' | undefined} [cause]
+ * @property {Promise<void>} settled
+ * @property {() => void} resolveSettled
+ */
 
 const RESULT_SCHEMA = 'dsh-runtime-kit.governed-commit.result.v1'
 const SEMANTIC_RECEIPT_SCHEMA = 'cli.semantic-commit.commit.v1'
@@ -250,17 +258,32 @@ export function createGovernedCommitTool(ctx, config) {
     DEFAULT_TEARDOWN_TIMEOUT_MS,
     MAX_TEARDOWN_TIMEOUT_MS,
   )
-  /** @type {Set<{controller: AbortController, handle?: SubprocessHandle}>} */
+  /** @type {Set<ActiveGovernedCommit>} */
   const active = new Set()
   let open = true
 
-  ctx.effect(() => () => {
+  /** @param {ActiveGovernedCommit} operation @param {'disposed' | 'unavailable'} cause */
+  function cancel(operation, cause) {
+    if (operation.cause !== undefined) return
+    operation.cause = cause
+    operation.controller.abort()
+    try { operation.handle?.terminate() } catch {}
+  }
+
+  function degrade() {
     open = false
-    for (const operation of active) {
-      operation.controller.abort(failure(config, 'governed commit disposed', 'GOVERNED_COMMIT_DISPOSED'))
-      try { operation.handle?.terminate() } catch {}
-    }
-  }, 'dsh-runtime-kit governed commit transport')
+    for (const operation of active) cancel(operation, 'unavailable')
+  }
+
+  async function dispose() {
+    if (!open && active.size === 0) return
+    open = false
+    const pending = [...active]
+    for (const operation of pending) cancel(operation, 'disposed')
+    await Promise.allSettled(pending.map(operation => operation.settled))
+  }
+
+  ctx.effect(() => dispose, 'dsh-runtime-kit governed commit transport')
 
   /** @param {SubprocessHandle} handle */
   async function boundedQuiescence(handle) {
@@ -275,10 +298,10 @@ export function createGovernedCommitTool(ctx, config) {
       }, teardownTimeoutMs)
     })
     try {
-      return await Promise.race([
-        Promise.resolve(handle.waitForExit(controller.signal)).then(value => value === true, () => false),
-        deadline,
-      ])
+      const observed = Promise.resolve()
+        .then(() => handle.waitForExit(controller.signal))
+        .then(value => value === true, () => false)
+      return await Promise.race([observed, deadline])
     } finally {
       if (timer !== undefined) clearTimeout(timer)
     }
@@ -362,7 +385,12 @@ export function createGovernedCommitTool(ctx, config) {
       if (typeof headerCwd !== 'string' || !isAbsolute(headerCwd)) {
         throw failure(config, 'authenticated session worktree is unavailable', 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE')
       }
-      const cwd = config.canonicalPath(headerCwd)
+      let cwd
+      try {
+        cwd = config.canonicalPath(headerCwd)
+      } catch {
+        throw failure(config, 'authenticated session worktree is unavailable', 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE')
+      }
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
         throw failure(config, 'authenticated session worktree is unavailable', 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE')
       }
@@ -370,8 +398,15 @@ export function createGovernedCommitTool(ctx, config) {
         throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')
       }
 
-      /** @type {{controller: AbortController, handle?: SubprocessHandle}} */
-      const operation = { controller: new AbortController() }
+      let resolveSettled = () => {}
+      /** @type {Promise<void>} */
+      const settled = new Promise(resolve => { resolveSettled = () => resolve() })
+      /** @type {ActiveGovernedCommit} */
+      const operation = {
+        controller: new AbortController(),
+        settled,
+        resolveSettled,
+      }
       active.add(operation)
       const onCallerAbort = () => {
         operation.controller.abort(exec.signal.reason)
@@ -382,27 +417,36 @@ export function createGovernedCommitTool(ctx, config) {
       let timer
       let timedOut = false
       try {
-        const argv = await resolveSubprocessArgv(
-          ctx,
-          [semanticCommit, ...semanticArgv(args)],
-          operation.controller.signal,
-        )
-        if (operation.controller.signal.aborted) {
-          throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')
+        let handle
+        try {
+          const argv = await resolveSubprocessArgv(
+            ctx,
+            [semanticCommit, ...semanticArgv(args)],
+            operation.controller.signal,
+          )
+          if (operation.controller.signal.aborted) throw new Error('governed commit cancelled')
+          handle = ctx.subprocess.spawn({
+            argv,
+            cwd,
+            env: isolatedNilsEnvironment(undefined),
+            stdio: {
+              stdin: 'ignore',
+              stdout: { maxBytes: MAX_OUTPUT_BYTES },
+              stderr: { maxBytes: MAX_ERROR_BYTES },
+            },
+            graceMs: 1_000,
+            signal: operation.controller.signal,
+          })
+          operation.handle = handle
+        } catch {
+          if (exec.signal.aborted) {
+            throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')
+          }
+          if (operation.cause === 'disposed') {
+            throw failure(config, 'governed commit disposed', 'GOVERNED_COMMIT_DISPOSED')
+          }
+          throw failure(config, 'governed commit transport is unavailable', 'GOVERNED_COMMIT_UNAVAILABLE')
         }
-        const handle = ctx.subprocess.spawn({
-          argv,
-          cwd,
-          env: isolatedNilsEnvironment(undefined),
-          stdio: {
-            stdin: 'ignore',
-            stdout: { maxBytes: MAX_OUTPUT_BYTES },
-            stderr: { maxBytes: MAX_ERROR_BYTES },
-          },
-          graceMs: 1_000,
-          signal: operation.controller.signal,
-        })
-        operation.handle = handle
         let releaseDeadline = () => {}
         const deadline = new Promise(resolve => { releaseDeadline = () => resolve(undefined) })
         timer = setTimeout(() => {
@@ -417,11 +461,17 @@ export function createGovernedCommitTool(ctx, config) {
         ])
         const quiescent = await boundedQuiescence(handle)
         if (!quiescent) {
-          open = false
+          degrade()
           throw failure(config, 'governed commit subprocess did not quiesce', 'GOVERNED_COMMIT_UNAVAILABLE')
         }
         if (exec.signal.aborted) {
           throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')
+        }
+        if (operation.cause === 'disposed') {
+          throw failure(config, 'governed commit disposed', 'GOVERNED_COMMIT_DISPOSED')
+        }
+        if (operation.cause === 'unavailable') {
+          throw failure(config, 'governed commit transport is unavailable', 'GOVERNED_COMMIT_UNAVAILABLE')
         }
         if (timedOut) {
           throw failure(config, 'governed commit timed out', 'GOVERNED_COMMIT_TIMEOUT')
@@ -429,7 +479,12 @@ export function createGovernedCommitTool(ctx, config) {
         if (outcome === undefined || outcome.signal !== null || outcome.exitCode !== 0) {
           throw failure(config, 'semantic-commit rejected the governed commit', 'GOVERNED_COMMIT_REJECTED')
         }
-        const stdout = handle.collected.stdout?.readFrom(0)
+        let stdout
+        try {
+          stdout = handle.collected.stdout?.readFrom(0)
+        } catch {
+          throw failure(config, 'semantic-commit receipt is unavailable', 'GOVERNED_COMMIT_RECEIPT_INVALID')
+        }
         if (stdout === undefined
           || stdout.lossy
           || Buffer.byteLength(stdout.text, 'utf8') > MAX_OUTPUT_BYTES) {
@@ -450,11 +505,18 @@ export function createGovernedCommitTool(ctx, config) {
         if (exec.signal.aborted) {
           throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')
         }
+        if (operation.cause === 'disposed') {
+          throw failure(config, 'governed commit disposed', 'GOVERNED_COMMIT_DISPOSED')
+        }
+        if (operation.cause === 'unavailable') {
+          throw failure(config, 'governed commit transport is unavailable', 'GOVERNED_COMMIT_UNAVAILABLE')
+        }
         throw error
       } finally {
         if (timer !== undefined) clearTimeout(timer)
         exec.signal.removeEventListener('abort', onCallerAbort)
         active.delete(operation)
+        operation.resolveSettled()
       }
     },
   }
