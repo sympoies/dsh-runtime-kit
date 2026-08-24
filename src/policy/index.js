@@ -5,7 +5,7 @@ import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
-import { createFinishLineCoordinator } from '../finish-line/index.js'
+import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
 import { createNilsTransport } from './nils-transport.js'
 import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-status.js'
@@ -18,6 +18,26 @@ import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-s
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 
 const MAX_LIFECYCLE_PROMPT_BYTES = 64 * 1024
+
+/**
+ * Resolve the exact finish-line command through the active DSH shell provider.
+ * The provider remains authoritative for its default and maximum timeout.
+ *
+ * @param {{resolve(request: Record<string, unknown>): Record<string, unknown>}} shell
+ * @param {{kind: 'validation' | 'ordinary', command: string, timeoutMs: number | undefined}} operation
+ * @param {{workdir: string, signal: AbortSignal, dshEnv: Record<string, string>, policy?: unknown}} input
+ */
+export function resolveFinishLineShellSpec(shell, operation, input) {
+  const timeoutMs = resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
+  return shell.resolve({
+    command: operation.command,
+    workdir: input.workdir,
+    ...timeoutMs === undefined ? {} : { timeoutMs },
+    signal: input.signal,
+    dshEnv: input.dshEnv,
+    ...input.policy === undefined ? {} : { sandboxPolicy: input.policy },
+  })
+}
 
 /**
  * @typedef Authorization
@@ -280,13 +300,11 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
           ? operation.workdir
           : resolvePath(sessionRoot, operation.workdir)
       const dshEnv = shellEnv.collect(exec)
-      const spec = shell.resolve({
-        command: operation.command,
+      const spec = resolveFinishLineShellSpec(shell, operation, {
         workdir,
-        ...operation.timeoutMs === undefined ? {} : { timeoutMs: operation.timeoutMs },
         signal: exec.signal,
         dshEnv,
-        ...policy === undefined ? {} : { sandboxPolicy: policy },
+        policy,
       })
       if (spec.command !== operation.command
         || typeof spec.workdir !== 'string'
@@ -300,9 +318,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         || spec.stdoutMaxBytes <= 0) {
         throw new Error('dsh-runtime-kit: finish-line-shell-resolution-invalid')
       }
-      const timeoutMs = Math.ceil(spec.timeoutMs)
+      const resolvedTimeoutMs = Math.ceil(spec.timeoutMs)
       const outputMaxBytes = Math.min(64 * 1024, Math.floor(spec.stdoutMaxBytes))
-      if (timeoutMs > 60 * 60 * 1_000 || outputMaxBytes <= 0) {
+      if (resolvedTimeoutMs > 60 * 60 * 1_000 || outputMaxBytes <= 0) {
         throw new Error('dsh-runtime-kit: finish-line-shell-resolution-invalid')
       }
 
@@ -326,7 +344,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         }
       }
       return {
-        timeoutMs,
+        timeoutMs: resolvedTimeoutMs,
         execution: {
           kind: 'bash-v1',
           workdir: spec.workdir,

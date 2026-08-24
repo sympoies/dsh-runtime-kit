@@ -9,10 +9,22 @@ import { randomUUID } from 'node:crypto'
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecutionResult} ToolExecutionResult */
 
 const DEFAULT_MAX_SAME_TURN_STEERS = 2
+const DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS = 30 * 60 * 1_000
 const HARD_MAX_SAME_TURN_STEERS = 4
 const MAX_STEERING_TEXT_BYTES = 4 * 1024
 const CAPABILITY_REFRESH_INTERVAL_MS = 60 * 60 * 1_000
 const MUTATING_EDITOR_COMMANDS = new Set(['create', 'str_replace', 'insert'])
+
+/**
+ * Keep ordinary shell calls on the shell provider's default while preserving
+ * the finish-line contract for an exact validation that omits a timeout.
+ *
+ * @param {'validation' | 'ordinary'} kind
+ * @param {number | undefined} timeoutMs
+ */
+export function resolveFinishLineShellTimeout(kind, timeoutMs) {
+  return timeoutMs ?? (kind === 'validation' ? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS : undefined)
+}
 
 /**
  * @typedef FinishLineIdentity
@@ -165,7 +177,8 @@ export function createFinishLineCoordinator(ctx, options) {
   const createOperationId = options.createOperationId ?? (() => `dsh:${randomUUID()}`)
   const now = options.now ?? Date.now
   const prepareValidationRuntime = options.prepareValidationRuntime ?? (async (_exec, operation) => ({
-    timeoutMs: operation.timeoutMs ?? 30 * 60 * 1_000,
+    timeoutMs: resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
+      ?? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS,
     execution: {
       kind: 'bash-v1',
       workdir: process.cwd(),
