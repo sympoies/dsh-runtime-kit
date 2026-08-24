@@ -562,6 +562,31 @@ test('a managed top-level Agent Console session binds before its first policy bo
   })
 })
 
+test('an always-on managed-session binding removes ordinary admission from the optional child plugin', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const dispose = managedSessionBridge.bind('controller-one', {
+      sessionId: controllerEnvironment.AGENT_SESSION_ID,
+      environment: controllerEnvironment,
+    })
+    const harness = createContext()
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    const entered = await harness.listeners.get('agent/pre-step')(
+      { agent: controllerExec().agent, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(entered, { kind: 'enter', messages: [] })
+    assert.equal(
+      harness.spawned.length,
+      0,
+      'ordinary admission must not repeat readiness through the optional Main Agent child',
+    )
+    dispose()
+  })
+})
+
 test('an unmanaged top-level DSH session remains isolated from managed-session identity', async () => {
   await withoutControllerEnvironment(async () => {
     const managedSessionBridge = createManagedSessionBridge()

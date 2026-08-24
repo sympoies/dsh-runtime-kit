@@ -351,7 +351,10 @@ function launchSummary(lane, disposition) {
  *   cliTeardownTimeoutMs?: number,
  *   maxActiveCliCalls?: number,
  *   brokerReadyTimeoutMs?: number,
- *   managedSessionBridge?: {register?: (resolver:(id:string) => unknown) => (() => void)},
+ *   managedSessionBridge?: {
+ *     register?: (resolver:(id:string) => unknown) => (() => void),
+ *     resolve?: (id:string) => unknown,
+ *   },
  * }} [config]
  */
 export function applyMainAgentMode(ctx, config = {}) {
@@ -550,7 +553,8 @@ export function applyMainAgentMode(ctx, config = {}) {
     if (typeof sessionId === 'string'
       && sessionId.length > 0
       && (typeof parentSession !== 'string' || parentSession.length === 0)
-      && hasManagedSessionCandidate) {
+      && hasManagedSessionCandidate
+      && config.managedSessionBridge?.resolve?.(sessionId) === undefined) {
       try {
         await authenticateManagedController(sessionId, payload)
       } catch {
