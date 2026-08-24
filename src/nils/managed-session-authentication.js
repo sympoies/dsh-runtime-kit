@@ -24,7 +24,9 @@ const PRINCIPAL_ENV_KEYS = Object.freeze([
 
 /** @param {Readonly<NodeJS.ProcessEnv>} environment */
 function hasManagedSessionCandidate(environment) {
-  return PRINCIPAL_ENV_KEYS.some(
+  // Partial AGENT_SESSION_* values are also used as subprocess-isolation
+  // sentinels. Only a complete producer principal may enter authentication.
+  return PRINCIPAL_ENV_KEYS.every(
     name => typeof environment[name] === 'string' && environment[name].length > 0,
   )
 }

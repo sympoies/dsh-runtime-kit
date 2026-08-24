@@ -166,6 +166,26 @@ test('managed-session authentication stays fail-closed for unmanaged sessions an
   assert.equal(foreignBridge.resolve('foreign'), undefined)
 })
 
+test('partial Agent Session isolation sentinels do not claim always-on managed authority', async () => {
+  const partialEnvironment = { ...principalEnvironment }
+  delete partialEnvironment.AGENT_SESSION_CHECKPOINT_FILE
+  const subject = harness({ environment: partialEnvironment })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, partialEnvironment)
+
+  const entered = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent('partial-sentinel'), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(entered, { kind: 'enter', messages: [] })
+  assert.equal(subject.spawned.length, 0)
+  assert.equal(bridge.resolve('partial-sentinel'), undefined)
+})
+
 test('managed-session authentication rejects invalid producer readiness before policy', async () => {
   const invalid = readiness()
   invalid.data.session_incarnation = 'different-runtime'
