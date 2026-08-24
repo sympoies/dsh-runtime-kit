@@ -165,6 +165,27 @@ function matchesAuthorization(authorization, exec) {
 }
 
 /**
+ * DSH may preserve the effective sandbox mode in a Bash call even when the
+ * caller did not request a wider boundary. Treat only that exact, unpaired
+ * echo as a no-op; every other shape stays under the native escalation
+ * validator.
+ *
+ * @param {{permissions: string | undefined, justification: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access', validate(permissions: any, justification: any): void}} input
+ * @returns {{permissions: string, justification: string} | undefined}
+ */
+export function normalizeSandboxEscalationRequest({
+  permissions,
+  justification,
+  effectiveMode,
+  validate,
+}) {
+  if (permissions === effectiveMode && justification === undefined) return undefined
+  validate(permissions, justification)
+  if (permissions === undefined || justification === undefined) return undefined
+  return { permissions, justification }
+}
+
+/**
  * Compose the rc.7 lifecycle adapter, nils transport, and the DSH denial-only
  * guard. The transport effect is registered first so reverse disposal removes
  * every ingress listener and guard before process-tree draining begins.
@@ -207,7 +228,6 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       if (shell === undefined || shellEnv === undefined) {
         throw new Error('dsh-runtime-kit: finish-line-shell-unavailable')
       }
-      validateEscalationArgs(operation.sandboxPermissions, operation.justification)
 
       /** @type {{mode: 'read-only' | 'workspace-write' | 'danger-full-access', workspaceRoot: string, sessionId?: unknown} | undefined} */
       let policy
@@ -218,10 +238,16 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         }
         policy = service.resolve({ session })
         if (policy === undefined) throw new Error('dsh-runtime-kit: finish-line-sandbox-policy-unavailable')
-        if (operation.sandboxPermissions !== undefined && operation.justification !== undefined) {
+        const escalation = normalizeSandboxEscalationRequest({
+          permissions: operation.sandboxPermissions,
+          justification: operation.justification,
+          effectiveMode: policy.mode,
+          validate: validateEscalationArgs,
+        })
+        if (escalation !== undefined) {
           const approvedMode = await approveEscalation({
-            requestedMode: operation.sandboxPermissions,
-            justification: operation.justification,
+            requestedMode: escalation.permissions,
+            justification: escalation.justification,
             effectiveMode: policy.mode,
             subject: 'command',
           }, {
@@ -233,8 +259,11 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
           })
           policy = { ...policy, mode: approvedMode }
         }
-      } else if (operation.sandboxPermissions !== undefined || operation.justification !== undefined) {
-        throw new Error('dsh-runtime-kit: sandbox escalation is unavailable without a confining shell')
+      } else {
+        validateEscalationArgs(operation.sandboxPermissions, operation.justification)
+        if (operation.sandboxPermissions !== undefined || operation.justification !== undefined) {
+          throw new Error('dsh-runtime-kit: sandbox escalation is unavailable without a confining shell')
+        }
       }
 
       const headerCwd = session.header.cwd
