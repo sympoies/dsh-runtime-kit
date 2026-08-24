@@ -46,6 +46,8 @@ for (const name of Object.keys(environment)) {
   }
 }
 Object.assign(environment, {
+  CI: 'true',
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
   HOME: join(temporaryRoot, 'home'),
   DSH_HOME: dshHome,
   DSH_TELEMETRY_DISABLED: '1',
