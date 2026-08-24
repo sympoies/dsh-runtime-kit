@@ -6,6 +6,7 @@ import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
 import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
+import { createPrerequisiteCoordinator } from '../prerequisite/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
 import { createNilsTransport } from './nils-transport.js'
 import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-status.js'
@@ -362,8 +363,25 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   const compatibility = createDshRc7Compatibility(ctx)
   /** @type {Map<Readonly<ToolExecution>, Authorization>} */
   const authorizations = new Map()
-  /** @type {Map<Readonly<ToolExecution>, import('@deepseek-ai/dsh-llm').UserMessage>} */
+  /** @type {Map<Readonly<ToolExecution>, import('@deepseek-ai/dsh-llm').UserMessage[]>} */
   const toolContexts = new Map()
+  const prerequisites = createPrerequisiteCoordinator(
+    ctx,
+    contextClient,
+    createUserMessage,
+    async (exec, correlation, proof) => {
+      // A last-mile decision supersedes the earlier pre-approval advisory.
+      // Publish it only after transport succeeds so a repeated native check is
+      // transactional: uncertainty retains the last verified bounded context.
+      const decision = await transport.evaluate(exec, correlation, proof)
+      if (decision?.kind === 'context') {
+        toolContexts.set(exec, [policyContextMessage(createUserMessage, decision.context)])
+      } else {
+        toolContexts.delete(exec)
+      }
+      return decision
+    },
+  )
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const authorizedTools = new WeakSet()
   /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], { position: string, promptDigest: string, status: 'pending' | 'accepted', settled: Promise<boolean>, resolve: (accepted: boolean) => void }>} */
@@ -377,6 +395,29 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   /** @param {import('@deepseek-ai/dsh-agent').Agent | undefined} agent */
   const isReviewer = agent => agent !== undefined && reviewers?.roleOf(agent) !== undefined
 
+  /** @param {Readonly<ToolExecution>} exec @param {import('@deepseek-ai/dsh-llm').UserMessage} message */
+  const appendToolContext = (exec, message) => {
+    const retained = toolContexts.get(exec)
+    if (retained === undefined) toolContexts.set(exec, [message])
+    else retained.push(message)
+  }
+
+  /** @param {Readonly<ToolExecution>} exec */
+  const contextsFor = (exec) => {
+    if (!authorizedTools.has(exec)) return []
+    return toolContexts.get(exec) ?? []
+  }
+
+  /** @param {string} reason @param {import('@deepseek-ai/dsh-llm').UserMessage[]} contexts */
+  const postBlock = (reason, contexts) => ({
+    kind: /** @type {const} */ ('block'),
+    feedback: [{
+      type: /** @type {const} */ ('text'),
+      text: `Error: ${reason}`,
+    }],
+    ...contexts.length === 0 ? {} : { additionalContexts: contexts },
+  })
+
   ctx.effect(() => () => {
     closing = true
     authorizations.clear()
@@ -385,6 +426,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     startupEvaluated = new WeakSet()
     evaluatedStops = new WeakMap()
     compatibility.dispose()
+    prerequisites.dispose()
   }, 'dsh-runtime-kit policy state')
 
   let plusOneExecutions = 0
@@ -392,10 +434,12 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.tools.register(createPlusOneTool(() => { plusOneExecutions += 1 }))
 
   ctx.on('agent/session-start', payload => {
+    if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
   })
   ctx.on('agent/disposed', ({ agent }) => {
     if (isReviewer(agent)) return
+    prerequisites.detachAgent(agent)
     void finishLine.agentDisposed(agent)
   })
   ctx.on('agent/pre-step', async (payload, next) => {
@@ -527,18 +571,35 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     const identity = authorizationIdentity(exec, transport.admissionEpoch)
     /** @param {string} reason */
     const rememberDenial = (reason) => {
+      prerequisites.reject(exec)
       toolContexts.delete(exec)
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
       return { kind: /** @type {const} */ ('deny'), reason }
     }
 
+    try {
+      prerequisites.prepare(exec)
+    } catch {
+      return rememberDenial(denial('prerequisite-unavailable').reason)
+    }
     const correlation = compatibility.beginTool(exec)
     if (!correlation.ok) {
       return rememberDenial(denial(correlation.reason).reason)
     }
+    let prerequisiteProof
+    try {
+      prerequisiteProof = await prerequisites.begin(exec, correlation.context)
+    } catch {
+      return rememberDenial(denial('prerequisite-unavailable').reason)
+    }
+    if (closing || exec.signal.aborted) {
+      return rememberDenial(denial(closing
+        ? 'policy-disposed'
+        : 'policy-caller-aborted').reason)
+    }
     let decision
     try {
-      decision = await transport.evaluate(exec, correlation.context)
+      decision = await transport.evaluate(exec, correlation.context, prerequisiteProof)
     } catch {
       if (closing) return denial('policy-disposed')
       return rememberDenial(denial('policy-unavailable').reason)
@@ -546,7 +607,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (closing) return denial('policy-disposed')
     if (decision?.kind === 'deny') return rememberDenial(decision.reason)
     if (decision?.kind === 'context') {
-      toolContexts.set(exec, policyContextMessage(createUserMessage, decision.context))
+      appendToolContext(exec, policyContextMessage(createUserMessage, decision.context))
     }
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
 
@@ -562,11 +623,13 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     try {
       downstream = await next()
     } catch (error) {
+      prerequisites.reject(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
       throw error
     }
     if (downstream.kind !== 'allow' && downstream.kind !== 'ask') {
+      prerequisites.reject(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
     }
@@ -575,39 +638,22 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     if (isReviewer(exec.agent)) return next()
+    const retainedContexts = contextsFor(exec)
     if (!compatibility.postTool(exec)) {
       toolContexts.delete(exec)
-      return {
-        kind: /** @type {const} */ ('block'),
-        feedback: [{
-          type: /** @type {const} */ ('text'),
-          text: `Error: ${denial('policy-correlation-invalid').reason}`,
-        }],
-      }
+      return postBlock(denial('policy-correlation-invalid').reason, retainedContexts)
     }
     const correlation = compatibility.correlation(exec.token)
     if (correlation === undefined) {
       toolContexts.delete(exec)
-      return {
-        kind: /** @type {const} */ ('block'),
-        feedback: [{
-          type: /** @type {const} */ ('text'),
-          text: `Error: ${denial('policy-correlation-invalid').reason}`,
-        }],
-      }
+      return postBlock(denial('policy-correlation-invalid').reason, retainedContexts)
     }
     let policyDecision
     try {
       policyDecision = await transport.evaluatePost(exec, result, correlation)
     } catch {
       toolContexts.delete(exec)
-      return {
-        kind: /** @type {const} */ ('block'),
-        feedback: [{
-          type: /** @type {const} */ ('text'),
-          text: `Error: ${denial('policy-unavailable').reason}`,
-        }],
-      }
+      return postBlock(denial('policy-unavailable').reason, retainedContexts)
     }
     if (closing || policyDecision?.kind === 'deny') {
       toolContexts.delete(exec)
@@ -616,13 +662,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         : policyDecision?.kind === 'deny'
           ? policyDecision.reason
           : denial('policy-unavailable').reason
-      return {
-        kind: /** @type {const} */ ('block'),
-        feedback: [{
-          type: /** @type {const} */ ('text'),
-          text: `Error: ${reason}`,
-        }],
-      }
+      return postBlock(reason, retainedContexts)
     }
     let downstream
     try {
@@ -631,18 +671,19 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       toolContexts.delete(exec)
       throw error
     }
-    const context = policyDecision?.kind === 'context'
-      ? policyContextMessage(createUserMessage, policyDecision.context)
-      : authorizedTools.has(exec) ? toolContexts.get(exec) : undefined
+    const contexts = [
+      ...retainedContexts,
+      ...(policyDecision?.kind === 'context'
+        ? [policyContextMessage(createUserMessage, policyDecision.context)]
+        : []),
+      ...(downstream.additionalContexts ?? []),
+    ]
     toolContexts.delete(exec)
-    return context === undefined
+    return contexts.length === 0
       ? downstream
       : {
           ...downstream,
-          additionalContexts: [
-            ...downstream.additionalContexts ?? [],
-            context,
-          ],
+          additionalContexts: contexts,
         }
   })
 
@@ -669,7 +710,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.on('tools/execute', async (exec, next) => {
     if (isReviewer(exec.agent)) return next()
     const routed = await finishLine.execute(exec)
-    return routed.kind === 'delegate' ? next() : routed.result
+    if (routed.kind !== 'delegate') return routed.result
+    return next()
   })
 
   ctx.on('tools/result', (exec, result) => {
@@ -677,6 +719,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     authorizations.delete(exec)
     toolContexts.delete(exec)
     finishLine.result(exec, result)
+    prerequisites.result(exec)
     compatibility.result(exec)
   })
 
@@ -693,6 +736,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     get finishLineTransportDegraded() { return finishLineClient.degraded },
     get finishLineDegraded() { return finishLine.degraded },
     get pendingPolicyMarkers() { return authorizations.size },
+    get pendingPrerequisites() { return prerequisites.pending },
+    prerequisites: prerequisites.service,
     get pendingCorrelations() { return compatibility.pendingCorrelations },
     policyTimeoutMs: transport.timeoutMs,
     policyTeardownTimeoutMs: transport.teardownTimeoutMs,

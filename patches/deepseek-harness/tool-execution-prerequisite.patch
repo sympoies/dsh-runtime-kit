@@ -1,0 +1,1539 @@
+diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
+index 377015feb..2713bc44f 100644
+--- a/packages/core/tools/src/index.ts
++++ b/packages/core/tools/src/index.ts
+@@ -287,6 +287,23 @@ export interface ToolDefinition extends ToolSchema {
+   presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined
+ }
+ 
++/**
++ * One execution-bound prerequisite installed during `tools/pre-execute`.
++ * Verification is side-effect free and may run more than once: before the
++ * around-dispatch waterfall and again at the exact body boundary. It returns
++ * the already verified context that belongs to this execution. `commit()` is
++ * only a durable cache-completion step after body, post-execute, cancellation,
++ * content finalization, and result materialization have all succeeded. A cache
++ * completion failure cannot turn an already completed mutation into a
++ * retryable tool failure; the verified context still accompanies the result.
++ */
++export interface ToolExecutionPrerequisite {
++  /** Side-effect-free last-mile verification and its bounded verified context. */
++  beforeBody(exec: ToolRunContext): Promise<UserMessage[] | void>
++  /** Idempotent durable cache completion after the accepted result linearizes. */
++  commit(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionSuccess>): Promise<void>
++}
++
+ /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
+ export interface ToolResult {
+   /** The final model-facing content (or the rendered error text on failure). */
+@@ -763,6 +780,49 @@ interface ToolAskResolution {
+ interface ToolCancellationState {
+   readonly callerSignal: AbortSignal
+   bodyInvoked: boolean
++  completionLinearized: boolean
++}
++
++type ToolExecutionStage =
++  | 'created'
++  | 'binding'
++  | 'admission'
++  | 'prepared-dispatch'
++  | 'prepared-post'
++  | 'prepared-final'
++  | 'dispatching'
++  | 'dispatched-post'
++  | 'dispatched-final'
++  | 'finalizing'
++  | 'finished'
++
++/** Immutable executable and output contract captured before policy listeners run. */
++interface ToolDefinitionSnapshot {
++  readonly definition: ToolDefinition
++  readonly name: string
++  readonly executeIdentity: ToolDefinition['execute']
++  readonly execute: ToolDefinition['execute']
++  readonly outputIdentity: ToolOutputDefinition
++  readonly outputSchemaJson: string
++  readonly output: ToolOutputDefinition
++  readonly renderIdentity: ToolOutputDefinition['render']
++  readonly presentationMetaIdentity: ToolOutputDefinition['presentationMeta']
++  readonly finalizeContentIdentity: ToolDefinition['finalizeContent']
++  readonly finalizeContent: ToolDefinition['finalizeContent']
++}
++
++/** Minimum immutable contract needed to normalize one successful result. */
++interface ToolSuccessContract {
++  readonly name: string
++  readonly output: ToolOutputDefinition
++}
++
++interface BoundToolPrerequisite {
++  readonly snapshot: ToolDefinitionSnapshot
++  readonly prerequisite: ToolExecutionPrerequisite
++  verifiedContexts: UserMessage[]
++  verifiedBeforeDispatch: boolean
++  completionEligible: boolean
+ }
+ 
+ /** One dispatch-scoped fused signal plus listener cleanup after the body settles. */
+@@ -808,6 +868,14 @@ export class ToolRuntime extends Service {
+   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
+   /** Definition-owned final content transform snapshotted before policy begins. */
+   private contentFinalizers = new WeakMap<ToolRunContext, ToolDefinition['finalizeContent']>()
++  /** Exact callable/output contract captured before extensible policy begins. */
++  private executionDefinitions = new WeakMap<ToolRunContext, ToolDefinitionSnapshot>()
++  /** Exact-definition prerequisite bound by policy to one registry-owned execution. */
++  private executionPrerequisites = new WeakMap<ToolRunContext, BoundToolPrerequisite>()
++  /** One-shot staged scheduler phase for every registry-owned execution. */
++  private executionStages = new WeakMap<ToolRunContext, ToolExecutionStage>()
++  /** Runtime attempts to mutate readonly execution identity before result publication. */
++  private executionIdentityViolations = new WeakSet<ToolRunContext>()
+   private readonly layers = new ScopedLayers(
+     scope => new ToolLayer(scope),
+     () => { this.ctx.emit('tools/change') },
+@@ -1115,6 +1183,46 @@ export class ToolRuntime extends Service {
+     )
+   }
+ 
++  /**
++   * Bind one exact visible definition to a prerequisite lifecycle for this
++   * execution. Policy calls this during `tools/pre-execute`; later definition
++   * substitution fails before the selected body. One execution accepts at
++   * most one binding so independent plugins cannot overwrite each other.
++   */
++  bindPrerequisite(
++    exec: ToolExecution,
++    definition: ToolDefinition,
++    prerequisite: ToolExecutionPrerequisite,
++  ): void {
++    const runtimeExec = exec as ToolRunContext
++    if (!this.cancellationStates.has(runtimeExec)) {
++      throw new Error('dsh-tools: prerequisite requires a registry-owned execution')
++    }
++    if (this.executionStages.get(runtimeExec) !== 'binding') {
++      throw new Error('dsh-tools: prerequisite binding is closed for this execution')
++    }
++    const snapshot = this.executionDefinitions.get(runtimeExec)
++    if (snapshot === undefined || snapshot.definition !== definition
++      || this.get(exec.name, exec.agent) !== definition || definition.name !== exec.name
++      || this.prerequisiteDefinitionMismatch(snapshot, runtimeExec) !== undefined) {
++      throw new Error('dsh-tools: prerequisite definition is not the exact visible tool')
++    }
++    if (this.executionPrerequisites.has(runtimeExec)) {
++      throw new Error('dsh-tools: execution already has a prerequisite binding')
++    }
++    if (typeof prerequisite?.beforeBody !== 'function'
++      || typeof prerequisite.commit !== 'function') {
++      throw new TypeError('dsh-tools: prerequisite must define beforeBody() and commit()')
++    }
++    this.executionPrerequisites.set(runtimeExec, {
++      snapshot,
++      prerequisite,
++      verifiedContexts: [],
++      verifiedBeforeDispatch: false,
++      completionEligible: true,
++    })
++  }
++
+   /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
+   private guardReason(exec: ToolExecution): string | undefined {
+     const globalReason = this.layers.global.guardReason(exec)
+@@ -1405,20 +1513,31 @@ export class ToolRuntime extends Service {
+     // the same retained path), while the `UNKNOWN_TOOL` denial and the
+     // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
+     // could never execute).
+-    const capturedFinalizer = visible?.finalizeContent?.bind(visible)
+-    const finalizerFor = (): ToolDefinition['finalizeContent'] | undefined =>
+-      collapsed && !signal.aborted ? undefined : capturedFinalizer
++    let capturedDefinition: ToolDefinitionSnapshot | undefined
++    let capturedFinalizer: ToolDefinition['finalizeContent']
++    let finalizerFor: () => ToolDefinition['finalizeContent'] | undefined = () => undefined
+     try {
++      capturedDefinition = visible === undefined
++        ? undefined
++        : this.snapshotExecutionDefinition(visible)
++      capturedFinalizer = capturedDefinition?.finalizeContent
++      finalizerFor = () => collapsed && !signal.aborted ? undefined : capturedFinalizer
+       const detached = snapshotJsonValue(exec.arguments)
+       if (detached === undefined) {
+         throw new TypeError('tool execution arguments must be losslessly JSON-serializable')
+       }
+       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
++      this.lockExecutionIdentity(execution)
++      this.executionStages.set(execution, 'created')
+       this.deferredContexts.set(execution, deferredContexts)
+       this.contentFinalizers.set(execution, finalizerFor())
++      if (capturedDefinition !== undefined) {
++        this.executionDefinitions.set(execution, capturedDefinition)
++      }
+       this.cancellationStates.set(execution, {
+         callerSignal: signal,
+         bodyInvoked: false,
++        completionLinearized: false,
+       })
+       if (collapsed) {
+         // The collapse denies the call before the policy pipeline, but a
+@@ -1445,6 +1564,8 @@ export class ToolRuntime extends Service {
+       return { kind: 'ready', exec: execution }
+     } catch (error: unknown) {
+       const execution: MutableToolRunContext = { ...base, arguments: undefined }
++      this.lockExecutionIdentity(execution)
++      this.executionStages.set(execution, 'created')
+       this.contentFinalizers.set(execution, finalizerFor())
+       return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
+     }
+@@ -1465,29 +1586,41 @@ export class ToolRuntime extends Service {
+     next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
+   ): Promise<T> {
+     const created = this.createExecution(input)
+-    if (created.kind !== 'ready') return next(created)
++    if (created.kind !== 'ready') {
++      this.markPreparedExecution(created.exec, created.kind)
++      return next(created)
++    }
+     const exec = created.exec
+     if (this.callerCancelled(exec)) {
+-      return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
++      const prepared = { kind: 'final-result' as const, exec, result: toolAbortedBeforeDispatchResult() }
++      this.markPreparedExecution(exec, prepared.kind)
++      return next(prepared)
+     }
++    this.transitionExecution(exec, ['created'], 'binding', 'prepare')
++    let prepared: ScheduledToolPreparation
+     try {
+       const carrier = scopeTarget(this, exec.agent)
+       const gate = await this.ctx.waterfall(
+         carrier, 'tools/pre-execute', exec,
+         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
+       )
++      // The ordered policy waterfall is the sole prerequisite-binding window.
++      // Close it before an approval request can suspend admission, otherwise a
++      // listener-retained execution handle could attach new authority while a
++      // human decision is already pending.
++      this.transitionExecution(exec, ['binding'], 'admission', 'await approval')
+       const askResolution: ToolAskResolution = gate.kind === 'ask'
+         ? await this.serviceAsk(exec, gate)
+         : { decision: gate, approvalCancelled: false }
+       const { decision } = askResolution
+       if (this.callerCancelled(exec) && askResolution.approvalCancelled) {
+-        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
+-      }
+-      const denialReason = decision.kind === 'allow'
+-        ? this.guardReason(exec)
+-        : decision.reason
+-      if (denialReason !== undefined) {
+-        return await next({
++        prepared = { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
++      } else {
++        const denialReason = decision.kind === 'allow'
++          ? this.guardReason(exec)
++          : decision.reason
++        if (denialReason !== undefined) {
++          prepared = {
+           kind: 'post-result',
+           exec,
+           result: this.materializeFinalResult({
+@@ -1495,15 +1628,43 @@ export class ToolRuntime extends Service {
+             isError: true,
+             error: { message: denialReason },
+           }),
+-        })
+-      }
+-      if (this.callerCancelled(exec)) {
+-        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
++          }
++        } else if (this.callerCancelled(exec)) {
++          prepared = { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
++        } else {
++          prepared = { kind: 'dispatch', exec }
++        }
+       }
+-      return await next({ kind: 'dispatch', exec })
+     } catch (error: unknown) {
+-      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
++      prepared = { kind: 'final-result', exec, result: toolErrorResult(error) }
++    }
++    this.markPreparedExecution(exec, prepared.kind)
++    return next(prepared)
++  }
++
++  /** Atomically move one registry execution through its private scheduler state machine. */
++  private transitionExecution(
++    exec: ToolRunContext,
++    expected: ToolExecutionStage[],
++    next: ToolExecutionStage,
++    operation: string,
++  ): void {
++    const current = this.executionStages.get(exec)
++    if (current === undefined || !expected.includes(current)) {
++      throw new Error(`dsh-tools: scheduler execution cannot ${operation} from its current stage`)
+     }
++    this.executionStages.set(exec, next)
++  }
++
++  /** Close prerequisite binding and publish the sole scheduler continuation. */
++  private markPreparedExecution(
++    exec: ToolRunContext,
++    kind: ScheduledToolPreparation['kind'],
++  ): void {
++    const next = kind === 'dispatch' ? 'prepared-dispatch'
++      : kind === 'post-result' ? 'prepared-post'
++        : 'prepared-final'
++    this.transitionExecution(exec, ['created', 'binding', 'admission'], next, 'complete preparation')
+   }
+ 
+   /** Whether the original caller signal is currently aborted. */
+@@ -1511,7 +1672,7 @@ export class ToolRuntime extends Service {
+     const state = this.cancellationStates.get(exec)
+     /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
+     if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
+-    return state.callerSignal.aborted
++    return state.callerSignal.aborted && !state.completionLinearized
+   }
+ 
+   /** Canonical cancellation outcome selected by whether the tool body started. */
+@@ -1524,6 +1685,138 @@ export class ToolRuntime extends Service {
+       : toolAbortedBeforeDispatchResult(prior)
+   }
+ 
++  /**
++   * Make readonly execution fields tamper-evident while preserving `signal` as
++   * the sole around-wrapper mutation channel. A caught assignment still marks
++   * the execution invalid, so mutate-then-restore cannot hide substitution.
++   */
++  private lockExecutionIdentity(exec: MutableToolRunContext): void {
++    for (const key of Reflect.ownKeys(exec)) {
++      if (key === 'signal') continue
++      const descriptor = Object.getOwnPropertyDescriptor(exec, key)
++      /* v8 ignore next -- every spread-created execution field is an own data property */
++      if (descriptor === undefined || !('value' in descriptor)) continue
++      const value = descriptor.value
++      Object.defineProperty(exec, key, {
++        configurable: false,
++        enumerable: descriptor.enumerable === true,
++        get: () => value,
++        set: () => { this.executionIdentityViolations.add(exec) },
++      })
++    }
++  }
++
++  /** Reject any attempted substitution of the public readonly identity. */
++  private assertExecutionIdentity(exec: ToolRunContext): void {
++    if (this.executionIdentityViolations.has(exec)) {
++      throw new Error('dsh-tools: readonly execution identity mutation attempted')
++    }
++  }
++
++  /** Capture every behavior that may run after policy before listeners can substitute it. */
++  private snapshotExecutionDefinition(definition: ToolDefinition): ToolDefinitionSnapshot {
++    const outputSchema = snapshotJsonValue(definition.output.schema)
++    if (outputSchema === undefined) {
++      throw new TypeError(`tool "${definition.name}" output schema must be losslessly JSON-serializable`)
++    }
++    const executeIdentity = definition.execute
++    const outputIdentity = definition.output
++    const renderIdentity = outputIdentity.render
++    const presentationMetaIdentity = outputIdentity.presentationMeta
++    const finalizeContentIdentity = definition.finalizeContent
++    return Object.freeze({
++      definition,
++      name: definition.name,
++      executeIdentity,
++      execute: executeIdentity.bind(definition),
++      outputIdentity,
++      outputSchemaJson: JSON.stringify(outputSchema),
++      output: Object.freeze({
++        schema: deepFreeze(outputSchema) as unknown as JsonSchemaNode,
++        render: renderIdentity.bind(outputIdentity),
++        ...presentationMetaIdentity === undefined
++          ? {}
++          : { presentationMeta: presentationMetaIdentity.bind(outputIdentity) },
++      }),
++      renderIdentity,
++      presentationMetaIdentity,
++      finalizeContentIdentity,
++      finalizeContent: finalizeContentIdentity?.bind(definition),
++    })
++  }
++
++  /** Describe definition or in-place callable/output drift without executing it. */
++  private prerequisiteDefinitionMismatch(
++    snapshot: ToolDefinitionSnapshot,
++    exec: ToolRunContext,
++  ): string | undefined {
++    const current = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
++    if (current !== snapshot.definition) return 'exact tool definition changed'
++    try {
++      const schema = snapshotJsonValue(current.output.schema)
++      if (current.name !== snapshot.name
++        || current.execute !== snapshot.executeIdentity
++        || current.output !== snapshot.outputIdentity
++        || current.output.render !== snapshot.renderIdentity
++        || current.output.presentationMeta !== snapshot.presentationMetaIdentity
++        || current.finalizeContent !== snapshot.finalizeContentIdentity
++        || schema === undefined
++        || JSON.stringify(schema) !== snapshot.outputSchemaJson) {
++        return 'exact tool definition contract changed'
++      }
++    } catch {
++      return 'exact tool definition contract changed'
++    }
++    return undefined
++  }
++
++  /** Require the exact definition and callable/output contract bound by policy to remain visible. */
++  private assertPrerequisiteDefinition(exec: ToolRunContext, phase: string): BoundToolPrerequisite | undefined {
++    const bound = this.executionPrerequisites.get(exec)
++    if (bound === undefined) return undefined
++    const mismatch = this.prerequisiteDefinitionMismatch(bound.snapshot, exec)
++    if (mismatch !== undefined) {
++      throw new Error(`dsh-tools: prerequisite ${mismatch} before ${phase}`)
++    }
++    return bound
++  }
++
++  /** Reverify one bound prerequisite and retain only its latest verified context. */
++  private async verifyExecutionPrerequisite(exec: ToolRunContext, phase: string): Promise<void> {
++    this.assertExecutionIdentity(exec)
++    const bound = this.assertPrerequisiteDefinition(exec, phase)
++    if (bound === undefined) return
++    const contexts = await bound.prerequisite.beforeBody(exec)
++    if (this.callerCancelled(exec)) {
++      throw new Error('dsh-tools: prerequisite verification cancelled')
++    }
++    this.assertExecutionIdentity(exec)
++    this.assertPrerequisiteDefinition(exec, phase)
++    if (contexts !== undefined && !Array.isArray(contexts)) {
++      throw new TypeError('dsh-tools: prerequisite verification must return contexts or undefined')
++    }
++    if (contexts === undefined) {
++      bound.verifiedContexts = []
++      bound.verifiedBeforeDispatch = true
++      return
++    }
++    const detached = snapshotJsonValue(contexts)
++    if (!Array.isArray(detached)) {
++      throw new TypeError('dsh-tools: prerequisite contexts must be losslessly JSON-serializable')
++    }
++    bound.verifiedContexts = deepFreeze(detached) as unknown as UserMessage[]
++    bound.verifiedBeforeDispatch = true
++  }
++
++  /** A completion warning must never alter an already materialized success. */
++  private warnPrerequisiteCompletion(exec: ToolExecution, reason: string): void {
++    try {
++      this.ctx.logger.warn(`tool "${exec.name}" (${exec.callId}): prerequisite cache completion skipped: ${reason}`)
++    } catch {
++      // Logging is observational and cannot reopen an accepted mutation.
++    }
++  }
++
+   /**
+    * Dispatch the registered body with the original caller signal fused back
+    * into any around-wrapper replacement. Cancellation never abandons the body:
+@@ -1543,7 +1836,12 @@ export class ToolRuntime extends Service {
+     }
+     exec.signal = signal
+     try {
+-      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
++      this.assertExecutionIdentity(exec)
++      await this.verifyExecutionPrerequisite(exec, 'tool body')
++      if (isAborted(signal)) return toolAbortedBeforeDispatchResult()
++      const bound = this.assertPrerequisiteDefinition(exec, 'tool body dispatch')
++      const tool = bound?.snapshot
++        ?? this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+       if (!tool) throw new ToolNotFoundError(exec.name)
+       state.bodyInvoked = true
+       const returned = await tool.execute(exec.arguments, exec)
+@@ -1552,7 +1850,9 @@ export class ToolRuntime extends Service {
+         ? toolAbortedResult(result)
+         : result
+     } catch (error: unknown) {
+-      return toolErrorResult(error)
++      return !state.bodyInvoked && (isAborted(signal) || this.callerCancelled(exec))
++        ? this.cancellationResult(exec)
++        : toolErrorResult(error)
+     } finally {
+       fused.dispose()
+       exec.signal = wrapperSignal
+@@ -1567,14 +1867,53 @@ export class ToolRuntime extends Service {
+    * @internal
+    */
+   private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
++    this.transitionExecution(exec, ['prepared-dispatch'], 'dispatching', 'dispatch')
++    const outcome = await this.runScheduledDispatch(exec)
++    this.transitionExecution(
++      exec,
++      ['dispatching'],
++      outcome.kind === 'post-result' ? 'dispatched-post' : 'dispatched-final',
++      'complete dispatch',
++    )
++    return outcome
++  }
++
++  /** Execute one already-claimed dispatch stage. */
++  private async runScheduledDispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
+     try {
+       const mutableExec = exec as MutableToolRunContext
+       const carrier = scopeTarget(this, exec.agent)
++      this.assertExecutionIdentity(exec)
++      try {
++        await this.verifyExecutionPrerequisite(exec, 'execute dispatch')
++      } catch (error: unknown) {
++        if (this.callerCancelled(exec)) {
++          return { kind: 'post-result', result: this.cancellationResult(exec) }
++        }
++        throw error
++      }
++      if (this.callerCancelled(exec)) {
++        return { kind: 'post-result', result: toolAbortedBeforeDispatchResult() }
++      }
+       const result = await this.ctx.waterfall(
+         carrier, 'tools/execute', mutableExec,
+         () => this.dispatchToolBody(mutableExec),
+       )
+       const normalized = this.normalizeDispatchResult(exec, result)
++      const state = this.cancellationStates.get(exec)
++      /* v8 ignore next -- dispatch only receives registry-minted executions */
++      if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
++      if (!state.bodyInvoked && !normalized.isError) {
++        const bound = this.executionPrerequisites.get(exec)
++        if (state.callerSignal.aborted && bound !== undefined) {
++          bound.completionEligible = false
++          this.warnPrerequisiteCompletion(exec, 'caller cancellation arrived after successful execute short circuit')
++        }
++        // The pre-wrapper verification is the authorization linearization point.
++        // A wrapper-reported success may already represent a mutation, so no
++        // asynchronous verification or caller abort may make it retryable.
++        state.completionLinearized = true
++      }
+       const deferredContexts = this.deferredContexts.get(exec)
+       /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
+       if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
+@@ -1607,17 +1946,74 @@ export class ToolRuntime extends Service {
+    * @internal
+    */
+   private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
++    this.transitionExecution(
++      exec,
++      ['prepared-post', 'dispatched-post'],
++      'finalizing',
++      'finalize',
++    )
+     try {
+-      const postResult = await this.postExecute(exec, result)
+-      return this.finishScheduledExecution(
+-        exec,
+-        this.callerCancelled(exec) && !postResult.isError
+-          ? this.cancellationResult(exec, postResult)
+-          : postResult,
+-      )
++      return await this.finalizeScheduledResult(exec, result)
++    } finally {
++      this.transitionExecution(exec, ['finalizing'], 'finished', 'complete finalization')
++    }
++  }
++
++  /** Finalize one already-claimed post-result stage. */
++  private async finalizeScheduledResult(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
++    let postResult: ToolExecutionResult
++    try {
++      postResult = await this.postExecute(exec, result)
+     } catch (error: unknown) {
+-      return this.finishScheduledExecution(exec, toolErrorResult(error))
++      return this.finishScheduledResult(exec, toolErrorResult(error))
++    }
++
++    const candidate = this.callerCancelled(exec) && !postResult.isError
++      ? this.cancellationResult(exec, postResult)
++      : postResult
++    let finalResult = this.prepareScheduledResult(exec, candidate)
++    const bound = this.executionPrerequisites.get(exec)
++    if (bound === undefined || finalResult.isError || this.callerCancelled(exec)) {
++      this.notifyResult(exec, finalResult)
++      return finalResult
+     }
++
++    if (bound.verifiedContexts.length > 0) {
++      finalResult = this.materializeFinalResult({
++        ...finalResult,
++        additionalContexts: [
++          ...finalResult.additionalContexts ?? [],
++          ...bound.verifiedContexts,
++        ],
++      })
++    }
++    if (this.callerCancelled(exec)) {
++      finalResult = this.materializeFinalResult(this.cancellationResult(exec, finalResult))
++      this.notifyResult(exec, finalResult)
++      return finalResult
++    }
++
++    const state = this.cancellationStates.get(exec)
++    /* v8 ignore next -- only registry-minted executions reach finalization */
++    if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
++    state.completionLinearized = true
++    const mismatch = this.prerequisiteDefinitionMismatch(bound.snapshot, exec)
++    if (!bound.verifiedBeforeDispatch) {
++      this.warnPrerequisiteCompletion(exec, 'execution prerequisite was never verified before dispatch')
++    } else if (!bound.completionEligible) {
++      // A successful execute-wrapper short circuit may already have mutated.
++      // Its failed post-dispatch recheck cannot turn that success retryable.
++    } else if (mismatch !== undefined) {
++      this.warnPrerequisiteCompletion(exec, `${mismatch} after execution`)
++    } else {
++      try {
++        await bound.prerequisite.commit(exec, finalResult as ToolExecutionSuccess)
++      } catch (error: unknown) {
++        this.warnPrerequisiteCompletion(exec, errorMessage(error))
++      }
++    }
++    this.notifyResult(exec, finalResult)
++    return finalResult
+   }
+ 
+   /**
+@@ -1629,6 +2025,28 @@ export class ToolRuntime extends Service {
+    * @internal
+    */
+   private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
++    this.transitionExecution(
++      exec,
++      ['prepared-final', 'dispatched-final'],
++      'finalizing',
++      'finish',
++    )
++    try {
++      return this.finishScheduledResult(exec, result)
++    } finally {
++      this.transitionExecution(exec, ['finalizing'], 'finished', 'complete finalization')
++    }
++  }
++
++  /** Finish one already-claimed final-result stage. */
++  private finishScheduledResult(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
++    const finalResult = this.prepareScheduledResult(exec, result)
++    this.notifyResult(exec, finalResult)
++    return finalResult
++  }
++
++  /** Materialize and finalize once without publishing the result yet. */
++  private prepareScheduledResult(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+     let materializedResult: ToolExecutionResult
+     try {
+       materializedResult = this.materializeFinalResult(result)
+@@ -1641,7 +2059,6 @@ export class ToolRuntime extends Service {
+     } catch (error: unknown) {
+       finalResult = this.materializeFinalResult(toolErrorResult(error))
+     }
+-    this.notifyResult(exec, finalResult)
+     return finalResult
+   }
+ 
+@@ -1765,8 +2182,7 @@ export class ToolRuntime extends Service {
+       if (result.isError) {
+         throw new TypeError('tools/post-execute cannot replace the value of a failed result')
+       }
+-      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+-      if (tool === undefined) throw new ToolNotFoundError(exec.name)
++      const tool = this.successContract(exec)
+       const replaced = this.createSuccessResult(exec, tool, decision.value)
+       return this.markCanonical(exec, {
+         ...replaced,
+@@ -1783,6 +2199,14 @@ export class ToolRuntime extends Service {
+   /** Registry-normalized results and the exact dispatch that validated each value. */
+   private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
+ 
++  /** Stable output contract selected for success normalization in this dispatch. */
++  private successContract(exec: ToolExecution): ToolSuccessContract {
++    const tool = this.executionPrerequisites.get(exec as ToolRunContext)?.snapshot
++      ?? this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
++    if (tool === undefined) throw new ToolNotFoundError(exec.name)
++    return tool
++  }
++
+   /** Mark one registry-normalized result as canonical only for its owning dispatch. */
+   private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
+     this.canonicalResults.set(result, exec.token)
+@@ -1790,7 +2214,7 @@ export class ToolRuntime extends Service {
+   }
+ 
+   /** Snapshot, validate, render, and optionally project one successful body value. */
+-  private createSuccessResult(exec: ToolExecution, tool: ToolDefinition, candidate: unknown): ToolExecutionSuccess {
++  private createSuccessResult(exec: ToolExecution, tool: ToolSuccessContract, candidate: unknown): ToolExecutionSuccess {
+     const detached = snapshotToolValue(tool.name, candidate)
+     const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
+     if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
+@@ -1834,8 +2258,7 @@ export class ToolRuntime extends Service {
+         ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
+       })
+     }
+-    const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+-    if (tool === undefined) throw new ToolNotFoundError(exec.name)
++    const tool = this.successContract(exec)
+     const normalized = this.createSuccessResult(exec, tool, result.value)
+     return this.markCanonical(exec, {
+       ...normalized,
+diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
+index ec770592a..28b39e191 100644
+--- a/packages/core/tools/tests/tools.spec.ts
++++ b/packages/core/tools/tests/tools.spec.ts
+@@ -4,9 +4,10 @@ import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@de
+ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
++import { createScope } from '@deepseek-ai/dsh-scope'
+ import ToolRuntime, {
+   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
+-  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
++  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER,
+   type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
+   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
+ } from '@deepseek-ai/dsh-tools'
+@@ -93,6 +94,660 @@ describe('ToolRuntime', () => {
+     expect(observed).toEqual(result)
+   })
+ 
++  it('binds an exact execution prerequisite across body and post completion', async () => {
++    const ctx = await setup()
++    const order: string[] = []
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-order',
++      async execute() { order.push('body'); return 'ok' },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {
++          order.push('before-body')
++          return [createUserMessage({
++            content: [{ type: 'text', text: 'prerequisite context' }],
++            source: { kind: 'plugin', plugin: 'prerequisite-test' },
++          })]
++        },
++        async commit() {
++          order.push('commit')
++        },
++      })
++      return next()
++    })
++    ctx.on('tools/post-execute', async (_exec, _result, next) => {
++      order.push('post-enter')
++      const decision = await next()
++      order.push('post-exit')
++      return decision
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-order'),
++      name: tool.name,
++      arguments: {},
++    })
++
++    expect(order).toEqual(['before-body', 'before-body', 'body', 'post-enter', 'post-exit', 'commit'])
++    expect(result).toMatchObject({
++      isError: false,
++      value: 'ok',
++      additionalContexts: [{ content: [{ type: 'text', text: 'prerequisite context' }] }],
++    })
++  })
++
++  it('binds a prerequisite to a definition owned by the exact agent scope', async () => {
++    const ctx = await setup()
++    const agent = { id: 'scoped-prerequisite-agent' } as unknown as Agent
++    let scoped!: Context
++    await ctx.plugin(Object.assign((inner: Context) => {
++      scoped = createScope(inner, agent).ctx
++    }, { inject: ['tools'] }))
++    ;(agent as { ctx?: Context }).ctx = scoped
++    let bodies = 0
++    let commits = 0
++    const tool = {
++      ...echoTool,
++      name: 'scoped-prerequisite',
++      async execute() { bodies += 1; return 'scoped' },
++    }
++    scoped.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('scoped-prerequisite'),
++      name: tool.name,
++      arguments: {},
++      agent,
++    })
++
++    expect(result).toMatchObject({ isError: false, value: 'scoped' })
++    expect({ bodies, commits }).toEqual({ bodies: 1, commits: 1 })
++  })
++
++  it('rejects exact-definition substitution before prerequisite verification or body', async () => {
++    const ctx = await setup()
++    let bodies = 0
++    let verifications = 0
++    let commits = 0
++    const original = {
++      ...echoTool,
++      name: 'prerequisite-replaced',
++      async execute() { bodies += 1; return 'old' },
++    }
++    const replacement = {
++      ...original,
++      async execute() { bodies += 1; return 'new' },
++    }
++    const dispose = ctx.tools.register(original)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, original, {
++        async beforeBody() { verifications += 1 },
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async (_exec, next) => {
++      dispose()
++      ctx.tools.register(replacement)
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-replaced'),
++      name: original.name,
++      arguments: {},
++    })
++
++    expect(result.isError).toBe(true)
++    expect(result.error?.message).toContain('prerequisite exact tool definition changed')
++    expect({ bodies, verifications, commits }).toEqual({ bodies: 0, verifications: 1, commits: 0 })
++  })
++
++  it.each(['execute', 'render', 'schema'] as const)(
++    'rejects mutate-then-restore substitution of the bound %s contract',
++    async (surface) => {
++      const ctx = await setup()
++      let bodies = 0
++      let substitutedCallbacks = 0
++      let commits = 0
++      const tool = {
++        ...echoTool,
++        name: `prerequisite-contract-${surface}`,
++        output: { ...echoTool.output },
++        async execute() { bodies += 1; return 'original' },
++      }
++      ctx.tools.register(tool)
++      ctx.on('tools/pre-execute', async (exec, next) => {
++        ctx.tools.bindPrerequisite(exec, tool, {
++          async beforeBody() {},
++          async commit() { commits += 1 },
++        })
++        return next()
++      })
++      ctx.on('tools/execute', async (_exec, next) => {
++        const target = surface === 'execute' ? tool : tool.output
++        const key = surface === 'schema' ? 'schema' : surface
++        const original = Reflect.get(target, key)
++        const replacement = surface === 'schema'
++          ? { type: 'number' }
++          : async () => { substitutedCallbacks += 1; return 'substituted' }
++        Reflect.set(target, key, replacement)
++        try {
++          return await next()
++        } finally {
++          Reflect.set(target, key, original)
++        }
++      })
++
++      const result = await ctx.tools.execute({
++        signal: testToolSignal,
++        callId: CallId(`prerequisite-contract-${surface}`),
++        name: tool.name,
++        arguments: {},
++      })
++
++      expect(result).toMatchObject({
++        isError: true,
++        error: { message: expect.stringContaining('prerequisite exact tool definition contract changed') },
++      })
++      expect({ bodies, substitutedCallbacks, commits }).toEqual({
++        bodies: 0,
++        substitutedCallbacks: 0,
++        commits: 0,
++      })
++    },
++  )
++
++  it('verifies and commits a successful tools execute short circuit without the original body', async () => {
++    const ctx = await setup()
++    let bodies = 0
++    let verifications = 0
++    let commits = 0
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-short-circuit',
++      async execute() { bodies += 1; return 'body' },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() { verifications += 1 },
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async () => ({
++      isError: false,
++      value: 'wrapper',
++      content: [{ type: 'text', text: 'wrapper' }],
++    }))
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-short-circuit'),
++      name: tool.name,
++      arguments: {},
++    })
++
++    expect(result).toMatchObject({ isError: false, value: 'wrapper' })
++    expect({ bodies, verifications, commits }).toEqual({ bodies: 0, verifications: 1, commits: 1 })
++  })
++
++  it('preserves a successful mutating short circuit when post-dispatch verification becomes uncertain', async () => {
++    const ctx = await setup()
++    let bodies = 0
++    let mutations = 0
++    let verifications = 0
++    let commits = 0
++    const original = {
++      ...echoTool,
++      name: 'prerequisite-mutating-short-circuit',
++      async execute() { bodies += 1; return 'body' },
++    }
++    const replacement = { ...original, async execute() { return 'replacement' } }
++    const dispose = ctx.tools.register(original)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, original, {
++        async beforeBody() {
++          verifications += 1
++          return [createUserMessage({
++            content: [{ type: 'text', text: 'initial verified context' }],
++            source: { kind: 'plugin', plugin: 'prerequisite-test' },
++          })]
++        },
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async () => {
++      mutations += 1
++      dispose()
++      ctx.tools.register(replacement)
++      return {
++        isError: false,
++        value: 'wrapper mutation complete',
++        content: [{ type: 'text', text: 'wrapper mutation complete' }],
++      }
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-mutating-short-circuit'),
++      name: original.name,
++      arguments: {},
++    })
++
++    expect(result).toMatchObject({
++      isError: false,
++      value: 'wrapper mutation complete',
++      additionalContexts: [{ content: [{ type: 'text', text: 'initial verified context' }] }],
++    })
++    expect({ bodies, mutations, verifications, commits }).toEqual({
++      bodies: 0,
++      mutations: 1,
++      verifications: 1,
++      commits: 0,
++    })
++  })
++
++  it('preserves successful short-circuit mutation and context when caller cancellation arrives after it', async () => {
++    const ctx = await setup()
++    const controller = new AbortController()
++    let mutations = 0
++    let verifications = 0
++    let commits = 0
++    const tool = { ...echoTool, name: 'prerequisite-short-circuit-late-abort' }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {
++          verifications += 1
++          return [createUserMessage({
++            content: [{ type: 'text', text: 'last verified context' }],
++            source: { kind: 'plugin', plugin: 'prerequisite-test' },
++          })]
++        },
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async () => {
++      mutations += 1
++      controller.abort('caller stopped after mutation')
++      return {
++        isError: false,
++        value: 'wrapper mutation complete',
++        content: [{ type: 'text', text: 'wrapper mutation complete' }],
++      }
++    })
++
++    const result = await ctx.tools.execute({
++      signal: controller.signal,
++      callId: CallId('prerequisite-short-circuit-late-abort'),
++      name: tool.name,
++      arguments: {},
++    })
++
++    expect(result).toMatchObject({
++      isError: false,
++      value: 'wrapper mutation complete',
++      additionalContexts: [{ content: [{ type: 'text', text: 'last verified context' }] }],
++    })
++    expect({ mutations, verifications, commits }).toEqual({ mutations: 1, verifications: 1, commits: 0 })
++  })
++
++  it.each(['cyclic', 'bigint'] as const)(
++    'rejects %s prerequisite context before the tool body',
++    async (kind) => {
++      const ctx = await setup()
++      let bodies = 0
++      let commits = 0
++      const tool = {
++        ...echoTool,
++        name: `prerequisite-invalid-context-${kind}`,
++        async execute() { bodies += 1; return 'unexpected' },
++      }
++      ctx.tools.register(tool)
++      ctx.on('tools/pre-execute', async (exec, next) => {
++        ctx.tools.bindPrerequisite(exec, tool, {
++          async beforeBody() {
++            if (kind === 'bigint') return [{ invalid: 1n }] as unknown as never[]
++            const cyclic = [] as unknown[]
++            cyclic.push(cyclic)
++            return cyclic as never[]
++          },
++          async commit() { commits += 1 },
++        })
++        return next()
++      })
++
++      const result = await ctx.tools.execute({
++        signal: testToolSignal,
++        callId: CallId(`prerequisite-invalid-context-${kind}`),
++        name: tool.name,
++        arguments: {},
++      })
++
++      expect(result).toMatchObject({
++        isError: true,
++        error: { message: expect.stringContaining('prerequisite contexts must be losslessly JSON-serializable') },
++      })
++      expect({ bodies, commits }).toEqual({ bodies: 0, commits: 0 })
++    },
++  )
++
++  it('does not commit after a post-execute failure or caller cancellation', async () => {
++    for (const failure of ['post', 'cancel'] as const) {
++      const ctx = await setup()
++      const controller = new AbortController()
++      let commits = 0
++      const tool = {
++        ...echoTool,
++        name: `prerequisite-${failure}`,
++        async execute() {
++          if (failure === 'cancel') controller.abort()
++          return 'ok'
++        },
++      }
++      ctx.tools.register(tool)
++      ctx.on('tools/pre-execute', async (exec, next) => {
++        ctx.tools.bindPrerequisite(exec, tool, {
++          async beforeBody() {},
++          async commit() { commits += 1 },
++        })
++        return next()
++      })
++      if (failure === 'post') {
++        ctx.on('tools/post-execute', async () => { throw new Error('post failed') })
++      }
++
++      const result = await ctx.tools.execute({
++        signal: controller.signal,
++        callId: CallId(`prerequisite-${failure}`),
++        name: tool.name,
++        arguments: {},
++      })
++
++      expect(result.isError).toBe(true)
++      expect(commits).toBe(0)
++    }
++  })
++
++  it('linearizes accepted completion before cancellation during prerequisite commit', async () => {
++    const ctx = await setup()
++    const controller = new AbortController()
++    const tool = { ...echoTool, name: 'prerequisite-linearized' }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {},
++        async commit() {
++          controller.abort()
++        },
++      })
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: controller.signal,
++      callId: CallId('prerequisite-linearized'),
++      name: tool.name,
++      arguments: { text: 'ok' },
++    })
++
++    expect(result).toMatchObject({ isError: false, value: 'ok' })
++  })
++
++  it('blocks caught mutate-then-restore attempts on readonly execution identity', async () => {
++    const ctx = await setup()
++    let bodies = 0
++    let commits = 0
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-identity',
++      async execute() { bodies += 1; return 'original' },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async (exec, next) => {
++      const originalArguments = exec.arguments
++      const originalAgent = exec.agent
++      Reflect.set(exec, 'arguments', { text: 'substituted' })
++      Reflect.set(exec, 'agent', { id: 'substituted' } as unknown as Agent)
++      Reflect.set(exec, 'arguments', originalArguments)
++      Reflect.set(exec, 'agent', originalAgent)
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-identity'),
++      name: tool.name,
++      arguments: { text: 'original' },
++    })
++
++    expect(result).toMatchObject({
++      isError: true,
++      error: { message: 'dsh-tools: readonly execution identity mutation attempted' },
++    })
++    expect({ bodies, commits }).toEqual({ bodies: 0, commits: 0 })
++  })
++
++  it('maps caller abort during asynchronous prerequisite verification to pre-dispatch cancellation', async () => {
++    const ctx = await setup()
++    const entered = Promise.withResolvers<undefined>()
++    const release = Promise.withResolvers<undefined>()
++    const controller = new AbortController()
++    let bodies = 0
++    let commits = 0
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-verification-abort',
++      async execute() { bodies += 1; return 'unexpected' },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {
++          entered.resolve(undefined)
++          await release.promise
++          throw new Error('verification transport cancelled')
++        },
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++
++    const pending = ctx.tools.execute({
++      signal: controller.signal,
++      callId: CallId('prerequisite-verification-abort'),
++      name: tool.name,
++      arguments: {},
++    })
++    await entered.promise
++    controller.abort('cancel verification')
++    release.resolve(undefined)
++
++    await expect(pending).resolves.toMatchObject({
++      isError: true,
++      error: { info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
++    })
++    expect({ bodies, commits }).toEqual({ bodies: 0, commits: 0 })
++  })
++
++  it('does not commit when definition-owned finalization fails', async () => {
++    const ctx = await setup()
++    let commits = 0
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-finalizer-failure',
++      finalizeContent() { throw new Error('finalizer failed') },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-finalizer-failure'),
++      name: tool.name,
++      arguments: { text: 'ok' },
++    })
++
++    expect(result).toMatchObject({ isError: true, error: { message: 'finalizer failed' } })
++    expect(commits).toBe(0)
++  })
++
++  it('preserves a finalized mutation and verified context when cache completion is uncertain', async () => {
++    const ctx = await setup()
++    const tool = { ...echoTool, name: 'prerequisite-cache-uncertain' }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {
++          return [createUserMessage({
++            content: [{ type: 'text', text: 'verified prerequisite context' }],
++            source: { kind: 'plugin', plugin: 'prerequisite-test' },
++          })]
++        },
++        async commit() { throw new Error('cache response lost') },
++      })
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-cache-uncertain'),
++      name: tool.name,
++      arguments: { text: 'ok' },
++    })
++
++    expect(result).toMatchObject({
++      isError: false,
++      value: 'ok',
++      additionalContexts: [{ content: [{ type: 'text', text: 'verified prerequisite context' }] }],
++    })
++  })
++
++  it('preserves a completed body but skips cache commit after post-body HMR substitution', async () => {
++    const ctx = await setup()
++    let commits = 0
++    const original = { ...echoTool, name: 'prerequisite-post-body-hmr' }
++    const replacement = { ...original, async execute() { return 'replacement' } }
++    const dispose = ctx.tools.register(original)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, original, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async (_exec, next) => {
++      const result = await next()
++      dispose()
++      ctx.tools.register(replacement)
++      return result
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-post-body-hmr'),
++      name: original.name,
++      arguments: { text: 'original' },
++    })
++
++    expect(result).toMatchObject({ isError: false, value: 'original' })
++    expect(commits).toBe(0)
++  })
++
++  it('normalizes post-execute value replacement through the snapshotted output after HMR', async () => {
++    const ctx = await setup()
++    let originalRenders = 0
++    let replacementRenders = 0
++    let commits = 0
++    const original = {
++      ...echoTool,
++      name: 'prerequisite-post-value-hmr',
++      output: {
++        schema: { type: 'string' } as const,
++        render(_args: unknown, value: JsonValue) {
++          originalRenders += 1
++          return [{ type: 'text' as const, text: `original:${value}` }]
++        },
++      },
++    }
++    const replacement = {
++      ...original,
++      output: {
++        ...original.output,
++        render(_args: unknown, value: JsonValue) {
++          replacementRenders += 1
++          return [{ type: 'text' as const, text: `replacement:${value}` }]
++        },
++      },
++    }
++    const dispose = ctx.tools.register(original)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, original, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/execute', async (_exec, next) => {
++      const result = await next()
++      dispose()
++      ctx.tools.register(replacement)
++      return result
++    })
++    ctx.on('tools/post-execute', async () => ({
++      kind: 'accept',
++      value: 'post replacement',
++    }))
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-post-value-hmr'),
++      name: original.name,
++      arguments: { text: 'body value' },
++    })
++
++    expect(result).toMatchObject({
++      isError: false,
++      value: 'post replacement',
++      content: [{ type: 'text', text: 'original:post replacement' }],
++    })
++    expect({ originalRenders, replacementRenders, commits }).toEqual({
++      originalRenders: 2,
++      replacementRenders: 0,
++      commits: 0,
++    })
++  })
++
+   it('projects presentation metadata from the canonical value', async () => {
+     const ctx = await setup()
+     ctx.tools.register({
+@@ -758,6 +1413,45 @@ describe('ToolRuntime', () => {
+       expect(seen[0]?.signal).toBe(controller.signal)
+     })
+ 
++    it('closes prerequisite binding before an approval request can suspend admission', async () => {
++      const ctx = await approvalSetup()
++      const entered = Promise.withResolvers<undefined>()
++      const release = Promise.withResolvers<ApprovalOutcome>()
++      let retained: Parameters<ToolRuntime['bindPrerequisite']>[0] | undefined
++      let verifications = 0
++      let commits = 0
++      ctx.on('approval/request', () => {
++        entered.resolve(undefined)
++        return release.promise
++      })
++      ctx.on('tools/pre-execute', async (exec): Promise<PreToolDecision> => {
++        retained = exec
++        return { kind: 'ask' }
++      })
++
++      const pending = ctx.tools.execute({
++        signal: testToolSignal,
++        callId: CallId('approval-closes-prerequisite-binding'),
++        name: 'echo',
++        arguments: { text: 'approved' },
++        agent: fakeAgent(),
++      })
++
++      await entered.promise
++      expect(retained).toBeDefined()
++      expect(() => ctx.tools.bindPrerequisite(retained!, echoTool, {
++        async beforeBody() { verifications += 1 },
++        async commit() { commits += 1 },
++      })).toThrow('prerequisite binding is closed')
++
++      release.resolve('allowed-once')
++      await expect(pending).resolves.toMatchObject({
++        isError: false,
++        content: [{ type: 'text', text: 'approved' }],
++      })
++      expect({ verifications, commits }).toEqual({ verifications: 0, commits: 0 })
++    })
++
+     it('denies with the user-rejection reason on rejected', async () => {
+       const ctx = await approvalSetup()
+       ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+@@ -1256,7 +1950,7 @@ describe('ToolRuntime', () => {
+     expect(dispatched).toBe(0)
+   })
+ 
+-  it('uses ABORTED_BEFORE_DISPATCH when cancellation overtakes a wrapper short-circuit', async () => {
++  it('preserves a successful wrapper short-circuit when cancellation overtakes it', async () => {
+     const ctx = await setup()
+     let dispatched = 0
+     ctx.tools.register({
+@@ -1292,14 +1986,127 @@ describe('ToolRuntime', () => {
+     release.resolve(undefined)
+ 
+     await expect(pending).resolves.toMatchObject({
+-      content: [{ type: 'text', text: 'Error: tool call aborted before dispatch' }],
+-      isError: true,
+-      error: { info: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH } },
++      content: [{ type: 'text', text: 'wrapper success' }],
++      isError: false,
++      value: 'wrapper success',
+       additionalContexts: [{ source: { kind: 'plugin', plugin: 'wrapper' } }],
+     })
+     expect(dispatched).toBe(0)
+   })
+ 
++  it.each(['sequential', 'concurrent'] as const)(
++    'rejects %s replay of one scheduler dispatch before a second body',
++    async (mode) => {
++      const ctx = await setup()
++      const entered = Promise.withResolvers<undefined>()
++      const release = Promise.withResolvers<undefined>()
++      let bodies = 0
++      ctx.tools.register({
++        ...echoTool,
++        name: `scheduler-dispatch-${mode}`,
++        async execute() {
++          bodies += 1
++          entered.resolve(undefined)
++          if (mode === 'concurrent') await release.promise
++          return 'once'
++        },
++      })
++      const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
++      const prepared = await scheduler.prepare({
++        signal: testToolSignal,
++        callId: CallId(`scheduler-dispatch-${mode}`),
++        name: `scheduler-dispatch-${mode}`,
++        arguments: {},
++      })
++      expect(prepared.kind).toBe('dispatch')
++      if (prepared.kind !== 'dispatch') throw new Error('expected dispatch preparation')
++
++      const first = scheduler.dispatch(prepared.exec)
++      await entered.promise
++      await expect(scheduler.dispatch(prepared.exec))
++        .rejects.toThrow('scheduler execution cannot dispatch from its current stage')
++      release.resolve(undefined)
++      const outcome = await first
++      expect(bodies).toBe(1)
++      if (outcome.kind === 'post-result') {
++        await scheduler.finalize(prepared.exec, outcome.result)
++      } else {
++        scheduler.finish(prepared.exec, outcome.result)
++      }
++    },
++  )
++
++  it('rejects double finalization without repeating result notification or prerequisite commit', async () => {
++    const ctx = await setup()
++    let commits = 0
++    let notifications = 0
++    const tool = { ...echoTool, name: 'scheduler-double-finalize' }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {},
++        async commit() { commits += 1 },
++      })
++      return next()
++    })
++    ctx.on('tools/result', () => { notifications += 1 })
++    const scheduler = ctx.tools[TOOL_RUNTIME_SCHEDULER]
++    const prepared = await scheduler.prepare({
++      signal: testToolSignal,
++      callId: CallId('scheduler-double-finalize'),
++      name: tool.name,
++      arguments: { text: 'once' },
++    })
++    if (prepared.kind !== 'dispatch') throw new Error('expected dispatch preparation')
++    const outcome = await scheduler.dispatch(prepared.exec)
++    if (outcome.kind !== 'post-result') throw new Error('expected post result')
++
++    const first = await scheduler.finalize(prepared.exec, outcome.result)
++    await expect(scheduler.finalize(prepared.exec, outcome.result))
++      .rejects.toThrow('scheduler execution cannot finalize from its current stage')
++
++    expect(first).toMatchObject({ isError: false, value: 'once' })
++    expect({ commits, notifications }).toEqual({ commits: 1, notifications: 1 })
++  })
++
++  it.each(['execute', 'post'] as const)(
++    'rejects prerequisite binding from the tools/%s phase after ordered admission',
++    async (phase) => {
++      const ctx = await setup()
++      let verifications = 0
++      let commits = 0
++      const tool = { ...echoTool, name: `prerequisite-late-${phase}` }
++      ctx.tools.register(tool)
++      const attempt = (exec: Parameters<ToolRuntime['bindPrerequisite']>[0]) => {
++        ctx.tools.bindPrerequisite(exec, tool, {
++          async beforeBody() { verifications += 1 },
++          async commit() { commits += 1 },
++        })
++      }
++      if (phase === 'execute') {
++        ctx.on('tools/execute', async (exec) => {
++          expect(() => attempt(exec)).toThrow('prerequisite binding is closed')
++          return { isError: false, value: 'wrapper', content: [{ type: 'text', text: 'wrapper' }] }
++        })
++      } else {
++        ctx.on('tools/post-execute', async (exec) => {
++          expect(() => attempt(exec)).toThrow('prerequisite binding is closed')
++          return { kind: 'accept' as const }
++        })
++      }
++
++      const result = await ctx.tools.execute({
++        signal: testToolSignal,
++        callId: CallId(`prerequisite-late-${phase}`),
++        name: tool.name,
++        arguments: { text: 'body' },
++      })
++
++      expect(result.isError).toBe(false)
++      expect({ verifications, commits }).toEqual({ verifications: 0, commits: 0 })
++    },
++  )
++
+   it('replaces a late wrapper success with ABORTED and preserves deferred contexts', async () => {
+     const ctx = await setup()
+     ctx.tools.register({

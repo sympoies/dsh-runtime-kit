@@ -559,11 +559,14 @@ export function createNilsTransport(ctx, config = {}) {
     /**
      * @param {ToolExecution} exec
      * @param {{sessionId: string, cwd: string, turn: number, step: number}} context
+     * @param {{agentId: string, workspaceGeneration: string, definitionId: string, receipt: string} | undefined} prerequisite
      */
-    async evaluate(exec, context) {
+    async evaluate(exec, context, prerequisite) {
       const principal = resolveManagedSessionPrincipal(ctx, context.sessionId, managedSessionBridge)
       return evaluateIngress({
-        schema_version: 'agent-hook.dsh-ingress.v2',
+        schema_version: prerequisite === undefined
+          ? 'agent-hook.dsh-ingress.v2'
+          : 'agent-hook.dsh-ingress.v5',
         event: 'tools/pre-execute',
         call_id: String(exec.callId),
         cwd: context.cwd,
@@ -573,10 +576,22 @@ export function createNilsTransport(ctx, config = {}) {
           step: context.step,
           agent_docs_home: agentDocsHome,
           agent_docs_state_home: agentDocsStateHome,
+          ...prerequisite === undefined
+            ? {}
+            : {
+                agent_id: prerequisite.agentId,
+                workspace_generation: prerequisite.workspaceGeneration,
+              },
         },
         tool: {
           name: exec.name,
           arguments: exec.arguments,
+          ...prerequisite === undefined
+            ? {}
+            : {
+                definition_id: prerequisite.definitionId,
+                prerequisite_receipt: prerequisite.receipt,
+              },
         },
       }, exec.signal, context.cwd, 'PreToolUse', principal, context.sessionId)
     },

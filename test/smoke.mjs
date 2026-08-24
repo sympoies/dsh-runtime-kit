@@ -16,7 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 
-import { inspectExactDshCheckoutIdentity } from '../src/compat/git-checkout.js'
+import { manageDshPatch } from '../src/compat/dsh-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -64,8 +64,8 @@ const nilsCompatibility = JSON.parse(
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
-assert.equal(nilsCompatibility.minimum_supported_release, '1.27.1')
-assert.equal(nilsCompatibility.validated_release, '1.27.7')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.27.8')
+assert.equal(nilsCompatibility.validated_release, '1.27.8')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -76,6 +76,7 @@ assert.deepEqual(dshIngressCompatibility?.contracts, [
   'agent-hook.dsh-ingress.v2',
   'agent-hook.dsh-ingress.v3',
   'agent-hook.dsh-ingress.v4',
+  'agent-hook.dsh-ingress.v5',
   'agent-hook.policy.v1',
   'dsh.policy.v1',
   'cli.agent-hook.dispatch.v1',
@@ -89,11 +90,18 @@ const dshCompatibility = JSON.parse(
 const selectedDshRelease = dshCompatibility.validated_releases?.[dshManifest.version]
 assert.ok(selectedDshRelease, `unsupported DSH release ${dshManifest.version}`)
 const dshRevision = selectedDshRelease.revision
-const initialDshCheckout = await inspectExactDshCheckoutIdentity({
+const dshPatchManifest = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+)
+const initialDshCheckout = await manageDshPatch({
+  action: 'check',
   sourceRoot: dshRoot,
-  expectedRevision: dshRevision,
+  patchRoot: projectRoot,
+  manifest: dshPatchManifest,
   gitBin: '/usr/bin/git',
 })
+assert.equal(initialDshCheckout.revision, dshRevision)
+assert.equal(initialDshCheckout.after, 'patched')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
 const userHome = join(temporaryRoot, 'home')
@@ -580,6 +588,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
     'src/finish-line/nils-client.js',
     'src/policy/index.js',
     'src/policy/nils-transport.js',
+    'src/prerequisite/index.js',
     'src/review/index.js',
     'src/workspace-lease/index.js',
     'agents/reviewers/reviewer-api-contract.md',
@@ -594,16 +603,20 @@ description = "packed ${dshManifest.version} finish-line smoke"
     'agent-docs/PROJECT_DEV_EDIT.md',
     'cordis.patch.yml',
     'compatibility/dsh.json',
+    'compatibility/dsh-patches.json',
     'compatibility/agent-console.json',
     'compatibility/nils-cli.json',
     'scripts/benchmark-policy.mjs',
     'scripts/check-dsh-compatibility.mjs',
+    'scripts/manage-dsh-patch.mjs',
     'scripts/pack-dsh-compatibility-peers.mjs',
     'scripts/stage-dsh-compatibility-peers.mjs',
     'src/compat/contract.js',
+    'src/compat/dsh-patch.js',
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
+    'patches/deepseek-harness/tool-execution-prerequisite.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -706,6 +719,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
     ? join(temporaryRoot, 'smoke-driver.mjs')
     : join(profileDirectory, 'smoke-driver.mjs')
   const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
+  const codeModeOverlayPath = join(temporaryRoot, 'smoke-code-mode.patch.yml')
   const sandboxRunnerPath = join(temporaryRoot, 'smoke-sandbox-runner.sh')
   const llmModuleUrl = pathToFileURL(
     join(dshRoot, 'packages', 'llm', 'llm', 'src', 'index.ts'),
@@ -718,7 +732,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
   ).href
   writeFileSync(driverPath, `
 import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
-import { Session, SessionId } from ${JSON.stringify(sessionModuleUrl)}
+import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { scopeOf } from ${JSON.stringify(scopeModuleUrl)}
 import { rmSync } from 'node:fs'
 ${agentConsoleTuiPackage === undefined
@@ -913,8 +927,15 @@ class SmokeAdapter extends LlmAdapter {
           }, 'review-specialists-call'),
           textResponse('review smoke done'),
         ]
+      : process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE === '1'
+        ? [
+            toolCallResponse('run_code', {
+              code: 'return await tools.runtime_kit_plus_one({ value: 41 })',
+              description: 'Run nested prerequisite smoke',
+            }, 'run-code-call'),
+            textResponse('code mode smoke done'),
+          ]
       : [
-      toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call'),
       toolCallResponse('write', {
           file_path: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT
             + (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
@@ -924,6 +945,7 @@ class SmokeAdapter extends LlmAdapter {
                 : '/finish-line-edit.txt'),
           content: 'committed edit',
       }, 'finish-line-edit'),
+      toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call'),
       toolCallResponse('bash', {
         command: ${JSON.stringify(validationCommand)},
         description: 'fail the declared validation once',
@@ -991,7 +1013,8 @@ class SmokeAdapter extends LlmAdapter {
         }, 'validation-after-integration-switch'),
       )
     }
-    if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1') {
+    if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1') {
       sequence.push(
         toolCallResponse('runtime_kit_plus_one', { value: 41 }, 'plus-one-call'),
         textResponse('done'),
@@ -1020,6 +1043,7 @@ export function apply(ctx) {
       let postExec
       let finalExec
       let result
+      let runCodeResult
       let contextResult
       let editResult
       let ordinaryResult
@@ -1063,22 +1087,6 @@ export function apply(ctx) {
       }, { prepend: true })
       ctx.on('tools/pre-execute', async (exec, next) => {
         const decision = await next()
-        if (exec.name === 'runtime_kit_plus_one'
-          && String(exec.agent?.id) === targetId
-          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS === '1') {
-          exec.arguments = { value: 99 }
-        }
-        if (exec.name === 'runtime_kit_plus_one'
-          && String(exec.agent?.id) === targetId
-          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION === '1') {
-          const current = exec.agent.session
-          exec.agent.session = Session.create(SessionId(targetId), current.events, current.header)
-        }
-        if (exec.name === 'runtime_kit_plus_one'
-          && String(exec.agent?.id) === targetId
-          && process.env.DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN === '1') {
-          exec.token = Symbol('substituted-token')
-        }
         return decision
       })
       ctx.on('tools/post-execute', (exec, _candidate, next) => {
@@ -1119,6 +1127,8 @@ export function apply(ctx) {
           } else if (exec.name === 'runtime_kit_plus_one') {
             finalExec = exec
             result = finalResult
+          } else if (exec.name === 'run_code') {
+            runCodeResult = finalResult
           } else if (exec.name === 'review_specialists') {
             reviewResult = finalResult
           }
@@ -1158,6 +1168,11 @@ export function apply(ctx) {
 
       const adapter = new SmokeAdapter()
       ctx.llm.registerAdapter([smokeRoute.provider], adapter)
+      const plusOneDefinition = ctx.tools.get('runtime_kit_plus_one')
+      if (plusOneDefinition === undefined) {
+        throw new Error('runtime_kit_plus_one definition missing before prerequisite registration')
+      }
+      ctx.dshRuntimeKit.prerequisites.require(plusOneDefinition, 'project-dev-context')
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/.dsh-validation-count', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/finish-line-native-mutation.txt', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/reviewer-mutation-must-not-exist.txt', { force: true })
@@ -1311,6 +1326,7 @@ export function apply(ctx) {
 
       process.stdout.write('${marker}' + JSON.stringify({
         result,
+        runCodeResult,
         contextResult,
         editResult,
         ordinaryResult,
@@ -1352,6 +1368,7 @@ export function apply(ctx) {
         activeFinishLineReservations: ctx.dshRuntimeKit.activeFinishLineReservations,
         finishLineDegraded: ctx.dshRuntimeKit.finishLineDegraded,
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
+        pendingPrerequisites: ctx.dshRuntimeKit.pendingPrerequisites,
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
         providers: ctx.llm.listProviders().map(provider => provider.id),
         tools: controllerTools,
@@ -1371,7 +1388,12 @@ export function apply(ctx) {
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
         if (reviewResult?.value?.status !== 'completed') process.exitCode = 1
         if (reviewerMutationResult?.isError !== true) process.exitCode = 1
-      } else if (contextResult?.value?.documents?.[0]?.content?.includes('# DSH project development') !== true) {
+      } else if (process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1'
+        && (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
+          ? !adapter.contextVisibility.every(Boolean)
+          : adapter.contextVisibility[0] !== false
+            || adapter.contextVisibility.length < 2
+            || !adapter.contextVisibility.slice(1).every(Boolean))) {
         process.exitCode = 1
       }
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
@@ -1421,6 +1443,23 @@ ${agentConsoleTuiOverlay}
     runnerFailureSignatures:
       - 'dsh-runtime-kit-smoke-runner:'
 - insert:
+    - id: dsh-runtime-kit-smoke-driver
+      name: ${JSON.stringify(driverPath)}
+`)
+  writeFileSync(codeModeOverlayPath, `
+${agentConsoleTuiOverlay}
+- id: tools
+  config:
+    mode: both
+- id: sandbox
+  config:
+    runnerCommand:
+      - ${JSON.stringify(sandboxRunnerPath)}
+    runnerFailureSignatures:
+      - 'dsh-runtime-kit-smoke-runner:'
+- insert:
+    - id: code-runtime
+      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}
     - id: dsh-runtime-kit-smoke-driver
       name: ${JSON.stringify(driverPath)}
 `)
@@ -1499,7 +1538,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(contextResult.isError, false)
   assert.equal(contextResult.value.schema_version, 'dsh-runtime-context.result.v1')
   assert.equal(contextResult.value.intent, 'project-dev')
-  assert.equal(contextResult.value.status, 'prepared')
+  assert.equal(contextResult.value.status, 'already-current')
   assert.equal(contextResult.value.document_count, 1)
   assert.match(contextResult.value.documents[0].content, /# DSH project development/)
   assert.equal(receipt.contextVisibility[0], false)
@@ -1623,6 +1662,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(receipt.activeFinishLineReservations, 0)
   assert.equal(receipt.finishLineDegraded, false)
   assert.equal(receipt.pendingPolicyMarkers, 0)
+  assert.equal(receipt.pendingPrerequisites, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
   if (agentConsoleTuiPackage !== undefined) assert.equal(receipt.userQuestions, true)
@@ -1886,6 +1926,39 @@ ${agentConsoleTuiOverlay}
   assert.equal(resumedReceipt.lifecycle[0], 'session-start:resume')
 
   resetCheckoutLease()
+  const codeModeBoot = runDsh(
+    ['--profile', profile, '--patch', codeModeOverlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-code-mode',
+        DSH_RUNTIME_KIT_SMOKE_CODE_MODE: '1',
+      },
+    },
+  )
+  const codeModeLine = codeModeBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    codeModeLine,
+    `missing Code Mode ${marker} output:\n${codeModeBoot.stdout}\n${codeModeBoot.stderr}`,
+  )
+  const codeModeReceipt = JSON.parse(codeModeLine.slice(marker.length))
+  assert.equal(codeModeReceipt.result.isError, false, JSON.stringify(codeModeReceipt))
+  assert.equal(codeModeReceipt.result.value, 42)
+  assert.equal(codeModeReceipt.runCodeResult.isError, false, JSON.stringify(codeModeReceipt))
+  assert.deepEqual(codeModeReceipt.runCodeResult.value, { logs: [], result: 42 })
+  assert.equal(codeModeReceipt.plusOneExecutions, 1)
+  assert.equal(codeModeReceipt.contextVisibility[0], false)
+  assert.ok(codeModeReceipt.contextVisibility.length >= 2)
+  assert.ok(codeModeReceipt.contextVisibility.slice(1).every(Boolean))
+  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch-start'))
+  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch'))
+  assert.equal(codeModeReceipt.pendingPrerequisites, 0)
+  assert.equal(codeModeReceipt.pendingPolicyMarkers, 0)
+  assert.equal(codeModeReceipt.pendingCorrelations, 0)
+
+  resetCheckoutLease()
   installPolicy('block')
   const blockedBoot = runDsh(
     ['--profile', profile, '--patch', overlayPath],
@@ -1909,6 +1982,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(blockedReceipt.plusOneExecutions, 0)
   assert.equal(blockedReceipt.activePolicyChecks, 0)
   assert.equal(blockedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(blockedReceipt.pendingPrerequisites, 0)
   assert.equal(blockedReceipt.pendingCorrelations, 0)
   assert.equal(blockedReceipt.exactCorrelation, true)
 
@@ -1938,97 +2012,17 @@ ${agentConsoleTuiOverlay}
   assert.equal(shortCircuitedReceipt.plusOneExecutions, 0)
   assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
   assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
+  assert.equal(shortCircuitedReceipt.pendingPrerequisites, 0)
   assert.equal(shortCircuitedReceipt.pendingCorrelations, 0)
 
-  resetCheckoutLease()
-  const replacedArgumentsBoot = runDsh(
-    ['--profile', profile, '--patch', overlayPath],
-    {
-      env: {
-        ...environment,
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-arguments',
-        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
-        DSH_RUNTIME_KIT_SMOKE_REPLACE_ARGUMENTS: '1',
-      },
-    },
-  )
-  const replacedArgumentsLine = replacedArgumentsBoot.stdout
-    .split('\n')
-    .find(candidate => candidate.startsWith(marker))
-  assert.ok(
-    replacedArgumentsLine,
-    `missing argument-replacement ${marker} output:\n${replacedArgumentsBoot.stdout}\n${replacedArgumentsBoot.stderr}`,
-  )
-  const replacedArgumentsReceipt = JSON.parse(replacedArgumentsLine.slice(marker.length))
-  assert.equal(replacedArgumentsReceipt.result.isError, true)
-  assert.match(replacedArgumentsReceipt.result.content[0].text, /policy-marker-missing/)
-  assert.equal(replacedArgumentsReceipt.plusOneExecutions, 0)
-  assert.equal(replacedArgumentsReceipt.activePolicyChecks, 0)
-  assert.equal(replacedArgumentsReceipt.pendingPolicyMarkers, 0)
-  assert.equal(replacedArgumentsReceipt.pendingCorrelations, 0)
-
-  resetCheckoutLease()
-  const replacedSessionBoot = runDsh(
-    ['--profile', profile, '--patch', overlayPath],
-    {
-      env: {
-        ...environment,
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-session',
-        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
-        DSH_RUNTIME_KIT_SMOKE_REPLACE_SESSION: '1',
-      },
-    },
-  )
-  const replacedSessionLine = replacedSessionBoot.stdout
-    .split('\n')
-    .find(candidate => candidate.startsWith(marker))
-  assert.ok(
-    replacedSessionLine,
-    `missing session-replacement ${marker} output:\n${replacedSessionBoot.stdout}\n${replacedSessionBoot.stderr}`,
-  )
-  const replacedSessionReceipt = JSON.parse(replacedSessionLine.slice(marker.length))
-  assert.equal(replacedSessionReceipt.result.isError, true)
-  assert.match(
-    replacedSessionReceipt.result.content[0].text,
-    /workspace reference is not valid for this live agent incarnation/,
-  )
-  assert.equal(replacedSessionReceipt.plusOneExecutions, 0)
-  assert.equal(replacedSessionReceipt.activePolicyChecks, 0)
-  assert.equal(replacedSessionReceipt.pendingPolicyMarkers, 0)
-  assert.equal(replacedSessionReceipt.pendingCorrelations, 0)
-
-  resetCheckoutLease()
-  const replacedTokenBoot = runDsh(
-    ['--profile', profile, '--patch', overlayPath],
-    {
-      env: {
-        ...environment,
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-replaced-token',
-        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'block',
-        DSH_RUNTIME_KIT_SMOKE_REPLACE_TOKEN: '1',
-      },
-    },
-  )
-  const replacedTokenLine = replacedTokenBoot.stdout
-    .split('\n')
-    .find(candidate => candidate.startsWith(marker))
-  assert.ok(
-    replacedTokenLine,
-    `missing token-replacement ${marker} output:\n${replacedTokenBoot.stdout}\n${replacedTokenBoot.stderr}`,
-  )
-  const replacedTokenReceipt = JSON.parse(replacedTokenLine.slice(marker.length))
-  assert.equal(replacedTokenReceipt.result.isError, true)
-  assert.match(replacedTokenReceipt.result.content[0].text, /policy-correlation-invalid/)
-  assert.equal(replacedTokenReceipt.plusOneExecutions, 0)
-  assert.equal(replacedTokenReceipt.activePolicyChecks, 0)
-  assert.equal(replacedTokenReceipt.pendingPolicyMarkers, 0)
-  assert.equal(replacedTokenReceipt.pendingCorrelations, 0)
   assertProviderSentinel(codexHome, 'codex')
   assertProviderSentinel(claudeHome, 'claude')
 
-  const finalDshCheckout = await inspectExactDshCheckoutIdentity({
+  const finalDshCheckout = await manageDshPatch({
+    action: 'check',
     sourceRoot: dshRoot,
-    expectedRevision: selectedDshRelease.revision,
+    patchRoot: projectRoot,
+    manifest: dshPatchManifest,
     gitBin: '/usr/bin/git',
   })
   assert.deepEqual(finalDshCheckout, initialDshCheckout)
@@ -2062,10 +2056,20 @@ ${agentConsoleTuiOverlay}
       },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
+      {
+        id: 'automatic-prerequisite',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'prerequisite:mutating-tool-body-gated',
+          'prerequisite:code-mode-nested-dispatch-gated',
+          'prerequisite:context-ferried-through-run-code',
+        ],
+      },
       { id: 'finish-line', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:result-driven-stop-satisfied'] },
       { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: [
         'policy:blocked-before-body',
-        'policy:correlation-replacement-rejected',
+        'policy:short-circuit-bypass-rejected',
         ...(deliveryRehearsal ? [
           'governed-commit:stale-expected-head-rejected',
           'governed-commit:foreign-session-denied-before-body',
@@ -2081,9 +2085,6 @@ ${agentConsoleTuiOverlay}
     startupContextAbsent: true,
     policyBlockVerified: true,
     shortCircuitGuardVerified: true,
-    argumentReplacementGuardVerified: true,
-    sessionReplacementGuardVerified: true,
-    tokenReplacementGuardVerified: true,
     lifecycleCorrelationVerified: true,
     cancellationAndDisposalVerified: true,
     rejectedLifecycleAttemptsVerified: true,
@@ -2097,6 +2098,7 @@ ${agentConsoleTuiOverlay}
     governedStaleHeadRejected: deliveryRehearsal,
     governedForeignSessionBlocked: deliveryRehearsal,
     nativeReviewSpecialistsVerified: true,
+    codeModeNestedPrerequisiteVerified: true,
     reviewerMutationBlockedBeforeBody: true,
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined
       ? false

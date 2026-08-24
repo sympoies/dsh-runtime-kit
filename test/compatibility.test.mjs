@@ -20,6 +20,7 @@ import {
   validateDshCompatibilityManifest,
 } from '../src/compat/contract.js'
 import { evaluatePolicyPerformanceBudget } from '../src/compat/performance.js'
+import { validateDshPatchManifest } from '../src/compat/dsh-patch.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
@@ -69,7 +70,7 @@ function validRuntime() {
     shellEnv: { collect() {} },
     skills: { register() {} },
     subprocess: { spawn() {} },
-    tools: { register() {}, guard() {} },
+    tools: { bindPrerequisite() {}, get() {}, register() {}, guard() {} },
   }
 }
 
@@ -99,6 +100,14 @@ test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8'
       revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
     },
   })
+  const patchManifest = validateDshPatchManifest(
+    JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8')),
+  )
+  assert.deepEqual(
+    patchManifest.patches[0].validated_releases,
+    Object.fromEntries(Object.entries(manifest.validated_releases)
+      .map(([version, release]) => [version, { revision: release.revision }])),
+  )
   assert.equal(
     manifest.performance.pre_tool.iterations * manifest.performance.pre_tool.batches >= 2_000,
     true,
@@ -306,13 +315,26 @@ test('runtime public-surface preflight returns a typed report or one typed incom
   })
 
   const incompatible = validRuntime()
-  delete incompatible.tools.guard
+  delete incompatible.tools.bindPrerequisite
   assert.throws(
     () => assertDshRc7Runtime(incompatible),
     error => {
       assert.equal(error instanceof DshCompatibilityError, true)
       assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
-      assert.deepEqual(error.diagnostic.missing, ['tools.guard'])
+      assert.deepEqual(error.diagnostic.missing, ['tools.bindPrerequisite'])
+      assert.equal(error.diagnostic.compatible, false)
+      return true
+    },
+  )
+
+  const missingToolLookup = validRuntime()
+  delete missingToolLookup.tools.get
+  assert.throws(
+    () => assertDshRc7Runtime(missingToolLookup),
+    error => {
+      assert.equal(error instanceof DshCompatibilityError, true)
+      assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+      assert.deepEqual(error.diagnostic.missing, ['tools.get'])
       assert.equal(error.diagnostic.compatible, false)
       return true
     },
@@ -683,7 +705,7 @@ test('performance promotion fails closed on p95, retained heap, or active resour
   }
 })
 
-test('compatibility workflow keeps both selected channels promotion-blocking', () => {
+test('compatibility workflow keeps selected channels and every patch release blocking', () => {
   const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const nils = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
@@ -691,12 +713,25 @@ test('compatibility workflow keeps both selected channels promotion-blocking', (
   assert.match(workflow, /channel: upstream-next/)
   assert.match(workflow, new RegExp(manifest.channels.pinned.revision))
   assert.match(workflow, new RegExp(manifest.channels['upstream-next'].revision))
+  for (const release of Object.values(manifest.validated_releases)) {
+    assert.match(workflow, new RegExp(release.revision))
+  }
+  assert.match(workflow, /public_contract: false/)
+  assert.match(workflow, /if: matrix\.public_contract/)
+  assert.match(workflow, /node-version: \$\{\{ matrix\.node \}\}/)
+  assert.match(workflow, /node: 24/)
+  assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
+  assert.match(workflow, /pristine-tools-build\.sha256/)
   assert.match(workflow, /npm run --silent check:compatibility/)
   assert.match(workflow, /npm run --silent pack:compatibility-peers/)
   assert.match(workflow, /--channel "\$\{\{ matrix\.channel \}\}"/)
   assert.match(workflow, /--pnpm-bin "\$\(command -v pnpm\)"/)
   assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
   assert.match(workflow, /npm run --silent stage:compatibility-peers/)
+  assert.match(workflow, /--action apply/)
+  assert.match(workflow, /pnpm vitest run packages\/core\/tools\/tests\/tools\.spec\.ts/)
+  assert.match(workflow, /npm run test:smoke/)
+  assert.match(workflow, /--action reverse/)
   assert.match(workflow, /npm ci --ignore-scripts --omit=peer/)
   assert.doesNotMatch(workflow, /compatibility-peers\/\*\.tgz/)
   assert.doesNotMatch(workflow, /npm install --offline/)

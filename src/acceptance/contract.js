@@ -24,6 +24,7 @@ const PRODUCERS = Object.freeze({
   operations: Object.freeze(['bootstrap', 'inspect']),
   'packed-runtime': Object.freeze([
     'edit',
+    'automatic-prerequisite',
     'validate',
     'review',
     'private-project-skill',
@@ -42,6 +43,11 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
     ]),
   }),
   'packed-runtime': Object.freeze({
+    'automatic-prerequisite': Object.freeze([
+      'prerequisite:mutating-tool-body-gated',
+      'prerequisite:code-mode-nested-dispatch-gated',
+      'prerequisite:context-ferried-through-run-code',
+    ]),
     'private-project-skill': Object.freeze([
       'coexistence:no-cross-loaded-hooks-skills-session-state',
       'coexistence:dsh-hook-docs-state-isolated',
@@ -86,6 +92,9 @@ function requiredScenarioEvidence(producer, id) {
   if (producer === 'packed-runtime' && id === 'private-project-skill') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['private-project-skill']
   }
+  if (producer === 'packed-runtime' && id === 'automatic-prerequisite') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['automatic-prerequisite']
+  }
   return []
 }
 
@@ -93,6 +102,7 @@ const SCENARIO_ORDER = Object.freeze([
   'bootstrap',
   'inspect',
   'edit',
+  'automatic-prerequisite',
   'validate',
   'review',
   'private-project-skill',
@@ -288,6 +298,7 @@ function scenariosFrom(input, producer) {
 
 /** @param {Record<string, any>} actual @param {Record<string, any>} expected */
 function dshAccepted(actual, expected) {
+  const patch = actual.patch
   return actual.schema_version === 'dsh-runtime-kit.dsh-source-report.v1'
     && actual.compatible === true
     && actual.channel === expected.channel
@@ -299,6 +310,15 @@ function dshAccepted(actual, expected) {
     && /^[0-9a-f]{40}$/u.test(expected.revision)
     && typeof expected.version === 'string'
     && EXACT_VERSION.test(expected.version)
+    && patch?.schema_version === 'dsh-runtime-kit.dsh-patch-receipt.v1'
+    && patch.patch_id === 'tool-execution-prerequisite-v1'
+    && patch.version === actual.version
+    && patch.revision === actual.revision
+    && patch.action === 'check'
+    && patch.before === 'patched'
+    && patch.after === 'patched'
+    && patch.changed === false
+    && patch.upstream_checkout_clean === false
 }
 
 /** @param {Record<string, any>} compatibility @param {Record<string, any>} nils */

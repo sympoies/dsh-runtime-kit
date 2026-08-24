@@ -26,12 +26,14 @@ import {
   buildAcceptanceSummary,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
+import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
 import { extractFreshPackage } from '../src/acceptance/package-staging.js'
 import {
   createToolPath,
   discoverPreparedPnpmStore,
 } from '../src/acceptance/tool-path.js'
 import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { manageDshPatch } from '../src/compat/dsh-patch.js'
 import {
   inspectSelectedDshCheckout,
   inspectSelectedDshCheckoutIdentity,
@@ -697,6 +699,24 @@ async function main() {
       gitBin: git.path,
       manifest: dshManifest,
     })
+    const dshPatchManifest = await jsonFile(
+      resolve(sourceProjectRoot, 'compatibility', 'dsh-patches.json'),
+      'DSH patch manifest',
+    )
+    const dshPatch = await manageDshPatch({
+      action: 'apply',
+      sourceRoot: dshSourceRoot,
+      patchRoot: sourceProjectRoot,
+      manifest: dshPatchManifest,
+      gitBin: git.path,
+    })
+    runChecked(tools.pnpm.path, ['run', 'build:lib:host'], {
+      cwd: dshSourceRoot,
+      env,
+      timeout: SCENARIO_TIMEOUT_MS,
+      label: 'patched DSH host build',
+    })
+    const patchedDshBuild = await digestDshBuildClosure(dshSourceRoot)
     enterPhase('package-preparation')
     const suppliedPackage = input.packageTarball === undefined
       ? undefined
@@ -794,12 +814,32 @@ async function main() {
           )
         }
       }
-      await inspectSelectedDshCheckout({
+      const currentDshBuild = await digestDshBuildClosure(dshSourceRoot)
+      if (currentDshBuild.sha256 !== patchedDshBuild.sha256
+        || currentDshBuild.file_count !== patchedDshBuild.file_count
+        || currentDshBuild.byte_count !== patchedDshBuild.byte_count) {
+        throw new AcceptanceError(
+          'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
+          'patched DSH build closure changed during candidate execution',
+        )
+      }
+      const patchState = await manageDshPatch({
+        action: 'check',
         sourceRoot: dshSourceRoot,
-        channel: 'pinned',
+        patchRoot: sourceProjectRoot,
+        manifest: dshPatchManifest,
         gitBin: git.path,
-        manifest: dshManifest,
       })
+      if (patchState.after !== 'patched'
+        || patchState.patch_id !== dshPatch.patch_id
+        || patchState.version !== dshPatch.version
+        || patchState.revision !== dshPatch.revision) {
+        throw new AcceptanceError(
+          'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
+          'DSH patch identity changed during acceptance',
+        )
+      }
+      return patchState
     }
     enterPhase('operations-scenario')
     await verifyControlPlane()
@@ -831,7 +871,7 @@ async function main() {
       systemdRun,
     )
     enterPhase('final-verification')
-    await verifyControlPlane()
+    const finalDshPatch = await verifyControlPlane()
     for (const [name, original, copy] of [
       ['agent-hook', hookSource, agentHook],
       ['agent-docs', docsSource, agentDocs],
@@ -865,7 +905,7 @@ async function main() {
     const summary = buildAcceptanceSummary({
       runtime,
       operations,
-      dsh: dshReport,
+      dsh: { ...dshReport, patch: finalDshPatch },
       expected_dsh: {
         repository: dshManifest.repository,
         channel: 'pinned',

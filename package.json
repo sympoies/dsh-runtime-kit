@@ -7,7 +7,8 @@
   "bin": {
     "dsh-runtime-kit": "./bin/dsh-runtime-kit.js",
     "dsh-runtime-kit-launch": "./bin/dsh-runtime-kit-launch.js",
-    "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs"
+    "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs",
+    "dsh-runtime-kit-manage-dsh-patch": "./scripts/manage-dsh-patch.mjs"
   },
   "exports": {
     ".": "./index.js",
@@ -28,6 +29,7 @@
     "cordis.patch.yml",
     "compatibility",
     "policy",
+    "patches",
     "scripts/check-rule-parity-source.mjs",
     "docs",
     "scripts",
@@ -73,6 +75,7 @@
     "test:workspace-lease-native-smoke": "node test/workspace-lease-native-smoke.mjs",
     "test:operations-smoke": "node test/operations-smoke.mjs",
     "check:compatibility": "node scripts/check-dsh-compatibility.mjs",
+    "dsh-patch": "node scripts/manage-dsh-patch.mjs",
     "pack:compatibility-peers": "node scripts/pack-dsh-compatibility-peers.mjs",
     "stage:compatibility-peers": "node scripts/stage-dsh-compatibility-peers.mjs",
     "acceptance": "node scripts/run-acceptance.mjs",

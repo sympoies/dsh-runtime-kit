@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.0` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | `1.27.1` through validated `1.27.7`; DSH rc.2 requires `1.27.5` or newer |
+| nils-cli | exactly validated `1.27.8` or a later explicitly validated release |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
@@ -17,8 +17,9 @@ Runtime startup requires one homogeneous `0.1.0-rc.7`, `0.1.0-rc.8`, or
 service methods before registering a listener, tool, service, or skill. Mixed
 or unknown peer versions fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
-`DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; it never patches DSH sources or partially
-activates the plugin.
+`DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; plugin activation also requires the native
+`tools.bindPrerequisite` method supplied by the authenticated patch and never
+partially activates without it.
 
 ## Machine-readable contract
 
@@ -27,6 +28,13 @@ pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.0-rc.7`,
 `0.1.0-rc.8`, and `0.1.1-rc.2` release identities, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets.
+
+[`compatibility/dsh-patches.json`](../compatibility/dsh-patches.json) is
+authoritative for the only downstream DSH patch: its artifact digest, exact
+target before/after hashes, and the three reviewed release revisions. The
+package does not fork, vendor, or propose this integration upstream. The patch
+manager accepts only a pristine or exactly patched checkout and emits a typed
+receipt for check, apply, or reverse.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
@@ -50,11 +58,16 @@ verifies exact Git identity, package versions, public entrypoint digests, export
 kinds, and the complete selected workspace dependency closure without executing
 checkout bytes.
 
-CI keeps separate blocking `pinned` and `upstream-next` matrix rows for the
-source-artifact contract. The rc.8 release is independently pinned and must
-pass the same packed runtime composition smoke before its peer range is
-advertised. Advancing either selection is therefore a reviewed compatibility
-decision and does not silently broaden the released peer range.
+CI keeps separate blocking `pinned` and `upstream-next` matrix rows. Each row
+authenticates and packs the pristine upstream artifact closure, applies the
+reviewed patch, rebuilds DSH, runs DSH's complete tool-runtime tests and the
+packed runtime smoke, reverses the patch, and proves the checkout pristine.
+It then rebuilds the pristine host and authenticates the unpatched tools
+entrypoint, so source reversal cannot leave a patched ignored `lib/` runtime.
+The rc.7 and rc.8 releases are independently pinned and receive the same local
+patch apply/reverse and packed-smoke acceptance before their peer range is
+advertised. Advancing any selection therefore requires new patch hashes and
+evidence; it cannot silently broaden the supported range.
 
 Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture

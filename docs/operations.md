@@ -15,6 +15,31 @@ created the ordered base + `@deepseek-harness-tui/dsh-tui@0.9.0` profile before
 runtime-kit is added as its final bundle. Save the complete pre-activation
 profile and the owner-only runtime root as the rollback point.
 
+Runtime-kit also requires one authenticated source patch in the selected DSH
+checkout. This is an operator/deployment action, never an agent-authored shell
+workaround. Before activating or updating the bundle, stop the affected DSH
+processes, apply the patch, and rebuild the host libraries:
+
+```sh
+dsh-runtime-kit-manage-dsh-patch --action apply \
+  --source-root /absolute/deepseek-harness
+pnpm --dir /absolute/deepseek-harness run build:lib:host
+```
+
+The command is idempotent and returns a
+`dsh-runtime-kit.dsh-patch-receipt.v1` JSON receipt. It accepts only the exact
+revisions in `compatibility/dsh-patches.json`, verifies the patch artifact and
+all target hashes, and refuses partial state or unrelated checkout changes.
+Run `--action check` in health probes and before each service start; the
+required terminal state is `after: "patched"`.
+
+Rollback is the reverse transaction: stop DSH, run `--action reverse`, rebuild,
+and require `upstream_checkout_clean: true` before starting an unpatched host.
+The patch receipt also reports `runtime_rebuilt: false` because it authenticates
+source only; require an unpatched smoke after rebuilding ignored `lib/` output.
+Do not use `git reset`, hand-edit the target, or copy a patched DSH tree. A
+failed reverse is a deployment blocker, not permission to bypass provenance.
+
 Create one absolute owner-only directory that does not overlap DSH home, Codex
 home, Claude Code home, or another runtime's state:
 
@@ -188,10 +213,9 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_HOME`
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
-`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` may pin
-the released v1.27.1 through validated v1.27.7 executables for DSH rc.7 and
-rc.8. The exact reviewed DSH rc.2 path requires v1.27.5 or newer for its lifecycle,
-finish-line, and advisory checkout repairs. Missing or non-absolute isolation paths fail
+`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
+the released and validated v1.27.8 executables for every supported DSH row.
+Missing or non-absolute isolation paths fail
 plugin activation; ambient XDG, Codex, and Claude Code paths are not fallbacks.
 
 Activation retains only asset sets referenced by current, previous, pending, or

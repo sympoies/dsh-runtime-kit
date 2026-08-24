@@ -208,8 +208,8 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.1')
-  assert.equal(manifest.validated_release, '1.27.7')
+  assert.equal(manifest.minimum_supported_release, '1.27.8')
+  assert.equal(manifest.validated_release, '1.27.8')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -232,6 +232,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
       'agent-hook.dsh-ingress.v2',
       'agent-hook.dsh-ingress.v3',
       'agent-hook.dsh-ingress.v4',
+      'agent-hook.dsh-ingress.v5',
       'agent-hook.policy.v1',
       'dsh.policy.v1',
       'cli.agent-hook.dispatch.v1',
@@ -243,6 +244,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
       'sympoies/nils-cli task 3.3',
       'sympoies/nils-cli task 3.4',
       'sympoies/nils-cli#1491',
+      'sympoies/nils-cli#1497',
     ],
   })
   assert.deepEqual(
@@ -258,6 +260,35 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
         'agent-docs.session.v2',
       ],
       source_task: 'sympoies/nils-cli task 2.2',
+    },
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-docs.session.prerequisite.dsh'),
+    {
+      id: 'agent-docs.session.prerequisite.dsh',
+      binary: 'agent-docs',
+      status: 'released',
+      validation: 'release-artifact-validated',
+      contracts: [
+        'cli.agent-docs.session.prerequisite.v1',
+        'decision.prerequisite.v1',
+        'agent-docs.session.v2',
+      ],
+      source_task: 'sympoies/nils-cli#1497',
+    },
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-docs.session.commit-prerequisite.dsh'),
+    {
+      id: 'agent-docs.session.commit-prerequisite.dsh',
+      binary: 'agent-docs',
+      status: 'released',
+      validation: 'release-artifact-validated',
+      contracts: [
+        'cli.agent-docs.session.commit-prerequisite.v1',
+        'agent-docs.session.v2',
+      ],
+      source_task: 'sympoies/nils-cli#1497',
     },
   )
   assert.deepEqual(
