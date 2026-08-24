@@ -2,33 +2,33 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.27.1",
-  "validated_release": "1.27.4",
+  "validated_release": "1.27.5",
   "release": {
-    "source_revision": "v1.27.4",
-    "source_commit": "389580b8413a90c4b09160111110ace54733d57a",
+    "source_revision": "v1.27.5",
+    "source_commit": "94a7e98897a0c78ab063b6d7fbe0df2e57344f31",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "3df3789fc3808dd806e592e2a1eceda8fec0bd528e1658cbcc0685a102defa3c"
+      "name": "nils-cli-v1.27.5-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "132842847848d1d0e1506f4bce244cbd1388eb28a7852122b4e098d4c223d920"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "cd5ad61dee0cab1665087ec5fcf23e124ac0a04cbbb8e0b9e7df58256b14bd63"
+        "sha256": "a0da9015371e4b1df15ccefd80a3951596f7448ee95068faf57414094f7d7908"
       },
       "agent-docs": {
-        "sha256": "1509e632cda191b0ea79c746187d8cfa1d74da800c32a1cfeaf7141a56574d61"
+        "sha256": "3272fa23d856f52712b7e49ca0d6d1735207f00fac060ffe117dac63fc055b7c"
       },
       "forge-cli": {
-        "sha256": "1dca3f33331be9363f21824007d099de0880fce33f6ab238de6ea768420f09e5"
+        "sha256": "49c096daab35822c73b0899a752337a792352276778f340a7ae95d3f8352c80c"
       },
       "git-cli": {
-        "sha256": "d729ed2e1e25e964f60c0d0fab5ecfbeb70b378619c4f7c8f56f412c60beb542"
+        "sha256": "1943e4945805aa3e11aa827669d10e9eff1a65969ef7c02b5f801e4abf44be6e"
       },
       "review-specialists": {
-        "sha256": "b662218fb2294619f0d4b69885672e8f845389ad8b41aafd6b8be6b6489acfc0"
+        "sha256": "fc4b3012c086aefec1ef028a70262bf3fa5dd2f5aaeb05bf245536e2c6d3b43f"
       },
       "semantic-commit": {
-        "sha256": "a59ce8993ef3c1f602b5f6e4b3ba295e332afc7ab1fa695e26ec3a55b758e5d6"
+        "sha256": "b0814e380012f0ab65b568a54b94c0ef39b813bc2e4bf465c238237e46619b73"
       }
     }
   },
