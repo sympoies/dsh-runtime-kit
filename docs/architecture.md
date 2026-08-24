@@ -14,6 +14,13 @@ Responsibilities are intentionally split:
 - nils-cli owns deterministic policy evaluation, repository lifecycle
   commands, and machine-readable contracts.
 
+The runtime-owned workspace service follows the same split: DSH supplies exact
+agent/session/tool lifecycle, runtime-kit binds that public lifecycle to opaque
+host authority, and nils-cli owns canonical Git/worktree identity plus durable
+cross-process leases and fencing. The exported contract is documented in
+[Workspace identity and leases](workspace-leases.md); it remains dormant in the
+default bundle until its nils-cli provider and packed acceptance gate land.
+
 ## Runtime composition and policy
 
 Live composition has an explicit runtime-root boundary. The package requires

@@ -12,6 +12,7 @@
   "exports": {
     ".": "./index.js",
     "./agent-console-profile": "./src/compat/agent-console.js",
+    "./workspace-lease": "./src/workspace-lease/index.js",
     "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"
@@ -30,6 +31,7 @@
     "docs",
     "scripts",
     "test/smoke.mjs",
+    "test/workspace-lease-smoke.mjs",
     "test/operations-smoke.mjs",
     "skills",
     "README.md",
@@ -65,6 +67,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:smoke": "node test/smoke.mjs",
+    "test:workspace-lease-smoke": "node test/workspace-lease-smoke.mjs",
     "test:operations-smoke": "node test/operations-smoke.mjs",
     "check:compatibility": "node scripts/check-dsh-compatibility.mjs",
     "pack:compatibility-peers": "node scripts/pack-dsh-compatibility-peers.mjs",

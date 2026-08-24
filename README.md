@@ -141,6 +141,7 @@ for its ownership model and current limitations.
 - [Documentation index](docs/README.md)
 - [Operations](docs/operations.md)
 - [Architecture and runtime contract](docs/architecture.md)
+- [Workspace identity and leases](docs/workspace-leases.md)
 - [Compatibility](docs/compatibility.md)
 - [Private and project skills](docs/private-skills.md)
 - [Acceptance boundary](docs/acceptance.md)

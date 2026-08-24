@@ -19,6 +19,8 @@ routine contributor entrypoint.
 
 - [Architecture](architecture.md) — composition, lifecycle, policy, reviewer,
   finish-line, activation, compatibility, and trust boundaries.
+- [Workspace identity and leases](workspace-leases.md) — the runtime-owned
+  Cordis contract, nils-cli provider boundary, and fail-closed lifecycle.
 - [Acceptance boundary](acceptance.md) — what local rehearsal proves and what
   independent promotion must add.
 - [Historical migration snapshot](migration.md) — the pre-closeout source

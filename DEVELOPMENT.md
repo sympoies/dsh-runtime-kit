@@ -97,6 +97,16 @@ AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 npm run test:smoke
 ```
 
+The narrower workspace contract smoke installs the same packed candidate into
+a clean profile but composes only the exported WorkspaceLease plugin and a
+deterministic test provider. Use it across every supported DSH row while the
+capability is intentionally dormant in the default bundle:
+
+```sh
+DSH_SOURCE_ROOT=/path/to/deepseek-harness \
+npm run test:workspace-lease-smoke
+```
+
 Exercise the exact Agent Console layer on the same smoke by selecting the only
 authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
 inspects the unmodified TUI tree, disables only the interactive front door in

@@ -553,6 +553,7 @@ description = "packed ${dshManifest.version} finish-line smoke"
     'src/policy/index.js',
     'src/policy/nils-transport.js',
     'src/review/index.js',
+    'src/workspace-lease/index.js',
     'agents/reviewers/reviewer-api-contract.md',
     'agents/reviewers/reviewer-data-migration.md',
     'agents/reviewers/reviewer-maintainability.md',
@@ -582,7 +583,9 @@ description = "packed ${dshManifest.version} finish-line smoke"
     'scripts/verify-policy-parity.mjs',
     'docs/policies/git-delivery.md',
     'docs/policies/review-thread-convergence.md',
+    'docs/workspace-leases.md',
     'skills/bootstrap/SKILL.md',
+    'test/workspace-lease-smoke.mjs',
   ]) {
     assert.ok(packedFiles.has(required), `packed artifact is missing ${required}`)
   }
