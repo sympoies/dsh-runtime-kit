@@ -848,6 +848,7 @@ export class WorkspaceLease extends Service {
 
     const admission = deferred()
     binding.admissions.add(admission.promise)
+    this.#syncRenewalTimerRef(binding)
     const admissionSignal = fuseSignals(identity.signal, binding.lifecycle.signal)
     try {
       /** @type {WorkspaceLeaseBeginResult} */
@@ -926,6 +927,7 @@ export class WorkspaceLease extends Service {
       admissionSignal.dispose()
       binding.admissions.delete(admission.promise)
       admission.resolve()
+      this.#syncRenewalTimerRef(binding)
     }
   }
 
@@ -1055,6 +1057,7 @@ export class WorkspaceLease extends Service {
       this.#executions.delete(exec)
       binding.operations.delete(operation)
       operation.settle()
+      this.#syncRenewalTimerRef(binding)
     }
   }
 
@@ -1070,7 +1073,19 @@ export class WorkspaceLease extends Service {
         if (binding.renewing === renewal) binding.renewing = undefined
       }).catch(() => {})
     }, binding.renewAfterMs)
-    binding.renewTimer.unref()
+    this.#syncRenewalTimerRef(binding)
+  }
+
+  /**
+   * Idle bindings must not keep the process alive, while an admission or an
+   * acquired operation must keep its renewal deadline observable.
+   * @param {BoundWorkspace} binding
+   */
+  #syncRenewalTimerRef(binding) {
+    if (binding.renewTimer === undefined) return
+    if (binding.admissions.size > 0 || binding.operations.size > 0) {
+      binding.renewTimer.ref()
+    } else binding.renewTimer.unref()
   }
 
   /** @param {BoundWorkspace} binding */

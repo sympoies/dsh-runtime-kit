@@ -1155,7 +1155,16 @@ test('provider disposal aborts and drains an in-flight renewal before release', 
   publish(ctx, agent)
   await ctx.workspaceLease.ref(agent)
 
-  await renewalStarted
+  await new Promise((resolve, reject) => {
+    const deadline = setTimeout(
+      () => reject(new Error('renewal did not start before the test deadline')),
+      1_000,
+    )
+    renewalStarted.then(() => {
+      clearTimeout(deadline)
+      resolve()
+    }, reject)
+  })
   await disposeProvider()
 
   assert.deepEqual(sequence, ['renew-start', 'renew-abort', 'release'])
