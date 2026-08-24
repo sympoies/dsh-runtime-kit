@@ -463,6 +463,8 @@ export async function apply(ctx, config = {}) {
     const managedSessionBridge = createManagedSessionBridge()
     const runtimeConfig = { ...config, managedSessionBridge }
     applyManagedSessionAuthentication(ctx, runtimeConfig, managedSessionBridge)
+    const { applyNilsWorkspaceLease } = await import('./src/workspace-lease/nils-provider.js')
+    await applyNilsWorkspaceLease(ctx, runtimeConfig)
     applyPolicy(ctx, runtimeConfig, reviewers, dshRuntime, childPlugins)
     observeChildPluginActivation(
       childPlugins,

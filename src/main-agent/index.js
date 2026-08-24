@@ -547,7 +547,12 @@ export function applyMainAgentMode(ctx, config = {}) {
         reason: 'dsh-runtime-kit:main-agent-anchor-parked',
       }
     }
-    const hasManagedSessionCandidate = CONTROLLER_PRINCIPAL_ENV_KEYS.some(
+    // Partial AGENT_SESSION_* values are also used as subprocess-isolation
+    // sentinels. Only the producer's complete principal can claim the
+    // managed-controller authentication path; once complete, authentication
+    // still fails closed on every value and the producer-owned readiness
+    // receipt below.
+    const hasManagedSessionCandidate = CONTROLLER_PRINCIPAL_ENV_KEYS.every(
       name => typeof process.env[name] === 'string' && process.env[name].length > 0,
     )
     if (typeof sessionId === 'string'

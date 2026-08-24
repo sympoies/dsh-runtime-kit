@@ -6,10 +6,10 @@ authority provider. It does not inspect Git, persist leases, or implement
 policy in JavaScript. Those decisions belong to the version-matched nils-cli
 provider.
 
-This first contract increment exports the plugin and protocol but does not yet
-compose it into the default runtime bundle. Default activation is intentionally
-deferred until the nils-cli provider exists and the packed integration gate can
-prove fail-closed behavior end to end.
+The default runtime bundle composes this service and registers the strict nils
+provider before runtime policy listeners activate. A missing, incompatible,
+malformed, timed-out, overloaded, cancelled, or process-tree-uncertain provider
+fails closed before an agent tool body can mutate the workspace.
 
 ## Boundary and ownership
 
@@ -27,9 +27,11 @@ issues approve a version-pinned patch lifecycle before any source edit.
 
 ## Public surface
 
-Compose the exported `WorkspaceLease` Cordis service, then register exactly one
-same-process provider through `ctx.workspaceLease.registerProvider(provider)`.
-The provider must declare `protocolVersion: 1` and implement:
+The default bundle composes the exported `WorkspaceLease` Cordis service and
+registers exactly one same-process provider through
+`ctx.workspaceLease.registerProvider(provider)`. Embedders using the standalone
+export must perform the same composition explicitly. The provider must declare
+`protocolVersion: 1` and implement:
 
 - `bind(request, signal)` to bind an exact DSH session generation;
 - `begin(request, signal)` to classify a tool call and acquire fenced mutation
@@ -53,6 +55,16 @@ same-process provider can classify the call; it must project only the bounded
 facts required by nils-cli and must not log or persist arbitrary payloads. A
 model-supplied `workspaceRef`, cwd-like argument, or copied object never selects
 authority.
+
+One live runtime lineage at one exact cwd shares its ancestor's provider
+binding. Each Agent still receives a distinct process-local reference and exact
+tool correlation, while the provider continues to see the root binding
+principal that owns the durable generation. This lets read-only reviewers and
+managed children operate without impersonating a second external owner. A
+different top-level session always reaches the provider independently and
+contends on the canonical worktree. Parent rebind carries still-live children
+onto the new generation only after the prior generation releases; the gap
+remains fail-closed.
 
 ## Lifecycle contract
 
@@ -89,6 +101,30 @@ cancellation path as a backstop against another tool wrapper replacing that
 signal. Disposal separately aborts an in-flight completion and renewal before
 durable release.
 
+## Native nils transport
+
+`src/workspace-lease/nils-provider.js` is a transport and schema adapter, not a
+second policy engine. It maps the five host-authenticated lifecycle calls to
+`agent-hook workspace-lease bind|begin|complete|renew|release`, always with the
+configured absolute DSH-only config, policy, and state roots. The subprocess
+working directory is the fixed agent-hook state directory; canonical workspace
+selection comes only from the trusted bind request and later opaque binding
+identifiers, never shell state or a branch name.
+
+Requests and responses are byte-bounded and versioned. The adapter accepts
+only exact success envelopes and stable bounded denial fields, uses an isolated
+nils environment, bounds concurrency and deadlines, proves process-tree
+quiescence after every call, and permanently closes admission when quiescence
+cannot be established. It never interprets Git state, reimplements lease
+recovery, or forwards paths, tool arguments, subprocess output, or provider
+diagnostics to the model.
+
+After a clean release or expiry, nils may recover a dirty worktree only for the
+same host-authenticated session and parent lineage on an explicit `resume` or
+`compact` lifecycle, and only when no operation lacks a terminal outcome. A
+different session still receives `dirty`; recovery always mints a new binding
+ID and generation, so old receipts cannot revive authority.
+
 ## Compatibility and validation
 
 The protocol version is independent of the package version. Unknown protocol
@@ -97,7 +133,11 @@ adaptation, if required, must stay isolated in compatibility code and must not
 change the provider wire contract implicitly.
 
 Focused contract coverage lives in
-[`test/workspace-lease.test.mjs`](../test/workspace-lease.test.mjs). Promotion
-also requires the packed compatibility matrix and real two-session,
+[`test/workspace-lease.test.mjs`](../test/workspace-lease.test.mjs), with native
+transport coverage in
+[`test/workspace-lease-provider.test.mjs`](../test/workspace-lease-provider.test.mjs).
+Packed native contention and linked-worktree concurrency coverage lives in
+[`test/workspace-lease-native-smoke.mjs`](../test/workspace-lease-native-smoke.mjs).
+Promotion also requires the packed compatibility matrix and real two-session,
 restart/recovery, upgrade, and rollback acceptance described by issue #56; a
-focused green test alone does not activate or promote this capability.
+focused green test alone does not promote this capability.

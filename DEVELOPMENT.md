@@ -84,8 +84,8 @@ the published npm package.
 
 The keyless smoke test installs the packed candidate into a clean temporary DSH
 profile, boots the real rc.7 composition, exercises selective context and
-finish-line behavior, runs the governed Git path, validates specialist review,
-and calls `runtime_kit_plus_one` through DSH's real tool pipeline.
+finish-line behavior, validates specialist review, and calls
+`runtime_kit_plus_one` through DSH's real tool pipeline.
 
 Prepare a clean built DSH checkout without running its repository hook
 installer, then run:
@@ -97,14 +97,31 @@ AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 npm run test:smoke
 ```
 
+The disposable profile is intentionally unmanaged and therefore does not
+claim the owner/coordination authority required for governed default-branch
+delivery. Set `DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL=1` only from a prepared
+managed-session acceptance environment; an unmanaged session must remain
+blocked rather than manufacture owner evidence.
+
 The narrower workspace contract smoke installs the same packed candidate into
 a clean profile but composes only the exported WorkspaceLease plugin and a
-deterministic test provider. Use it across every supported DSH row while the
-capability is intentionally dormant in the default bundle:
+deterministic test provider. Use it across every supported DSH row to isolate
+the public DSH lifecycle contract from the default bundle's native nils
+transport:
 
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 npm run test:workspace-lease-smoke
+```
+
+The native workspace acceptance uses the packed runtime adapter and the exact
+candidate `agent-hook` binary. It proves same-worktree denial before the body
+and overlapping mutation in two linked worktrees:
+
+```sh
+DSH_SOURCE_ROOT=/path/to/deepseek-harness \
+AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
+npm run test:workspace-lease-native-smoke
 ```
 
 Exercise the exact Agent Console layer on the same smoke by selecting the only

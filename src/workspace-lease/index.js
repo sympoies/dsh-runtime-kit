@@ -149,19 +149,20 @@ export const WORKSPACE_LEASE_PROTOCOL_VERSION = 1
  * @property {AbortController | undefined} bindController
  * @property {Promise<BoundWorkspace> | undefined} attempt
  * @property {BoundWorkspace | undefined} bound
+ * @property {WorkspaceRef | undefined} ref
  * @property {boolean} disposed
  */
 
 /**
  * @typedef BoundWorkspace
  * @property {AgentSlot} owner
+ * @property {Set<AgentSlot>} owners
  * @property {Agent['session']} session
  * @property {ProviderSlot} provider
  * @property {string} bindingId
  * @property {string} workspaceId
  * @property {string} generation
  * @property {'owned' | 'unmanaged'} initialState
- * @property {WorkspaceRef} ref
  * @property {AbortController} lifecycle
  * @property {Set<Promise<void>>} admissions
  * @property {Set<LeaseOperation>} operations
@@ -529,12 +530,14 @@ export class WorkspaceLease extends Service {
     }
     const binding = await slot.attempt
     if (slot.bound !== binding
-      || agent.session !== binding.session
+      || agent.session !== slot.session
+      || !binding.owners.has(slot)
       || binding.released
       || binding.failure !== undefined) {
       throw binding.failure ?? new WorkspaceLeaseInvalidRefError()
     }
-    return binding.ref
+    if (slot.ref === undefined) throw new WorkspaceLeaseInvalidRefError()
+    return slot.ref
   }
 
   /**
@@ -549,8 +552,9 @@ export class WorkspaceLease extends Service {
     const slot = this.#agentSlots.get(agent)
     if (meta === undefined
       || meta.agent !== agent
-      || meta.binding.owner !== slot
-      || agent.session !== meta.binding.session
+      || slot === undefined
+      || !meta.binding.owners.has(slot)
+      || agent.session !== slot.session
       || slot.bound !== meta.binding
       || meta.binding.released) {
       throw new WorkspaceLeaseInvalidRefError()
@@ -575,6 +579,7 @@ export class WorkspaceLease extends Service {
         bindController: undefined,
         attempt: undefined,
         bound: undefined,
+        ref: undefined,
         disposed: false,
       }
       this.#agentSlots.set(agent, slot)
@@ -595,9 +600,16 @@ export class WorkspaceLease extends Service {
               && error.code === WORKSPACE_LEASE_RELEASE_FAILED) throw error
             // An unbound lifecycle owns no authority to release.
           }
-          if (binding !== undefined) await this.#releaseBinding(binding, 'agent-disposed')
+          if (binding !== undefined) {
+            if (binding.owner === exact) {
+              await this.#releaseBinding(binding, 'agent-disposed')
+            } else {
+              this.#detachOwner(binding, exact)
+            }
+          }
         } finally {
           exact.bound = undefined
+          exact.ref = undefined
           this.#liveSlots.delete(exact)
         }
       }, 'workspaceLease.agentBinding()')
@@ -607,16 +619,56 @@ export class WorkspaceLease extends Service {
     this.#startBinding(slot, source)
   }
 
+  /**
+   * A child created by this exact DSH runtime may share its live ancestor's
+   * provider binding only when the immutable session lineage and cwd agree.
+   * Independent top-level sessions still reach the provider and contend on
+   * the canonical workspace lease.
+   * @param {AgentSlot} slot
+   */
+  #parentSlot(slot) {
+    const parentSession = slot.session.header.parentSession
+    if (parentSession === undefined) return undefined
+    for (const candidate of this.#liveSlots) {
+      if (candidate === slot || candidate.disposed) continue
+      if (candidate.session.header.id === parentSession
+        && candidate.session.header.cwd === slot.session.header.cwd) return candidate
+    }
+    return undefined
+  }
+
+  /** @param {BoundWorkspace} binding @param {AgentSlot} slot */
+  #attachOwner(binding, slot) {
+    const ref = /** @type {WorkspaceRef} */ (Object.freeze(Object.create(null)))
+    binding.owners.add(slot)
+    slot.bound = binding
+    slot.ref = ref
+    this.#refs.set(ref, { agent: slot.agent, binding })
+  }
+
+  /** @param {BoundWorkspace} binding @param {AgentSlot} slot */
+  #detachOwner(binding, slot) {
+    binding.owners.delete(slot)
+    if (slot.ref !== undefined) this.#refs.delete(slot.ref)
+    slot.ref = undefined
+    if (slot.bound === binding) slot.bound = undefined
+  }
+
   /** @param {AgentSlot} slot @param {SessionStartSource} source */
   #startBinding(slot, source) {
     if (slot.disposed) return
     const epoch = ++slot.epoch
     const previous = slot.attempt
+    if (slot.ref !== undefined) this.#refs.delete(slot.ref)
+    slot.ref = undefined
     slot.bindController?.abort(unavailable('workspace lease session lifecycle was rebound'))
     const controller = new AbortController()
     slot.bindController = controller
     slot.bound = undefined
     const session = slot.session
+    const parent = this.#parentSlot(slot)
+    /** @type {{slot: AgentSlot, epoch: number, session: Agent['session']}[]} */
+    const dependents = []
 
     const attempt = (async () => {
       if (previous !== undefined) {
@@ -629,10 +681,37 @@ export class WorkspaceLease extends Service {
             && error.code === WORKSPACE_LEASE_RELEASE_FAILED) throw error
           // A failed or aborted prior bind owns no usable authority.
         }
-        if (prior !== undefined) await this.#releaseBinding(prior, 'session-rebound')
+        if (prior !== undefined) {
+          if (prior.owner === slot) {
+            for (const owner of prior.owners) {
+              if (owner !== slot) {
+                dependents.push({ slot: owner, epoch: owner.epoch, session: owner.session })
+              }
+            }
+            await this.#releaseBinding(prior, 'session-rebound')
+          } else this.#detachOwner(prior, slot)
+        }
       }
       if (slot.disposed || slot.epoch !== epoch) {
         throw unavailable('workspace lease binding lifecycle changed before bind')
+      }
+      if (parent !== undefined) {
+        const parentAttempt = parent.attempt
+        if (parentAttempt === undefined) {
+          throw unavailable('workspace lease parent authority is unavailable')
+        }
+        const binding = await parentAttempt
+        if (slot.disposed
+          || slot.epoch !== epoch
+          || parent.disposed
+          || parent.bound !== binding
+          || binding.released
+          || binding.failure !== undefined
+          || binding.provider.stopping) {
+          throw binding.failure ?? unavailable('workspace lease parent authority is unavailable')
+        }
+        this.#attachOwner(binding, slot)
+        return binding
       }
       const provider = this.#provider
       if (provider === undefined || provider.stopping) {
@@ -661,17 +740,16 @@ export class WorkspaceLease extends Service {
       if (result.state !== 'owned' && result.state !== 'unmanaged') {
         throw unavailable('workspace lease provider returned an invalid bound state')
       }
-      const ref = /** @type {WorkspaceRef} */ (Object.freeze(Object.create(null)))
       /** @type {BoundWorkspace} */
       const binding = {
         owner: slot,
+        owners: new Set([slot]),
         session,
         provider,
         bindingId: nonEmpty(result.bindingId, 'bindingId'),
         workspaceId: nonEmpty(result.workspaceId, 'workspaceId'),
         generation: nonEmpty(result.generation, 'generation'),
         initialState: result.state,
-        ref,
         lifecycle: new AbortController(),
         admissions: new Set(),
         operations: new Set(),
@@ -684,12 +762,20 @@ export class WorkspaceLease extends Service {
         releaseTask: undefined,
       }
       provider.bindings.add(binding)
-      this.#refs.set(ref, { agent, binding })
       if (this.#bindingLifecycleChanged(slot, epoch, provider, session)) {
         await this.#releaseBinding(binding, this.#releaseReason(slot))
         throw unavailable('workspace lease binding lifecycle changed after bind')
       }
-      slot.bound = binding
+      this.#attachOwner(binding, slot)
+      for (const dependent of dependents) {
+        if (dependent.slot.disposed
+          || dependent.slot.epoch !== dependent.epoch
+          || dependent.slot.session !== dependent.session
+          || dependent.slot.agent.session !== dependent.session
+          || dependent.session.header.cwd !== session.header.cwd) continue
+        this.#attachOwner(binding, dependent.slot)
+        dependent.slot.attempt = Promise.resolve(binding)
+      }
       this.#armRenewal(binding)
       return binding
     })()
@@ -753,8 +839,8 @@ export class WorkspaceLease extends Service {
     const binding = await slot.attempt
     const authorization = { ...identity, binding }
     if (slot.bound !== binding
-      || slot.session !== binding.session
-      || agent.session !== binding.session
+      || !binding.owners.has(slot)
+      || agent.session !== slot.session
       || !matchesExecution(authorization, exec)
       || binding.released) throw new WorkspaceLeaseInvalidRefError()
     if (binding.failure !== undefined) throw binding.failure
@@ -795,8 +881,8 @@ export class WorkspaceLease extends Service {
         || binding.failure !== undefined
         || binding.provider.stopping
         || slot.bound !== binding
-        || slot.session !== binding.session
-        || agent.session !== binding.session
+        || !binding.owners.has(slot)
+        || agent.session !== slot.session
         || !matchesExecution(authorization, exec)
         || admissionSignal.signal.aborted
       if (result.kind === 'not-required') {
@@ -857,9 +943,10 @@ export class WorkspaceLease extends Service {
     const { binding } = authorization
     const slot = this.#agentSlots.get(authorization.agent)
     if (!matchesExecution(authorization, exec)
-      || slot !== binding.owner
+      || slot === undefined
+      || !binding.owners.has(slot)
       || slot.bound !== binding
-      || slot.session !== binding.session
+      || authorization.agent.session !== slot.session
       || binding.released
       || binding.failure !== undefined
       || binding.provider.stopping) {
@@ -1051,13 +1138,17 @@ export class WorkspaceLease extends Service {
     binding.lifecycle.abort(failure)
     for (const operation of binding.operations) operation.authority.abort(failure)
     if (binding.operations.size > 0) {
-      try {
-        binding.owner.agent.cancel({
-          kind: 'hook',
-          reason: `workspace-lease-lost:${failure.code}`,
-        })
-      } catch {
-        // The operation authority signal remains the mandatory cancellation path.
+      for (const owner of new Set(
+        [...binding.operations].map(operation => operation.authorization.agent),
+      )) {
+        try {
+          owner.cancel({
+            kind: 'hook',
+            reason: `workspace-lease-lost:${failure.code}`,
+          })
+        } catch {
+          // The operation authority signal remains the mandatory cancellation path.
+        }
       }
     }
   }
@@ -1067,7 +1158,7 @@ export class WorkspaceLease extends Service {
     if (binding.releaseTask !== undefined) return binding.releaseTask
     const releaseTask = (async () => {
       binding.released = true
-      this.#refs.delete(binding.ref)
+      for (const owner of [...binding.owners]) this.#detachOwner(binding, owner)
       if (binding.renewTimer !== undefined) clearTimeout(binding.renewTimer)
       binding.renewTimer = undefined
       const releaseCause = unavailable(`workspace lease binding is releasing (${reason})`)
@@ -1078,13 +1169,17 @@ export class WorkspaceLease extends Service {
         operation.completion.abort(releaseCause)
       }
       if (binding.operations.size > 0) {
-        try {
-          binding.owner.agent.cancel({
-            kind: 'hook',
-            reason: `workspace-lease-release:${reason}`,
-          })
-        } catch {
-          // Exact operation signals still enforce the local lifecycle boundary.
+        for (const owner of new Set(
+          [...binding.operations].map(operation => operation.authorization.agent),
+        )) {
+          try {
+            owner.cancel({
+              kind: 'hook',
+              reason: `workspace-lease-release:${reason}`,
+            })
+          } catch {
+            // Exact operation signals still enforce the local lifecycle boundary.
+          }
         }
       }
       const drains = [

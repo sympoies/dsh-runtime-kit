@@ -115,7 +115,7 @@ const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
-const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL !== '0'
+const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -246,6 +246,10 @@ const environment = {
   XDG_CONFIG_HOME: configHome,
   XDG_STATE_HOME: stateHome,
 }
+// The provider-isolation fixture is intentionally an incomplete ambient
+// Agent Session sentinel. Do not let the parent agent's real checkpoint value
+// silently complete the mixed principal after spreading process.env above.
+delete environment.AGENT_SESSION_CHECKPOINT_FILE
 
 function installPolicy(action) {
   const capability = action === 'block'
@@ -1685,7 +1689,10 @@ ${agentConsoleTuiOverlay}
   )
   const replacedSessionReceipt = JSON.parse(replacedSessionLine.slice(marker.length))
   assert.equal(replacedSessionReceipt.result.isError, true)
-  assert.match(replacedSessionReceipt.result.content[0].text, /policy-correlation-invalid/)
+  assert.match(
+    replacedSessionReceipt.result.content[0].text,
+    /workspace reference is not valid for this live agent incarnation/,
+  )
   assert.equal(replacedSessionReceipt.plusOneExecutions, 0)
   assert.equal(replacedSessionReceipt.activePolicyChecks, 0)
   assert.equal(replacedSessionReceipt.pendingPolicyMarkers, 0)
@@ -1802,5 +1809,9 @@ ${agentConsoleTuiOverlay}
     skillPrecedenceVerified: true,
   }) + '\n')
 } finally {
-  rmSync(temporaryRoot, { recursive: true, force: true })
+  if (process.env.DSH_RUNTIME_KIT_SMOKE_KEEP_ROOT === '1') {
+    process.stderr.write(`DSH_RUNTIME_KIT_SMOKE_ROOT=${temporaryRoot}\n`)
+  } else {
+    rmSync(temporaryRoot, { recursive: true, force: true })
+  }
 }

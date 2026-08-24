@@ -184,6 +184,80 @@ test('workspace binding takes child lineage from the immutable session header', 
   assert.equal(calls.bind[0][1] instanceof AbortSignal, true)
 })
 
+test('a live same-workspace child lineage shares one native binding with distinct local authority', async () => {
+  const { selected, calls } = provider()
+  const ctx = await harness(selected)
+  const parent = stubAgent('parent', '/workspace/project')
+  const child = stubAgent('child', '/workspace/project', 'parent')
+  publish(ctx, parent)
+  await ctx.workspaceLease.ref(parent)
+  publish(ctx, child)
+
+  const parentRef = await ctx.workspaceLease.ref(parent)
+  const childRef = await ctx.workspaceLease.ref(child)
+
+  assert.notEqual(childRef, parentRef)
+  assert.equal(ctx.workspaceLease.state(parent, parentRef), 'owned')
+  assert.equal(ctx.workspaceLease.state(child, childRef), 'owned')
+  assert.equal(calls.bind.length, 1, 'one trusted runtime lineage owns one nils binding')
+  assert.throws(() => ctx.workspaceLease.state(child, parentRef), WorkspaceLeaseInvalidRefError)
+
+  ctx.tools.register(echoTool())
+  const result = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:child'),
+    name: 'echo',
+    arguments: { text: 'child' },
+    agent: child,
+  })
+
+  assert.equal(result.isError, false)
+  assert.equal(result.value, 'child')
+  assert.equal(calls.begin[0][0].sessionId, parent.id)
+  assert.equal(calls.begin[0][0].callId, CallId('call:child'))
+
+  await child.ctx.fiber.dispose()
+  assert.equal(calls.release.length, 0, 'disposing a child does not release the shared binding')
+  assert.equal(ctx.workspaceLease.state(parent, parentRef), 'owned')
+  await parent.ctx.fiber.dispose()
+  assert.equal(calls.release.length, 1)
+})
+
+test('a parent session rebind carries its live child lineage onto the new generation', async () => {
+  let generation = 0
+  const { selected, calls } = provider({
+    async bind(request) {
+      generation += 1
+      return {
+        kind: 'bound',
+        bindingId: `binding:${generation}`,
+        workspaceId: `workspace:${request.cwd}`,
+        generation: `generation:${generation}`,
+        state: 'owned',
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  const parent = stubAgent('parent', '/workspace/project')
+  const child = stubAgent('child', '/workspace/project', 'parent')
+  publish(ctx, parent)
+  publish(ctx, child)
+  const firstParentRef = await ctx.workspaceLease.ref(parent)
+  const firstChildRef = await ctx.workspaceLease.ref(child)
+
+  agentEvents(ctx, parent).emit('agent/session-start', { source: 'compact' })
+
+  const secondParentRef = await ctx.workspaceLease.ref(parent)
+  const secondChildRef = await ctx.workspaceLease.ref(child)
+  assert.notEqual(secondParentRef, firstParentRef)
+  assert.notEqual(secondChildRef, firstChildRef)
+  assert.throws(() => ctx.workspaceLease.state(child, firstChildRef), WorkspaceLeaseInvalidRefError)
+  assert.equal(ctx.workspaceLease.state(child, secondChildRef), 'owned')
+  assert.equal(calls.bind.length, 2)
+  assert.equal(calls.release.length, 1)
+  assert.equal(calls.release[0][0].reason, 'session-rebound')
+})
+
 test('session-object replacement cannot retarget an existing agent binding', async () => {
   const { selected, calls } = provider()
   const ctx = await harness(selected)

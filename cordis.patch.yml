@@ -23,6 +23,9 @@
         finishLineTeardownTimeoutMs: 2000
         maxActiveFinishLineRequests: 4
         maxSameTurnFinishLineSteers: 2
+        workspaceLeaseTimeoutMs: 5000
+        workspaceLeaseTeardownTimeoutMs: 2000
+        maxActiveWorkspaceLeaseRequests: 8
         maxActiveReviewers: 4
         maxQueuedReviewers: 16
         reviewerTaskMaxBytes: 32768
