@@ -10,8 +10,8 @@
 - Plan branch: `feat/issue-66-native-dsh-convergence`
 - Current sprint: Sprint 1
 - Status: in-progress
-- Current task: Task 1.3
-- Next task: Task 1.4
+- Current task: Task 1.4
+- Next task: Task 1.5
 - Integration checkout: managed non-default worktree
 - Blockers: none
 - Last updated: 2026-08-24
@@ -22,8 +22,8 @@
 | --- | --- | --- | --- | --- |
 | 1.1 | Freeze the accepted baseline and initialize tracking | done | runtime-kit origin/main `801ea88`; package SHA-256 `0c6c8f1369b1088d08d641a11f9b7b5113354ecf2ae482de34045d9a2b0e4570`; DSH `0.1.1-rc.2` at `b150a551`; nils-cli `1.27.4` at `389580b8`; plan commit `3ee1265` | Provider-visible lifecycle attached and reconciled; the real packed smoke captures the initial failing regression before production edits |
 | 1.2 | Add the runtime-owned native workspace capability | done | Signed runtime commit `54fe5b51`; smoke fix `d770694a`; devlog `22c5316a`; focused 32/32 and full 383/383; packed rc.7/rc.8/rc.2 lifecycle matrix; artifact SHA-256 `69cfc91ddcefd677bd9ee22af27677de3069ab7ce02eb267ed2240bf1c5977f8` | Public Cordis/DSH interfaces only; exact final-guard marker; capability remains dormant until Task 1.4 |
-| 1.3 | Add nils-cli canonical identity and durable lease policy | in-progress | Task 1.2 protocol v1 frozen at `54fe5b51` | Implement only in the clean managed nils-cli worktree; do not duplicate Git or lease policy in JavaScript |
-| 1.4 | Integrate the native capability through runtime-kit | pending |  | No duplicate Git or lease policy in JavaScript |
+| 1.3 | Add nils-cli canonical identity and durable lease policy | done | Task 1.2 protocol v1 frozen at `54fe5b51`; Signed nils-cli commit `d63c9bed`; workspace lease 11/11; full agent-hook suite; repository local-fast 8,616/8,616 plus doctests | Canonical physical worktree identity, private keyed durable state, cross-process exclusivity, fencing, idempotency, and safe stale-clean recovery; pushed as immutable Task 1.4 dependency |
+| 1.4 | Integrate the native capability through runtime-kit | in-progress | Consumes pushed nils-cli provider commit `d63c9bed` | Register the strict provider client and compose the runtime plugin; keep Git and lease policy out of JavaScript |
 | 1.5 | Review and deploy the immutable candidate | pending |  | Requires all linked PR heads and pre-merge deployment |
 | 1.6 | Merge, redeploy, promote, and close #56 | pending |  | Updates #66 only after post-merge deployment and rollback pass |
 
@@ -78,6 +78,17 @@
 - 2026-08-24: The Task 1.2 artifact at `22c5316a` contained 1,164 entries and
   had SHA-256 `69cfc91ddcefd677bd9ee22af27677de3069ab7ce02eb267ed2240bf1c5977f8`.
   The temporary rc.8 validation worktree was removed after acceptance.
+- 2026-08-24: Task 1.3 shipped the strict nils-cli WorkspaceLease v1
+  automation boundary through signed commit `d63c9bed`. Canonical physical
+  worktree identity uses private keyed indexing, linked worktrees remain
+  distinct, and durable per-workspace state owns cross-process exclusion,
+  operation fences, idempotency, and conservative stale recovery without a
+  branch-name or default-branch assumption.
+- 2026-08-24: The Task 1.3 workspace integration suite passed 11/11, the full
+  `nils-agent-hook` suite and focused clippy passed, and the mandatory
+  repository `--local-fast` gate passed all 8,616 workspace tests plus
+  doctests. The clean signed commit was pushed as the immutable dependency for
+  Task 1.4.
 
 ## Acceptance Evidence
 
@@ -89,6 +100,8 @@
 - Task 1.2 runtime contract: signed `54fe5b51`; focused 32/32; full 383/383;
   packed rc.7/rc.8/rc.2 tool lifecycle pass; artifact SHA-256
   `69cfc91ddcefd677bd9ee22af27677de3069ab7ce02eb267ed2240bf1c5977f8`
+- Task 1.3 nils-cli provider: signed `d63c9bed`; workspace lease 11/11; full
+  agent-hook suite; repository local-fast 8,616/8,616 plus doctests
 - Candidate deployment: pending
 - Post-merge deployment: pending
 - Real-session two-worktree matrix: pending
