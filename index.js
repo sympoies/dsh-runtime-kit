@@ -20,6 +20,7 @@ import { applyPolicy, plusOneTool } from './policy.js'
 import { mainAgentMode } from './src/main-agent/index.js'
 import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
+import { applyManagedSessionAuthentication } from './src/nils/managed-session-authentication.js'
 import {
   createReviewerAuthority,
   reviewSpecialistsRuntime,
@@ -461,6 +462,7 @@ export async function apply(ctx, config = {}) {
     const childPlugins = createChildPluginStatus()
     const managedSessionBridge = createManagedSessionBridge()
     const runtimeConfig = { ...config, managedSessionBridge }
+    applyManagedSessionAuthentication(ctx, runtimeConfig, managedSessionBridge)
     applyPolicy(ctx, runtimeConfig, reviewers, dshRuntime, childPlugins)
     observeChildPluginActivation(
       childPlugins,
