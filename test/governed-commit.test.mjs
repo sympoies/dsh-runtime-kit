@@ -55,11 +55,13 @@ function harness({
   waitPending = false,
   waitError,
   resolveError,
+  resolvePending = false,
   spawnError,
 } = {}) {
   const spawns = []
   const resolutions = []
   let settle
+  let settleResolve
   let settleWait
   let terminateCount = 0
   let disposer
@@ -69,6 +71,9 @@ function harness({
       async resolveExecutable(command, env, signal) {
         resolutions.push({ command, env, signal })
         if (resolveError !== undefined) throw resolveError
+        if (resolvePending) {
+          return new Promise(resolve => { settleResolve = resolve })
+        }
         return `/resolved/${command}`
       },
       spawn(spec) {
@@ -103,6 +108,7 @@ function harness({
     spawns,
     resolutions,
     get terminateCount() { return terminateCount },
+    settleResolve(value = '/resolved/semantic-commit') { settleResolve?.(value) },
     settle(value = outcome) { settle?.(value) },
     settleWait(value = quiescent) { settleWait?.(value) },
     dispose() { return disposer?.() },
@@ -290,5 +296,55 @@ test('governed commit refuses a primary-relative or missing authenticated cwd be
     error => error.code === 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE',
   )
   assert.equal(subject.resolutions.length, 0)
+  assert.equal(subject.spawns.length, 0)
+})
+
+test('governed commit timeout covers executable resolution and prevents a late spawn', async () => {
+  const subject = harness({ resolvePending: true })
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+    governedCommitTimeoutMs: 5,
+  })
+  const running = tool.execute(validArgs(), execution())
+  const observed = running.then(
+    () => ({ status: 'resolved' }),
+    error => ({ status: 'rejected', code: error.code }),
+  )
+  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
+
+  const beforeLateResolution = await Promise.race([
+    observed,
+    new Promise(resolve => setTimeout(() => resolve({ status: 'deadline-missed' }), 50)),
+  ])
+  subject.settleResolve()
+  await observed
+
+  assert.deepEqual(beforeLateResolution, {
+    status: 'rejected',
+    code: 'GOVERNED_COMMIT_TIMEOUT',
+  })
+  assert.equal(subject.spawns.length, 0)
+})
+
+test('governed commit disposal settles pending executable resolution without a late spawn', async () => {
+  const subject = harness({ resolvePending: true })
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+  })
+  const running = tool.execute(validArgs(), execution())
+  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
+
+  const disposing = Promise.resolve(subject.dispose()).then(() => ({ status: 'disposed' }))
+  const beforeLateResolution = await Promise.race([
+    disposing,
+    new Promise(resolve => setTimeout(() => resolve({ status: 'disposal-stalled' }), 50)),
+  ])
+  subject.settleResolve()
+  await assert.rejects(running, error => error.code === 'GOVERNED_COMMIT_DISPOSED')
+  await disposing
+
+  assert.deepEqual(beforeLateResolution, { status: 'disposed' })
   assert.equal(subject.spawns.length, 0)
 })

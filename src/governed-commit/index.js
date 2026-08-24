@@ -13,6 +13,7 @@ import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
  * @property {AbortController} controller
  * @property {SubprocessHandle | undefined} [handle]
  * @property {'disposed' | 'unavailable' | undefined} [cause]
+ * @property {() => void} interrupt
  * @property {Promise<void>} settled
  * @property {() => void} resolveSettled
  */
@@ -268,6 +269,7 @@ export function createGovernedCommitTool(ctx, config) {
     operation.cause = cause
     operation.controller.abort()
     try { operation.handle?.terminate() } catch {}
+    operation.interrupt()
   }
 
   function degrade() {
@@ -401,9 +403,13 @@ export function createGovernedCommitTool(ctx, config) {
       let resolveSettled = () => {}
       /** @type {Promise<void>} */
       const settled = new Promise(resolve => { resolveSettled = () => resolve() })
+      let interrupt = () => {}
+      /** @type {Promise<void>} */
+      const interrupted = new Promise(resolve => { interrupt = () => resolve() })
       /** @type {ActiveGovernedCommit} */
       const operation = {
         controller: new AbortController(),
+        interrupt,
         settled,
         resolveSettled,
       }
@@ -411,19 +417,45 @@ export function createGovernedCommitTool(ctx, config) {
       const onCallerAbort = () => {
         operation.controller.abort(exec.signal.reason)
         try { operation.handle?.terminate() } catch {}
+        operation.interrupt()
       }
       exec.signal.addEventListener('abort', onCallerAbort, { once: true })
       /** @type {ReturnType<typeof setTimeout> | undefined} */
       let timer
       let timedOut = false
       try {
+        timer = setTimeout(() => {
+          timedOut = true
+          operation.controller.abort()
+          try { operation.handle?.terminate() } catch {}
+          operation.interrupt()
+        }, timeoutMs)
         let handle
         try {
-          const argv = await resolveSubprocessArgv(
-            ctx,
-            [semanticCommit, ...semanticArgv(args)],
-            operation.controller.signal,
-          )
+          const resolution = Promise.resolve()
+            .then(() => resolveSubprocessArgv(
+              ctx,
+              [semanticCommit, ...semanticArgv(args)],
+              operation.controller.signal,
+            ))
+            .then(
+              argv => ({ status: /** @type {const} */ ('resolved'), argv }),
+              () => ({ status: /** @type {const} */ ('failed') }),
+            )
+          const resolved = await Promise.race([
+            resolution,
+            interrupted.then(() => ({ status: /** @type {const} */ ('interrupted') })),
+          ])
+          if (resolved.status === 'interrupted') {
+            if (timedOut) {
+              throw failure(config, 'governed commit timed out', 'GOVERNED_COMMIT_TIMEOUT')
+            }
+            throw new Error('governed commit interrupted')
+          }
+          if (resolved.status === 'failed') {
+            throw failure(config, 'governed commit transport is unavailable', 'GOVERNED_COMMIT_UNAVAILABLE')
+          }
+          const argv = resolved.argv
           if (operation.controller.signal.aborted) throw new Error('governed commit cancelled')
           handle = ctx.subprocess.spawn({
             argv,
@@ -445,19 +477,14 @@ export function createGovernedCommitTool(ctx, config) {
           if (operation.cause === 'disposed') {
             throw failure(config, 'governed commit disposed', 'GOVERNED_COMMIT_DISPOSED')
           }
+          if (timedOut) {
+            throw failure(config, 'governed commit timed out', 'GOVERNED_COMMIT_TIMEOUT')
+          }
           throw failure(config, 'governed commit transport is unavailable', 'GOVERNED_COMMIT_UNAVAILABLE')
         }
-        let releaseDeadline = () => {}
-        const deadline = new Promise(resolve => { releaseDeadline = () => resolve(undefined) })
-        timer = setTimeout(() => {
-          timedOut = true
-          operation.controller.abort()
-          try { handle.terminate() } catch {}
-          releaseDeadline()
-        }, timeoutMs)
         const outcome = await Promise.race([
           Promise.resolve(handle.done).then(value => value, () => undefined),
-          deadline,
+          interrupted.then(() => undefined),
         ])
         const quiescent = await boundedQuiescence(handle)
         if (!quiescent) {
