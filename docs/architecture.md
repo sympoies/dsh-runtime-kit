@@ -14,12 +14,21 @@ Responsibilities are intentionally split:
 - nils-cli owns deterministic policy evaluation, repository lifecycle
   commands, and machine-readable contracts.
 
+The runtime-owned workspace service follows the same split: DSH supplies exact
+agent/session/tool lifecycle, runtime-kit binds that public lifecycle to opaque
+host authority, and nils-cli owns canonical Git/worktree identity plus durable
+cross-process leases and fencing. The exported contract is documented in
+[Workspace identity and leases](workspace-leases.md). The default bundle
+activates that service and its strict nils provider before registering runtime
+policy, so every agent mutation is classified at the native DSH tool boundary.
+
 ## Runtime composition and policy
 
 Live composition has an explicit runtime-root boundary. The package requires
 absolute DSH-only agent-hook config, policy, and state paths and passes them on
-every dispatch, finish-line, and doctor invocation. It likewise requires an
-absolute DSH-only agent-docs catalog and state root. There is no ambient XDG,
+every dispatch, finish-line, workspace-lease, and doctor invocation. It
+likewise requires an absolute DSH-only agent-docs catalog and state root. There
+is no ambient XDG,
 Codex, or Claude Code fallback. The packaged `agent-docs/` directory is the
 source catalog for a copied owner-only activation root; the policy is copied to
 an owner-only regular file with link count one before its digest is recorded in

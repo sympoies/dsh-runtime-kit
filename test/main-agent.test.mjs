@@ -604,6 +604,24 @@ test('an unmanaged top-level DSH session remains isolated from managed-session i
   })
 })
 
+test('a partial ambient Agent Session sentinel does not claim managed-controller authority', async () => {
+  await withControllerEnvironment(async () => {
+    delete process.env.AGENT_SESSION_CHECKPOINT_FILE
+    const managedSessionBridge = createManagedSessionBridge()
+    const harness = createContext()
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
+
+    const entered = await harness.listeners.get('agent/pre-step')(
+      { agent: controllerExec().agent, signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(entered, { kind: 'enter', messages: [] })
+    assert.equal(harness.spawned.length, 0)
+    assert.equal(managedSessionBridge.resolve('controller-one'), undefined)
+  })
+})
+
 test('native initialization resolves the trusted activity helper when runtime CLI config is portable', async () => {
   const managedSessionBridge = createManagedSessionBridge()
   await withControllerEnvironment(async (controllerEnvironment) => {

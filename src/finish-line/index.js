@@ -45,7 +45,6 @@ const MUTATING_EDITOR_COMMANDS = new Set(['create', 'str_replace', 'insert'])
  * @property {unknown} arguments
  * @property {ToolExecution['agent']} agent
  * @property {Agent['session']} session
- * @property {AbortSignal} signal
  * @property {string} callId
  * @property {string} rootCallId
  * @property {string} name
@@ -142,7 +141,9 @@ function matches(prepared, exec) {
     && prepared.arguments === exec.arguments
     && prepared.agent === exec.agent
     && prepared.session === exec.agent?.session
-    && prepared.signal === exec.signal
+    // Cancellation is a composable execution channel, not authority identity:
+    // trusted tools/execute middleware may fuse an additional abort source on
+    // this same exact execution after admission.
     && prepared.callId === exec.callId
     && prepared.rootCallId === exec.rootCallId
     && prepared.name === exec.name
@@ -408,7 +409,6 @@ export function createFinishLineCoordinator(ctx, options) {
         arguments: exec.arguments,
         agent: exec.agent,
         session,
-        signal: exec.signal,
         callId: call.callId,
         rootCallId: call.rootCallId,
         name: call.name,

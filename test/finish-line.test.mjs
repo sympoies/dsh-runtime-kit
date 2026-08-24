@@ -459,6 +459,20 @@ test('substituted execution identity cannot replay a prepared validation', async
   assert.equal(subject.runs.length, 0)
 })
 
+test('the same prepared validation accepts a composed execution cancellation signal', async () => {
+  const subject = fixture()
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: ':', description: 'Run validation' },
+  })
+  await subject.coordinator.begin(exec, context(exec))
+
+  exec.signal = new AbortController().signal
+
+  assert.equal((await subject.coordinator.execute(exec)).kind, 'result')
+  assert.equal(subject.runs.length, 2)
+})
+
 test('one session correlation is pinned across begin, probe, execution, and stop responses', async () => {
   const beginSubject = fixture()
   const firstEdit = execution(beginSubject, { callId: 'edit-1' })
