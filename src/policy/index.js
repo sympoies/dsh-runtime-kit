@@ -165,10 +165,10 @@ function matchesAuthorization(authorization, exec) {
 }
 
 /**
- * DSH may preserve the effective sandbox mode in a Bash call even when the
- * caller did not request a wider boundary. Treat only that exact, unpaired
- * echo as a no-op; every other shape stays under the native escalation
- * validator.
+ * DSH may preserve the effective sandbox mode, or its workspace-write schema
+ * default under danger-full-access, together with a blank optional
+ * justification in a Bash call. Treat only those known non-escalating echoes
+ * as no-ops; every other shape stays under the native escalation validator.
  *
  * @param {{permissions: string | undefined, justification: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access', validate(permissions: any, justification: any): void}} input
  * @returns {{permissions: string, justification: string} | undefined}
@@ -179,7 +179,12 @@ export function normalizeSandboxEscalationRequest({
   effectiveMode,
   validate,
 }) {
-  if (permissions === effectiveMode && justification === undefined) return undefined
+  const knownNonEscalatingEcho = permissions === effectiveMode
+    || (permissions === 'workspace-write' && effectiveMode === 'danger-full-access')
+  if (knownNonEscalatingEcho
+    && (justification === undefined || justification.trim().length === 0)) {
+    return undefined
+  }
   validate(permissions, justification)
   if (permissions === undefined || justification === undefined) return undefined
   return { permissions, justification }
