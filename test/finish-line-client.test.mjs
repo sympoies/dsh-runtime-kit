@@ -195,6 +195,26 @@ test('finish-line resolves a bare agent-hook command before spawning', async () 
   assert.equal(subject.spawns[0].spec.argv[0], '/resolved/agent-hook')
 })
 
+test('finish-line run exposes only the resolved agent-hook sibling toolchain on PATH', async () => {
+  const subject = fixture({ agentHook: '/runtime/toolchain/bin/agent-hook' })
+
+  await subject.client.run({
+    ...identity,
+    operationId: 'operation:toolchain-path',
+    runnerCapability: 'finish-line-runner:opaque',
+    intent: 'project-dev',
+    command: 'make validate',
+    timeoutMs: 5_000,
+    execution: dangerFullAccessExecution,
+    environment: { TERM: 'dumb' },
+  })
+
+  assert.equal(
+    subject.spawns[0].spec.env.PATH,
+    '/runtime/toolchain/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+  )
+})
+
 test('open carries one private retry token without exposing it in the result', async () => {
   const subject = fixture()
   const result = await subject.client.open(identity)
@@ -487,7 +507,10 @@ test('run sends no outcome and preserves exact command bytes and observed execut
       },
     },
   })
-  assert.deepEqual(subject.spawns[0].spec.env, isolatedNilsEnvironment(environment))
+  assert.deepEqual(subject.spawns[0].spec.env, {
+    ...isolatedNilsEnvironment(environment),
+    PATH: '/test:/usr/bin:/bin:/usr/sbin:/sbin',
+  })
   assert.equal(
     Object.entries(subject.spawns[0].spec.env)
       .filter(([, value]) => value === undefined)
@@ -534,7 +557,10 @@ test('run probes an exact contract without execution metadata or child environme
   })
   assert.equal('execution' in subject.spawns[0].request, false)
   assert.equal('env' in subject.spawns[0].spec, true)
-  assert.deepEqual(subject.spawns[0].spec.env, isolatedNilsEnvironment(undefined))
+  assert.deepEqual(subject.spawns[0].spec.env, {
+    ...isolatedNilsEnvironment(undefined),
+    PATH: '/test:/usr/bin:/bin:/usr/sbin:/sbin',
+  })
 })
 
 test('ordinary foreground run is typed across probe and nils-observed execution', async () => {
