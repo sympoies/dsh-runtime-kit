@@ -33,14 +33,14 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.5-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.4/nils-cli-v1.27.4-x86_64-unknown-linux-gnu.tar.gz"
-          echo "3df3789fc3808dd806e592e2a1eceda8fec0bd528e1658cbcc0685a102defa3c  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.5/nils-cli-v1.27.5-x86_64-unknown-linux-gnu.tar.gz"
+          echo "132842847848d1d0e1506f4bce244cbd1388eb28a7852122b4e098d4c223d920  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.4-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.5-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
 
   upstream:
