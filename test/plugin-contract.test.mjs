@@ -7,7 +7,10 @@ import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
-import { boundedUtf8Segments } from '../src/policy/index.js'
+import {
+  boundedUtf8Segments,
+  requiresAuthoritativeFinishLine,
+} from '../src/policy/index.js'
 import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 import {
   createChildPluginStatus,
@@ -25,6 +28,17 @@ const dshRuntime = Object.freeze({
   approveEscalation,
   canonicalPath,
   validateEscalationArgs,
+})
+
+test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
+  const principal = mode => ({
+    environment: { AGENT_SESSION_COORDINATION_MODE: mode },
+  })
+  assert.equal(requiresAuthoritativeFinishLine('linux', principal('advisory')), true)
+  assert.equal(requiresAuthoritativeFinishLine('darwin', undefined), true)
+  assert.equal(requiresAuthoritativeFinishLine('darwin', principal('enforce')), true)
+  assert.equal(requiresAuthoritativeFinishLine('darwin', principal('advisory')), false)
+  assert.equal(requiresAuthoritativeFinishLine('darwin', principal('off')), false)
 })
 
 test('lifecycle prompt projection stops consuming segments at its UTF-8 budget', () => {
