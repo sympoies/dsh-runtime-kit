@@ -2,33 +2,33 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.27.1",
-  "validated_release": "1.27.5",
+  "validated_release": "1.27.6",
   "release": {
-    "source_revision": "v1.27.5",
-    "source_commit": "94a7e98897a0c78ab063b6d7fbe0df2e57344f31",
+    "source_revision": "v1.27.6",
+    "source_commit": "70d59da82434fe6a1338e93c34b177b379883fb8",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.5-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "132842847848d1d0e1506f4bce244cbd1388eb28a7852122b4e098d4c223d920"
+      "name": "nils-cli-v1.27.6-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "4a548dfd56477a8f170264d24f9e72d288d10a2ca652d9c69eca117338de8a66"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "a0da9015371e4b1df15ccefd80a3951596f7448ee95068faf57414094f7d7908"
+        "sha256": "bba543bee8dec01633f3be19ab2f86455d698fcb20a2df4efd4d3c9df54490fe"
       },
       "agent-docs": {
-        "sha256": "3272fa23d856f52712b7e49ca0d6d1735207f00fac060ffe117dac63fc055b7c"
+        "sha256": "4e3ac206630e7aa05833230763b96fe98ddb4fbc3d8fc313fed5c2a097786070"
       },
       "forge-cli": {
-        "sha256": "49c096daab35822c73b0899a752337a792352276778f340a7ae95d3f8352c80c"
+        "sha256": "f009d9b632d80e70c6959f3ae4dc1cfba9d130096724a5ad3b5deb3020cedb6a"
       },
       "git-cli": {
-        "sha256": "1943e4945805aa3e11aa827669d10e9eff1a65969ef7c02b5f801e4abf44be6e"
+        "sha256": "1ea86ac5e506c371c923dbd444d3cc43767e3efdb9b64313e1cbde9758bf3074"
       },
       "review-specialists": {
-        "sha256": "fc4b3012c086aefec1ef028a70262bf3fa5dd2f5aaeb05bf245536e2c6d3b43f"
+        "sha256": "aaf2223ff08903f9d1226c934c39654458d8d7a861416c1f2968b737584b56f2"
       },
       "semantic-commit": {
-        "sha256": "b0814e380012f0ab65b568a54b94c0ef39b813bc2e4bf465c238237e46619b73"
+        "sha256": "a4f22f6256c25090fbb4b716db9245eca769426cd96f4334a7db81b01f60c8b1"
       }
     }
   },
