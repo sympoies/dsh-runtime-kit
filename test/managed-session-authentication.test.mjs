@@ -8,6 +8,7 @@ const principalEnvironment = Object.freeze({
   AGENT_SESSION_ID: 'console-session-one',
   AGENT_SESSION_RUNTIME_ID: 'runtime-one',
   AGENT_SESSION_STATE_DIR: '/private/agent-session',
+  AGENT_SESSION_COORDINATION_MODE: 'advisory',
   AGENT_SESSION_CAPABILITY_FILE: '/private/agent-session/capability',
   AGENT_SESSION_CHECKPOINT_FILE: '/private/agent-session/checkpoint',
   AGENT_SESSION_BIN: '/bin/true',
@@ -106,6 +107,30 @@ test('always-on managed-session authentication binds before an optional child pl
     sessionId: 'console-session-one',
     environment: principalEnvironment,
   })
+})
+
+test('managed-session authentication forwards the authenticated coordination mode to policy children', async () => {
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const entered = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(entered, { kind: 'enter', messages: [] })
+  assert.equal(
+    subject.spawned[0].env.AGENT_SESSION_COORDINATION_MODE,
+    principalEnvironment.AGENT_SESSION_COORDINATION_MODE,
+  )
+  assert.equal(
+    bridge.resolve('dsh-controller-one').environment.AGENT_SESSION_COORDINATION_MODE,
+    principalEnvironment.AGENT_SESSION_COORDINATION_MODE,
+  )
 })
 
 test('managed-session authentication stays fail-closed for unmanaged sessions and foreign children', async () => {
