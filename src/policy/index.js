@@ -7,6 +7,7 @@ import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
 import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
+import { resolveManagedSessionPrincipal } from '../nils/session-environment.js'
 import { createNilsTransport } from './nils-transport.js'
 import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-status.js'
 
@@ -37,6 +38,21 @@ export function resolveFinishLineShellSpec(shell, operation, input) {
     dshEnv: input.dshEnv,
     ...input.policy === undefined ? {} : { sandboxPolicy: input.policy },
   })
+}
+
+/**
+ * Linux remains the only authoritative finish-line execution host. A non-Linux
+ * runtime may delegate only for an authenticated managed session whose durable
+ * coordination mode explicitly accepts advisory failure. Missing, malformed,
+ * unmanaged, and enforce identities remain fail-closed.
+ *
+ * @param {NodeJS.Platform} platform
+ * @param {{environment?: Readonly<Record<string, string>>} | undefined} principal
+ */
+export function requiresAuthoritativeFinishLine(platform, principal) {
+  if (platform === 'linux') return true
+  const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
+  return mode !== 'advisory' && mode !== 'off'
 }
 
 /**
@@ -216,7 +232,7 @@ export function normalizeSandboxEscalationRequest({
  * every ingress listener and guard before process-tree draining begins.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number }} config
+ * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} }} config
  * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
  * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
  * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
@@ -242,6 +258,10 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     HarnessError,
     TOOL_ABORTED,
     maxSameTurnSteers: config.maxSameTurnFinishLineSteers,
+    requiresFinishLine: identity => requiresAuthoritativeFinishLine(
+      process.platform,
+      resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
+    ),
     prepareValidationRuntime: async (exec, operation) => {
       const session = exec.agent?.session
       if (session === undefined) throw new Error('dsh-runtime-kit: finish-line-session-missing')

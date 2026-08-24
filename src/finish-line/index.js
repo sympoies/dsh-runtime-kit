@@ -163,7 +163,7 @@ function matches(prepared, exec) {
 
 /**
  * @param {Context} ctx
- * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
+ * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
  */
 export function createFinishLineCoordinator(ctx, options) {
   const HarnessError = options.HarnessError ?? Error
@@ -176,6 +176,7 @@ export function createFinishLineCoordinator(ctx, options) {
   )
   const createOperationId = options.createOperationId ?? (() => `dsh:${randomUUID()}`)
   const now = options.now ?? Date.now
+  const requiresFinishLine = options.requiresFinishLine ?? (() => true)
   const prepareValidationRuntime = options.prepareValidationRuntime ?? (async (_exec, operation) => ({
     timeoutMs: resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
       ?? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS,
@@ -191,6 +192,8 @@ export function createFinishLineCoordinator(ctx, options) {
   const preparedEdits = new Map()
   /** @type {Map<Readonly<ToolExecution>, CallIdentity>} */
   const validationCalls = new Map()
+  /** @type {WeakSet<Readonly<ToolExecution>>} */
+  const advisoryDelegations = new WeakSet()
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const settledValidations = new WeakSet()
   /** @type {Map<Agent['session'], SessionLedger>} */
@@ -409,6 +412,10 @@ export function createFinishLineCoordinator(ctx, options) {
         turnId: String(call.turn),
         cwd: call.cwd,
       }
+      if (requiresFinishLine(identity) === false) {
+        advisoryDelegations.add(exec)
+        return { ok: true }
+      }
       await awaitPriorRelease(identity)
       if (!open) return { ok: false, reason: 'finish-line-disposed' }
       if (releaseDegraded) return { ok: false, reason: 'finish-line-unavailable' }
@@ -462,6 +469,7 @@ export function createFinishLineCoordinator(ctx, options) {
     async execute(exec) {
       const operation = operationFor(/** @type {ToolExecution} */ (exec))
       if (operation?.kind !== 'validation') return { kind: 'delegate' }
+      if (advisoryDelegations.delete(exec)) return { kind: 'delegate' }
       const prepared = validationCalls.get(exec)
       validationCalls.delete(exec)
       if (prepared === undefined || !matches(prepared, exec)) {
@@ -565,6 +573,7 @@ export function createFinishLineCoordinator(ctx, options) {
         turnId: String(payload.turn),
         cwd,
       }
+      if (requiresFinishLine(identity) === false) return true
       await awaitPriorRelease(identity)
       if (!open || releaseDegraded) {
         throw new Error('dsh-runtime-kit: finish-line unavailable')

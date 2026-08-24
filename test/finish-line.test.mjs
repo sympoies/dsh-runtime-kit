@@ -17,6 +17,7 @@ function fixture({
     },
   },
   now = Date.now,
+  requiresFinishLine,
 } = {}) {
   const effects = []
   const opens = []
@@ -111,6 +112,7 @@ function fixture({
     client,
     maxSameTurnSteers,
     now,
+    requiresFinishLine,
     createOperationId: () => `operation:${++operation}`,
     prepareValidationRuntime: async (_exec, operation) => {
       runtimePreparations.push(structuredClone(operation))
@@ -145,6 +147,29 @@ function fixture({
     },
   }
 }
+
+test('an authenticated advisory session bypasses Linux-only finish-line without opening state', async () => {
+  const subject = fixture({ requiresFinishLine: () => false })
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'git rev-parse HEAD', description: 'Read current commit' },
+  })
+
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(subject.opens, [])
+  assert.deepEqual(subject.runs, [])
+  assert.deepEqual(subject.stops, [])
+  assert.deepEqual(subject.releases, [])
+  assert.equal(subject.coordinator.activeReservations, 0)
+  assert.equal(subject.coordinator.degraded, false)
+  await subject.dispose()
+})
 
 function execution(subject, {
   name = 'edit',
