@@ -24,6 +24,10 @@ tools, sandbox, approvals, skills, and subagents.
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
   DSH tool pipeline is live.
+- `runtime_kit_governed_commit`, a structured, no-shell completion path bound
+  to the current session-owned non-default managed worktree. It accepts no
+  repository/workdir routing and returns a validated `semantic-commit`
+  receipt.
 - Optional DSH-native Main Agent Mode when the host exposes its subagent
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
@@ -36,7 +40,7 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | `1.27.1` through validated `1.27.6`; DSH rc.2 requires `1.27.5` or newer |
+| nils-cli | `1.27.1` through validated `1.27.7`; DSH rc.2 requires `1.27.5` or newer |
 
 The package deliberately does not claim compatibility with DSH release
 candidates after rc.2 or the eventual stable `0.1.x` line. See the

@@ -2,33 +2,33 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.27.1",
-  "validated_release": "1.27.6",
+  "validated_release": "1.27.7",
   "release": {
-    "source_revision": "v1.27.6",
-    "source_commit": "70d59da82434fe6a1338e93c34b177b379883fb8",
+    "source_revision": "v1.27.7",
+    "source_commit": "7becf98bed19f419e69c82c537b7e8c6a10b2339",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.6-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "4a548dfd56477a8f170264d24f9e72d288d10a2ca652d9c69eca117338de8a66"
+      "name": "nils-cli-v1.27.7-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "231c084c979e1a625fb172e91790f2fcce920cfa76f713cdf63b705a2e913f86"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "bba543bee8dec01633f3be19ab2f86455d698fcb20a2df4efd4d3c9df54490fe"
+        "sha256": "854e40b0732d459132d147a4257f8c0e46bc9a488ccd6b6fcae17ff8d59b5439"
       },
       "agent-docs": {
-        "sha256": "4e3ac206630e7aa05833230763b96fe98ddb4fbc3d8fc313fed5c2a097786070"
+        "sha256": "32accfa023ba5bae6f314e4d351d14dea4630d6a1249b0c3049d2bdb57cff186"
       },
       "forge-cli": {
-        "sha256": "f009d9b632d80e70c6959f3ae4dc1cfba9d130096724a5ad3b5deb3020cedb6a"
+        "sha256": "c8f57a6e6ff09bfa156ce1a275f53a4ac70cd075acabf4e8983e7fb542c9961d"
       },
       "git-cli": {
-        "sha256": "1ea86ac5e506c371c923dbd444d3cc43767e3efdb9b64313e1cbde9758bf3074"
+        "sha256": "f5b4742531b2363c4c3c5adc6c6b09cee3cfcfeaa07cae6093bde7f8c7ad5bf0"
       },
       "review-specialists": {
-        "sha256": "aaf2223ff08903f9d1226c934c39654458d8d7a861416c1f2968b737584b56f2"
+        "sha256": "86a61872fc2ef8bb0451f91cc38a8c4ed7314e186690bc1e9c55ccd4a1ab638a"
       },
       "semantic-commit": {
-        "sha256": "a4f22f6256c25090fbb4b716db9245eca769426cd96f4334a7db81b01f60c8b1"
+        "sha256": "2edfed2bdbe2839e82aaa94b63009b579aa148376c1a581ad8918a6690e65361"
       }
     }
   },
@@ -52,7 +52,8 @@
         "sympoies/nils-cli task 1.3",
         "sympoies/nils-cli task 3.2",
         "sympoies/nils-cli task 3.3",
-        "sympoies/nils-cli task 3.4"
+        "sympoies/nils-cli task 3.4",
+        "sympoies/nils-cli#1491"
       ]
     },
     {

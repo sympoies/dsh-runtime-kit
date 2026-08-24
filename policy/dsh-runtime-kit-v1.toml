@@ -1,6 +1,6 @@
 schema_version = "agent-hook.policy.v1"
 bundle_id = "dsh-runtime-kit"
-version = "2026.08.19.1"
+version = "2026.08.24.1"
 
 # Tasks 3.2 through 3.4 port admission-critical mutation gates, bounded native
 # lifecycle reminders, metadata-only activity, and authenticated operation
@@ -11,7 +11,7 @@ version = "2026.08.19.1"
 id = "dsh.owner-unclaimed"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 100
 mode = "enforce"
 failure_posture = "closed"
@@ -22,7 +22,7 @@ capability = { id = "dsh.policy.v1", group = "owner-unclaimed" }
 id = "dsh.semantic-conflict"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 110
 mode = "enforce"
 failure_posture = "closed"
@@ -33,7 +33,7 @@ capability = { id = "dsh.policy.v1", group = "semantic-conflict" }
 id = "dsh.operation-lifecycle-tool"
 products = ["dsh"]
 events = ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 115
 mode = "enforce"
 failure_posture = "closed"
@@ -44,7 +44,7 @@ capability = { id = "dsh.policy.v1", group = "operation-lifecycle" }
 id = "dsh.agent-scope-lock-guard"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 120
 mode = "enforce"
 failure_posture = "closed"
@@ -99,7 +99,7 @@ capability = { id = "dsh.policy.v1", group = "block-direct-python" }
 id = "dsh.block-unsafe-default-delivery"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 170
 mode = "enforce"
 failure_posture = "closed"
@@ -110,7 +110,7 @@ capability = { id = "dsh.policy.v1", group = "block-unsafe-default-delivery" }
 id = "dsh.checkout-lease-guard"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 180
 mode = "enforce"
 failure_posture = "closed"
@@ -121,7 +121,7 @@ capability = { id = "dsh.policy.v1", group = "checkout-lease-guard" }
 id = "dsh.pre-edit-intent-gate"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash|write|edit|str_replace_editor"
+matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 190
 mode = "enforce"
 failure_posture = "closed"
@@ -132,7 +132,7 @@ capability = { id = "dsh.policy.v1", group = "pre-edit-intent-gate" }
 id = "dsh.semantic-commit-body-gate"
 products = ["dsh"]
 events = ["PreToolUse"]
-matcher = "bash"
+matcher = "bash|runtime_kit_governed_commit"
 priority = 200
 mode = "enforce"
 failure_posture = "closed"

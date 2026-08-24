@@ -34,7 +34,7 @@ success therefore must not be described as final acceptance or promotion.
 Final `pass` additionally requires:
 
 - a disposable OS-isolated execution environment;
-- independently authenticated nils-cli v1.27.6 artifacts;
+- independently authenticated nils-cli v1.27.7 artifacts;
 - the exact pinned DSH source and dependency closure;
 - a clean repository head bound to the tested package digest;
 - explicitly authorized semantic-commit and no-merge PR delivery; and

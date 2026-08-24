@@ -12,7 +12,7 @@ vendor DSH implementation code.
 - Node.js `22.19` or `24` and npm.
 - A clean, built DeepSeek Harness `0.1.0-rc.7` or `0.1.0-rc.8` source checkout
   for compatibility and packed smoke validation.
-- Released nils-cli `1.27.6` binaries when exercising the real policy,
+- Released nils-cli `1.27.7` binaries when exercising the real policy,
   agent-docs, Git, review, or delivery boundaries.
 
 Install the package dependencies without running dependency lifecycle scripts:
@@ -83,9 +83,12 @@ the published npm package.
 ## Packed DSH smoke test
 
 The keyless smoke test installs the packed candidate into a clean temporary DSH
-profile, boots the real rc.7 composition, exercises selective context and
-finish-line behavior, validates specialist review, and calls
-`runtime_kit_plus_one` through DSH's real tool pipeline.
+profile, boots the real selected DSH composition, exercises selective context
+and finish-line behavior, validates specialist review, and calls
+`runtime_kit_plus_one` through DSH's real tool pipeline. Its delivery rehearsal
+also creates an ephemeral signing identity and managed feature worktree, then
+executes `runtime_kit_governed_commit` as a second real DSH session while
+proving the primary checkout and remote default ref did not move.
 
 Prepare a clean built DSH checkout without running its repository hook
 installer, then run:
@@ -94,6 +97,8 @@ installer, then run:
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
+DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN=/path/to/nils-cli/bin/git-cli \
+DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN=/path/to/nils-cli/bin/semantic-commit \
 npm run test:smoke
 ```
 

@@ -116,9 +116,10 @@ and zero uncertain operations. Fully unmanaged sessions are no-op; any partial
 managed selector set is invalid.
 
 Default-delivery policy also covers native `write`, `edit`, and mutating
-`str_replace_editor` targets. It pins primary/default-branch consensus in
-owner-private nils state before mutation, rejects subsequent repository
-metadata drift, blocks native writes into Git metadata, and resolves literal
+`str_replace_editor` targets. It pins the unambiguous remote-advertised default
+branch in owner-private nils state before mutation; the primary checkout's
+current branch remains an independent integration fact. It rejects subsequent
+repository metadata drift, blocks native writes into Git metadata, and resolves literal
 `git -C` and `semantic-commit --repo` targets. Raw commit-producing rewrites on
 the default branch are denied, including protected fetch destinations and
 stdin/server-driven ref-update plumbing. Sequential shell builtins that can
@@ -128,6 +129,19 @@ subcommands that consume nested shell commands are rejected rather than
 partially parsed. Exact Git recovery and the owned delivery CLIs remain
 available. Scope-lock policy probes run with a cleared environment and a
 helper-disabled trusted Git boundary.
+
+`src/governed-commit/index.js` registers the model-facing
+`runtime_kit_governed_commit` tool through DSH's public tool and subprocess
+interfaces. The tool schema contains only conventional message fields and one
+full expected HEAD. Its target is always the canonical live Session cwd; there
+is no `repo`, `workdir`, message-file, amend, fixup, or default-branch option.
+The WorkspaceLease guard acquires same-session mutation authority before the
+tool body, while native nils policy independently requires the exact linked
+worktree and its pinned remote-default projection. JavaScript then resolves
+the configured `semantic-commit` executable, spawns one literal argv vector,
+joins cancellation and teardown, and exposes only a strict bounded commit
+receipt. Branch, staging, expected-head, hooks, and signing behavior remain
+owned by nils-cli and Git rather than being reimplemented in the plugin.
 
 The static command gates are transcript guardrails, not a shell or native-code
 sandbox. They reject malformed or unmodeled shell grammar, executable
@@ -560,7 +574,7 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.27.6` archive, authenticates
+helpers. Package CI downloads the exact nils-cli `1.27.7` archive, authenticates
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.

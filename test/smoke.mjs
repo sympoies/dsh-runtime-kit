@@ -65,7 +65,7 @@ const nilsCompatibility = JSON.parse(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.27.1')
-assert.equal(nilsCompatibility.validated_release, '1.27.6')
+assert.equal(nilsCompatibility.validated_release, '1.27.7')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -126,6 +126,7 @@ const smokeSemanticCommit = process.env.DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BI
 const managedWorktreeCommand = `${JSON.stringify(smokeGitCli)} worktree add dsh-delivery-rehearsal --from main --format json`
 const unsafeDefaultCommand = 'git merge feat/dsh-delivery-rehearsal'
 const stageDeliveryCommand = 'git add --all'
+const switchIntegrationCommand = 'git switch --quiet -c integration-smoke'
 const privateIdentityPattern = new RegExp(
   `\\b${'ter' + 'ry'}\\b|${'ter' + 'ry'}-ai-tech`,
   'i',
@@ -231,6 +232,8 @@ const environment = {
   DSH_TELEMETRY_DISABLED: '1',
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookWrapper,
   DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+  DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: smokeSemanticCommit,
+  DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '0',
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
   DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
   DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-primary',
@@ -469,14 +472,32 @@ product = "dsh"
 commands = [${JSON.stringify(validationCommand)}]
 description = "packed ${dshManifest.version} finish-line smoke"
 `)
+  writeFileSync(join(projectWorkspace, '.gitignore'), '.dsh-validation-count\n')
   installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
   installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')
   installSkill(privateSkillsRoot, 'topic-radar', 'private-topic-radar-marker')
   installSkill(join(projectWorkspace, '.agents', 'skills'), 'bootstrap', 'project-bootstrap-marker')
   installSkill(join(projectWorkspace, '.agents', 'skills'), 'project-only', 'project-only-marker')
+  const signingKey = join(temporaryRoot, 'smoke-signing-key')
+  const generatedSigningKey = spawnSync(
+    '/usr/bin/ssh-keygen',
+    ['-q', '-t', 'ed25519', '-N', '', '-f', signingKey],
+    { env: environment, encoding: 'utf8', timeout: 10_000 },
+  )
+  assert.equal(generatedSigningKey.status, 0, generatedSigningKey.stderr)
+  const allowedSigners = join(temporaryRoot, 'allowed-signers')
+  writeFileSync(
+    allowedSigners,
+    `dsh-runtime-kit@example.invalid ${readFileSync(`${signingKey}.pub`, 'utf8').trim()}\n`,
+    { mode: 0o600 },
+  )
   for (const args of [
     ['config', 'user.email', 'dsh-runtime-kit@example.invalid'],
     ['config', 'user.name', 'DSH Runtime Kit Smoke'],
+    ['config', 'gpg.format', 'ssh'],
+    ['config', 'user.signingkey', signingKey],
+    ['config', 'commit.gpgsign', 'true'],
+    ['config', 'gpg.ssh.allowedSignersFile', allowedSigners],
     ['add', '--all'],
     ['commit', '--quiet', '-m', 'test: establish clean smoke fixture'],
   ]) {
@@ -488,6 +509,9 @@ description = "packed ${dshManifest.version} finish-line smoke"
     })
     assert.equal(prepared.status, 0, prepared.stderr)
   }
+  const remoteHeadDirectory = join(projectWorkspace, '.git', 'refs', 'remotes', 'origin')
+  mkdirSync(remoteHeadDirectory, { recursive: true })
+  writeFileSync(join(remoteHeadDirectory, 'HEAD'), 'ref: refs/remotes/origin/main\n')
   const remoteRepository = join(temporaryRoot, 'origin.git')
   const initializedRemote = spawnSync(
     'git',
@@ -754,6 +778,8 @@ function textResponse(text) {
 
 class SmokeAdapter extends LlmAdapter {
   parentCalls = 0
+  deliveryCalls = 0
+  foreignCalls = 0
   reviewerCalls = 0
   contextVisibility = []
   providerContextVisibility = []
@@ -796,6 +822,83 @@ class SmokeAdapter extends LlmAdapter {
     const isAgentLoopRequest = options.tools?.some(tool => tool.name === 'runtime_context') === true
     if (!isAgentLoopRequest) {
       for (const chunk of textResponse('smoke title')) yield chunk
+      return
+    }
+    const serializedMessages = JSON.stringify(options.messages)
+    const isForeignDelivery = serializedMessages.includes('attempt the foreign governed commit')
+    if (isForeignDelivery) {
+      const sequence = [
+        toolCallResponse('runtime_kit_governed_commit', {
+          type: 'feat',
+          scope: 'runtime',
+          subject: 'exercise native governed commit',
+          body_bullets: ['Bind the commit to the session-owned feature worktree.'],
+          expected_head: process.env.DSH_RUNTIME_KIT_SMOKE_FOREIGN_EXPECTED_HEAD,
+        }, 'foreign-governed-commit'),
+        textResponse('foreign governed commit denied'),
+      ]
+      const chunks = sequence[this.foreignCalls++] ?? textResponse('foreign governed commit denied')
+      for (const chunk of chunks) {
+        if (options.signal?.aborted) throw new Error('foreign delivery smoke adapter aborted')
+        yield chunk
+      }
+      return
+    }
+    const isGovernedDelivery = serializedMessages
+      .includes('create the governed feature commit')
+    if (isGovernedDelivery) {
+      const sequence = [
+        toolCallResponse('runtime_context', { intent: 'project-dev' }, 'delivery-context'),
+        toolCallResponse('write', {
+          file_path: process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_WORKTREE
+            + '/governed-feature-commit.txt',
+          content: 'native governed commit\\n',
+        }, 'delivery-edit'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'fail feature validation once',
+        }, 'delivery-validation-failure'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'pass feature validation',
+        }, 'delivery-validation-success'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(stageDeliveryCommand)},
+          description: 'stage only the feature-worktree payload',
+        }, 'delivery-stage'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'validate the staged feature payload',
+        }, 'delivery-validation-staged'),
+        toolCallResponse('runtime_kit_governed_commit', {
+          type: 'feat',
+          scope: 'runtime',
+          subject: 'must reject a stale expected head',
+          body_bullets: ['A stale expected head must not create a commit.'],
+          expected_head: ${JSON.stringify('c'.repeat(deliveryHead.length))},
+        }, 'delivery-stale-governed-commit'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after the rejected stale commit',
+        }, 'delivery-validation-after-stale'),
+        toolCallResponse('runtime_kit_governed_commit', {
+          type: 'feat',
+          scope: 'runtime',
+          subject: 'exercise native governed commit',
+          body_bullets: ['Bind the commit to the session-owned feature worktree.'],
+          expected_head: ${JSON.stringify(deliveryHead)},
+        }, 'delivery-governed-commit'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after the governed commit',
+        }, 'delivery-validation-after-commit'),
+        textResponse('governed feature commit complete'),
+      ]
+      const chunks = sequence[this.deliveryCalls++] ?? textResponse('governed feature commit complete')
+      for (const chunk of chunks) {
+        if (options.signal?.aborted) throw new Error('delivery smoke adapter aborted')
+        yield chunk
+      }
       return
     }
     this.contextVisibility.push(JSON.stringify(options.messages).includes('# DSH project development'))
@@ -871,6 +974,21 @@ class SmokeAdapter extends LlmAdapter {
           command: ${JSON.stringify(validationCommand)},
           description: 'revalidate after governed delivery preflight',
         }, 'validation-after-delivery'),
+        toolCallResponse('runtime_kit_governed_commit', {
+          type: 'feat',
+          scope: 'runtime',
+          subject: 'must not commit on the default checkout',
+          body_bullets: ['The native default-branch policy must deny this call before execution.'],
+          expected_head: ${JSON.stringify(deliveryHead)},
+        }, 'native-default-denial'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(switchIntegrationCommand)},
+          description: 'move the primary checkout onto an integration branch',
+        }, 'primary-integration-switch'),
+        toolCallResponse('bash', {
+          command: ${JSON.stringify(validationCommand)},
+          description: 'revalidate after changing only the primary checkout branch',
+        }, 'validation-after-integration-switch'),
       )
     }
     if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1') {
@@ -890,9 +1008,13 @@ class SmokeAdapter extends LlmAdapter {
 export function apply(ctx) {
   void (async () => {
     let handle
+    let deliveryHandle
+    let foreignHandle
     try {
       const targetId = process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID
         ?? 'dsh-runtime-kit-smoke-' + process.pid
+      const deliveryId = targetId + '-delivery'
+      const foreignId = targetId + '-foreign'
       const lifecycle = []
       let preExec
       let postExec
@@ -905,10 +1027,19 @@ export function apply(ctx) {
       let unsafeDefaultResult
       let stageDeliveryResult
       let governedDeliveryResult
+      let defaultGovernedCommitResult
+      let switchIntegrationResult
+      let deliveryContextResult
+      let deliveryEditResult
+      let deliveryStageResult
+      let staleFeatureCommitResult
+      let governedFeatureCommitResult
+      let foreignGovernedCommitResult
       let reviewResult
       let reviewerChild
       let reviewerMutationResult
       const validationResults = []
+      const deliveryValidationResults = []
       const errors = []
       ctx.on('agent/session-start', ({ agent, source }) => {
         if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
@@ -978,15 +1109,42 @@ export function apply(ctx) {
               stageDeliveryResult = finalResult
             } else if (exec.arguments?.command === ${JSON.stringify(governedDeliveryCommand)}) {
               governedDeliveryResult = finalResult
+            } else if (exec.arguments?.command === ${JSON.stringify(switchIntegrationCommand)}) {
+              switchIntegrationResult = finalResult
             } else {
               validationResults.push(finalResult)
             }
+          } else if (exec.name === 'runtime_kit_governed_commit') {
+            defaultGovernedCommitResult = finalResult
           } else if (exec.name === 'runtime_kit_plus_one') {
             finalExec = exec
             result = finalResult
           } else if (exec.name === 'review_specialists') {
             reviewResult = finalResult
           }
+        }
+        if (String(exec.agent?.id) === deliveryId) {
+          if (exec.name === 'runtime_context') {
+            deliveryContextResult = finalResult
+          } else if (exec.name === 'write') {
+            deliveryEditResult = finalResult
+          } else if (exec.name === 'runtime_kit_governed_commit') {
+            if (exec.arguments?.expected_head === ${JSON.stringify(deliveryHead)}) {
+              governedFeatureCommitResult = finalResult
+            } else {
+              staleFeatureCommitResult = finalResult
+            }
+          } else if (exec.name === 'bash') {
+            if (exec.arguments?.command === ${JSON.stringify(stageDeliveryCommand)}) {
+              deliveryStageResult = finalResult
+            } else {
+              deliveryValidationResults.push(finalResult)
+            }
+          }
+        }
+        if (String(exec.agent?.id) === foreignId
+          && exec.name === 'runtime_kit_governed_commit') {
+          foreignGovernedCommitResult = finalResult
         }
       })
       ctx.on('agent/turn-stopping', ({ agent, turn }) => {
@@ -1057,6 +1215,48 @@ export function apply(ctx) {
       }))
       await agent.whenIdle()
 
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
+        && process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1') {
+        const managed = JSON.parse(managedWorktreeResult.value.stdout.text.trim())
+        const deliveryWorktree = managed.data.path
+        process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_WORKTREE = deliveryWorktree
+        rmSync(deliveryWorktree + '/.dsh-validation-count', { force: true })
+        deliveryHandle = await ctx.agents.create({
+          sessionId: SessionId(deliveryId),
+          agentOptions: smokeRoute,
+          meta: {
+            cwd: deliveryWorktree,
+            ${agentConsoleTuiPackage === undefined ? '' : "agentPreset: 'standard',"}
+          },
+          setup: ${agentConsoleTuiPackage === undefined
+            ? 'undefined'
+            : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
+        })
+        deliveryHandle.agent.followup(createUserMessage({
+          content: [{ type: 'text', text: 'create the governed feature commit' }],
+          source: { kind: 'user' },
+        }))
+        await deliveryHandle.agent.whenIdle()
+        process.env.DSH_RUNTIME_KIT_SMOKE_FOREIGN_EXPECTED_HEAD
+          = governedFeatureCommitResult.value.commit.sha
+        foreignHandle = await ctx.agents.create({
+          sessionId: SessionId(foreignId),
+          agentOptions: smokeRoute,
+          meta: {
+            cwd: deliveryWorktree,
+            ${agentConsoleTuiPackage === undefined ? '' : "agentPreset: 'standard',"}
+          },
+          setup: ${agentConsoleTuiPackage === undefined
+            ? 'undefined'
+            : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
+        })
+        foreignHandle.agent.followup(createUserMessage({
+          content: [{ type: 'text', text: 'attempt the foreign governed commit' }],
+          source: { kind: 'user' },
+        }))
+        await foreignHandle.agent.whenIdle()
+      }
+
       const controllerTools = ctx.tools.schemas(agent).map(tool => tool.name)
       const laneTools = [...ctx.mainAgentOrchestration.tools.lane]
       const requestConfig = agent.session.requestHeader()?.config
@@ -1118,6 +1318,15 @@ export function apply(ctx) {
         unsafeDefaultResult,
         stageDeliveryResult,
         governedDeliveryResult,
+        defaultGovernedCommitResult,
+        switchIntegrationResult,
+        deliveryContextResult,
+        deliveryEditResult,
+        deliveryStageResult,
+        staleFeatureCommitResult,
+        governedFeatureCommitResult,
+        foreignGovernedCommitResult,
+        deliveryValidationResults,
         reviewResult,
         reviewerMutationResult,
         reviewerChildEvents: reviewerChild?.session.events.map(event => event.type),
@@ -1167,12 +1376,20 @@ export function apply(ctx) {
       }
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
         && expectation === 'allow' && result?.value !== 42) process.exitCode = 1
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
+        && process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+        && governedFeatureCommitResult?.value?.status !== 'committed') process.exitCode = 1
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
+        && process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+        && foreignGovernedCommitResult?.isError !== true) process.exitCode = 1
       if (expectation === 'block' && !result?.isError) process.exitCode = 1
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
     } finally {
       try {
+        await foreignHandle?.dispose()
+        await deliveryHandle?.dispose()
         await handle?.dispose()
       } catch (error) {
         process.stderr.write(String(error?.stack ?? error) + '\\n')
@@ -1259,6 +1476,7 @@ ${agentConsoleTuiOverlay}
   }
   if (deliveryRehearsal) {
     assert.ok(receipt.managedWorktreeResult, 'packed DSH must exercise the managed-worktree route')
+    assert.ok(receipt.governedFeatureCommitResult, 'packed DSH must execute the native governed commit tool')
   }
   const result = receipt.result
   const contextResult = receipt.contextResult
@@ -1268,6 +1486,15 @@ ${agentConsoleTuiOverlay}
   const unsafeDefaultResult = receipt.unsafeDefaultResult
   const stageDeliveryResult = receipt.stageDeliveryResult
   const governedDeliveryResult = receipt.governedDeliveryResult
+  const defaultGovernedCommitResult = receipt.defaultGovernedCommitResult
+  const switchIntegrationResult = receipt.switchIntegrationResult
+  const deliveryContextResult = receipt.deliveryContextResult
+  const deliveryEditResult = receipt.deliveryEditResult
+  const deliveryStageResult = receipt.deliveryStageResult
+  const staleFeatureCommitResult = receipt.staleFeatureCommitResult
+  const governedFeatureCommitResult = receipt.governedFeatureCommitResult
+  const foreignGovernedCommitResult = receipt.foreignGovernedCommitResult
+  const deliveryValidationResults = receipt.deliveryValidationResults
   const validationResults = receipt.validationResults
   assert.equal(contextResult.isError, false)
   assert.equal(contextResult.value.schema_version, 'dsh-runtime-context.result.v1')
@@ -1281,7 +1508,7 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
   assert.equal(receipt.policyContextVisibility[0], true)
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
-  assert.equal(validationResults.length, deliveryRehearsal ? 6 : 3)
+  assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
   assert.ok(validationResults[0].value, JSON.stringify(validationResults[0]))
   assert.notEqual(validationResults[0].value.exitCode, 0)
   assert.equal(validationResults[1].value.exitCode, 0)
@@ -1290,6 +1517,7 @@ ${agentConsoleTuiOverlay}
     assert.equal(validationResults[3].value.exitCode, 0)
     assert.equal(validationResults[4].value.exitCode, 0)
     assert.equal(validationResults[5].value.exitCode, 0)
+    assert.equal(validationResults[6].value.exitCode, 0)
   }
   assert.equal(ordinaryResult.value.exitCode, 0)
   assert.equal(ordinaryResult.value.kind, 'foreground')
@@ -1322,6 +1550,64 @@ ${agentConsoleTuiOverlay}
     assert.equal(governedDeliveryReceipt.data.head, deliveryHead)
     assert.equal(governedDeliveryReceipt.data.completion.default_branch_committed, false)
     assert.equal(governedDeliveryReceipt.data.completion.provider_delivery_attempted, false)
+    assert.equal(defaultGovernedCommitResult.isError, true, JSON.stringify(defaultGovernedCommitResult))
+    assert.match(defaultGovernedCommitResult.content[0].text, /block-unsafe-default-delivery/)
+    assert.equal(switchIntegrationResult.isError, false, JSON.stringify(switchIntegrationResult))
+    assert.equal(switchIntegrationResult.value.exitCode, 0)
+    assert.equal(deliveryContextResult.isError, false, JSON.stringify(deliveryContextResult))
+    assert.equal(deliveryContextResult.value.intent, 'project-dev')
+    assert.equal(deliveryEditResult.isError, false, JSON.stringify(deliveryEditResult))
+    assert.equal(deliveryStageResult.isError, false, JSON.stringify(deliveryStageResult))
+    assert.equal(deliveryStageResult.value.exitCode, 0)
+    assert.equal(deliveryValidationResults.length, 5)
+    assert.notEqual(deliveryValidationResults[0].value.exitCode, 0)
+    assert.ok(deliveryValidationResults.slice(1).every(result => result.value.exitCode === 0))
+    assert.equal(staleFeatureCommitResult.isError, true, JSON.stringify(staleFeatureCommitResult))
+    assert.match(staleFeatureCommitResult.content[0].text, /semantic-commit rejected/u)
+    assert.equal(governedFeatureCommitResult.isError, false, JSON.stringify(governedFeatureCommitResult))
+    assert.equal(
+      governedFeatureCommitResult.value.schema_version,
+      'dsh-runtime-kit.governed-commit.result.v1',
+    )
+    assert.equal(governedFeatureCommitResult.value.status, 'committed')
+    assert.equal(governedFeatureCommitResult.value.staged.file_count, 1)
+    assert.deepEqual(governedFeatureCommitResult.value.staged.files, [{
+      status: 'A',
+      path: 'governed-feature-commit.txt',
+      old_path: null,
+    }])
+
+    const commitSha = governedFeatureCommitResult.value.commit.sha
+    assert.equal(foreignGovernedCommitResult.isError, true, JSON.stringify(foreignGovernedCommitResult))
+    assert.match(foreignGovernedCommitResult.content[0].text, /checkout-lease-guard/u)
+    const gitValue = (cwd, args) => {
+      const output = spawnSync('/usr/bin/git', args, {
+        cwd,
+        env: environment,
+        encoding: 'utf8',
+        timeout: 10_000,
+      })
+      assert.equal(output.status, 0, output.stderr)
+      return output.stdout.trim()
+    }
+    assert.equal(gitValue(projectWorkspace, ['branch', '--show-current']), 'integration-smoke')
+    assert.equal(gitValue(projectWorkspace, ['rev-parse', 'HEAD']), deliveryHead)
+    assert.equal(gitValue(projectWorkspace, ['rev-parse', 'refs/heads/main']), deliveryHead)
+    assert.equal(gitValue(managedWorktreeReceipt.data.path, ['rev-parse', 'HEAD']), commitSha)
+    assert.equal(gitValue(managedWorktreeReceipt.data.path, ['rev-parse', 'HEAD^']), deliveryHead)
+    assert.equal(gitValue(managedWorktreeReceipt.data.path, ['status', '--porcelain']), '')
+    const verifiedCommit = spawnSync('/usr/bin/git', ['verify-commit', commitSha], {
+      cwd: managedWorktreeReceipt.data.path,
+      env: environment,
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(verifiedCommit.status, 0, verifiedCommit.stderr)
+    assert.equal(existsSync(join(projectWorkspace, 'governed-feature-commit.txt')), false)
+    assert.equal(
+      readFileSync(join(managedWorktreeReceipt.data.path, 'governed-feature-commit.txt'), 'utf8'),
+      'native governed commit\n',
+    )
   }
   assert.equal(readFileSync(join(projectWorkspace, '.dsh-validation-count'), 'utf8'), 'validated')
   assert.equal(
@@ -1363,6 +1649,7 @@ ${agentConsoleTuiOverlay}
     false,
     'the lane checkpoint tool must not be globally registered',
   )
+  assert.equal(receipt.tools.includes('runtime_kit_governed_commit'), true)
   assert.equal(
     receipt.mainAgentOrchestration?.apiVersion,
     1,
@@ -1437,6 +1724,18 @@ ${agentConsoleTuiOverlay}
       'post-tool',
       'result',
       'pre-step:1:17',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:18',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:19',
+      'pre-tool',
+      'post-tool',
+      'result',
+      'pre-step:1:20',
     ] : []),
     'turn-stop:1',
   ])
@@ -1764,7 +2063,14 @@ ${agentConsoleTuiOverlay}
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
       { id: 'finish-line', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:result-driven-stop-satisfied'] },
-      { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: ['policy:blocked-before-body', 'policy:correlation-replacement-rejected'] },
+      { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: [
+        'policy:blocked-before-body',
+        'policy:correlation-replacement-rejected',
+        ...(deliveryRehearsal ? [
+          'governed-commit:stale-expected-head-rejected',
+          'governed-commit:foreign-session-denied-before-body',
+        ] : []),
+      ] },
     ],
     dshVersion: dshManifest.version,
     dshProfile: profile,
@@ -1787,6 +2093,9 @@ ${agentConsoleTuiOverlay}
     managedWorktreeRehearsalVerified: deliveryRehearsal,
     unsafeDefaultDeliveryBlocked: deliveryRehearsal,
     governedDefaultDeliveryDryRunVerified: deliveryRehearsal,
+    governedFeatureCommitVerified: deliveryRehearsal,
+    governedStaleHeadRejected: deliveryRehearsal,
+    governedForeignSessionBlocked: deliveryRehearsal,
     nativeReviewSpecialistsVerified: true,
     reviewerMutationBlockedBeforeBody: true,
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined

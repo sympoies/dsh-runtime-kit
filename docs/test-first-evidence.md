@@ -1658,3 +1658,48 @@ GPT session defaults to `high`, a saved `/effort` preference survives a later
 session, project context and finish-line operations complete, and Main Agent
 workers inherit the effective route. Issue 213 remains open until those live
 checks and infrastructure closeout complete; no fleet cutover is claimed here.
+
+## Issue #55 native governed-commit evidence
+
+The runtime baseline first failed before production code existed: importing
+`src/governed-commit/index.js` returned `ERR_MODULE_NOT_FOUND`. The paired nils
+regression reproduced the reported topology rather than hard-coding `main`:
+the remote default was `main` or `trunk`, the primary checkout was on an
+integration branch, and the authenticated linked worktree was on a feature
+branch. The previous policy denied the valid feature commit. These failures
+fixed the authority split before implementation: DSH supplies the live session
+worktree and literal tool lifecycle, while nils owns default projection,
+WorkspaceLease admission, staging, expected HEAD, signing, and the receipt.
+
+Two later review regressions also failed before their repairs. Runtime disposal
+could settle while a commit child had not reached process-tree quiescence, and
+raw canonicalization, resolver, spawn, or wait failures could cross the tool
+boundary. A separate delayed executable-resolution test proved that the
+advertised timeout began too late and that a late resolution could outlive
+disposal. The repaired transport tracks every active operation, applies one
+deadline before resolution, makes cancellation win the resolution race, joins
+bounded teardown, permanently degrades on unknown quiescence, and returns only
+stable path-free error codes. The focused governed-commit suite passes 9/9.
+
+Release adoption retained its own meaningful REDs. Before the manifest change,
+the focused release contract passed 9 tests and failed 2 because it still
+identified nils-cli 1.27.5. The first broad candidate run then exposed two more
+stale consumers: operations treated 1.27.6 as above the supported maximum and
+expected an rc.2 diagnostic to end at 1.27.5, while package CI still downloaded
+the v1.27.5 benchmark archive. The corrected tests use 1.27.8 as the true
+above-range fixture, accept the exact 1.27.5-through-1.27.7 rc.2 interval, and
+bind the workflow to the official v1.27.7 archive digest. Operations now pass
+82/82 and the focused release/compatibility set passes 29/29.
+
+Released-mode source acceptance `issue-55-v1277-rc2-candidate-r2` used exact
+DSH 0.1.1-rc.2 and the six authenticated nils-cli v1.27.7 binaries. It passed
+10 functional scenarios with 2 live-delivery steps explicitly pending and no
+failed scenario. Separate keyless delivery rehearsals passed on DSH
+0.1.0-rc.7, 0.1.0-rc.8, and 0.1.1-rc.2. Each real DSH tools-pipeline run made
+one signed feature-worktree commit with the exact expected parent and staged
+path, rejected a stale expected HEAD without committing, denied a foreign live
+session before the tool body, and left the primary/default checkout unchanged.
+The complete rebased Node 24 package suite passes 415/415, strict typechecking passes,
+and policy-source parity verifies 101 projected rules. Final provider delivery
+and post-merge deployment remain separate gates; this evidence does not claim
+either one early.
