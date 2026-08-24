@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-import { inspectExactDshCheckoutIdentity } from '../src/compat/git-checkout.js'
+import { manageDshPatch } from '../src/compat/dsh-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -27,11 +27,18 @@ const compatibility = JSON.parse(
 )
 const selectedRelease = compatibility.validated_releases?.[dshManifest.version]
 assert.ok(selectedRelease, `unsupported DSH release ${dshManifest.version}`)
-const initialCheckout = await inspectExactDshCheckoutIdentity({
+const patchManifest = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+)
+const initialCheckout = await manageDshPatch({
+  action: 'check',
   sourceRoot: dshRoot,
-  expectedRevision: selectedRelease.revision,
+  patchRoot: projectRoot,
+  manifest: patchManifest,
   gitBin: '/usr/bin/git',
 })
+assert.equal(initialCheckout.revision, selectedRelease.revision)
+assert.equal(initialCheckout.after, 'patched')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-workspace-lease-smoke-'))
 const dshHome = join(temporaryRoot, 'dsh-home')
@@ -270,9 +277,11 @@ export function apply(ctx) {
     },
   })
 
-  const finalCheckout = await inspectExactDshCheckoutIdentity({
+  const finalCheckout = await manageDshPatch({
+    action: 'check',
     sourceRoot: dshRoot,
-    expectedRevision: selectedRelease.revision,
+    patchRoot: projectRoot,
+    manifest: patchManifest,
     gitBin: '/usr/bin/git',
   })
   assert.deepEqual(finalCheckout, initialCheckout)

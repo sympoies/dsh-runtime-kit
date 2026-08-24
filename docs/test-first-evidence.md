@@ -1703,3 +1703,49 @@ The complete rebased Node 24 package suite passes 415/415, strict typechecking p
 and policy-source parity verifies 101 projected rules. Final provider delivery
 and post-merge deployment remain separate gates; this evidence does not claim
 either one early.
+
+## Issue #57 native execution-prerequisite evidence
+
+The first implementation attempt deliberately stayed on public registry and
+event surfaces. Inspection and focused failures showed that this could not
+bind admission to the exact agent-scoped definition later selected by DSH,
+could not cover a successful `tools/execute` short circuit without the original
+body, and could not schedule cache completion after the complete post-execute
+waterfall. The implementation therefore uses one manifest-authenticated,
+version-scoped downstream DSH patch rather than treating agent-authored shell
+evidence as an execution contract.
+
+Two real-pipeline failures then refined the native seam. The first proved that
+a mutable wrapper signal could impersonate caller cancellation during
+completion. The second proved that invoking the prerequisite only inside the
+original body missed a successful native execute-wrapper short circuit. The
+repaired DSH dispatcher owns tamper-evident execution identity, runs
+side-effect-free verification before the execute waterfall, rechecks the exact
+definition at the original body and completion boundaries, and preserves an
+accepted finalized result when idempotent cache completion remains uncertain.
+Runtime-kit has matching regressions for identity mutate-and-restore,
+wrapper-signal substitution, stale definitions, post-approval policy drift,
+and bounded receipt reconciliation.
+
+The patched DSH tools suite passes 161/161, covering ordering and context,
+exact agent scope, HMR substitution, execute short circuits, late cancellation,
+one-shot scheduler dispatch/finalization, prerequisite binding closed before
+approval can suspend admission, post and content-finalizer failures, and
+uncertain cache completion. The patch
+lifecycle tests prove idempotent apply/reverse, authenticate every touched path
+and digest, consume the authenticated in-memory artifact, turn an early-closing
+apply pipe into a typed failure, and reject unknown revisions, source drift,
+linked-worktree excludes, target races, extra patch paths, partial state, and
+hostile Git configuration. Packed real-runtime smoke
+passes on exact DSH 0.1.0-rc.7,
+0.1.0-rc.8, and 0.1.1-rc.2, including automatic project-development and Code
+Mode nested prerequisites; each reverse receipt returns the selected checkout
+to `upstream_checkout_clean=true`.
+
+The post-review runtime suite passes 455/455, the focused patch-manager suite
+passes 13/13, and strict typechecking and diff hygiene pass. Policy-source
+parity verifies 101 rules. Performance gates pass at 0.366 ms in-process p95
+and 5.916 ms p95
+through the authenticated nils-cli v1.27.8 `agent-hook`, with no residual
+children or live handles. Review, provider delivery, and clean post-merge
+canary deployment remain later gates and are not claimed by this record.

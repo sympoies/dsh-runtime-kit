@@ -19,11 +19,12 @@ fails closed before an agent tool body can mutate the workspace.
 | dsh-runtime-kit | Host-authenticated binding, opaque references, pre-body admission, exact operation completion, renewal, and lifecycle drain |
 | nils-cli provider | Canonical repository/worktree identity, durable cross-process leases, fencing, reconciliation, and stable conflict classification |
 
-The integration uses only released public Cordis and DSH package entrypoints.
-The official DSH source remains pinned and unmodified. An out-of-tree DSH
-source patch is not a fallback implementation technique: it may be considered
-only after a packed reproduction names a missing public seam and the governing
-issues approve a version-pinned patch lifecycle before any source edit.
+The workspace-lease integration itself uses only released public Cordis and
+DSH package entrypoints. The default runtime also requires the separately
+authenticated execution-prerequisite patch documented in the compatibility
+guide. That patch does not move lease classification or persistence into DSH;
+it only supplies the exact body/completion transaction boundary shared by
+runtime capabilities.
 
 ## Public surface
 

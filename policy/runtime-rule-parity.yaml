@@ -216,6 +216,7 @@ capability_groups:
     implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#pre-edit-intent-gate
     test_owners:
       - nils-cli:crates/agent-hook/tests/dsh_policy.rs#pre-edit-intent-gate
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#automatic-tool-prerequisites
       - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
   - id: semantic-commit-body-gate
     disposition: nils-capability
@@ -266,7 +267,8 @@ capability_groups:
     implementation_owner: dsh-runtime-kit:src/context/index.js#createRuntimeContextTool
     test_owners:
       - dsh-runtime-kit:test/context.test.mjs
-    stronger_replacement: DSH loads no policy corpus at session start; the model requests one bounded nils-owned project-dev context through the native runtime_context tool.
+      - dsh-runtime-kit:test/plugin-contract.test.mjs#automatic-tool-prerequisites
+    stronger_replacement: DSH loads no policy corpus at session start. Mutating tools resolve one execution-bound nils-owned project-dev prerequisite automatically, inject bounded context only when first materialized, and freshly verify every execution; the explicit runtime_context tool remains available for direct requests.
   - id: user-prompt-agent-memory
     disposition: nils-capability
     migration_task: "3.3"

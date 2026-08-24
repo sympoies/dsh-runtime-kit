@@ -33,14 +33,14 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.7-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.7/nils-cli-v1.27.7-x86_64-unknown-linux-gnu.tar.gz"
-          echo "231c084c979e1a625fb172e91790f2fcce920cfa76f713cdf63b705a2e913f86  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.8/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
+          echo "f779483d7d31d8e6a3a47b669124a95137d814cdedbf2dfeee17b926deef6a57  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.7-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
 
   upstream:
@@ -49,10 +49,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - dsh_version: 0.1.0-rc.7
+            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+            public_contract: false
+            node: 22.19.0
+          - dsh_version: 0.1.0-rc.8
+            revision: 141eb6fef83422698aef7a981029e843e8161534
+            public_contract: false
+            node: 22.19.0
           - channel: pinned
+            dsh_version: 0.1.1-rc.2
             revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+            public_contract: true
+            node: 22.19.0
           - channel: upstream-next
+            dsh_version: 0.1.1-rc.2
             revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+            public_contract: true
+            node: 22.19.0
+          - channel: pinned
+            dsh_version: 0.1.1-rc.2
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+            public_contract: true
+            node: 24
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -70,16 +89,20 @@ jobs:
           version: 11.7.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.19.0
+          node-version: ${{ matrix.node }}
           cache: pnpm
           cache-dependency-path: deepseek-harness/pnpm-lock.yaml
-      - name: Build selected unmodified DSH
+      - name: Build selected pristine DSH
         working-directory: deepseek-harness
-        run: pnpm install --frozen-lockfile --ignore-scripts && pnpm run build:lib
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run build:lib
+          sha256sum packages/core/tools/lib/index.js > "$RUNNER_TEMP/pristine-tools-build.sha256"
       - name: Install runtime-kit dependencies
         working-directory: dsh-runtime-kit
         run: npm ci --ignore-scripts --omit=peer
-      - name: Check selected public DSH contract
+      - name: Check selected pristine DSH contract
+        if: matrix.public_contract
         working-directory: dsh-runtime-kit
         run: >-
           npm run --silent check:compatibility --
@@ -87,6 +110,7 @@ jobs:
           --channel "${{ matrix.channel }}"
           --format json
       - name: Pack selected DSH public packages
+        if: matrix.public_contract
         working-directory: dsh-runtime-kit
         run: |
           npm run --silent pack:compatibility-peers -- \
@@ -96,6 +120,7 @@ jobs:
             --pnpm-bin "$(command -v pnpm)" \
             --receipt "$RUNNER_TEMP/dsh-peer-pack.json"
       - name: Stage authenticated selected DSH closure into the consumer
+        if: matrix.public_contract
         working-directory: dsh-runtime-kit
         run: >-
           npm run --silent stage:compatibility-peers --
@@ -103,8 +128,51 @@ jobs:
           --artifact-root "$RUNNER_TEMP/dsh-compatibility-peers"
           --consumer-root "$GITHUB_WORKSPACE/dsh-runtime-kit"
       - name: Validate the consumer against selected DSH artifacts
+        if: matrix.public_contract
         working-directory: dsh-runtime-kit
         run: npm run typecheck && npm test
-      - name: Assert upstream checkout stayed clean
+      - name: Apply authenticated DSH execution-boundary patch
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent dsh-patch --
+          --action apply
+          --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Validate patched DSH execution boundary
+        working-directory: deepseek-harness
+        run: |
+          pnpm run typecheck
+          pnpm vitest run packages/core/tools/tests/tools.spec.ts
+          pnpm run build:lib
+      - name: Download authenticated nils-cli acceptance binaries
+        run: |
+          archive="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.8/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
+          echo "f779483d7d31d8e6a3a47b669124a95137d814cdedbf2dfeee17b926deef6a57  $archive" \
+            | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+      - name: Run packed runtime smoke on the patched DSH boundary
+        working-directory: dsh-runtime-kit
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-docs
+        run: npm run test:smoke
+      - name: Reverse authenticated DSH patch
+        if: always()
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent dsh-patch --
+          --action reverse
+          --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Rebuild and authenticate unpatched DSH runtime
+        if: always()
+        working-directory: deepseek-harness
+        run: |
+          pnpm run build:lib:host
+          sha256sum --check "$RUNNER_TEMP/pristine-tools-build.sha256"
+      - name: Assert upstream checkout returned to pristine state
+        if: always()
         working-directory: deepseek-harness
         run: test -z "$(git status --porcelain=v1 --untracked-files=all)"

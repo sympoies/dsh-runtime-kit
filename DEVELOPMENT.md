@@ -2,17 +2,18 @@
 
 This guide is the routine contributor entrypoint for `dsh-runtime-kit`. The
 repository is the public, out-of-tree Sympoies runtime layer for DeepSeek
-Harness; changes must use public Cordis and DSH interfaces and must not copy or
-vendor DSH implementation code.
+Harness. Changes use public Cordis and DSH interfaces by default. The sole
+source-level exception is the reviewed, version-scoped patch owned by
+`compatibility/dsh-patches.json`; it is neither a fork nor vendored DSH source.
 
 ## Prerequisites
 
 - Linux for authoritative finish-line, process-containment, and acceptance
   validation.
 - Node.js `22.19` or `24` and npm.
-- A clean, built DeepSeek Harness `0.1.0-rc.7` or `0.1.0-rc.8` source checkout
-  for compatibility and packed smoke validation.
-- Released nils-cli `1.27.7` binaries when exercising the real policy,
+- A pristine DeepSeek Harness `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2`
+  source checkout for compatibility, patch, and packed smoke validation.
+- Released nils-cli `1.27.8` binaries when exercising the real policy,
   agent-docs, Git, review, or delivery boundaries.
 
 Install the package dependencies without running dependency lifecycle scripts:
@@ -36,7 +37,8 @@ owner of this repository's contributor documentation.
 
 - `package.json` owns package entrypoints, supported Node versions, scripts,
   bundled files, and the closed DSH/Cordis peer ranges.
-- `compatibility/dsh.json` and `compatibility/nils-cli.json` own the validated
+- `compatibility/dsh.json`, `compatibility/dsh-patches.json`, and
+  `compatibility/nils-cli.json` own the validated
   upstream revisions, released nils artifacts, public export surface, and
   promotion budgets.
 - `policy/rule-parity.yaml` owns the frozen public source inventory.
@@ -49,7 +51,8 @@ owner of this repository's contributor documentation.
 - `docs/test-first-evidence.md` and `docs/devlog/` retain evidence and history;
   they do not override current code, manifests, or normative documentation.
 
-Keep DSH-version-specific adaptation isolated under `src/compat/`. Rules that
+Keep DSH-version-specific adaptation isolated under `src/compat/` and
+`patches/deepseek-harness/`. Rules that
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
@@ -90,17 +93,30 @@ also creates an ephemeral signing identity and managed feature worktree, then
 executes `runtime_kit_governed_commit` as a second real DSH session while
 proving the primary checkout and remote default ref did not move.
 
-Prepare a clean built DSH checkout without running its repository hook
-installer, then run:
+Prepare a pristine selected DSH checkout without running its repository hook
+installer. Apply the authenticated patch, rebuild, run the smoke, then reverse
+and prove the upstream checkout pristine:
 
 ```sh
+node scripts/manage-dsh-patch.mjs --action apply \
+  --source-root /path/to/deepseek-harness
+pnpm --dir /path/to/deepseek-harness run build:lib:host
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN=/path/to/nils-cli/bin/git-cli \
 DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN=/path/to/nils-cli/bin/semantic-commit \
 npm run test:smoke
+node scripts/manage-dsh-patch.mjs --action reverse \
+  --source-root /path/to/deepseek-harness
+pnpm --dir /path/to/deepseek-harness run build:lib:host
+test -z "$(git -C /path/to/deepseek-harness status --porcelain=v1 --untracked-files=all)"
 ```
+
+`upstream_checkout_clean` and `source_checkout_clean` attest the source tree;
+the same receipt deliberately reports `runtime_rebuilt: false`. Rebuilding and
+smoke-testing the pristine host is a required part of rollback, because ignored
+`lib/` output may still contain the patched dispatcher after source reversal.
 
 The disposable profile is intentionally unmanaged and therefore does not
 claim the owner/coordination authority required for governed default-branch

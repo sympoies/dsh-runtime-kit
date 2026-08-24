@@ -12,7 +12,10 @@ provider read-back into one promotion result.
 
 - snapshots and hashes the candidate package and six nils executables;
 - clones the manifest-selected DSH revision without hardlinks;
-- installs the frozen DSH dependency graph offline and rebuilds its libraries;
+- installs the frozen DSH dependency graph offline and builds its pristine
+  libraries for source compatibility evidence;
+- applies the authenticated execution-boundary patch, rebuilds DSH, and binds
+  its typed patch receipt into the acceptance summary;
 - runs operations and runtime scenarios from separate fresh package
   extractions;
 - executes each scenario in a bounded transient user-systemd control group;
@@ -34,8 +37,10 @@ success therefore must not be described as final acceptance or promotion.
 Final `pass` additionally requires:
 
 - a disposable OS-isolated execution environment;
-- independently authenticated nils-cli v1.27.7 artifacts;
+- independently authenticated nils-cli v1.27.8 artifacts;
 - the exact pinned DSH source and dependency closure;
+- the exact reviewed DSH patch artifact, revision, target hashes, and patched
+  state throughout every runtime scenario;
 - a clean repository head bound to the tested package digest;
 - explicitly authorized semantic-commit and no-merge PR delivery; and
 - direct provider read-back correlated to the same run, repository, head,

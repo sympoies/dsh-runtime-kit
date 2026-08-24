@@ -398,11 +398,64 @@ tree. Unknown quiescence permanently closes this context surface but does not
 change the independent monotonic policy-transport state.
 
 The security boundary ends at DSH's monotonic guard. Public `tools/execute`
-wrappers run afterward with a `ToolDispatchExecution` whose contract makes only
-`signal` mutable. Such in-process plugins are trusted computing base; deliberate
-runtime violations of other readonly fields are not contained here. The bundle
-therefore narrows its substitution guarantees to pre-execute listeners and
-does not depend on brittle property descriptors or non-public APIs.
+wrappers run afterward, but they cannot bind an exact agent-scoped definition
+through HMR, cancellation, and the full post waterfall. Runtime-kit therefore
+does not use a wrapper as a transaction boundary. The authenticated native
+seam below binds one registry-owned execution to one exact definition.
+
+## Automatic tool prerequisites
+
+`src/prerequisite/index.js` assigns process-local identities to the exact
+Agent, runtime workspace generation, and visible `ToolDefinition` object. It
+uses the version-scoped `tools.bindPrerequisite` seam supplied by
+`patches/deepseek-harness/tool-execution-prerequisite.patch`.
+The default mutation surface (`bash`, `write`, `edit`,
+`str_replace_editor`, and `runtime_kit_governed_commit`) requires the named
+`project-dev-context` capability. Another trusted bundle may attach the same
+capability to an exact visible definition through
+`dshRuntimeKit.prerequisites.require(definition, capability)`; its disposer is
+registration-bound and cannot erase a later declaration.
+
+At `tools/pre-execute`, after DSH correlation exists but before nils policy,
+the coordinator asks `agent-docs session prerequisite` for a side-effect-free
+decision. The receipt binds hashes of the DSH session, repository, Agent,
+workspace generation, call, turn/step, tool name, visible definition, and the
+resolved `project-dev`/`edit` policy fingerprint. The strict v5 policy ingress
+carries that exact proof. Older ingress versions remain available for tools
+without an automatic prerequisite and cannot partially parse v5 fields.
+
+Immediately before the selected body, patched DSH proves that the registered
+definition is still the exact bound object and invokes a second side-effect-free
+`session prerequisite` and policy check. HMR replacement, declaration disposal,
+stale or cross-scope receipts, policy drift after an approval, and cancellation
+fail before the body. DSH then runs the body and the complete
+`tools/post-execute` waterfall, finalizes result content and context, and
+linearizes the accepted result. Post-policy rejection, downstream exception,
+body failure, cancellation, and finalizer failure therefore produce no cache
+completion.
+
+Only after accepted completion has linearized does DSH invoke
+`commit-prerequisite`. That call is an idempotent cache-completion optimization,
+not activation, authorization, or the mutation's transaction boundary. The
+runtime retries the exact receipt once when completion is uncertain; continued
+ambiguity logs one stable warning while preserving the already-finalized result
+and its verified context. Later calls freshly revalidate and reconcile the cache.
+The completion transport detaches only caller cancellation while retaining its
+own timeouts, disposal, process-tree quiescence, and fail-closed admission.
+Concurrent pending calls may verify together, but every execution binds only
+its own latest verified context. Cache completion converges idempotently without
+duplicating context inside one execution.
+
+Public DSH registry APIs cannot provide this exact transaction: an agent-scoped
+definition cannot be wrapped at the same layer, `tools/change` carries no
+definition identity, and HMR can replace the selected body after admission.
+The narrow downstream patch is therefore maintained in this repository rather
+than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the
+patch and every before/after file hash for each supported revision. Apply and
+reverse reject unknown revisions, partial state, content drift, or unrelated
+checkout changes. Nils remains the sole owner of catalogs, policy resolution,
+receipt semantics, and durable activation; the patch owns only exact DSH
+execution ordering and result/context attachment.
 
 ## Private skill discovery
 
@@ -574,7 +627,7 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.27.7` archive, authenticates
+helpers. Package CI downloads the exact nils-cli `1.27.8` archive, authenticates
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.

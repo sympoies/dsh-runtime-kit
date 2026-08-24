@@ -3,10 +3,12 @@
 `@sympoies/dsh-runtime-kit` is the public Sympoies runtime layer for
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). It
 adds governed development workflows, selective project context, specialist
-review, and safe lifecycle operations through public Cordis and DSH extension
-interfaces.
+review, and safe lifecycle operations through Cordis and DSH extension
+interfaces plus one reviewed execution-boundary patch.
 
-The package is a DSH bundle, not a fork or copied preset. DSH uses
+The package is a DSH bundle plus a version-scoped downstream patch, not a fork
+or copied preset. The patch is maintained here and is not proposed upstream.
+DSH uses
 dsh-runtime-kit plus [nils-cli](https://github.com/sympoies/nils-cli), while
 Codex and Claude Code continue to use agent-runtime-kit plus nils-cli and are
 not modified by DSH activation. DSH continues to own the agent loop, sessions,
@@ -16,8 +18,10 @@ tools, sandbox, approvals, skills, and subagents.
 
 - 29 bundled public workflow skills, with native project-skill discovery and
   an optional private-skill directory.
-- Selective `runtime_context({ intent: "project-dev" })` delivery instead of
-  injecting a documentation corpus into every prompt.
+- Automatic execution-bound `project-dev-context` prerequisites for mutating
+  tools, with context injected once and policy freshness checked on every call.
+- Explicit `runtime_context({ intent: "project-dev" })` delivery remains
+  available without injecting a documentation corpus into every prompt.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
@@ -40,12 +44,36 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | `1.27.1` through validated `1.27.7`; DSH rc.2 requires `1.27.5` or newer |
+| nils-cli | exactly validated `1.27.8` or a later explicitly validated release |
 
 The package deliberately does not claim compatibility with DSH release
 candidates after rc.2 or the eventual stable `0.1.x` line. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.
+
+Every supported DSH checkout must carry the authenticated
+`tool-execution-prerequisite-v1` patch before runtime-kit is activated. The
+packaged lifecycle command verifies the exact Git revision, patch digest,
+before/after file hashes, and the complete checkout status:
+
+```sh
+node scripts/manage-dsh-patch.mjs --action apply \
+  --source-root /absolute/deepseek-harness
+pnpm --dir /absolute/deepseek-harness run build:lib:host
+```
+
+Unknown revisions, partial application, content drift, and unrelated changes
+fail closed. Rollback reverses the same patch and proves the checkout pristine:
+
+```sh
+node scripts/manage-dsh-patch.mjs --action reverse \
+  --source-root /absolute/deepseek-harness
+pnpm --dir /absolute/deepseek-harness run build:lib:host
+```
+
+Patch receipts attest source state and therefore report `runtime_rebuilt:
+false`; the rebuild and an unpatched smoke check are required before rollback
+is considered complete.
 
 ## Install and activate
 

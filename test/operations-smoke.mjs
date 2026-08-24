@@ -305,7 +305,6 @@ try {
 
   acceptanceStep = 'final-verification'
   const upstreamAfter = upstreamStatus()
-  assert.equal(upstreamBefore, '')
   assert.equal(upstreamAfter, upstreamBefore)
   process.stdout.write(`${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
@@ -319,7 +318,7 @@ try {
         producer: 'operations',
         evidence: [
           'doctor:healthy',
-          'upstream:clean',
+          'upstream:patch-state-unchanged',
           'coexistence:dsh-agent-runtime-kit-zero-dependency',
           'coexistence:codex-claude-wiring-untouched',
         ],
@@ -329,7 +328,7 @@ try {
     setupUpdateRollbackRemove: true,
     unrelatedProfileStatePreserved: true,
     privateSkillsPreserved: true,
-    upstreamCheckoutClean: true,
+    upstreamPatchStateUnchanged: true,
   })}\n`)
 } catch (error) {
   const causeCode = error !== null

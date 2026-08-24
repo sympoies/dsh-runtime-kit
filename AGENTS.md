@@ -5,8 +5,11 @@ DeepSeek Harness (DSH).
 
 ## Invariants
 
-- Do not fork or vendor DeepSeek Harness. Integrate through public Cordis and
-  DSH bundle, plugin, tool, event, and service interfaces.
+- Do not fork or vendor DeepSeek Harness. Use public Cordis and DSH interfaces
+  by default. A missing execution boundary may use only the version-scoped,
+  hash-authenticated downstream patch declared in
+  `compatibility/dsh-patches.json`; patch apply and reverse must fail closed on
+  unknown revisions, content drift, or unrelated checkout changes.
 - Keep DSH compatibility code isolated when version-specific adapters become
   necessary. Pin every tested DSH release candidate in compatibility evidence.
 - Keep private skill contents, credentials, machine paths, and personal policy
@@ -17,14 +20,25 @@ DeepSeek Harness (DSH).
 
 ## Validation
 
-Run the keyless end-to-end smoke test against a prepared DSH source checkout:
+Apply the reviewed patch to a pristine selected checkout, rebuild DSH, and run
+the keyless end-to-end smoke test:
 
 ```sh
+node scripts/manage-dsh-patch.mjs --action apply \
+  --source-root /path/to/deepseek-harness
+pnpm --dir /path/to/deepseek-harness run build:lib:host
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/target/debug/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/target/debug/agent-docs \
 npm run test:smoke
+node scripts/manage-dsh-patch.mjs --action reverse \
+  --source-root /path/to/deepseek-harness
+pnpm --dir /path/to/deepseek-harness run build:lib:host
 ```
+
+The reverse receipt authenticates source state only (`runtime_rebuilt: false`).
+Rollback is incomplete until the pristine host libraries have been rebuilt and
+the unpatched DSH process has been smoke-tested.
 
 The smoke also resolves `review-specialists` as a sibling of `AGENT_HOOK_BIN`,
 so build all three from the same nils-cli checkout

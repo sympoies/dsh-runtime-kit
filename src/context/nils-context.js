@@ -15,6 +15,18 @@ import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolRunContext} ToolRunContext */
+/**
+ * @typedef ContextDecision
+ * @property {'decision.context.v1'} schema_version
+ * @property {string} request_id
+ * @property {'dsh'} product
+ * @property {string} intent
+ * @property {'prepared' | 'already-current'} reason
+ * @property {true} verified
+ * @property {Array<{source: 'home' | 'project', scope: 'home' | 'project' | 'global', content: string}>} documents
+ * @property {number} document_count
+ * @property {number} total_bytes
+ */
 
 const DEFAULT_CONTEXT_BYTES = 20 * 1024
 const MAX_CONTEXT_BYTES = 64 * 1024
@@ -127,20 +139,84 @@ function parseSuccess(envelope, requestId, intent, phase, maxBytes) {
     (total, document) => total + Buffer.byteLength(document.content, 'utf8'),
     0,
   )
-  return measured === decision.total_bytes ? decision : undefined
+  return measured === decision.total_bytes
+    ? /** @type {ContextDecision} */ (decision)
+    : undefined
 }
 
 /** @param {unknown} envelope */
-function parseFailureCode(envelope) {
+function parseFailureCode(envelope, schemas = ['cli.agent-docs.session.context.v1']) {
   if (!hasExactKeys(envelope, ['schema_version', 'ok', 'error'])) return undefined
   const outer = /** @type {Record<string, any>} */ (envelope)
-  if (outer.schema_version !== 'cli.agent-docs.session.context.v1'
+  if (!schemas.includes(outer.schema_version)
     || outer.ok !== false
     || outer.error === null
     || typeof outer.error !== 'object'
     || typeof outer.error.code !== 'string'
     || !SAFE_ERROR_CODE.test(outer.error.code)) return undefined
   return outer.error.code
+}
+
+/**
+ * @param {unknown} envelope
+ * @param {string} requestId
+ * @param {string} intent
+ * @param {string} phase
+ * @param {number} maxBytes
+ */
+function parsePrerequisiteSuccess(envelope, requestId, intent, phase, maxBytes) {
+  if (!hasExactKeys(envelope, ['schema_version', 'ok', 'data'])) return undefined
+  const outer = /** @type {Record<string, any>} */ (envelope)
+  if (outer.schema_version !== 'cli.agent-docs.session.prerequisite.v1'
+    || outer.ok !== true
+    || !hasExactKeys(outer.data, ['decision'])) return undefined
+  const decision = outer.data.decision
+  const keys = [
+    'schema_version', 'request_id', 'product', 'intent', 'phase', 'reason',
+    'verified', 'documents', 'document_count', 'total_bytes', 'receipt',
+  ]
+  if (!hasExactKeys(decision, keys)
+    || decision.schema_version !== 'decision.prerequisite.v1'
+    || decision.request_id !== requestId
+    || decision.product !== 'dsh'
+    || decision.intent !== intent
+    || decision.phase !== phase
+    || !['pending', 'already-current'].includes(decision.reason)
+    || decision.verified !== true
+    || !Array.isArray(decision.documents)
+    || !decision.documents.every(validDocument)
+    || !Number.isSafeInteger(decision.document_count)
+    || decision.document_count !== decision.documents.length
+    || !Number.isSafeInteger(decision.total_bytes)
+    || decision.total_bytes < 0
+    || decision.total_bytes > maxBytes
+    || typeof decision.receipt !== 'string'
+      || decision.receipt.length === 0
+      || Buffer.byteLength(decision.receipt, 'utf8') > 4096
+      || /[\u0000-\u001f\u007f]/u.test(decision.receipt)) return undefined
+  const measured = decision.documents.reduce(
+    /** @param {number} total @param {{ content: string }} document */
+    (total, document) => total + Buffer.byteLength(document.content, 'utf8'),
+    0,
+  )
+  return measured === decision.total_bytes ? decision : undefined
+}
+
+/** @param {unknown} envelope @param {string} intent @param {string} phase */
+function parsePrerequisiteCommitSuccess(envelope, intent, phase) {
+  if (!hasExactKeys(envelope, ['schema_version', 'ok', 'data'])) return undefined
+  const outer = /** @type {Record<string, any>} */ (envelope)
+  const data = outer.data
+  return outer.schema_version === 'cli.agent-docs.session.commit-prerequisite.v1'
+    && outer.ok === true
+    && hasExactKeys(data, ['product', 'intent', 'phase', 'reason', 'verified'])
+    && data.product === 'dsh'
+    && data.intent === intent
+    && data.phase === phase
+    && ['prepared', 'already-current'].includes(data.reason)
+    && data.verified === true
+    ? data
+    : undefined
 }
 
 /** @param {ToolRunContext} exec */
@@ -255,6 +331,116 @@ export function createNilsContextClient(ctx, config = {}) {
 
   ctx.effect(() => dispose, 'dsh-runtime-kit agent-docs context transport')
 
+  /**
+   * @template T
+   * @param {ToolRunContext} exec
+   * @param {string[]} argv
+   * @param {string} cwd
+   * @param {{environment: Record<string, string>} | undefined} principal
+   * @param {(envelope: unknown) => T | undefined} parse
+   * @param {string[]} failureSchemas
+   * @returns {Promise<T>}
+   */
+  async function executeCommand(exec, argv, cwd, principal, parse, failureSchemas) {
+    if (!open) throw failure(degraded ? 'unavailable' : 'disposed')
+    if (exec.signal.aborted) throw failure('caller-aborted')
+    if (active.size >= maxActive) throw failure('overloaded')
+
+    let resolveSettled = () => {}
+    /** @type {Promise<void>} */
+    const settled = new Promise(resolve => { resolveSettled = () => resolve() })
+    let resolveCancelled = () => {}
+    /** @type {Promise<void>} */
+    const cancelled = new Promise(resolve => { resolveCancelled = () => resolve() })
+    /** @type {ActiveOperation} */
+    const operation = {
+      controller: new AbortController(),
+      handle: undefined,
+      cause: undefined,
+      cancel: /** @type {ActiveOperation['cancel']} */ ((cause, reason) => {
+        cancelOperation(operation, cause, reason)
+      }),
+      cancelled,
+      resolveCancelled,
+      settled,
+      resolveSettled,
+    }
+    active.add(operation)
+    const onCallerAbort = () => operation.cancel('caller-aborted', exec.signal.reason)
+    exec.signal.addEventListener('abort', onCallerAbort, { once: true })
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer
+    try {
+      if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
+      if (!open) operation.cancel('disposed')
+      if (operation.cause !== undefined) throw failure(operation.cause)
+      timer = setTimeout(() => operation.cancel('timeout', failure('timeout')), timeoutMs)
+      try {
+        const childEnvironment = principal === undefined
+          ? isolatedNilsEnvironment(undefined)
+          : authenticatedNilsEnvironment(principal.environment)
+        const resolvedArgv = await resolveSubprocessArgv(ctx, argv, operation.controller.signal)
+        operation.handle = ctx.subprocess.spawn({
+          argv: resolvedArgv,
+          cwd,
+          stdio: {
+            stdin: 'ignore',
+            stdout: { maxBytes: stdoutBytes },
+            stderr: { maxBytes: MAX_CONTEXT_ERROR_BYTES },
+          },
+          graceMs: 1_000,
+          signal: operation.controller.signal,
+          env: childEnvironment,
+        })
+      } catch {
+        if (operation.cause !== undefined) throw failure(operation.cause)
+        throw failure('unavailable')
+      }
+      const handle = operation.handle
+      if (operation.cause !== undefined) {
+        try { handle.terminate() } catch {}
+      }
+      const doneObserved = Promise.resolve(handle.done).then(
+        outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),
+        () => ({ kind: /** @type {const} */ ('done'), outcome: undefined, failed: true }),
+      )
+      const first = await Promise.race([
+        doneObserved,
+        operation.cancelled.then(() => ({
+          kind: /** @type {const} */ ('cancelled'),
+          outcome: undefined,
+          failed: false,
+        })),
+      ])
+      const quiescent = await boundedQuiescence(handle)
+      if (!quiescent) degradeAdmission()
+      if (operation.cause !== undefined) throw failure(operation.cause)
+      if (first.kind !== 'done' || first.failed || first.outcome === undefined || !quiescent) {
+        throw failure('unavailable')
+      }
+      const stdout = handle.collected.stdout?.readFrom(0)
+      if (stdout === undefined || stdout.lossy) throw failure('output-invalid')
+      let envelope
+      try { envelope = JSON.parse(stdout.text) } catch { throw failure('output-invalid') }
+      if (first.outcome.exitCode === 0 && first.outcome.signal === null) {
+        const parsed = parse(envelope)
+        if (parsed === undefined) throw failure('output-invalid')
+        return parsed
+      }
+      if (first.outcome.exitCode === null || first.outcome.signal !== null) {
+        throw failure('exit-mismatch')
+      }
+      const code = parseFailureCode(envelope, failureSchemas)
+      if (code === undefined) throw failure('output-invalid')
+      throw failure(`agent-docs-${code}`)
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      exec.signal.removeEventListener('abort', onCallerAbort)
+      active.delete(operation)
+      operation.resolveSettled()
+    }
+  }
+
   return Object.freeze({
     /** @param {ToolRunContext} exec @param {string} intent */
     async prepare(exec, intent) {
@@ -263,10 +449,6 @@ export function createNilsContextClient(ctx, config = {}) {
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId
       const { cwd } = scope
-      if (!open) throw failure(degraded ? 'unavailable' : 'disposed')
-      if (exec.signal.aborted) throw failure('caller-aborted')
-      if (active.size >= maxActive) throw failure('overloaded')
-
       const requestId = `context:${randomUUID()}`
       const argv = [command]
       if (docsHome !== undefined) argv.push('--docs-home', docsHome)
@@ -280,106 +462,93 @@ export function createNilsContextClient(ctx, config = {}) {
       )
       argv.push('--phase', phase)
       argv.push('--request-id', requestId, '--max-bytes', String(maxBytes), '--format', 'json')
+      return executeCommand(
+        exec,
+        argv,
+        cwd,
+        principal,
+        envelope => parseSuccess(envelope, requestId, intent, phase, maxBytes),
+        ['cli.agent-docs.session.context.v1'],
+      )
+    },
 
-      let resolveSettled = () => {}
-      /** @type {Promise<void>} */
-      const settled = new Promise(resolve => { resolveSettled = () => resolve() })
-      let resolveCancelled = () => {}
-      /** @type {Promise<void>} */
-      const cancelled = new Promise(resolve => { resolveCancelled = () => resolve() })
-      /** @type {ActiveOperation} */
-      const operation = {
-        controller: new AbortController(),
-        handle: undefined,
-        cause: undefined,
-        cancel: /** @type {ActiveOperation['cancel']} */ ((cause, reason) => {
-          cancelOperation(operation, cause, reason)
-        }),
-        cancelled,
-        resolveCancelled,
-        settled,
-        resolveSettled,
-      }
-      active.add(operation)
-      const onCallerAbort = () => operation.cancel('caller-aborted', exec.signal.reason)
-      exec.signal.addEventListener('abort', onCallerAbort, { once: true })
-      /** @type {ReturnType<typeof setTimeout> | undefined} */
-      let timer
-      try {
-        if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
-        if (!open) operation.cancel('disposed')
-        if (operation.cause !== undefined) throw failure(operation.cause)
-        timer = setTimeout(() => {
-          operation.cancel('timeout', failure('timeout'))
-        }, timeoutMs)
-        try {
-          const childEnvironment = principal === undefined
-            ? isolatedNilsEnvironment(undefined)
-            : authenticatedNilsEnvironment(principal.environment)
-          const resolvedArgv = await resolveSubprocessArgv(
-            ctx,
-            argv,
-            operation.controller.signal,
-          )
-          operation.handle = ctx.subprocess.spawn({
-            argv: resolvedArgv,
-            cwd,
-            stdio: {
-              stdin: 'ignore',
-              stdout: { maxBytes: stdoutBytes },
-              stderr: { maxBytes: MAX_CONTEXT_ERROR_BYTES },
-            },
-            graceMs: 1_000,
-            signal: operation.controller.signal,
-            env: childEnvironment,
-          })
-        } catch {
-          if (operation.cause !== undefined) throw failure(operation.cause)
-          throw failure('unavailable')
-        }
-        const handle = operation.handle
-        if (operation.cause !== undefined) {
-          try { handle.terminate() } catch {}
-        }
-        const doneObserved = Promise.resolve(handle.done).then(
-          outcome => ({ kind: /** @type {const} */ ('done'), outcome, failed: false }),
-          () => ({ kind: /** @type {const} */ ('done'), outcome: undefined, failed: true }),
-        )
-        const first = await Promise.race([
-          doneObserved,
-          operation.cancelled.then(() => ({
-            kind: /** @type {const} */ ('cancelled'),
-            outcome: undefined,
-            failed: false,
-          })),
-        ])
-        const quiescent = await boundedQuiescence(handle)
-        if (!quiescent) degradeAdmission()
-        if (operation.cause !== undefined) throw failure(operation.cause)
-        if (first.kind !== 'done' || first.failed || first.outcome === undefined || !quiescent) {
-          throw failure('unavailable')
-        }
-        const stdout = handle.collected.stdout?.readFrom(0)
-        if (stdout === undefined || stdout.lossy) throw failure('output-invalid')
-        let envelope
-        try { envelope = JSON.parse(stdout.text) } catch { throw failure('output-invalid') }
-        if (first.outcome.exitCode === 0 && first.outcome.signal === null) {
-          const decision = parseSuccess(envelope, requestId, intent, phase, maxBytes)
-          if (decision === undefined) throw failure('output-invalid')
-          return decision
-        }
-        if (first.outcome.exitCode === null || first.outcome.signal !== null) {
-          throw failure('exit-mismatch')
-        }
-        const code = parseFailureCode(envelope)
-        if (code === undefined) throw failure('output-invalid')
-        throw failure(`agent-docs-${code}`)
-      } finally {
-        if (timer !== undefined) clearTimeout(timer)
-        exec.signal.removeEventListener('abort', onCallerAbort)
-        active.delete(operation)
-        operation.resolveSettled()
-      }
+    /**
+     * @param {ToolRunContext} exec
+     * @param {string} intent
+     * @param {{agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}} binding
+     */
+    async beginPrerequisite(exec, intent, binding) {
+      const phase = runtimeContextPhase(intent)
+      const scope = executionScope(exec)
+      const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
+      const sessionId = principal?.sessionId ?? scope.sessionId
+      const requestId = `prerequisite:${randomUUID()}`
+      const argv = [command]
+      if (docsHome !== undefined) argv.push('--docs-home', docsHome)
+      argv.push(
+        '--project-path', scope.cwd,
+        'session', 'prerequisite',
+        '--session-id', sessionId,
+        '--product', 'dsh',
+        '--state-home', stateHome,
+        '--intent', intent,
+        '--phase', phase,
+        '--request-id', requestId,
+        '--agent-id', binding.agentId,
+        '--workspace-generation', binding.workspaceGeneration,
+        '--call-id', binding.callId,
+        '--turn', String(binding.turn),
+        '--step', String(binding.step),
+        '--tool-name', binding.toolName,
+        '--definition-id', binding.definitionId,
+        '--max-bytes', String(maxBytes),
+        '--format', 'json',
+      )
+      return executeCommand(
+        exec,
+        argv,
+        scope.cwd,
+        principal,
+        envelope => parsePrerequisiteSuccess(envelope, requestId, intent, phase, maxBytes),
+        ['cli.agent-docs.session.prerequisite.v1'],
+      )
+    },
+
+    /**
+     * @param {ToolRunContext} exec
+     * @param {{intent: string, phase: string, receipt: string, binding: {agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}}} pending
+     */
+    async commitPrerequisite(exec, pending) {
+      const scope = executionScope(exec)
+      const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
+      const sessionId = principal?.sessionId ?? scope.sessionId
+      const { binding } = pending
+      const argv = [command]
+      if (docsHome !== undefined) argv.push('--docs-home', docsHome)
+      argv.push(
+        '--project-path', scope.cwd,
+        'session', 'commit-prerequisite',
+        '--session-id', sessionId,
+        '--product', 'dsh',
+        '--state-home', stateHome,
+        '--receipt', pending.receipt,
+        '--agent-id', binding.agentId,
+        '--workspace-generation', binding.workspaceGeneration,
+        '--call-id', binding.callId,
+        '--turn', String(binding.turn),
+        '--step', String(binding.step),
+        '--tool-name', binding.toolName,
+        '--definition-id', binding.definitionId,
+        '--format', 'json',
+      )
+      return executeCommand(
+        exec,
+        argv,
+        scope.cwd,
+        principal,
+        envelope => parsePrerequisiteCommitSuccess(envelope, pending.intent, pending.phase),
+        ['cli.agent-docs.session.commit-prerequisite.v1'],
+      )
     },
 
     dispose,

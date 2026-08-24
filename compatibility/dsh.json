@@ -314,6 +314,8 @@
     "shellEnv.collect",
     "skills.register",
     "subprocess.spawn",
+    "tools.bindPrerequisite",
+    "tools.get",
     "tools.register",
     "tools.guard"
   ],

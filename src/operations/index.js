@@ -71,8 +71,6 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
 ))
 const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
 const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
-const DSH_RC2_RELEASE = '0.1.1-rc.2'
-const AGENT_DOCS_RC2_MINIMUM_RELEASE = '1.27.5'
 const SUPERVISOR_SETTLEMENT_MS = 7_000
 const PROCESS_GROUP_SETTLEMENT_MS = 5_000
 const PACKED_TARGETS = new WeakMap()
@@ -3211,9 +3209,9 @@ function supportedStableRelease(value, minimum, validated) {
 /**
  * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
  * @param {string} home
- * @param {string | undefined} dshRelease
+ * @param {string | undefined} _dshRelease
  */
-function agentDocsDoctor(config, home, dshRelease) {
+function agentDocsDoctor(config, home, _dshRelease) {
   try {
     const executable = resolveExecutable(config.agentDocs ?? 'agent-docs')
     const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
@@ -3233,9 +3231,7 @@ function agentDocsDoctor(config, home, dshRelease) {
       return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
     }
     const match = /^agent-docs ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
-    const minimumRelease = dshRelease === DSH_RC2_RELEASE
-      ? AGENT_DOCS_RC2_MINIMUM_RELEASE
-      : AGENT_DOCS_MINIMUM_RELEASE
+    const minimumRelease = AGENT_DOCS_MINIMUM_RELEASE
     if (match === null || !supportedStableRelease(
       match[1],
       minimumRelease,

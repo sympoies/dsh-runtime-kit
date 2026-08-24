@@ -42,6 +42,11 @@ function runtimeReceipt() {
     producer: 'packed-runtime',
     scenarios: [
       scenario('edit', 'packed-runtime'),
+      scenario('automatic-prerequisite', 'packed-runtime', [
+        'prerequisite:mutating-tool-body-gated',
+        'prerequisite:code-mode-nested-dispatch-gated',
+        'prerequisite:context-ferried-through-run-code',
+      ]),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
       scenario('private-project-skill', 'packed-runtime', [
@@ -76,7 +81,7 @@ function operationsReceipt() {
       scenario('bootstrap', 'operations'),
       scenario('inspect', 'operations', [
         'doctor:healthy',
-        'upstream:clean',
+        'upstream:patch-state-unchanged',
         'coexistence:dsh-agent-runtime-kit-zero-dependency',
         'coexistence:codex-claude-wiring-untouched',
       ]),
@@ -91,6 +96,17 @@ function dshIdentity() {
     channel: 'pinned',
     revision: DSH_REVISION,
     version: '0.1.0-rc.7',
+    patch: {
+      schema_version: 'dsh-runtime-kit.dsh-patch-receipt.v1',
+      patch_id: 'tool-execution-prerequisite-v1',
+      version: '0.1.0-rc.7',
+      revision: DSH_REVISION,
+      action: 'check',
+      before: 'patched',
+      after: 'patched',
+      changed: false,
+      upstream_checkout_clean: false,
+    },
   }
 }
 
@@ -253,7 +269,7 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-summary.v2')
   assert.equal(summary.status, 'incomplete')
   assert.equal(summary.mode, 'source-rehearsal')
-  assert.deepEqual(summary.counts, { passed: 10, pending: 2, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 11, pending: 2, failed: 0 })
   assert.deepEqual(
     summary.scenarios.filter(item => item.status === 'pending-authorization').map(item => item.id),
     ['semantic-commit', 'pr-delivery'],
@@ -310,6 +326,26 @@ test('hosted acceptance binds structured provider isolation evidence', () => {
   )
 })
 
+test('automatic prerequisite acceptance requires every native gating marker', () => {
+  const required = [
+    'prerequisite:mutating-tool-body-gated',
+    'prerequisite:code-mode-nested-dispatch-gated',
+    'prerequisite:context-ferried-through-run-code',
+  ]
+  assert.doesNotThrow(() => buildAcceptanceSummary(baseInput()))
+  for (const missing of required) {
+    const input = baseInput()
+    const automatic = input.runtime.scenarios.find(item => item.id === 'automatic-prerequisite')
+    automatic.evidence = automatic.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+})
+
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
@@ -323,7 +359,7 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 
   assert.equal(summary.status, 'pass')
   assert.equal(summary.mode, 'released')
-  assert.deepEqual(summary.counts, { passed: 12, pending: 0, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 13, pending: 0, failed: 0 })
 })
 
 test('a newer exact release may retain an older supported minimum', () => {
@@ -415,13 +451,18 @@ test('release gate rejects unknown revisions and version-only substitute binarie
   }
 })
 
-test('DSH evidence is bound to the manifest-selected clean pinned revision', () => {
+test('DSH evidence binds pristine provenance to the reviewed downstream patch', () => {
   const input = baseInput()
   assert.throws(
     () => buildAcceptanceSummary({
       ...input,
       dsh: { ...input.dsh, revision: '8'.repeat(40) },
     }),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
+  assert.throws(
+    () => buildAcceptanceSummary({ ...input, dsh: { ...input.dsh, patch: undefined } }),
     error => error instanceof AcceptanceError
       && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
   )
@@ -541,6 +582,14 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'nils-archive-sha256'/u)
   assert.match(runner, /KillMode=control-group/u)
   assert.match(runner, /verifyControlPlane/u)
+  assert.match(runner, /digestDshBuildClosure/u)
+  const controlPlane = runner.slice(
+    runner.indexOf('async function verifyControlPlane()'),
+    runner.indexOf("enterPhase('operations-scenario')"),
+  )
+  assert.match(controlPlane, /manageDshPatch/u)
+  assert.match(controlPlane, /digestDshBuildClosure/u)
+  assert.doesNotMatch(controlPlane, /inspectSelectedDshCheckout\(/u)
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
@@ -564,12 +613,14 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(operationsSmoke, /compatibility', 'dsh\.json/u)
   assert.match(operationsSmoke, /assert\.equal\(doctor\.dsh\.version, pinnedDshVersion\)/u)
   assert.doesNotMatch(operationsSmoke, /assert\.match\(doctor\.dsh\.version/u)
+  assert.match(operationsSmoke, /upstream:patch-state-unchanged/u)
+  assert.doesNotMatch(operationsSmoke, /assert\.equal\(upstreamBefore, ''\)/u)
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
   assert.deepEqual(
     [...runtimeSmoke.matchAll(/(?:from\s+|import\s*\()\s*['"](\.\.\/[^'"]+)['"]/gu)]
       .map(match => match[1]),
-    ['../src/compat/git-checkout.js'],
-    'the trusted runtime scenario controller may load only the reviewed checkout inspector',
+    ['../src/compat/dsh-patch.js'],
+    'the trusted runtime scenario controller may load only the reviewed patch-state inspector',
   )
 
   await assert.rejects(
