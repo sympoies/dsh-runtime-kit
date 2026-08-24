@@ -10,8 +10,8 @@
 - Plan branch: `feat/issue-66-native-dsh-convergence`
 - Current sprint: Sprint 1
 - Status: in-progress
-- Current task: Task 1.4
-- Next task: Task 1.5
+- Current task: Task 1.5
+- Next task: Task 1.6
 - Integration checkout: managed non-default worktree
 - Blockers: none
 - Last updated: 2026-08-24
@@ -23,8 +23,8 @@
 | 1.1 | Freeze the accepted baseline and initialize tracking | done | runtime-kit origin/main `801ea88`; package SHA-256 `0c6c8f1369b1088d08d641a11f9b7b5113354ecf2ae482de34045d9a2b0e4570`; DSH `0.1.1-rc.2` at `b150a551`; nils-cli `1.27.4` at `389580b8`; plan commit `3ee1265` | Provider-visible lifecycle attached and reconciled; the real packed smoke captures the initial failing regression before production edits |
 | 1.2 | Add the runtime-owned native workspace capability | done | Signed runtime commit `54fe5b51`; smoke fix `d770694a`; devlog `22c5316a`; focused 32/32 and full 383/383; packed rc.7/rc.8/rc.2 lifecycle matrix; artifact SHA-256 `69cfc91ddcefd677bd9ee22af27677de3069ab7ce02eb267ed2240bf1c5977f8` | Public Cordis/DSH interfaces only; exact final-guard marker; capability remains dormant until Task 1.4 |
 | 1.3 | Add nils-cli canonical identity and durable lease policy | done | Task 1.2 protocol v1 frozen at `54fe5b51`; Signed nils-cli commit `d63c9bed`; workspace lease 11/11; full agent-hook suite; repository local-fast 8,616/8,616 plus doctests | Canonical physical worktree identity, private keyed durable state, cross-process exclusivity, fencing, idempotency, and safe stale-clean recovery; pushed as immutable Task 1.4 dependency |
-| 1.4 | Integrate the native capability through runtime-kit | in-progress | Consumes pushed nils-cli provider commit `d63c9bed` | Register the strict provider client and compose the runtime plugin; keep Git and lease policy out of JavaScript |
-| 1.5 | Review and deploy the immutable candidate | pending |  | Requires all linked PR heads and pre-merge deployment |
+| 1.4 | Integrate the native capability through runtime-kit | done | Signed nils recovery commit `7907a580`; signed runtime commit `b4f6ae0c`; devlog `89c70605`; runtime 393/393; nils workspace 13/13 and local-fast 8,618/8,618; packed native rc.7/rc.8/rc.2 matrix | Strict native provider, exact DSH child lineage sharing, and same-session dirty resume with terminal-operation fencing; Git and lease policy remain outside JavaScript |
+| 1.5 | Review and deploy the immutable candidate | in-progress | Immutable Task 1.4 heads `7907a580` and `89c70605` | Requires converged review, linked PRs, packed canary deployment, upgrade, and rollback before merge |
 | 1.6 | Merge, redeploy, promote, and close #56 | pending |  | Updates #66 only after post-merge deployment and rollback pass |
 
 ## Validation Log
@@ -89,6 +89,23 @@
   repository `--local-fast` gate passed all 8,616 workspace tests plus
   doctests. The clean signed commit was pushed as the immutable dependency for
   Task 1.4.
+- 2026-08-24: Task 1.4 activated the runtime-owned WorkspaceLease service
+  before policy and registered the strict five-call nils provider through
+  signed runtime commit `b4f6ae0c`. Live exact DSH child lineage can share its
+  ancestor binding with a distinct local opaque reference; independent
+  sessions still contend and linked worktrees remain distinct.
+- 2026-08-24: Packed native acceptance passed on unmodified DSH rc.7, rc.8,
+  and rc.2. In every row a same-worktree peer was denied before its mutation
+  body while root and linked-worktree mutations overlapped; each DSH source
+  checkout retained its exact initial identity. The complete rc.7 packed smoke
+  and all 393 runtime-kit tests also passed.
+- 2026-08-24: The real packed smoke exposed that releasing a clean lease before
+  tool mutation made a later explicit resume look like a dirty takeover.
+  Signed nils commit `7907a580` now permits only the exact prior session and
+  optional parent lineage to resume or compact dirty work after all operations
+  are terminal. Startup, foreign lineage, and uncertain operations remain
+  denied. The workspace suite passed 13/13 and final local-fast passed all
+  8,618 workspace tests plus doctests.
 
 ## Acceptance Evidence
 
@@ -102,7 +119,11 @@
   `69cfc91ddcefd677bd9ee22af27677de3069ab7ce02eb267ed2240bf1c5977f8`
 - Task 1.3 nils-cli provider: signed `d63c9bed`; workspace lease 11/11; full
   agent-hook suite; repository local-fast 8,616/8,616 plus doctests
-- Candidate deployment: pending
+- Task 1.4 native integration: signed nils recovery `7907a580`; signed runtime
+  `b4f6ae0c`; devlog `89c70605`; runtime 393/393; nils workspace 13/13 and
+  local-fast 8,618/8,618; packed native rc.7/rc.8/rc.2 contention and linked
+  worktree matrix
+- Candidate deployment: in progress
 - Post-merge deployment: pending
 - Real-session two-worktree matrix: pending
 - Upgrade and rollback: pending
