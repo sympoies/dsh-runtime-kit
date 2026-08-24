@@ -9,9 +9,9 @@
 - Profile: tracking
 - Plan branch: `feat/issue-66-native-dsh-convergence`
 - Current sprint: Sprint 1
-- Status: in-progress
-- Current task: Task 1.6
-- Next task: close #56, then release #55 through #66's serial gate
+- Status: ready-for-close
+- Current task: complete
+- Next task: close and audit #56, then release #55 through #66's serial gate
 - Integration checkout: managed non-default worktree
 - Blockers: none
 - Last updated: 2026-08-24
@@ -25,7 +25,7 @@
 | 1.3 | Add nils-cli canonical identity and durable lease policy | done | Task 1.2 protocol v1 frozen at `54fe5b51`; Signed nils-cli commit `d63c9bed`; workspace lease 11/11; full agent-hook suite; repository local-fast 8,616/8,616 plus doctests | Canonical physical worktree identity, private keyed durable state, cross-process exclusivity, fencing, idempotency, and safe stale-clean recovery; pushed as immutable Task 1.4 dependency |
 | 1.4 | Integrate the native capability through runtime-kit | done | Signed nils recovery commit `7907a580`; signed runtime commit `b4f6ae0c`; devlog `89c70605`; runtime 393/393; nils workspace 13/13 and local-fast 8,618/8,618; packed native rc.7/rc.8/rc.2 matrix | Strict native provider, exact DSH child lineage sharing, and same-session dirty resume with terminal-operation fencing; Git and lease policy remain outside JavaScript |
 | 1.5 | Review and deploy the immutable candidate | done | Immutable Task 1.4 heads `7907a580` and `89c70605`; Reviewed heads runtime 227cd281 and nils ae593cd9; runtime CI 4/4; nils all non-skipped checks pass; packed rc.7/rc.8/rc.2 full and native canaries; baseline artifact sha256:131f1318; candidate sha256:337427f2; setup-update-rollback-remove pass; outcomes PR72 comment 5391222019 and PR1488 comment 5391223414 | Candidate deployed and rolled back in isolation; Task 1.6 is active. |
-| 1.6 | Merge, redeploy, promote, and close #56 | in-progress | Task 1.5 exact-head candidate acceptance complete | Merge nils-cli then runtime-kit; rebuild from merged identities and repeat deployment/rollback before closeout. |
+| 1.6 | Merge, redeploy, promote, and close #56 | done | Task 1.5 exact-head candidate acceptance complete; Merged nils-cli 8f6c59bd and runtime-kit fc886d1a; merged-tree 402/402 and typecheck; packed full and native rc.7/rc.8/rc.2 matrix; baseline sha256:131f1318; merged artifact sha256:4c6c8316; setup-update-rollback-remove pass | Post-merge deployment and rollback passed; #56 is ready for provider closeout and #55 remains gated. |
 
 ## Validation Log
 
@@ -120,6 +120,24 @@
   skills, provider homes, and the DSH source checkout. Ambient tools with
   writable ancestors failed closed as designed; owner-only immutable snapshots
   passed without relaxing the executable trust boundary.
+- 2026-08-24: Protected workflows merged nils-cli PR #1488 as `8f6c59bd` and
+  runtime-kit PR #72 as `fc886d1a`. Runtime-kit main had already validated the
+  released nils-cli 1.27.5 boundary, so the post-merge matrix used matching
+  1.27.5 `agent-hook`, `agent-docs`, and review binaries built from the nils
+  merge rather than a mixed-version bridge.
+- 2026-08-24: The exact runtime merge tree passed 402/402 tests and strict
+  typechecking. Packed full and native two-session smokes passed on clean DSH
+  rc.7, rc.8, and rc.2 sources; same-worktree peers were denied before their
+  mutation bodies and linked worktrees overlapped.
+- 2026-08-24: Post-merge operations acceptance installed the Task 1.1
+  baseline, updated to the merged runtime artifact, rolled back, and removed
+  it while preserving unrelated profile and provider state. The baseline
+  artifact retained SHA-256 `131f131893aeb18fa754575a518e4370a650886841d416fc58907f2534cf4362`;
+  the merged artifact had SHA-256
+  `4c6c8316f4b357cf7fceecadd08d80ff5366f8c560da0c91951e06cd51e0b0fb`.
+- 2026-08-24: Public DSH and Cordis lifecycle surfaces proved sufficient for
+  the complete workspace capability. No DSH source patch, fork, or vendored
+  source was used; the gated patch escape hatch remains inactive.
 
 ## Acceptance Evidence
 
@@ -138,9 +156,11 @@
   local-fast 8,618/8,618; packed native rc.7/rc.8/rc.2 contention and linked
   worktree matrix
 - Candidate deployment: passed at runtime `227cd281` and nils `ae593cd9`
-- Post-merge deployment: pending
+- Post-merge deployment: passed at runtime `fc886d1a` and nils `8f6c59bd` with
+  matching nils-cli 1.27.5 binaries
 - Real-session two-worktree matrix: passed on DSH rc.7, rc.8, and rc.2
-- Upgrade and rollback: passed from and to the Task 1.1 baseline
+- Upgrade and rollback: candidate and post-merge cycles passed from and to the
+  Task 1.1 baseline; post-merge artifact SHA-256 `4c6c8316f4b357cf7fceecadd08d80ff5366f8c560da0c91951e06cd51e0b0fb`
 - Linked PRs and reviews: [runtime-kit #72](https://github.com/sympoies/dsh-runtime-kit/pull/72), [nils-cli #1488](https://github.com/sympoies/nils-cli/pull/1488); combined outcomes recorded
 - Residual risk: unused vulnerable bundled dependency tracked separately in
   <https://github.com/sympoies/dsh-runtime-kit/issues/68>
