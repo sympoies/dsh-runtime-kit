@@ -1005,21 +1005,19 @@ test('concurrent agent and provider disposal join one durable release', async ()
   assert.equal(calls.release.length, 1)
 })
 
-test('provider disposal aborts an in-flight completion request before release', async () => {
+test('provider disposal preserves an in-flight completion request before release', async () => {
   let completeStartedResolve
   const completeStarted = new Promise(resolve => { completeStartedResolve = resolve })
   let finishComplete = () => {}
   let completionSignal
+  let releaseStarted = false
   const { selected } = provider({
     async complete(_request, signal) {
       completionSignal = signal
       completeStartedResolve()
-      await new Promise(resolve => {
-        finishComplete = resolve
-        if (signal.aborted) resolve()
-        else signal.addEventListener('abort', resolve, { once: true })
-      })
+      await new Promise(resolve => { finishComplete = resolve })
     },
+    async release() { releaseStarted = true },
   })
   const ctx = await harness()
   const disposeProvider = ctx.workspaceLease.registerProvider(selected)
@@ -1036,13 +1034,24 @@ test('provider disposal aborts an in-flight completion request before release', 
     agent,
   })
   await completeStarted
-  const disposing = disposeProvider()
+  let disposed = false
+  const disposing = disposeProvider().then(() => { disposed = true })
   await new Promise(resolve => setImmediate(resolve))
-  const lifecycleAbortObserved = completionSignal.aborted
+  const beforeCompletion = {
+    completionAborted: completionSignal.aborted,
+    disposed,
+    releaseStarted,
+  }
   finishComplete()
-  await Promise.allSettled([toolResult, disposing])
+  const settled = await Promise.allSettled([toolResult, disposing])
 
-  assert.equal(lifecycleAbortObserved, true)
+  assert.deepEqual(beforeCompletion, {
+    completionAborted: false,
+    disposed: false,
+    releaseStarted: false,
+  })
+  assert.deepEqual(settled.map(result => result.status), ['fulfilled', 'fulfilled'])
+  assert.equal(releaseStarted, true)
 })
 
 test('provider disposal drains an in-flight admission and rejects its late grant', async () => {

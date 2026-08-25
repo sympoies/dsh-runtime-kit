@@ -1181,7 +1181,6 @@ export class WorkspaceLease extends Service {
       binding.renewController?.abort(releaseCause)
       for (const operation of binding.operations) {
         operation.authority.abort(releaseCause)
-        operation.completion.abort(releaseCause)
       }
       if (binding.operations.size > 0) {
         for (const owner of new Set(
