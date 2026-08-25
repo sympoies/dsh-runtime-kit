@@ -1,7 +1,7 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
-import { delimiter, dirname, isAbsolute } from 'node:path'
+import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import {
@@ -30,7 +30,6 @@ const MAX_PROVIDER_ARGV_ENTRIES = 256
 const MAX_PROVIDER_ARGV_BYTES = 48 * 1024
 const MAX_ENVIRONMENT_ENTRIES = 128
 const SHELL_ENV_KEYS = new Set(['NO_COLOR', 'TERM', 'PAGER', 'GIT_PAGER'])
-const TRUSTED_SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const NODE_SIGNALS = new Set([
   'SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGCHLD', 'SIGCONT', 'SIGFPE', 'SIGHUP',
   'SIGILL', 'SIGINT', 'SIGIO', 'SIGIOT', 'SIGKILL', 'SIGPIPE', 'SIGPOLL',
@@ -213,26 +212,6 @@ function environment(value) {
     throw new Error('dsh-runtime-kit: finish-line request invalid')
   }
   return Object.freeze(Object.fromEntries(entries.sort(([left], [right]) => left.localeCompare(right))))
-}
-
-/**
- * Let the contained validation command resolve only siblings of the exact
- * agent-hook executable that owns the finish-line run plus fixed system tools.
- * The DSH launch receipt binds that private directory; ambient PATH never
- * participates in this projection.
- *
- * @param {NodeJS.ProcessEnv} environment
- * @param {string} executable
- */
-function validationEnvironment(environment, executable) {
-  const toolchain = dirname(executable)
-  if (!isAbsolute(executable) || toolchain.includes(delimiter) || toolchain.includes('\0')) {
-    throw new Error('dsh-runtime-kit: finish-line executable path invalid')
-  }
-  return {
-    ...environment,
-    PATH: `${toolchain}${delimiter}${TRUSTED_SYSTEM_PATH}`,
-  }
 }
 
 /** @param {unknown} value */
@@ -541,9 +520,6 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           agentHook.argv(['finish-line', action, '--format', 'json']),
           operation.controller.signal,
         )
-        const childProcessEnvironment = action === 'run'
-          ? validationEnvironment(environment, argv[0])
-          : environment
         operation.handle = ctx.subprocess.spawn({
           argv,
           cwd: /** @type {string} */ (request.cwd),
@@ -554,7 +530,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           },
           graceMs: 1_000,
           signal: operation.controller.signal,
-          env: childProcessEnvironment,
+          env: environment,
         })
       } catch {
         throw new Error('dsh-runtime-kit: finish-line unavailable')
