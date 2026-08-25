@@ -83,8 +83,15 @@ and writable-mode validation, immediate
 pre-spawn identity validation, process-tree-bound identity cleanup, and
 preserved cleanup failures, the 256 MiB executable
 ceiling, and stable source/target identity, runs the
-native tools/LLM boundary tests and packed smoke, then reverses the patch and
-authenticates the pristine DSH checkout. Direct fdesc execution,
+native tools/LLM boundary tests and a packed runtime-health smoke, then
+reverses the patch and authenticates the pristine DSH checkout. That
+platform-scoped smoke uses DSH's real tools pipeline to prove unauthenticated
+companion denial, project-health denial before model or adapter work,
+same-session recovery, `runtime_kit_plus_one(41) = 42`, and absence of health
+or audit state from model context. It deliberately does not claim
+authoritative finish-line acceptance: nils-cli's current finish-line contract
+requires Linux systemd/cgroup containment, so the complete packed smoke remains
+a blocking Linux gate. Direct fdesc execution,
 dyld-as-executable bridging, and directory traversal through
 `/dev/fd/<directory-fd>` are deliberately not part of the contract. The lane
 also preserves the nonexistent-`argv[0]` regression so an ordinary runtime

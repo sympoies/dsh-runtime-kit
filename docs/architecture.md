@@ -514,6 +514,16 @@ protects ordinary worktree, concurrent-agent, stale-path, and ambient binary
 replacement. It is not a sandbox against arbitrary malicious code already
 running as the same UID, which can also alter the surrounding user runtime.
 
+Compatibility acceptance follows that platform boundary. Linux runs the
+complete packed runtime, including authoritative nils finish-line validation
+inside its required systemd/cgroup containment. The blocking macOS lane instead
+runs a packed runtime-health smoke through DSH's real tools pipeline: it proves
+companion authentication, fail-closed project health before model or adapter
+work, same-session recovery, context non-disclosure, and the plus-one tool
+result. It does not reinterpret `finish-line-containment-unavailable` as an
+advisory success. Patch reversal, pristine rebuild, CLI startup, exact build
+closure, and clean-checkout proofs remain mandatory on both platforms.
+
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the
 patch and every before/after file hash for each supported revision; targets

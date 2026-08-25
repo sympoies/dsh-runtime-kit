@@ -764,6 +764,12 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(macosJob, /ln -s "\$GITHUB_WORKSPACE\/deepseek-harness\/vendor\/cordis"/)
   assert.doesNotMatch(macosJob, /npm install --no-save[\s\S]{0,200}deepseek-harness\/vendor\/cordis/)
   assert.match(macosJob, /node --test test\/runtime-health-provider\.test\.mjs/)
+  assert.match(macosJob, /DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'/)
+  assert.match(macosJob, /Run packed runtime-health smoke on macOS/)
+  assert.doesNotMatch(
+    workflow.slice(0, workflow.indexOf('  macos-runtime-health:')),
+    /DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY/,
+  )
   assert.match(macosJob, /pnpm dsh --help >\/dev\/null/)
   assert.match(workflow, /npm run --silent check:compatibility/)
   assert.match(workflow, /npm run --silent pack:compatibility-peers/)

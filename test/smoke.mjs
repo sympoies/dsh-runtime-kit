@@ -129,6 +129,7 @@ const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
 const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
+const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -1685,9 +1686,43 @@ ${agentConsoleTuiOverlay}
   assert.ok(
     projectHealthRecoveredReceipt.healthAuditSentinelVisibility.every(value => value === false),
   )
-  resetCheckoutLease()
 
-  const boot = runDsh(
+  if (healthOnly) {
+    resetCheckoutLease()
+    const finalDshCheckout = await manageDshPatch({
+      action: 'check',
+      sourceRoot: dshRoot,
+      patchRoot: projectRoot,
+      manifest: dshPatchManifest,
+      gitBin: '/usr/bin/git',
+    })
+    assert.deepEqual(finalDshCheckout, initialDshCheckout)
+    process.stdout.write(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.runtime-health-smoke.v1',
+      ok: true,
+      dshVersion: dshManifest.version,
+      dshProfile: profile,
+      tool: 'runtime_kit_plus_one',
+      input: 41,
+      output: projectHealthRecoveredReceipt.result.value,
+      unauthenticatedCompanionBlockedBeforeModel: !blockedHealthOutput.includes(marker),
+      projectHealthBlockedBeforeModel:
+        projectHealthBlockedReceipt.adapterSessionCalls === 0
+        && projectHealthBlockedReceipt.modelMiddlewareCalls === 0,
+      sameSessionRecovery:
+        projectHealthRecoveredReceipt.result.value === 42
+        && projectHealthRecoveredReceipt.adapterSessionCalls > 0,
+      healthContextAbsent: [
+        projectHealthBlockedReceipt,
+        projectHealthRecoveredReceipt,
+      ].every(candidate => candidate.healthContextVisibility.every(value => value === false)
+        && candidate.healthAuditSentinelVisibility.every(value => value === false)),
+      patchState: finalDshCheckout.after,
+    }) + '\n')
+  } else {
+    resetCheckoutLease()
+
+    const boot = runDsh(
     ['--profile', profile, '--patch', overlayPath],
     {
       env: {
@@ -2258,7 +2293,7 @@ ${agentConsoleTuiOverlay}
   })
   assert.deepEqual(finalDshCheckout, initialDshCheckout)
 
-  process.stdout.write(JSON.stringify({
+    process.stdout.write(JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
     ok: true,
     producer: 'packed-runtime',
@@ -2371,7 +2406,8 @@ ${agentConsoleTuiOverlay}
     nilsCompatibilityStatus: nilsCompatibility.status,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
-  }) + '\n')
+    }) + '\n')
+  }
 } finally {
   if (process.env.DSH_RUNTIME_KIT_SMOKE_KEEP_ROOT === '1') {
     process.stderr.write(`DSH_RUNTIME_KIT_SMOKE_ROOT=${temporaryRoot}\n`)
