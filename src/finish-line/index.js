@@ -64,6 +64,14 @@ export function resolveFinishLineShellTimeout(kind, timeoutMs) {
  */
 
 /**
+ * @typedef ValidationCall
+ * @property {CallIdentity} prepared
+ * @property {{kind: 'validation', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}} operation
+ * @property {string | undefined} operationId
+ * @property {'validation' | 'ordinary' | undefined} readiness
+ */
+
+/**
  * @typedef SessionLedger
  * @property {Agent['session']} session
  * @property {FinishLineIdentity} identity
@@ -190,7 +198,7 @@ export function createFinishLineCoordinator(ctx, options) {
   }))
   /** @type {Map<Readonly<ToolExecution>, CallIdentity>} */
   const preparedEdits = new Map()
-  /** @type {Map<Readonly<ToolExecution>, CallIdentity>} */
+  /** @type {Map<Readonly<ToolExecution>, ValidationCall>} */
   const validationCalls = new Map()
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const advisoryDelegations = new WeakSet()
@@ -295,8 +303,8 @@ export function createFinishLineCoordinator(ctx, options) {
         return
       }
     }
-    for (const prepared of validationCalls.values()) {
-      if (prepared.session === session) {
+    for (const pending of validationCalls.values()) {
+      if (pending.prepared.session === session) {
         releaseDegraded = true
         poison(ledger, 'release-active')
         return
@@ -380,10 +388,13 @@ export function createFinishLineCoordinator(ctx, options) {
     if (!open) return
     open = false
     await client.drain()
-    for (const session of ledgers.keys()) queueRelease(session)
-    await drainReleaseTasks()
+    // No new work can enter once `open` is false. A validation probe may still
+    // be waiting in an ordinary policy evaluation, so retire that prepared
+    // reservation before releasing its durable runner capability.
     preparedEdits.clear()
     validationCalls.clear()
+    for (const session of ledgers.keys()) queueRelease(session)
+    await drainReleaseTasks()
     await client.dispose()
     ledgers.clear()
   }
@@ -391,6 +402,86 @@ export function createFinishLineCoordinator(ctx, options) {
   ctx.effect(() => dispose, 'dsh-runtime-kit finish-line coordinator')
 
   return Object.freeze({
+    /**
+     * Ask the authoritative finish-line contract whether one Bash call is the
+     * exact current validation before the generic opaque-shell policy sees it.
+     * Only a typed `ready` response receives the validation classification;
+     * every ordinary command remains subject to the normal policy transport.
+     *
+     * @param {ToolExecution} exec
+     * @param {{sessionId: string, cwd: string, turn: number, callId: string, rootCallId: string, name: string}} call
+     */
+    async probe(exec, call) {
+      if (!open) return { ok: false, reason: 'finish-line-disposed' }
+      if (releaseDegraded) return { ok: false, reason: 'finish-line-unavailable' }
+      const operation = operationFor(exec)
+      if (operation === undefined) {
+        return { ok: true, kind: /** @type {const} */ ('not-applicable') }
+      }
+      if ('invalid' in operation) return { ok: false, reason: 'finish-line-operation-invalid' }
+      if ('unsupported' in operation) {
+        return { ok: false, reason: 'finish-line-background-unsupported' }
+      }
+      if (operation.kind !== 'validation') {
+        return { ok: true, kind: /** @type {const} */ ('not-applicable') }
+      }
+      const session = exec.agent?.session
+      if (session === undefined) return { ok: false, reason: 'finish-line-session-missing' }
+      const identity = {
+        product: /** @type {const} */ ('dsh'),
+        sessionId: call.sessionId,
+        turnId: String(call.turn),
+        cwd: call.cwd,
+      }
+      if (requiresFinishLine(identity) === false) {
+        advisoryDelegations.add(exec)
+        return { ok: true, kind: /** @type {const} */ ('ordinary') }
+      }
+      await awaitPriorRelease(identity)
+      if (!open) return { ok: false, reason: 'finish-line-disposed' }
+      if (releaseDegraded) return { ok: false, reason: 'finish-line-unavailable' }
+      const ledger = ledgerFor(session, identity)
+      if (ledger.poison !== undefined) return { ok: false, reason: 'finish-line-unavailable' }
+      /** @type {CallIdentity} */
+      const prepared = {
+        exec,
+        token: exec.token,
+        parent: exec.parent,
+        arguments: exec.arguments,
+        agent: exec.agent,
+        session,
+        callId: call.callId,
+        rootCallId: call.rootCallId,
+        name: call.name,
+        identity,
+      }
+      try {
+        await ensureRunnerCapability(ledger, identity, exec.signal)
+        const operationId = createOperationId()
+        const result = await client.run({
+          ...identity,
+          operationId,
+          runnerCapability: /** @type {string} */ (ledger.runnerCapability),
+          intent: operation.intent,
+          command: operation.command,
+          timeoutMs: 1,
+        }, exec.signal)
+        acceptCorrelation(ledger, result.correlationId)
+        if (result.operationId !== operationId
+          || !['ready', 'ordinary-ready'].includes(result.status)) {
+          throw new Error('finish-line probe response invalid')
+        }
+        const readiness = result.status === 'ready'
+          ? /** @type {const} */ ('validation')
+          : /** @type {const} */ ('ordinary')
+        validationCalls.set(exec, { prepared, operation, operationId, readiness })
+        return { ok: true, kind: readiness }
+      } catch {
+        poison(ledger, 'validation-probe')
+        return { ok: false, reason: 'finish-line-unavailable' }
+      }
+    },
+
     /**
      * @param {ToolExecution} exec
      * @param {{sessionId: string, cwd: string, turn: number, callId: string, rootCallId: string, name: string}} call
@@ -435,7 +526,20 @@ export function createFinishLineCoordinator(ctx, options) {
         identity,
       }
       if (operation.kind === 'validation') {
-        validationCalls.set(exec, prepared)
+        const probed = validationCalls.get(exec)
+        if (probed !== undefined) {
+          if (!matches(probed.prepared, exec)) {
+            poison(ledger, 'begin-correlation')
+            return { ok: false, reason: 'finish-line-correlation-invalid' }
+          }
+          return { ok: true }
+        }
+        validationCalls.set(exec, {
+          prepared,
+          operation,
+          operationId: undefined,
+          readiness: undefined,
+        })
         return { ok: true }
       }
       const operationId = createOperationId()
@@ -470,16 +574,37 @@ export function createFinishLineCoordinator(ctx, options) {
       const operation = operationFor(/** @type {ToolExecution} */ (exec))
       if (operation?.kind !== 'validation') return { kind: 'delegate' }
       if (advisoryDelegations.delete(exec)) return { kind: 'delegate' }
-      const prepared = validationCalls.get(exec)
+      const pending = validationCalls.get(exec)
       validationCalls.delete(exec)
-      if (prepared === undefined || !matches(prepared, exec)) {
-        if (prepared !== undefined) poison(ledgerFor(prepared.session, prepared.identity), 'execute-correlation')
+      if (pending === undefined || !matches(pending.prepared, exec)) {
+        if (pending !== undefined) {
+          poison(ledgerFor(pending.prepared.session, pending.prepared.identity), 'execute-correlation')
+        }
         throw new Error('dsh-runtime-kit: finish-line validation correlation invalid')
       }
+      const prepared = pending.prepared
       const ledger = ledgerFor(prepared.session, prepared.identity)
       try {
-        await ensureRunnerCapability(ledger, prepared.identity, exec.signal)
-        const operationId = createOperationId()
+        let operationId = pending.operationId
+        let readiness = pending.readiness
+        if (operationId === undefined || readiness === undefined) {
+          await ensureRunnerCapability(ledger, prepared.identity, exec.signal)
+          operationId = createOperationId()
+          const probe = await client.run({
+            ...prepared.identity,
+            operationId,
+            runnerCapability: /** @type {string} */ (ledger.runnerCapability),
+            intent: operation.intent,
+            command: operation.command,
+            timeoutMs: 1,
+          }, exec.signal)
+          acceptCorrelation(ledger, probe.correlationId)
+          if (probe.operationId !== operationId
+            || !['ready', 'ordinary-ready'].includes(probe.status)) {
+            throw new Error('finish-line probe response invalid')
+          }
+          readiness = probe.status === 'ready' ? 'validation' : 'ordinary'
+        }
         const candidate = {
           ...prepared.identity,
           operationId,
@@ -488,20 +613,12 @@ export function createFinishLineCoordinator(ctx, options) {
           command: operation.command,
           timeoutMs: 1,
         }
-        let result = await client.run(candidate, exec.signal)
-        acceptCorrelation(ledger, result.correlationId)
-        if (result.operationId !== operationId && result.status !== 'not-applicable') {
-          throw new Error('finish-line run correlation invalid')
-        }
-        if (!['ready', 'ordinary-ready'].includes(result.status)) {
-          throw new Error('finish-line probe response invalid')
-        }
-        const ordinary = result.status === 'ordinary-ready'
+        const ordinary = readiness === 'ordinary'
         const runtime = await prepareValidationRuntime(exec, {
           ...operation,
           kind: ordinary ? 'ordinary' : 'validation',
         })
-        result = await client.run({
+        const result = await client.run({
           ...candidate,
           timeoutMs: runtime.timeoutMs,
           execution: runtime.execution,
@@ -545,6 +662,13 @@ export function createFinishLineCoordinator(ctx, options) {
       }
     },
 
+    /** Drop a prepared operation when a later pre-execution gate denies. @param {ToolExecution} exec */
+    reject(exec) {
+      preparedEdits.delete(exec)
+      validationCalls.delete(exec)
+      advisoryDelegations.delete(exec)
+    },
+
     /** @param {unknown} _target @param {unknown} _observation @param {unknown} _actor */
     observeFs(_target, _observation, _actor) {},
 
@@ -555,7 +679,7 @@ export function createFinishLineCoordinator(ctx, options) {
         settledValidations.delete(exec)
         return
       }
-      const prepared = validationCalls.get(exec)
+      const prepared = validationCalls.get(exec)?.prepared
       validationCalls.delete(exec)
       if (prepared !== undefined) poison(ledgerFor(prepared.session, prepared.identity), 'validation-dispatch-missing')
     },

@@ -591,6 +591,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     const identity = authorizationIdentity(exec, transport.admissionEpoch)
     /** @param {string} reason */
     const rememberDenial = (reason) => {
+      finishLine.reject(exec)
       prerequisites.reject(exec)
       toolContexts.delete(exec)
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
@@ -617,17 +618,29 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         ? 'policy-disposed'
         : 'policy-caller-aborted').reason)
     }
-    let decision
+    let finishProbe
     try {
-      decision = await transport.evaluate(exec, correlation.context, prerequisiteProof)
+      finishProbe = await finishLine.probe(exec, correlation.context)
     } catch {
-      if (closing) return denial('policy-disposed')
-      return rememberDenial(denial('policy-unavailable').reason)
+      return rememberDenial(denial('finish-line-unavailable').reason)
     }
-    if (closing) return denial('policy-disposed')
-    if (decision?.kind === 'deny') return rememberDenial(decision.reason)
-    if (decision?.kind === 'context') {
-      appendToolContext(exec, policyContextMessage(createUserMessage, decision.context))
+    if (!finishProbe.ok) {
+      return rememberDenial(denial(finishProbe.reason ?? 'finish-line-unavailable').reason)
+    }
+
+    if (finishProbe.kind !== 'validation') {
+      let decision
+      try {
+        decision = await transport.evaluate(exec, correlation.context, prerequisiteProof)
+      } catch {
+        if (closing) return rememberDenial(denial('policy-disposed').reason)
+        return rememberDenial(denial('policy-unavailable').reason)
+      }
+      if (closing) return rememberDenial(denial('policy-disposed').reason)
+      if (decision?.kind === 'deny') return rememberDenial(decision.reason)
+      if (decision?.kind === 'context') {
+        appendToolContext(exec, policyContextMessage(createUserMessage, decision.context))
+      }
     }
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
 
@@ -635,7 +648,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (!finishReservation.ok) {
       return rememberDenial(denial(finishReservation.reason ?? 'finish-line-unavailable').reason)
     }
-    if (closing) return denial('policy-disposed')
+    if (closing) return rememberDenial(denial('policy-disposed').reason)
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
 
     authorizations.set(exec, { kind: 'allow', reason: undefined, ...identity })
@@ -643,13 +656,17 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     try {
       downstream = await next()
     } catch (error) {
+      finishLine.reject(exec)
       prerequisites.reject(exec)
+      compatibility.result(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
       throw error
     }
     if (downstream.kind !== 'allow' && downstream.kind !== 'ask') {
+      finishLine.reject(exec)
       prerequisites.reject(exec)
+      compatibility.result(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
     }

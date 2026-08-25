@@ -191,6 +191,33 @@ function harness({
     agents: {
       list: () => [agent],
     },
+    sessions: {
+      async flush(candidate) { return candidate === session },
+    },
+    get(name) {
+      if (name === 'shell') {
+        return {
+          sandboxMode: 'danger-full-access',
+          resolve(request) {
+            return {
+              ...request,
+              timeoutMs: request.timeoutMs ?? 60_000,
+              stdoutMaxBytes: 64 * 1024,
+            }
+          },
+        }
+      }
+      if (name === 'shellEnv') return { collect: () => ({}) }
+      if (name === 'sandboxPolicy') {
+        return {
+          resolve: () => ({
+            mode: 'danger-full-access',
+            workspaceRoot: session.header.cwd,
+          }),
+        }
+      }
+      return undefined
+    },
     tools: {
       register(definition) {
         registeredTools.set(definition.name, definition)
@@ -360,7 +387,8 @@ function harness({
         let rejectDone
         let resolveTreeExit
         const treeExit = new Promise(resolve => { resolveTreeExit = resolve })
-        const done = pending
+        const shouldPend = typeof pending === 'function' ? pending(spec) : pending
+        const done = shouldPend
           ? new Promise((resolve, reject) => {
             settle = resolve
             rejectDone = reject
@@ -1826,6 +1854,318 @@ test('native tool advisory context is delivered after the exact tool result', as
     kind: 'plugin',
     plugin: 'dsh-runtime-kit',
   })
+})
+
+function bashFinishLineEnvelope({
+  actions = [],
+  probeStatus = 'ordinary-ready',
+  probeOperationId,
+  policyAction = 'allow',
+} = {}) {
+  return (spec) => {
+    const finishLineIndex = spec.argv.indexOf('finish-line')
+    if (finishLineIndex < 0) return decision(policyAction)
+    const action = spec.argv[finishLineIndex + 1]
+    actions.push(action)
+    const request = JSON.parse(spec.stdio.stdin.data)
+    if (action === 'open') {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-open.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.open-result.v1',
+          status: 'opened',
+          runner_capability: 'runner:opaque',
+          correlation_id: 'correlation:opaque',
+        },
+      }
+    }
+    if (action === 'release') {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-release.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.release-result.v1',
+          status: 'released',
+          correlation_id: 'correlation:opaque',
+        },
+      }
+    }
+    return {
+      schema_version: 'cli.agent-hook.finish-line-run.v1',
+      ok: true,
+      data: {
+        schema_version: 'agent-hook.finish-line.run-result.v1',
+        status: probeStatus,
+        operation_id: probeOperationId ?? request.operation_id,
+        correlation_id: 'correlation:opaque',
+      },
+    }
+  }
+}
+
+test('an exact declared validation reaches finish-line before opaque shell policy', async () => {
+  const finishLineActions = []
+  let preExecutePolicies = 0
+  const subject = harness({
+    envelope: (spec) => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex >= 0) {
+        const action = spec.argv[finishLineIndex + 1]
+        finishLineActions.push(action)
+        const request = JSON.parse(spec.stdio.stdin.data)
+        if (action === 'open') {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-open.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.open-result.v1',
+              status: 'opened',
+              runner_capability: 'runner:opaque',
+              correlation_id: 'correlation:opaque',
+            },
+          }
+        }
+        if (action === 'run' && request.execution === undefined) {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-run.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.run-result.v1',
+              status: 'ready',
+              operation_id: request.operation_id,
+              correlation_id: 'correlation:opaque',
+            },
+          }
+        }
+        if (action === 'run') {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-run.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.run-result.v1',
+              status: 'applied',
+              operation_id: request.operation_id,
+              generation: 1,
+              correlation_id: 'correlation:opaque',
+              execution: {
+                exit_code: 0,
+                signal: null,
+                timed_out: false,
+                aborted: false,
+                timeout_ms: request.timeout_ms,
+                stdout: { text: 'validated\n', truncated: false },
+                stderr: { text: '', truncated: false },
+                sandbox: { mode: 'danger-full-access', denied: false },
+              },
+            },
+          }
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event === 'tools/pre-execute') {
+        preExecutePolicies += 1
+        return decision('block')
+      }
+      return decision('allow', {
+        event: ingress.event === 'tools/post-execute' ? 'PostToolUse' : 'UserPromptSubmit',
+      })
+    },
+  })
+
+  const invocation = await subject.invoke({
+    command: 'bash scripts/ci/all.sh',
+    description: 'Run the exact repository validation',
+  }, { name: 'bash' })
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, false)
+  assert.equal(invocation.executionResult.isError, false)
+  assert.equal(invocation.executionResult.value.exitCode, 0)
+  assert.equal(preExecutePolicies, 0)
+  assert.deepEqual(finishLineActions, ['open', 'run', 'run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+})
+
+test('an ordinary shell script remains subject to generic policy after finish-line probing', async () => {
+  const finishLineActions = []
+  let preExecutePolicies = 0
+  const subject = harness({
+    envelope: (spec) => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex >= 0) {
+        const action = spec.argv[finishLineIndex + 1]
+        finishLineActions.push(action)
+        const request = JSON.parse(spec.stdio.stdin.data)
+        if (action === 'open') {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-open.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.open-result.v1',
+              status: 'opened',
+              runner_capability: 'runner:opaque',
+              correlation_id: 'correlation:opaque',
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.agent-hook.finish-line-run.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.run-result.v1',
+            status: 'ordinary-ready',
+            operation_id: request.operation_id,
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event === 'tools/pre-execute') {
+        preExecutePolicies += 1
+        return decision('block')
+      }
+      return decision('allow')
+    },
+  })
+
+  const invocation = await subject.invoke({
+    command: 'bash arbitrary.sh',
+    description: 'Run an arbitrary shell script',
+  }, { name: 'bash' })
+
+  assert.equal(invocation.result.kind, 'deny')
+  assert.equal(invocation.delegated, false)
+  assert.equal(preExecutePolicies, 1)
+  assert.deepEqual(finishLineActions, ['open', 'run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+})
+
+test('a mismatched Bash finish-line probe cannot bypass policy or retain correlation state', async () => {
+  const actions = []
+  const subject = harness({
+    envelope: bashFinishLineEnvelope({
+      actions,
+      probeStatus: 'ready',
+      probeOperationId: 'operation:substituted',
+      policyAction: 'block',
+    }),
+  })
+
+  const invocation = await subject.invoke({
+    command: 'bash scripts/ci/all.sh',
+    description: 'Run the exact repository validation',
+  }, { name: 'bash' })
+
+  assert.equal(invocation.result.kind, 'deny')
+  assert.equal(invocation.delegated, false)
+  assert.deepEqual(actions, ['open', 'run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.pendingPolicyMarkers, 0)
+  assert.equal(subject.service.pendingCorrelations, 0)
+})
+
+test('a substituted Bash execution identity cannot consume a probed validation', async () => {
+  const actions = []
+  const subject = harness({
+    envelope: bashFinishLineEnvelope({ actions, probeStatus: 'ready' }),
+  })
+
+  const invocation = await subject.invoke({
+    command: 'bash scripts/ci/all.sh',
+    description: 'Run the exact repository validation',
+  }, {
+    name: 'bash',
+    beforeExecute(exec) { exec.token = Symbol('substituted-validation-token') },
+  })
+
+  assert.equal(invocation.delegated, false)
+  assert.equal(invocation.executionResult.isError, true)
+  assert.match(invocation.executionResult.error.message, /finish-line validation correlation invalid/)
+  assert.deepEqual(actions, ['open', 'run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.pendingPolicyMarkers, 0)
+  assert.equal(subject.service.pendingCorrelations, 0)
+})
+
+test('ordinary Bash downstream denial and failure clear the prepared finish-line probe', async () => {
+  for (const downstream of ['deny', 'throw']) {
+    const actions = []
+    const subject = harness({ envelope: bashFinishLineEnvelope({ actions }) })
+    const invoke = () => subject.invoke({
+      command: 'bash arbitrary.sh',
+      description: 'Run an arbitrary shell script',
+    }, {
+      name: 'bash',
+      downstreamDecision: downstream === 'deny'
+        ? { kind: 'deny', reason: 'downstream-denial' }
+        : () => { throw new Error('downstream-failure') },
+    })
+
+    if (downstream === 'deny') {
+      const invocation = await invoke()
+      assert.equal(invocation.result.kind, 'deny')
+      assert.equal(invocation.delegated, false)
+    } else {
+      await assert.rejects(invoke(), /downstream-failure/)
+    }
+    assert.deepEqual(actions, ['open', 'run'], downstream)
+    assert.equal(subject.service.activeFinishLineReservations, 0, downstream)
+    assert.equal(subject.service.pendingPolicyMarkers, 0, downstream)
+    assert.equal(subject.service.pendingCorrelations, 0, downstream)
+  }
+})
+
+test('caller abort during ordinary Bash policy evaluation clears the prepared probe', async () => {
+  const actions = []
+  const subject = harness({
+    envelope: bashFinishLineEnvelope({ actions }),
+    pending: spec => {
+      if (!spec.argv.includes('dispatch')) return false
+      return JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute'
+    },
+  })
+  const controller = new AbortController()
+  const invocation = subject.invoke({
+    command: 'bash arbitrary.sh',
+    description: 'Run an arbitrary shell script',
+  }, { name: 'bash', signal: controller.signal })
+  await new Promise(resolve => setImmediate(resolve))
+  controller.abort(new Error('caller stopped'))
+  const result = await invocation
+
+  assert.equal(result.result.kind, 'deny')
+  assert.match(result.result.reason, /policy-caller-aborted/)
+  assert.equal(result.delegated, false)
+  assert.deepEqual(actions, ['open', 'run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.pendingPolicyMarkers, 0)
+  assert.equal(subject.service.pendingCorrelations, 0)
+})
+
+test('disposal releases an ordinary Bash capability while generic policy is pending', async () => {
+  const actions = []
+  const subject = harness({
+    envelope: bashFinishLineEnvelope({ actions }),
+    pending: spec => {
+      if (!spec.argv.includes('dispatch')) return false
+      return JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute'
+    },
+  })
+  const invocation = subject.invoke({
+    command: 'bash arbitrary.sh',
+    description: 'Run an arbitrary shell script',
+  }, { name: 'bash' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(subject.service.activeFinishLineReservations, 1)
+
+  await Promise.all([subject.dispose(), invocation])
+
+  assert.deepEqual(actions, ['open', 'run', 'release'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.finishLineDegraded, false)
+  assert.equal(subject.service.pendingPolicyMarkers, 0)
+  assert.equal(subject.service.pendingCorrelations, 0)
 })
 
 test('stop advisory is steered once only after the authoritative finish-line allows', async () => {
