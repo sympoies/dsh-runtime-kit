@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -358,6 +358,7 @@ test('snapshot execution stays descriptor-bound across root pathname replacement
   const descriptorDirectory = dirname(subject.authenticatedConfig.agentHook)
   const snapshotRoot = await realpath(descriptorDirectory)
   const displacedRoot = `${snapshotRoot}-displaced`
+  let disposed = false
   try {
     assert.deepEqual(
       Object.keys(subject.authenticatedConfig).sort(),
@@ -372,9 +373,18 @@ test('snapshot execution stays descriptor-bound across root pathname replacement
     assert.equal(runtime.state, 'ready')
     const descriptorPrefix = process.platform === 'darwin' ? '/dev/fd/' : '/proc/'
     assert.equal(subject.calls.every(call => call.argv[0].startsWith(descriptorPrefix)), true)
+
+    await subject.ctx.fiber.dispose()
+    disposed = true
+    assert.equal(await readFile(join(snapshotRoot, 'agent-hook'), 'utf8'), 'replacement hook')
+    assert.equal(await readFile(join(snapshotRoot, 'agent-docs'), 'utf8'), 'replacement docs')
+    await assert.rejects(stat(join(displacedRoot, 'agent-hook')), { code: 'ENOENT' })
+    await assert.rejects(stat(join(displacedRoot, 'agent-docs')), { code: 'ENOENT' })
   } finally {
     await rm(snapshotRoot, { recursive: true, force: true })
-    await rename(displacedRoot, snapshotRoot)
+    await chmod(displacedRoot, 0o700).catch(() => {})
+    await rm(displacedRoot, { recursive: true, force: true })
+    if (!disposed) await subject.ctx.fiber.dispose()
     await subject.dispose()
   }
 })

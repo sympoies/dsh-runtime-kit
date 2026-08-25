@@ -96,7 +96,8 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm run build:lib
+          pnpm run clean
+          pnpm run build:lib:host
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
@@ -181,7 +182,8 @@ jobs:
         if: always()
         working-directory: deepseek-harness
         run: |
-          pnpm run build:lib
+          pnpm run clean
+          pnpm run build:lib:host
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
@@ -218,7 +220,8 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm run build:lib
+          pnpm run clean
+          pnpm run build:lib:host
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
@@ -269,7 +272,8 @@ jobs:
         if: always()
         working-directory: deepseek-harness
         run: |
-          pnpm run build:lib
+          pnpm run clean
+          pnpm run build:lib:host
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"

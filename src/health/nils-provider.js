@@ -2,7 +2,7 @@
 
 import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { chmod, mkdtemp, open, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { mkdtemp, open, readFile, realpath, rmdir, stat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 
@@ -286,17 +286,70 @@ function descriptorRootPath(fd) {
 /** @param {import('node:fs/promises').FileHandle} rootHandle */
 async function authenticatedDescriptorRoot(rootHandle) {
   const root = descriptorRootPath(rootHandle.fd)
-  const [opened, projected] = await Promise.all([rootHandle.stat(), stat(root)])
-  if (!opened.isDirectory() || !projected.isDirectory()
-    || opened.dev !== projected.dev || opened.ino !== projected.ino) {
-    throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+  // Darwin's fdesc filesystem does not promise that stat(2) on /dev/fd/N
+  // exposes the underlying descriptor's device/inode pair. Opening the
+  // projection does duplicate the descriptor, so compare the two open-file
+  // identities instead. Linux /proc descriptors satisfy the same stronger
+  // check.
+  const projectedHandle = await open(root, constants.O_RDONLY | constants.O_DIRECTORY)
+  try {
+    const [opened, projected] = await Promise.all([rootHandle.stat(), projectedHandle.stat()])
+    if (!opened.isDirectory() || !projected.isDirectory()
+      || opened.dev !== projected.dev || opened.ino !== projected.ino) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    }
+  } finally {
+    await projectedHandle.close()
   }
   return root
 }
 
-/** @param {string} root @param {string} descriptorRoot @param {string} name @param {Buffer} bytes @param {string} expected */
-async function snapshotExecutable(root, descriptorRoot, name, bytes, expected) {
-  const path = join(root, name)
+/** @param {string} path @param {import('node:fs/promises').FileHandle} rootHandle */
+async function pathReferencesOpenDirectory(path, rootHandle) {
+  try {
+    const [opened, projected] = await Promise.all([rootHandle.stat(), stat(path)])
+    return opened.isDirectory() && projected.isDirectory()
+      && opened.dev === projected.dev && opened.ino === projected.ino
+  } catch (error) {
+    if (record(error)?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+/**
+ * Remove snapshot entries through the retained directory descriptor. Only
+ * remove the directory pathname while it still identifies that same inode; a
+ * replacement at the old pathname belongs to somebody else and is untouched.
+ *
+ * @param {string} root
+ * @param {string} descriptorRoot
+ * @param {import('node:fs/promises').FileHandle} rootHandle
+ */
+async function cleanupSnapshot(root, descriptorRoot, rootHandle) {
+  /** @type {unknown[]} */
+  const failures = []
+  await rootHandle.chmod(0o700).catch(error => failures.push(error))
+  for (const name of ['agent-hook', 'agent-docs']) {
+    await unlink(join(descriptorRoot, name)).catch(error => {
+      if (record(error)?.code !== 'ENOENT') failures.push(error)
+    })
+  }
+  try {
+    if (await pathReferencesOpenDirectory(root, rootHandle)) {
+      await rmdir(root)
+    }
+  } catch (error) {
+    if (record(error)?.code !== 'ENOENT') failures.push(error)
+  }
+  await rootHandle.close().catch(error => failures.push(error))
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'dsh-runtime-kit: authenticated nils snapshot cleanup failed')
+  }
+}
+
+/** @param {string} descriptorRoot @param {string} name @param {Buffer} bytes @param {string} expected */
+async function snapshotExecutable(descriptorRoot, name, bytes, expected) {
+  const path = join(descriptorRoot, name)
   const handle = await open(
     path,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
@@ -305,10 +358,10 @@ async function snapshotExecutable(root, descriptorRoot, name, bytes, expected) {
   try {
     await handle.writeFile(bytes)
     await handle.sync()
+    await handle.chmod(0o500)
   } finally {
     await handle.close()
   }
-  await chmod(path, 0o500)
   const authenticated = await authenticateBinary(path, expected)
   return Object.freeze({
     ...authenticated,
@@ -628,41 +681,47 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   let hook
   let docs
   try {
-    await chmod(snapshotRoot, 0o700)
-    await assertTrustedSnapshotRoot(await realpath(snapshotRoot))
     snapshotRootHandle = await open(
       snapshotRoot,
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     )
+    await snapshotRootHandle.chmod(0o700)
     snapshotDescriptorRoot = await authenticatedDescriptorRoot(snapshotRootHandle)
+    if (!await pathReferencesOpenDirectory(snapshotRoot, snapshotRootHandle)) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    }
+    await assertTrustedSnapshotRoot(await realpath(snapshotRoot))
+    if (!await pathReferencesOpenDirectory(snapshotRoot, snapshotRootHandle)) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    }
     hook = await snapshotExecutable(
-      snapshotRoot,
       snapshotDescriptorRoot,
       'agent-hook',
       sourceHook.bytes,
       compatibility.hookSha256,
     )
     docs = await snapshotExecutable(
-      snapshotRoot,
       snapshotDescriptorRoot,
       'agent-docs',
       sourceDocs.bytes,
       compatibility.docsSha256,
     )
-    await chmod(snapshotRoot, 0o500)
+    await snapshotRootHandle.chmod(0o500)
   } catch (error) {
-    await snapshotRootHandle?.close().catch(() => {})
-    await chmod(snapshotRoot, 0o700).catch(() => {})
-    await rm(snapshotRoot, { recursive: true, force: true }).catch(() => {})
+    if (snapshotRootHandle !== undefined && snapshotDescriptorRoot !== undefined) {
+      await cleanupSnapshot(snapshotRoot, snapshotDescriptorRoot, snapshotRootHandle).catch(() => {})
+    } else if (snapshotRootHandle !== undefined) {
+      const removeRoot = await pathReferencesOpenDirectory(snapshotRoot, snapshotRootHandle).catch(() => false)
+      if (removeRoot) await rmdir(snapshotRoot).catch(() => {})
+      await snapshotRootHandle.close().catch(() => {})
+    }
     throw error
   }
   let snapshotDisposed = false
   const disposeSnapshot = async () => {
     if (snapshotDisposed) return
     snapshotDisposed = true
-    await snapshotRootHandle.close().catch(() => {})
-    await chmod(snapshotRoot, 0o700).catch(() => {})
-    await rm(snapshotRoot, { recursive: true, force: true })
+    await cleanupSnapshot(snapshotRoot, snapshotDescriptorRoot, snapshotRootHandle)
   }
   const executionOwner = createSnapshotExecutionOwner(disposeSnapshot, health.disposeTimeoutMs)
   try {
