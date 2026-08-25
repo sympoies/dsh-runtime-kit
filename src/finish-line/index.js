@@ -669,6 +669,15 @@ export function createFinishLineCoordinator(ctx, options) {
       advisoryDelegations.delete(exec)
     },
 
+    /**
+     * Report whether the exact execution has an authenticated declared-
+     * validation classification that remains reserved for dispatch.
+     * @param {Readonly<ToolExecution>} exec
+     */
+    isDeclaredValidation(exec) {
+      return validationCalls.get(exec)?.readiness === 'validation'
+    },
+
     /** @param {unknown} _target @param {unknown} _observation @param {unknown} _actor */
     observeFs(_target, _observation, _actor) {},
 

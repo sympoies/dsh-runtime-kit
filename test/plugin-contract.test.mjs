@@ -1972,6 +1972,10 @@ test('an exact declared validation reaches finish-line before opaque shell polic
       })
     },
   })
+  subject.ctx.tools.register(Object.freeze({
+    name: 'bash',
+    async execute() { throw new Error('finish-line should own declared validation execution') },
+  }))
 
   const invocation = await subject.invoke({
     command: 'bash scripts/ci/all.sh',
@@ -1983,6 +1987,18 @@ test('an exact declared validation reaches finish-line before opaque shell polic
   assert.equal(invocation.executionResult.isError, false)
   assert.equal(invocation.executionResult.value.exitCode, 0)
   assert.equal(preExecutePolicies, 0)
+  assert.deepEqual(invocation.postDecision.additionalContexts?.[0]?.content, [
+    { type: 'text', text: 'bounded policy\n' },
+  ])
+  assert.equal(
+    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
+      && !spec.argv.includes('commit-prerequisite')).length,
+    2,
+  )
+  assert.equal(
+    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
+    1,
+  )
   assert.deepEqual(finishLineActions, ['open', 'run', 'run'])
   assert.equal(subject.service.activeFinishLineReservations, 0)
 })
@@ -2028,6 +2044,10 @@ test('an ordinary shell script remains subject to generic policy after finish-li
       return decision('allow')
     },
   })
+  subject.ctx.tools.register(Object.freeze({
+    name: 'bash',
+    async execute() { return { exitCode: 0 } },
+  }))
 
   const invocation = await subject.invoke({
     command: 'bash arbitrary.sh',
