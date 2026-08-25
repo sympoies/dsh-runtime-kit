@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto'
 
 import { resolveAgentHookRuntime, requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
+import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-execution.js'
 import {
   authenticatedNilsEnvironment,
   isolatedNilsEnvironment,
@@ -329,6 +330,7 @@ export function createNilsTransport(ctx, config = {}) {
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
   const agentDocsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   const agentDocsStateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
   const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveOperation>} */
   const active = new Set()
@@ -384,13 +386,15 @@ export function createNilsTransport(ctx, config = {}) {
   }
 
   async function dispose() {
-    if (!open && active.size === 0) return
-    open = false
-    const pending = [...active]
-    for (const operation of pending) {
-      operation.cancel('disposed', new Error('dsh-runtime-kit policy transport disposed'))
+    if (open || active.size > 0) {
+      open = false
+      const pending = [...active]
+      for (const operation of pending) {
+        operation.cancel('disposed', new Error('dsh-runtime-kit policy transport disposed'))
+      }
+      await Promise.allSettled(pending.map(operation => operation.settled))
     }
-    await Promise.allSettled(pending.map(operation => operation.settled))
+    await authenticatedExecution.dispose()
   }
 
   ctx.effect(() => dispose, 'dsh-runtime-kit nils transport')
@@ -453,6 +457,8 @@ export function createNilsTransport(ctx, config = {}) {
     signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
+    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    let executionLease
     try {
       if (signal.aborted) operation.cancel('caller-aborted', signal.reason)
       if (!open) operation.cancel('disposed')
@@ -462,6 +468,8 @@ export function createNilsTransport(ctx, config = {}) {
       }, timeoutMs)
 
       try {
+        executionLease = authenticatedExecution.acquire(operation.controller.signal)
+        const executionSignal = executionLease.signal
         const childEnvironment = principal === undefined
           ? isolatedNilsEnvironment(undefined)
           : {
@@ -476,7 +484,7 @@ export function createNilsTransport(ctx, config = {}) {
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
-          operation.controller.signal,
+          executionSignal,
         )
         operation.handle = ctx.subprocess.spawn({
           argv,
@@ -487,7 +495,7 @@ export function createNilsTransport(ctx, config = {}) {
             stderr: { maxBytes: MAX_POLICY_ERROR_BYTES },
           },
           graceMs: 1_000,
-          signal: operation.controller.signal,
+          signal: executionSignal,
           env: childEnvironment,
         })
       } catch {
@@ -549,6 +557,7 @@ export function createNilsTransport(ctx, config = {}) {
         : undefined
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      executionLease?.release()
       signal.removeEventListener('abort', onCallerAbort)
       active.delete(operation)
       operation.resolveSettled()

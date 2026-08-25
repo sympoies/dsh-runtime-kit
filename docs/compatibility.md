@@ -18,8 +18,8 @@ service methods before registering a listener, tool, service, or skill. Mixed
 or unknown peer versions fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
 `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; plugin activation also requires the native
-`tools.bindPrerequisite` method supplied by the authenticated patch and never
-partially activates without it.
+`tools.bindPrerequisite` and `llm.guard` methods supplied by the authenticated
+patch and never partially activates without them.
 
 ## Machine-readable contract
 
@@ -38,9 +38,11 @@ receipt for check, apply, or reverse.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
-official release source, Linux archive, and the six acceptance binary hashes.
-A local nils checkout or ambient prototype binary is not release compatibility
-evidence.
+official release source, the primary Linux archive and six acceptance binary
+hashes, plus the macOS ARM64 archive and runtime-health companion hashes. A
+platform may activate native health only when its exact archive, `agent-hook`,
+and `agent-docs` digests are recorded. A local nils checkout or ambient
+prototype binary is not release compatibility evidence.
 
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
 the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
@@ -60,14 +62,20 @@ checkout bytes.
 
 CI keeps separate blocking `pinned` and `upstream-next` matrix rows. Each row
 authenticates and packs the pristine upstream artifact closure, applies the
-reviewed patch, rebuilds DSH, runs DSH's complete tool-runtime tests and the
+reviewed patch, rebuilds DSH, runs DSH's complete tool and LLM runtime tests and the
 packed runtime smoke, reverses the patch, and proves the checkout pristine.
 It then rebuilds the pristine host and authenticates the unpatched tools
-entrypoint, so source reversal cannot leave a patched ignored `lib/` runtime.
+closure by sorted path, mode, length, and bytes, so source reversal cannot leave
+patched declarations, maps, extra files, or other ignored `lib/` output.
 The rc.7 and rc.8 releases are independently pinned and receive the same local
 patch apply/reverse and packed-smoke acceptance before their peer range is
 advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
+
+A separate blocking macOS ARM64 lane authenticates the released nils-cli
+archive, exercises the Darwin descriptor-bound health provider, runs the native
+tools/LLM boundary tests and packed smoke, then reverses the patch and
+authenticates the pristine DSH checkout.
 
 Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture

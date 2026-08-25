@@ -108,8 +108,9 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'portable-paths-scan': disposition('policy.portable-output.v1', PLANNED, NILS, [NILS_POLICY]),
   'pre-edit-intent-gate': disposition('policy.edit-admission.v1', PLANNED, `${DSH} + ${NILS}`, [DSH_POLICY, NILS_POLICY]),
   'semantic-commit-body-gate': disposition('policy.git-delivery.v1', PLANNED, NILS, [NILS_POLICY]),
-  'session-start-healthcheck': disposition('operations.health.v1', PLANNED, DSH, [
-    testOwner(DSH, 'test/operations.test.mjs', PLANNED),
+  'session-start-healthcheck': disposition('operations.health.v1', 'implemented', DSH, [
+    testOwner(DSH, 'test/runtime-health.test.mjs', ACTIVE),
+    testOwner(DSH, 'test/runtime-health-provider.test.mjs', ACTIVE),
   ]),
   'skill-usage-reminder': disposition('context.skill-routing.v1', PLANNED, DSH, [
     testOwner(DSH, 'test/skill-routing.test.mjs', PLANNED),

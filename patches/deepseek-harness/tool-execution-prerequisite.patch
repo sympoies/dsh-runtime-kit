@@ -1573,3 +1573,189 @@ index ec770592a..f7eae4b00 100644
    it('replaces a late wrapper success with ABORTED and preserves deferred contexts', async () => {
      const ctx = await setup()
      ctx.tools.register({
+diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
+index e87c428d06..7b4eee1d1f 100644
+--- a/packages/llm/llm/src/index.ts
++++ b/packages/llm/llm/src/index.ts
+@@ -171,6 +171,12 @@ export interface PreparedLlmCall {
+   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
+ }
+ 
++/**
++ * Monotonic asynchronous admission before the `llm/stream` waterfall.
++ * Returning a stable reason denies the call; `undefined` leaves it unchanged.
++ */
++export type LlmGuard = (options: GenerateOptions) => string | undefined | Promise<string | undefined>
++
+ /**
+  * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
+  * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
+@@ -284,6 +290,7 @@ export interface DirectoryRegistrationHandle {
+ export class LlmRuntime extends Service {
+   private adapters = new Map<string, AdapterRegistration>()
+   private directory = new Map<string, LlmConfigurableProvider>()
++  private guards = new Map<symbol, LlmGuard>()
+   private discoveries = new Map<
+     string,
+     (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+@@ -293,6 +300,33 @@ export class LlmRuntime extends Service {
+     super(ctx, 'llm')
+   }
+ 
++  /**
++   * Register one effect-owned monotonic model-call guard. Guards run before
++   * cooperative `llm/stream` middleware so a short-circuit, cache, or routing
++   * listener cannot bypass package-owned admission.
++   */
++  guard(guard: LlmGuard): () => void {
++    if (typeof guard !== 'function') throw new TypeError('llm.guard() requires a function')
++    const key = Symbol()
++    return this.ctx.effect(() => {
++      this.guards.set(key, guard)
++      return () => { this.guards.delete(key) }
++    }, 'llm.guard()')
++  }
++
++  /** First monotonic denial before model-call middleware. */
++  private async guardReason(options: GenerateOptions): Promise<string | undefined> {
++    for (const guard of this.guards.values()) {
++      const reason = await guard(options)
++      if (reason === undefined) continue
++      if (typeof reason !== 'string' || reason.length === 0) {
++        throw new TypeError('llm.guard() must return a non-empty reason or undefined')
++      }
++      return reason
++    }
++    return undefined
++  }
++
+   /** Notify topology observers without letting one broken listener veto the commit. */
+   private emitAdaptersUpdated(): void {
+     // Cordis emit uses Array.map: one synchronous throw starves later
+@@ -950,6 +984,22 @@ export class LlmRuntime extends Service {
+   stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+     return this.streamWithRegistration(options)
+   }
+ 
++  private async * guardedStream(
++    options: GenerateOptions,
++    dispatch: () => AsyncIterable<StreamChunk>,
++  ): AsyncGenerator<StreamChunk> {
++    try {
++      const denialReason = await this.guardReason(options)
++      if (denialReason !== undefined) {
++        throw new LlmError('LLM call denied by a monotonic guard', denialReason)
++      }
++    } catch (error: unknown) {
++      yield adapterFailureChunk(error, options.signal)
++      return
++    }
++    yield* dispatch()
++  }
++
+   private streamWithRegistration(
+     options: GenerateOptions,
+@@ -959,9 +1009,9 @@ export class LlmRuntime extends Service {
+   ): AsyncIterable<StreamChunk> {
+-    return this.ctx.waterfall(
++    return this.guardedStream(options, () => this.ctx.waterfall(
+       this,
+       'llm/stream',
+       options,
+       () => this.adapterStream(options, prepared),
+-    )
++    ))
+   }
+ }
+diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
+index ed7d8d9bf8..dfe2b5246a 100644
+--- a/packages/llm/llm/tests/service.spec.ts
++++ b/packages/llm/llm/tests/service.spec.ts
+@@ -457,6 +457,87 @@ describe('LlmRuntime', () => {
+     })()).rejects.toBe(consumerFailure)
+   })
+ 
++  it('runs effect-owned async guards before cooperative middleware and adapter dispatch', async () => {
++    let adapterCalls = 0
++    let guardCalls = 0
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    ctx.llm.registerAdapter(['test'], new class extends ScriptedAdapter {
++      override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
++        adapterCalls += 1
++        yield* super.stream(options)
++      }
++    }(SCRIPT))
++    const guardFiber = ctx.plugin({
++      inject: ['llm'],
++      apply(guardCtx) {
++        guardCtx.llm.guard(async (options) => {
++          guardCalls += 1
++          await Promise.resolve(options.sessionId)
++          return 'HEALTH_BLOCKED'
++        })
++      },
++    })
++    await guardFiber
++    ctx.on('llm/stream', (_options, next) => next(), { prepend: true })
++
++    const blocked = await collect(ctx.llm.stream({
++      provider: 'test',
++      model: 'test',
++      messages: [],
++    }))
++    expect(blocked.at(-1)).toMatchObject({
++      type: 'finish',
++      reason: { kind: 'error', failure: { code: 'HEALTH_BLOCKED' } },
++    })
++    expect({ adapterCalls, guardCalls }).toEqual({ adapterCalls: 0, guardCalls: 1 })
++
++    await guardFiber.dispose()
++    await collect(ctx.llm.stream({ provider: 'test', model: 'test', messages: [] }))
++    expect({ adapterCalls, guardCalls }).toEqual({ adapterCalls: 1, guardCalls: 1 })
++  })
++
++  it('denies before middleware can short-circuit a guarded model call', async () => {
++    let adapterCalls = 0
++    let guardCalls = 0
++    let middlewareCalls = 0
++    const ctx = new Context()
++    await ctx.plugin(LlmRuntime)
++    ctx.llm.registerAdapter(['test'], new class extends ScriptedAdapter {
++      override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
++        adapterCalls += 1
++        yield* super.stream(options)
++      }
++    }(SCRIPT))
++    ctx.llm.guard(() => { guardCalls += 1; return 'HEALTH_BLOCKED' })
++    ctx.on('llm/stream', () => {
++      middlewareCalls += 1
++      return (async function* () { yield* SCRIPT })()
++    }, { prepend: true })
++
++    const blocked = await collect(ctx.llm.stream({ provider: 'test', model: 'test', messages: [] }))
++    expect(blocked.at(-1)).toMatchObject({
++      type: 'finish',
++      reason: { kind: 'error', failure: { code: 'HEALTH_BLOCKED' } },
++    })
++    expect({ adapterCalls, guardCalls, middlewareCalls })
++      .toEqual({ adapterCalls: 0, guardCalls: 1, middlewareCalls: 0 })
++  })
++
++  it('preserves NO_ADAPTER after an allowing guard', async () => {
++    const ctx = new Context()
++    let guardCalls = 0
++    await ctx.plugin(LlmRuntime)
++    ctx.llm.guard(() => { guardCalls += 1 })
++
++    const result = await collect(ctx.llm.stream({ provider: 'missing', model: 'test', messages: [] }))
++    expect(result.at(-1)).toMatchObject({
++      type: 'finish',
++      reason: { kind: 'error', failure: { code: 'NO_ADAPTER' } },
++    })
++    expect(guardCalls).toBe(1)
++  })
++
+   it('awaits adapter cleanup on downstream close and leaves cleanup failure thrown', async () => {
+     const cleanup = new Error('cleanup failed')
+     let cleanupCalls = 0

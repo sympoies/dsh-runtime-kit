@@ -3,8 +3,9 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { access, chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 import {
@@ -15,6 +16,17 @@ import {
 
 const run = promisify(execFile)
 const sha256 = value => createHash('sha256').update(value).digest('hex')
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+test('the checked-in manifest authenticates the checked-in patch artifact', async () => {
+  const manifest = JSON.parse(
+    await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+  )
+  for (const patch of manifest.patches) {
+    const bytes = await readFile(join(projectRoot, patch.path))
+    assert.equal(sha256(bytes), patch.sha256, patch.id)
+  }
+})
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-patch-'))
@@ -134,6 +146,33 @@ test('the DSH patch lifecycle applies and reverses one exact reviewed patch', as
     assert.equal(reversed.source_checkout_clean, true)
     assert.equal(reversed.runtime_rebuilt, false)
     assert.equal(reversed.upstream_checkout_clean, true)
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
+test('the patch manifest can bind one target to release-specific before and after hashes', async () => {
+  const value = await fixture()
+  try {
+    const target = value.manifest.patches[0].targets[value.sourcePath]
+    value.manifest.patches[0].targets[value.sourcePath] = {
+      release_hashes: {
+        '0.0.0-test': target,
+      },
+    }
+    assert.doesNotThrow(() => validateDshPatchManifest(value.manifest))
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    const missingRelease = structuredClone(value.manifest)
+    missingRelease.patches[0].targets[value.sourcePath].release_hashes = {
+      '0.0.1-foreign': target,
+    }
+    assert.throws(
+      () => validateDshPatchManifest(missingRelease),
+      error => error instanceof DshPatchError
+        && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+    )
   } finally {
     await rm(value.root, { recursive: true, force: true })
   }

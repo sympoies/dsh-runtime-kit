@@ -3,6 +3,7 @@
 import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-execution.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 import {
@@ -363,6 +364,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
     DEFAULT_MAX_ACTIVE,
     MAX_ACTIVE,
   )
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
   /** @type {Set<ActiveRequest>} */
   const active = new Set()
   let open = true
@@ -406,11 +408,13 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
   }
 
   async function dispose() {
-    if (!open && active.size === 0) return
-    open = false
-    const pending = [...active]
-    for (const operation of pending) cancel(operation, 'disposed')
-    await Promise.allSettled(pending.map(operation => operation.settled))
+    if (open || active.size > 0) {
+      open = false
+      const pending = [...active]
+      for (const operation of pending) cancel(operation, 'disposed')
+      await Promise.allSettled(pending.map(operation => operation.settled))
+    }
+    await authenticatedExecution.dispose()
   }
 
   // Registered before WorkspaceLease.registerProvider(), so reverse disposal
@@ -447,16 +451,20 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
     signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
+    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    let executionLease
     try {
       if (signal.aborted) cancel(operation, 'caller')
       if (!open) cancel(operation, 'disposed')
       if (operation.cause !== undefined) throw unavailable()
       timer = setTimeout(() => cancel(operation, 'timeout'), timeoutMs)
       try {
+        executionLease = authenticatedExecution.acquire(operation.controller.signal)
+        const executionSignal = executionLease.signal
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['workspace-lease', action, '--format', 'json']),
-          operation.controller.signal,
+          executionSignal,
         )
         operation.handle = ctx.subprocess.spawn({
           argv,
@@ -469,7 +477,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
             stderr: { maxBytes: MAX_ERROR_BYTES },
           },
           graceMs: 1_000,
-          signal: operation.controller.signal,
+          signal: executionSignal,
           env: isolatedNilsEnvironment(undefined),
         })
       } catch {
@@ -506,6 +514,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
       }
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      executionLease?.release()
       signal.removeEventListener('abort', onCallerAbort)
       active.delete(operation)
       operation.resolveSettled()

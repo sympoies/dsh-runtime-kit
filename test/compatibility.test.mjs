@@ -64,12 +64,14 @@ function validRuntime() {
     provide() {},
     get() {},
     plugin() {},
+    invariants: { register() {} },
+    llm: { guard() {} },
     agents: { list() { return [] }, get() {} },
-    sessions: { flush() {} },
+    sessions: { get() {}, flush() {} },
     shell: { resolve() {} },
     shellEnv: { collect() {} },
     skills: { register() {} },
-    subprocess: { spawn() {} },
+    subprocess: { resolveExecutable() {}, spawn() {} },
     tools: { bindPrerequisite() {}, get() {}, register() {}, guard() {} },
   }
 }
@@ -348,6 +350,18 @@ test('runtime public-surface preflight returns a typed report or one typed incom
       assert.equal(error instanceof DshCompatibilityError, true)
       assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
       assert.deepEqual(error.diagnostic.missing, ['plugin'])
+      return true
+    },
+  )
+
+  const missingSessionLookup = validRuntime()
+  delete missingSessionLookup.sessions.get
+  assert.throws(
+    () => assertDshRc7Runtime(missingSessionLookup),
+    error => {
+      assert.equal(error instanceof DshCompatibilityError, true)
+      assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+      assert.deepEqual(error.diagnostic.missing, ['sessions.get'])
       return true
     },
   )
@@ -721,7 +735,18 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /node-version: \$\{\{ matrix\.node \}\}/)
   assert.match(workflow, /node: 24/)
   assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
-  assert.match(workflow, /pristine-tools-build\.sha256/)
+  assert.match(workflow, /digest-dsh-build-closure\.mjs/)
+  assert.equal(workflow.match(/pristine-dsh-build-closure\.json/g)?.length, 4)
+  assert.equal(workflow.match(/restored-dsh-build-closure\.json/g)?.length, 4)
+  assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
+  assert.match(workflow, /macos-runtime-health:/)
+  assert.match(workflow, /runs-on: macos-15/)
+  assert.match(workflow, /nils-cli-v1\.27\.9-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /7268ab12592e7e49bf696687070b75b0abd2c779ec73f4991566b47b0a48a76d/)
+  assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
+  const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
+  assert.match(macosJob, /deepseek-harness\/vendor\/cordis/)
+  assert.match(macosJob, /node --test test\/runtime-health-provider\.test\.mjs/)
   assert.match(workflow, /npm run --silent check:compatibility/)
   assert.match(workflow, /npm run --silent pack:compatibility-peers/)
   assert.match(workflow, /--channel "\$\{\{ matrix\.channel \}\}"/)
@@ -730,6 +755,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /npm run --silent stage:compatibility-peers/)
   assert.match(workflow, /--action apply/)
   assert.match(workflow, /pnpm vitest run packages\/core\/tools\/tests\/tools\.spec\.ts/)
+  assert.match(workflow, /packages\/llm\/llm\/tests\/service\.spec\.ts/)
   assert.match(workflow, /npm run test:smoke/)
   assert.match(workflow, /--action reverse/)
   assert.match(workflow, /npm ci --ignore-scripts --omit=peer/)
@@ -740,12 +766,16 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /npm run benchmark:policy:real/)
   assert.match(workflow, new RegExp(nils.release.archive.name))
   assert.match(workflow, new RegExp(nils.release.archive.sha256))
+  for (const release of Object.values(nils.release.platforms)) {
+    assert.match(workflow, new RegExp(release.archive.name))
+    assert.match(workflow, new RegExp(release.archive.sha256))
+  }
   assert.match(workflow, /AGENT_HOOK_BIN/)
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/)
   assert.equal(
     workflow.match(/fetch-depth: 0/g)?.length,
-    2,
-    'both dsh-runtime-kit checkouts must retain parity evidence history',
+    3,
+    'every dsh-runtime-kit checkout must retain parity evidence history',
   )
 })
 

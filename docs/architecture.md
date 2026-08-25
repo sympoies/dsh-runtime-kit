@@ -1,7 +1,9 @@
 # Architecture
 
-`dsh-runtime-kit` is an out-of-tree DSH bundle. It composes only through public
-Cordis and DSH service APIs and never patches or vendors the harness.
+`dsh-runtime-kit` is an out-of-tree DSH bundle. It does not fork or vendor the
+harness. Runtime integration uses public Cordis and DSH service APIs; the
+execution-ordering gaps are carried in one authenticated, version-scoped
+downstream patch documented by the compatibility contract.
 
 ## Responsibility split
 
@@ -22,6 +24,19 @@ cross-process leases and fencing. The exported contract is documented in
 activates that service and its strict nils provider before registering runtime
 policy, so every agent mutation is classified at the native DSH tool boundary.
 
+Runtime health follows that boundary as well. The bundle owns a typed Cordis
+health service and DSH admission/invariant integration, DSH owns lifecycle and
+subprocess execution, and nils-cli owns the deterministic doctor/audit
+contracts. `runtime-core` blocks activation, `project-docs` gates every
+session-associated model stream attempt, and optional child degradation blocks
+only dependent tools. DSH evaluates model health before cooperative stream
+middleware, so cache, routing, and short-circuit listeners cannot bypass it;
+its public post-waterfall tool guard enforces optional-tool health
+monotonically. Snapshot projection contains
+stable codes and hashed project scopes; no health output or recovery prose is
+added to model messages. See
+[Native runtime health](runtime-health.md).
+
 ## Runtime composition and policy
 
 Live composition has an explicit runtime-root boundary. The package requires
@@ -40,7 +55,7 @@ the stable 101-row, 27-capability compatibility contract implemented by the
 public parity verifier.
 
 `policy/runtime-rule-parity.yaml` is the internal migration-status projection.
-It maps the same source rules into 23 nils capabilities, two stronger
+It maps the same source rules into 22 nils capabilities, three stronger
 DSH-native seams, and one provider-obsolete retirement. A group becomes
 dispatchable only through its implemented runtime owner, never merely by
 appearing in this file. The nils `DshCapabilityGroup` schema independently
@@ -449,13 +464,22 @@ duplicating context inside one execution.
 Public DSH registry APIs cannot provide this exact transaction: an agent-scoped
 definition cannot be wrapped at the same layer, `tools/change` carries no
 definition identity, and HMR can replace the selected body after admission.
+The same patch supplies an effect-owned asynchronous `llm.guard` before DSH
+enters the `llm/stream` waterfall. Public `agent/pre-step` and `llm/stream`
+middleware are cooperative: a later prepended listener can skip downstream,
+so neither can prove that a health check precedes every cache, routing,
+short-circuit, or adapter path. The native guard is monotonic and returns a
+stable denial code without adding health text to model messages.
+
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the
-patch and every before/after file hash for each supported revision. Apply and
+patch and every before/after file hash for each supported revision; targets
+whose release contents differ carry release-specific hash pairs. Apply and
 reverse reject unknown revisions, partial state, content drift, or unrelated
 checkout changes. Nils remains the sole owner of catalogs, policy resolution,
 receipt semantics, and durable activation; the patch owns only exact DSH
-execution ordering and result/context attachment.
+execution ordering, result/context attachment, and pre-waterfall model
+admission.
 
 ## Private skill discovery
 

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { applyPolicy, plusOneTool } from './policy.js'
-import { mainAgentMode } from './src/main-agent/index.js'
+import { MAIN_AGENT_TOOL_INVENTORY, mainAgentMode } from './src/main-agent/index.js'
 import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
 import { applyManagedSessionAuthentication } from './src/nils/managed-session-authentication.js'
@@ -27,6 +27,7 @@ import {
   reviewSpecialistsRuntime,
 } from './src/review/index.js'
 import {
+  createChildHealthRefresh,
   createChildPluginStatus,
   observeChildPluginActivation,
 } from './src/runtime-status.js'
@@ -40,7 +41,17 @@ export {
 } from './src/compat/agent-console.js'
 
 export const name = 'dsh-runtime-kit'
-export const inject = ['agents', 'sessions', 'shell', 'shellEnv', 'skills', 'subprocess', 'tools']
+export const inject = [
+  'agents',
+  'invariants',
+  'llm',
+  'sessions',
+  'shell',
+  'shellEnv',
+  'skills',
+  'subprocess',
+  'tools',
+]
 
 const bundledSkillDir = fileURLToPath(new URL('./skills/', import.meta.url))
 const DEFAULT_PRIVATE_MAX_DEPTH = 32
@@ -445,6 +456,54 @@ export async function apply(ctx, config = {}) {
   try {
     assertDshRc7Runtime(ctx)
     const dshRuntime = await loadDshRc7Runtime()
+    const {
+      RuntimeHealth,
+      installRuntimeHealthAdmission,
+      installRuntimeHealthInvariant,
+    } = await import('./src/health/index.js')
+    const { installNilsHealthProviders } = await import('./src/health/nils-provider.js')
+    const reviewers = createReviewerAuthority()
+    const childPlugins = createChildPluginStatus()
+    const managedSessionBridge = createManagedSessionBridge()
+    const configuredRuntime = { ...config, managedSessionBridge }
+    await ctx.plugin(RuntimeHealth, {
+      probeTimeoutMs: config.healthProbeTimeoutMs,
+      disposeTimeoutMs: config.healthDisposeTimeoutMs,
+    })
+    const health = ctx.get('dshRuntimeHealth')
+    const refreshChildHealth = createChildHealthRefresh(health)
+    ctx.effect(
+      () => installRuntimeHealthInvariant(ctx),
+      'dsh-runtime-kit health invariant registration',
+    )
+    const authenticatedNils = await installNilsHealthProviders(ctx, health, configuredRuntime, {
+      dshRuntime,
+      childPlugins,
+    })
+    const runtimeConfig = { ...configuredRuntime, ...authenticatedNils }
+    await health.require('runtime-core')
+    await Promise.all([
+      health.probe('main-agent-mode'),
+      health.probe('review-specialists'),
+    ])
+    const mainAgentRequirement = Object.freeze([
+      Object.freeze({ capability: 'main-agent-mode', scope: 'runtime' }),
+    ])
+    ctx.effect(() => installRuntimeHealthAdmission(ctx, health, {
+      sessionRequirements: [
+        { capability: 'runtime-core', scope: 'runtime' },
+        { capability: 'project-docs', scope: 'project' },
+      ],
+      toolRequirements: {
+        ...Object.fromEntries(
+          [...MAIN_AGENT_TOOL_INVENTORY.controller, ...MAIN_AGENT_TOOL_INVENTORY.lane]
+            .map(tool => [tool, mainAgentRequirement]),
+        ),
+        review_specialists: [
+          { capability: 'review-specialists', scope: 'runtime' },
+        ],
+      },
+    }), 'dsh-runtime-kit health admission')
     dshRuntime.filesystemSkillsApply(ctx, {
       providerName: 'dsh-runtime-kit',
       includeDefaultRoots: false,
@@ -459,10 +518,6 @@ export async function apply(ctx, config = {}) {
         yield async () => { await privateSnapshot.dispose() }
       }, 'dsh-runtime-kit private skill snapshot')
     }
-    const reviewers = createReviewerAuthority()
-    const childPlugins = createChildPluginStatus()
-    const managedSessionBridge = createManagedSessionBridge()
-    const runtimeConfig = { ...config, managedSessionBridge }
     applyManagedSessionAuthentication(ctx, runtimeConfig, managedSessionBridge)
     const { applyNilsWorkspaceLease } = await import('./src/workspace-lease/nils-provider.js')
     await applyNilsWorkspaceLease(ctx, runtimeConfig)
@@ -478,6 +533,10 @@ export async function apply(ctx, config = {}) {
       'review_specialists',
       () => ctx.plugin(reviewSpecialistsRuntime, { authority: reviewers, config }),
       ctx.logger,
+      () => {
+        void refreshChildHealth('review-specialists')
+      },
+      ctx,
     )
     // Child fiber: Main Agent Mode activates only where the subagent runtime
     // exists, without gating skills or policy on it. Never awaited — an
@@ -489,6 +548,10 @@ export async function apply(ctx, config = {}) {
       'main_agent_mode',
       () => ctx.plugin(mainAgentMode, runtimeConfig),
       ctx.logger,
+      () => {
+        void refreshChildHealth('main-agent-mode')
+      },
+      ctx,
     )
   } catch (error) {
     await privateSnapshot?.dispose()

@@ -229,15 +229,16 @@ capability_groups:
       - nils-cli:crates/agent-hook/tests/dsh_policy.rs#semantic-commit-body-gate
       - dsh-runtime-kit:test/smoke.mjs#task-3.2-policy
   - id: session-start-healthcheck
-    disposition: nils-capability
+    disposition: dsh-native
     migration_task: "3.3"
     status: implemented
     source_keys:
       - handler:session-start-healthcheck
-    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#session-start-healthcheck
+    implementation_owner: dsh-runtime-kit:src/health/index.js#installRuntimeHealthAdmission
     test_owners:
-      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-session-health
-      - dsh-runtime-kit:test/plugin-contract.test.mjs#task-3.3-native-context
+      - dsh-runtime-kit:test/runtime-health.test.mjs#project-health-refresh
+      - dsh-runtime-kit:test/runtime-health-provider.test.mjs#authenticated-nils-providers
+    stronger_replacement: DSH now authenticates and probes runtime companions at bundle load, audits project docs before every session-associated model stream enters the llm/stream waterfall, and exposes only typed redacted host state; the legacy prompt-context health rule is no longer selected.
   - id: skill-usage-reminder
     disposition: nils-capability
     migration_task: "3.3"

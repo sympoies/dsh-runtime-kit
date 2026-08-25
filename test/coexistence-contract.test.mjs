@@ -28,6 +28,18 @@ test('the published nils release is pinned by exact source, archive, and binary 
       'review-specialists': { sha256: '8a664f167ec8ab01496d6c7b782618c6ec6ff95c4de4286896b35e4232122edb' },
       'semantic-commit': { sha256: 'f1f9ad4ad3d3e4b040e8250291d7052791b0d81dae058f4b3e1fb3cffaf9f7b8' },
     },
+    platforms: {
+      'aarch64-apple-darwin': {
+        archive: {
+          name: 'nils-cli-v1.27.9-aarch64-apple-darwin.tar.gz',
+          sha256: '7268ab12592e7e49bf696687070b75b0abd2c779ec73f4991566b47b0a48a76d',
+        },
+        artifacts: {
+          'agent-hook': { sha256: '8dd977018ae80298b68aa86d54a66a69d95d6f9d1aa839958d5e3961cb0b6cec' },
+          'agent-docs': { sha256: '10fad105029e066b69a64b1e5e05c1057d05c7aa4b6c6cf25a1dd5ecc67a8ad2' },
+        },
+      },
+    },
   })
   assert.ok(manifest.commands.every(command => command.status === 'released'))
   assert.equal(

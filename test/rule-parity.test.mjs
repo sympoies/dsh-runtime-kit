@@ -43,7 +43,7 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'portable-paths-scan': ['policy.portable-output.v1', 'planned', 'nils-cli'],
   'pre-edit-intent-gate': ['policy.edit-admission.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'semantic-commit-body-gate': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
-  'session-start-healthcheck': ['operations.health.v1', 'planned', 'dsh-runtime-kit'],
+  'session-start-healthcheck': ['operations.health.v1', 'implemented', 'dsh-runtime-kit'],
   'skill-usage-reminder': ['context.skill-routing.v1', 'planned', 'dsh-runtime-kit'],
   'stop-finish-line-gate': ['finish-line.enforcement.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'stop-pre-pr-reminder': ['delivery.pre-pr.v1', 'planned', 'dsh-runtime-kit + nils-cli'],

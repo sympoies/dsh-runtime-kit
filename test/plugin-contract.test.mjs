@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 
+import { Context } from '@deepseek-ai/cordis'
 import { ENV_OVERRIDES } from '@deepseek-ai/dsh-bash-local'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
@@ -12,7 +13,9 @@ import {
   requiresAuthoritativeFinishLine,
 } from '../src/policy/index.js'
 import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
+import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
 import {
+  createChildHealthRefresh,
   createChildPluginStatus,
   observeChildPluginActivation,
   snapshotChildPluginStatus,
@@ -54,6 +57,7 @@ test('lifecycle prompt projection stops consuming segments at its UTF-8 budget',
 
 test('optional child-plugin activation distinguishes pending active and failed states', async () => {
   const status = createChildPluginStatus()
+  const transitions = []
   assert.deepEqual(snapshotChildPluginStatus(status), {
     main_agent_mode: { state: 'pending' },
     review_specialists: { state: 'pending' },
@@ -64,12 +68,14 @@ test('optional child-plugin activation distinguishes pending active and failed s
     'review_specialists',
     async () => {},
     { warn: (...args) => warnings.push(args) },
+    (name, state) => transitions.push([name, state.state]),
   )
   observeChildPluginActivation(
     status,
     'main_agent_mode',
     async () => { throw new TypeError('fixture detail must stay out of status') },
     { warn: (...args) => warnings.push(args) },
+    (name, state) => transitions.push([name, state.state]),
   )
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(snapshotChildPluginStatus(status), {
@@ -77,7 +83,72 @@ test('optional child-plugin activation distinguishes pending active and failed s
     review_specialists: { state: 'active' },
   })
   assert.equal(warnings.length, 1)
+  assert.deepEqual(transitions.sort(), [
+    ['main_agent_mode', 'failed'],
+    ['review_specialists', 'active'],
+  ])
   assert.doesNotMatch(JSON.stringify(snapshotChildPluginStatus(status)), /fixture detail/)
+})
+
+test('optional child-plugin health follows a child-only Cordis unload', async () => {
+  const root = new Context()
+  const status = createChildPluginStatus()
+  const transitions = []
+  let child
+  observeChildPluginActivation(
+    status,
+    'main_agent_mode',
+    () => {
+      child = root.plugin(() => {})
+      return child
+    },
+    { warn() {} },
+    (name, state) => transitions.push([name, state.state]),
+    root,
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(status.main_agent_mode.state, 'active')
+
+  await child.dispose()
+  assert.equal(status.main_agent_mode.state, 'unloaded')
+  assert.deepEqual(transitions, [
+    ['main_agent_mode', 'active'],
+    ['main_agent_mode', 'unloaded'],
+  ])
+  await root.fiber.dispose()
+})
+
+test('optional child health refresh converges across pending and unloaded activation races', async () => {
+  let state = 'pending'
+  let observed = 'unknown'
+  let calls = 0
+  let releaseFirst
+  const firstBarrier = new Promise(resolve => { releaseFirst = resolve })
+  const health = {
+    async probe() {
+      const candidate = state
+      calls += 1
+      if (calls === 1) await firstBarrier
+      observed = candidate
+    },
+  }
+  const refresh = createChildHealthRefresh(health)
+
+  const pending = refresh('main-agent-mode')
+  await new Promise(resolve => setImmediate(resolve))
+  state = 'active'
+  const active = refresh('main-agent-mode')
+  releaseFirst()
+  await Promise.all([pending, active])
+  assert.equal(observed, 'active')
+  assert.equal(calls, 2)
+
+  state = 'unloaded'
+  await refresh('main-agent-mode')
+  state = 'active'
+  await refresh('main-agent-mode')
+  assert.equal(observed, 'active')
+  assert.equal(calls, 4)
 })
 
 test('policy subprocess never restores ambient provider session identity', () => {
@@ -152,6 +223,7 @@ function harness({
   prerequisiteReason = 'pending',
   prerequisiteCommitFailsAfter = Number.POSITIVE_INFINITY,
   prerequisiteBeginMalformed = false,
+  resolutionPending = false,
   config = {},
 } = {}) {
   const listeners = new Map()
@@ -282,6 +354,14 @@ function harness({
     subprocess: {
       async resolveExecutable(command, env, candidateSignal) {
         resolutions.push({ command, env, signal: candidateSignal })
+        if (resolutionPending) {
+          return new Promise((resolve, reject) => {
+            if (candidateSignal?.aborted) reject(candidateSignal.reason)
+            candidateSignal?.addEventListener('abort', () => reject(candidateSignal.reason), {
+              once: true,
+            })
+          })
+        }
         return `/resolved/${command}`
       },
       spawn(spec) {
@@ -721,6 +801,25 @@ test('policy ingress resolves a bare agent-hook command before spawning', async 
   assert.ok(subject.resolutions.every(candidate => candidate.command === 'agent-hook'))
   assert.ok(subject.resolutions.every(candidate => candidate.env === undefined))
   assert.equal(subject.spawnSpecs[0].argv[0], '/resolved/agent-hook')
+})
+
+test('policy holds its authenticated descriptor lease across delayed resolution and HMR disposal', async () => {
+  let cleaned = false
+  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
+  const subject = harness({
+    resolutionPending: true,
+    config: {
+      agentHook: 'agent-hook',
+      authenticatedNilsExecution: owner,
+    },
+  })
+  const pending = subject.invoke({ value: 41 })
+  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
+  await Promise.all([owner.dispose(), subject.dispose()])
+  const result = await pending
+  assert.equal(result.result.kind, 'deny')
+  assert.equal(subject.spawnCount, 0)
+  assert.equal(cleaned, true)
 })
 
 test('the policy bundle exposes one explicit selective runtime-context tool', () => {

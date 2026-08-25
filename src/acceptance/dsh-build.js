@@ -26,8 +26,9 @@ function relativeBuildPath(root, child) {
 
 /**
  * Hash the complete generated host closure under every DSH lib directory.
- * Paths, lengths, and bytes are framed so additions, removals, renames, and
- * content changes all produce a different digest.
+ * Paths, lengths, permission modes, and bytes are framed so additions,
+ * removals, renames, mode drift, and content changes all produce a different
+ * digest.
  * @param {string} sourceRoot
  */
 export async function digestDshBuildClosure(sourceRoot) {
@@ -35,7 +36,7 @@ export async function digestDshBuildClosure(sourceRoot) {
     throw new DshBuildClosureError('DSH source root must be absolute')
   }
   const root = await realpath(sourceRoot)
-  /** @type {{path:string,relative:string,size:number}[]} */
+  /** @type {{path:string,relative:string,size:number,mode:number}[]} */
   const files = []
 
   /** @param {string} directory */
@@ -59,6 +60,7 @@ export async function digestDshBuildClosure(sourceRoot) {
         path,
         relative: relativeBuildPath(root, path),
         size: metadata.size,
+        mode: metadata.mode & 0o777,
       }))
     }
   }
@@ -103,6 +105,8 @@ export async function digestDshBuildClosure(sourceRoot) {
     hash.update(file.relative, 'utf8')
     hash.update('\0')
     hash.update(String(bytes.length), 'ascii')
+    hash.update('\0')
+    hash.update(file.mode.toString(8).padStart(3, '0'), 'ascii')
     hash.update('\0')
     hash.update(bytes)
     hash.update('\0')

@@ -1,4 +1,7 @@
 - insert:
+    - id: dsh-runtime-kit-invariants
+      name: '@deepseek-ai/dsh-invariants'
+
     - id: dsh-runtime-kit
       name: '@sympoies/dsh-runtime-kit'
       config:

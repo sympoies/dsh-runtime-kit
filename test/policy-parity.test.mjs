@@ -59,8 +59,8 @@ test('every source row resolves to one completed migration with active implement
   const inventory = loadInventory()
   const groups = new Map(inventory.capability_groups.map((group) => [group.id, group]))
   assert.equal(groups.size, inventory.capability_groups.length)
-  assert.equal([...groups.values()].filter((group) => group.disposition === 'nils-capability').length, 23)
-  assert.equal([...groups.values()].filter((group) => group.disposition === 'dsh-native').length, 2)
+  assert.equal([...groups.values()].filter((group) => group.disposition === 'nils-capability').length, 22)
+  assert.equal([...groups.values()].filter((group) => group.disposition === 'dsh-native').length, 3)
   assert.equal([...groups.values()].filter((group) => group.disposition === 'provider-obsolete').length, 1)
 
   for (const group of groups.values()) {
@@ -188,7 +188,6 @@ test('the packaged Task 3.2 through 3.4 policy selects every implemented typed c
     'mcp-secret-scan',
     'memory-write-principle-reminder',
     'portable-paths-scan',
-    'session-start-healthcheck',
     'skill-usage-reminder',
     'stop-pre-pr-reminder',
     'operation-lifecycle',

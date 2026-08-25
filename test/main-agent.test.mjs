@@ -6,7 +6,10 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
-import { applyMainAgentMode } from '../src/main-agent/index.js'
+import {
+  MAIN_AGENT_TOOL_INVENTORY,
+  applyMainAgentMode,
+} from '../src/main-agent/index.js'
 import { createLaneRegistry } from '../src/main-agent/lanes.js'
 import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 
@@ -316,6 +319,19 @@ function controllerExec() {
     },
   }
 }
+
+test('the owner inventory exactly covers registered controller and lane tools', () => {
+  const subject = createContext()
+  applyMainAgentMode(subject.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  assert.deepEqual(
+    [...subject.registeredTools.keys()].sort(),
+    [...MAIN_AGENT_TOOL_INVENTORY.controller].sort(),
+  )
+  assert.deepEqual(
+    subject.provided.get('mainAgentOrchestration').tools,
+    MAIN_AGENT_TOOL_INVENTORY,
+  )
+})
 
 const TEST_CONTROLLER_ENVIRONMENT = Object.freeze({
   AGENT_SESSION_ID: 'controller-managed',

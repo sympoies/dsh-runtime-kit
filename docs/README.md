@@ -14,6 +14,8 @@ routine contributor entrypoint.
   runtime shape, and current limitations.
 - [Compatibility](compatibility.md) — exact DSH, Cordis, Node.js, and nils-cli
   support plus promotion checks.
+- [Native runtime health](runtime-health.md) — model-hidden capability probes,
+  admission states, cleanup, and operator recovery.
 
 ## Understand the runtime
 

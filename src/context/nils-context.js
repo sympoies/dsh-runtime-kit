@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 import { runtimeContextPhase } from './intents.js'
+import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-execution.js'
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
 import {
   authenticatedNilsEnvironment,
@@ -271,6 +272,7 @@ export function createNilsContextClient(ctx, config = {}) {
     DEFAULT_MAX_ACTIVE_CONTEXT_REQUESTS,
     MAX_ACTIVE_CONTEXT_REQUESTS,
   )
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
   // JSON may encode one input byte as a six-byte escape (for example a
   // control character). Bound the worst valid encoding rather than silently
   // rejecting content that was within the advertised document budget.
@@ -320,13 +322,15 @@ export function createNilsContextClient(ctx, config = {}) {
   }
 
   async function dispose() {
-    if (!open && active.size === 0) return
-    open = false
-    const pending = [...active]
-    for (const operation of pending) {
-      operation.cancel('disposed', failure('disposed'))
+    if (open || active.size > 0) {
+      open = false
+      const pending = [...active]
+      for (const operation of pending) {
+        operation.cancel('disposed', failure('disposed'))
+      }
+      await Promise.allSettled(pending.map(operation => operation.settled))
     }
-    await Promise.allSettled(pending.map(operation => operation.settled))
+    await authenticatedExecution.dispose()
   }
 
   ctx.effect(() => dispose, 'dsh-runtime-kit agent-docs context transport')
@@ -370,16 +374,20 @@ export function createNilsContextClient(ctx, config = {}) {
     exec.signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
+    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    let executionLease
     try {
       if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
       if (!open) operation.cancel('disposed')
       if (operation.cause !== undefined) throw failure(operation.cause)
       timer = setTimeout(() => operation.cancel('timeout', failure('timeout')), timeoutMs)
       try {
+        executionLease = authenticatedExecution.acquire(operation.controller.signal)
+        const executionSignal = executionLease.signal
         const childEnvironment = principal === undefined
           ? isolatedNilsEnvironment(undefined)
           : authenticatedNilsEnvironment(principal.environment)
-        const resolvedArgv = await resolveSubprocessArgv(ctx, argv, operation.controller.signal)
+        const resolvedArgv = await resolveSubprocessArgv(ctx, argv, executionSignal)
         operation.handle = ctx.subprocess.spawn({
           argv: resolvedArgv,
           cwd,
@@ -389,7 +397,7 @@ export function createNilsContextClient(ctx, config = {}) {
             stderr: { maxBytes: MAX_CONTEXT_ERROR_BYTES },
           },
           graceMs: 1_000,
-          signal: operation.controller.signal,
+          signal: executionSignal,
           env: childEnvironment,
         })
       } catch {
@@ -435,6 +443,7 @@ export function createNilsContextClient(ctx, config = {}) {
       throw failure(`agent-docs-${code}`)
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      executionLease?.release()
       exec.signal.removeEventListener('abort', onCallerAbort)
       active.delete(operation)
       operation.resolveSettled()
