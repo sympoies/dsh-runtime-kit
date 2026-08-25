@@ -214,7 +214,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.27.8 executables for every supported DSH row.
+the released and validated v1.27.9 executables for every supported DSH row.
 Missing or non-absolute isolation paths fail
 plugin activation; ambient XDG, Codex, and Claude Code paths are not fallbacks.
 
