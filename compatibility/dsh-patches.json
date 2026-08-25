@@ -4,33 +4,33 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "e1c80acc87c4ce7dc8c84217d0cf30e252ec15c6095bf1cd9775e48d75647d98",
+      "sha256": "66dc9dac36b02494cc6e0f9ec0682c5420d632150490c50651fe5f1663f2c0ad",
       "targets": {
         "packages/subprocess/subprocess/src/index.ts": {
           "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
-          "after_sha256": "21192493e2cc9926b7e89a69e42a1474291c664207bd94e33fb3add7693d0843"
+          "after_sha256": "78882536c81b181b338fab12530615f1b8e8f739224f20e4d1ad8865b0286d30"
         },
         "packages/subprocess/subprocess-local/src/index.ts": {
           "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
-          "after_sha256": "c7a33db5b6f5786c12b2b18311a17b67d163f54e525ed263b55198a048887e17"
+          "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
         },
         "packages/subprocess/subprocess-local/src/spawn.ts": {
           "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
-          "after_sha256": "b35e630faa25d45c69c2cbcf1bb01cbcb57dd75795a0da2e28560cacec4fd652"
+          "after_sha256": "f6916c9247538dfdeae3d23ce80e13a74c31414e60e757143e77f3647191a70f"
         },
         "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
-              "after_sha256": "ce705163a4979934263f28bcf22ee538f22512b1463eca00cb2b4ef9f84c6e17"
+              "after_sha256": "22a871a3772eb5391387e7c43587097dfa9b4cb4f78ab5d8965cc71c0773eb57"
             },
             "0.1.0-rc.8": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "92578de27e8a6b6168b5f99a51a8555d7b802ce7939170afe50bf956dbe66496"
+              "after_sha256": "5e0f24c0f217522df45d197f2c8cd0afa339b8c3b9006c7d0c432474aac1a7de"
             },
             "0.1.1-rc.2": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "92578de27e8a6b6168b5f99a51a8555d7b802ce7939170afe50bf956dbe66496"
+              "after_sha256": "5e0f24c0f217522df45d197f2c8cd0afa339b8c3b9006c7d0c432474aac1a7de"
             }
           }
         },

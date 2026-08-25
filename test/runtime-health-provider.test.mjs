@@ -1,17 +1,32 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { fstatSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, symbols } from '@deepseek-ai/cordis'
 
 import { RuntimeHealth } from '../src/health/index.js'
 import {
+  createSnapshotExecutionOwner,
   installNilsHealthProviders,
   resolveNilsHealthCompatibility,
+  snapshotExecutable,
 } from '../src/health/nils-provider.js'
 
 const OWNER = '@sympoies/dsh-runtime-kit'
@@ -86,8 +101,16 @@ async function fixture(overrides = {}) {
     }
   }
   const subprocess = {
-    descriptorSpawnSupported: overrides.descriptorSpawnSupported ?? true,
+    descriptorSpawnMode: Object.hasOwn(overrides, 'descriptorSpawnMode')
+      ? overrides.descriptorSpawnMode
+      : process.platform === 'darwin' ? 'verified-transient' : 'atomic-descriptor',
     async resolveExecutable(command) {
+      if (overrides.resolveExecutableFailure === command) {
+        throw new Error('simulated executable resolution failure')
+      }
+      if (command === 'agent-hook' && overrides.missingAgentHook === true) {
+        return join(root, 'missing-agent-hook')
+      }
       if (command === 'agent-hook') return hook
       if (command === 'agent-docs') return docs
       throw new Error('unexpected executable')
@@ -109,6 +132,12 @@ async function fixture(overrides = {}) {
   }
   Object.assign(compatibility.release.artifacts, overrides.artifacts)
   const ctx = new Context()
+  if (overrides.traceSubprocess === true) {
+    Object.defineProperty(subprocess, symbols.tracker, {
+      value: { associate: 'subprocess', property: 'ctx' },
+    })
+    subprocess.ctx = ctx
+  }
   ctx.provide('subprocess', subprocess)
   await ctx.plugin(RuntimeHealth, overrides.healthConfig)
   const childPlugins = {
@@ -143,6 +172,7 @@ async function fixture(overrides = {}) {
     installError,
     calls,
     ctx,
+    subprocess,
     docs,
     hook,
     childPlugins,
@@ -193,14 +223,88 @@ test('runtime health blocks an unauthenticated companion before executing it', a
   }
 })
 
-test('runtime health fails closed when the subprocess provider lacks descriptor execution', async () => {
+test('runtime health normalizes a missing companion path without spawning or exposing it', async () => {
   const subject = await fixture({
-    descriptorSpawnSupported: false,
+    missingAgentHook: true,
+    captureInstallFailure: true,
+  })
+  try {
+    assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
+    assert.equal(subject.installError?.message, 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
+    assert.equal(subject.calls.length, 0)
+    assert.doesNotMatch(String(subject.installError), new RegExp(subject.root))
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health normalizes bare companion resolution failure before spawning', async () => {
+  const subject = await fixture({
+    resolveExecutableFailure: 'agent-docs',
+    captureInstallFailure: true,
+  })
+  try {
+    assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
+    assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health fails closed when the subprocess provider lacks a declared execution mode', async () => {
+  const subject = await fixture({
+    descriptorSpawnMode: 'unsupported',
     captureInstallFailure: true,
   })
   try {
     assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
     assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health rejects a descriptor execution mode that does not match the host platform', async () => {
+  const subject = await fixture({
+    descriptorSpawnMode: process.platform === 'darwin'
+      ? 'atomic-descriptor'
+      : 'verified-transient',
+    captureInstallFailure: true,
+  })
+  try {
+    assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
+    assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health rejects descriptor provider mutation after installation', async () => {
+  const subject = await fixture()
+  try {
+    subject.subprocess.spawnDescriptor = function substitutedDescriptorSpawn() {
+      throw new Error('substituted provider must not execute')
+    }
+    const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
+    assert.equal(runtime.state, 'blocked')
+    assert.equal(runtime.code, 'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
+    assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health accepts stable Cordis service wrappers around one descriptor provider', async () => {
+  const subject = await fixture({ traceSubprocess: true })
+  try {
+    assert.notEqual(subject.ctx.subprocess, subject.ctx.subprocess)
+    assert.notEqual(
+      subject.ctx.subprocess.spawnDescriptor,
+      subject.ctx.subprocess.spawnDescriptor,
+    )
+    const runtime = await subject.ctx.dshRuntimeHealth.require('runtime-core')
+    assert.equal(runtime.state, 'ready')
+    assert.equal(subject.calls.length, 2)
   } finally {
     await subject.dispose()
   }
@@ -374,16 +478,41 @@ test('post-start source replacement cannot change the authenticated executable s
   }
 })
 
-test('snapshot execution stays descriptor-bound after its private pathname is retired', async () => {
+test('descriptor execution retains private self-resolution paths until snapshot disposal', async () => {
   const subject = await fixture()
   const snapshotRoot = dirname(subject.authenticatedConfig.agentHook)
+  let disposed = false
+  try {
+    const rootMetadata = await stat(snapshotRoot)
+    assert.equal(rootMetadata.isDirectory(), true)
+    assert.equal(rootMetadata.mode & 0o077, 0)
+    assert.equal((await stat(subject.authenticatedConfig.agentHook)).mode & 0o077, 0)
+    assert.equal((await stat(subject.authenticatedConfig.agentDocs)).mode & 0o077, 0)
+
+    const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
+    assert.equal(runtime.state, 'ready')
+    assert.equal(subject.calls.every(call => call.executionBinding === 'descriptor'), true)
+
+    await subject.ctx.fiber.dispose()
+    disposed = true
+    await assert.rejects(stat(snapshotRoot), { code: 'ENOENT' })
+  } finally {
+    if (!disposed) await subject.ctx.fiber.dispose()
+    await subject.dispose()
+  }
+})
+
+test('snapshot execution stays descriptor-bound when its private root is replaced', async () => {
+  const subject = await fixture()
+  const snapshotRoot = dirname(subject.authenticatedConfig.agentHook)
+  const displacedRoot = `${snapshotRoot}-displaced`
   let disposed = false
   try {
     assert.deepEqual(
       Object.keys(subject.authenticatedConfig).sort(),
       ['agentDocs', 'agentHook', 'authenticatedNilsExecution'],
     )
-    await assert.rejects(stat(snapshotRoot), { code: 'ENOENT' })
+    await rename(snapshotRoot, displacedRoot)
     await mkdir(snapshotRoot, { mode: 0o700 })
     await writeFile(join(snapshotRoot, 'agent-hook'), 'replacement hook', { mode: 0o700 })
     await writeFile(join(snapshotRoot, 'agent-docs'), 'replacement docs', { mode: 0o700 })
@@ -399,9 +528,103 @@ test('snapshot execution stays descriptor-bound after its private pathname is re
     assert.equal(await readFile(join(snapshotRoot, 'agent-docs'), 'utf8'), 'replacement docs')
   } finally {
     await rm(snapshotRoot, { recursive: true, force: true })
+    await rm(displacedRoot, { recursive: true, force: true })
     if (!disposed) await subject.ctx.fiber.dispose()
     await subject.dispose()
   }
+})
+
+test('snapshot cleanup preserves a symlink replacement that resolves to the authenticated inode', async () => {
+  const subject = await fixture()
+  const snapshotRoot = dirname(subject.authenticatedConfig.agentHook)
+  const originalHook = join(snapshotRoot, 'agent-hook-original')
+  let disposed = false
+  try {
+    await rename(subject.authenticatedConfig.agentHook, originalHook)
+    await symlink('agent-hook-original', subject.authenticatedConfig.agentHook)
+
+    await subject.ctx.fiber.dispose()
+    disposed = true
+    assert.equal(await readlink(subject.authenticatedConfig.agentHook), 'agent-hook-original')
+    assert.equal(
+      await readFile(originalHook, 'utf8'),
+      'authenticated agent-hook fixture',
+    )
+  } finally {
+    await rm(snapshotRoot, { recursive: true, force: true })
+    if (!disposed) await subject.ctx.fiber.dispose()
+    await subject.dispose()
+  }
+})
+
+test('snapshot creation removes its partial private file after a writer failure', async () => {
+  const before = new Set((await readdir(tmpdir()))
+    .filter(name => name.startsWith('dsh-runtime-health-executables-')))
+  const probeRoot = await mkdtemp(join(tmpdir(), 'dsh-runtime-health-filehandle-'))
+  const probe = await open(join(probeRoot, 'probe'), 'w')
+  const fileHandlePrototype = Object.getPrototypeOf(probe)
+  const originalSync = fileHandlePrototype.sync
+  await probe.close()
+  let failNextSync = true
+  fileHandlePrototype.sync = async function syncWithFailure() {
+    if (failNextSync) {
+      failNextSync = false
+      throw Object.assign(new Error('simulated snapshot sync failure'), { code: 'EIO' })
+    }
+    return originalSync.call(this)
+  }
+  let subject
+  try {
+    subject = await fixture({ captureInstallFailure: true })
+    assert.equal(subject.installError?.message, 'simulated snapshot sync failure')
+    assert.equal(failNextSync, false)
+    const after = (await readdir(tmpdir()))
+      .filter(name => name.startsWith('dsh-runtime-health-executables-'))
+    assert.deepEqual(after.filter(name => !before.has(name)), [])
+  } finally {
+    fileHandlePrototype.sync = originalSync
+    await rm(probeRoot, { recursive: true, force: true })
+    await subject?.dispose()
+  }
+})
+
+test('snapshot creation removes its owned file when authenticated reader open fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-health-reader-open-'))
+  const bytes = Buffer.from('authenticated reader-open fixture')
+  let openCalls = 0
+  const openFile = async (...args) => {
+    openCalls += 1
+    if (openCalls === 2) {
+      throw Object.assign(new Error('simulated snapshot reader open failure'), { code: 'EIO' })
+    }
+    return open(...args)
+  }
+  try {
+    await assert.rejects(
+      snapshotExecutable(root, 'agent-hook', bytes, sha256(bytes), openFile),
+      /simulated snapshot reader open failure/,
+    )
+    assert.equal(openCalls, 2)
+    assert.deepEqual(await readdir(root), [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('late snapshot cleanup failure emits a bounded host warning', async () => {
+  let rejectCleanup
+  const cleanup = new Promise((_, reject) => { rejectCleanup = reject })
+  const warnings = []
+  const owner = createSnapshotExecutionOwner(
+    () => cleanup,
+    5,
+    undefined,
+    message => { warnings.push(message) },
+  )
+  await owner.dispose()
+  rejectCleanup(new Error('private cleanup detail'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(warnings, ['dsh-runtime-kit: authenticated nils snapshot cleanup failed'])
 })
 
 test('snapshot disposal drains a pre-spawn lease before closing its executable descriptor', async () => {

@@ -2,9 +2,11 @@
 
 import { constants, fstatSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { mkdtemp, open, readFile, realpath, rmdir, stat, unlink } from 'node:fs/promises'
+import { lstat, mkdtemp, open, readFile, realpath, rmdir, stat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, parse } from 'node:path'
+
+import { symbols } from '@deepseek-ai/cordis'
 
 import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
@@ -43,6 +45,15 @@ function requiredRecord(value, code) {
   const candidate = record(value)
   if (candidate === undefined) throw new HealthProbeFailure(code)
   return candidate
+}
+
+/** @param {any} value Unwrap Cordis' per-access trace proxy without weakening provider identity. */
+function originalCordisService(value) {
+  try {
+    return value?.[symbols.original] ?? value
+  } catch {
+    throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
+  }
 }
 
 /** @param {AbortSignal} signal */
@@ -277,7 +288,7 @@ async function assertTrustedSnapshotRoot(directory) {
 /** @param {string} path @param {import('node:fs/promises').FileHandle} rootHandle */
 async function pathReferencesOpenDirectory(path, rootHandle) {
   try {
-    const [opened, projected] = await Promise.all([rootHandle.stat(), stat(path)])
+    const [opened, projected] = await Promise.all([rootHandle.stat(), lstat(path)])
     return opened.isDirectory() && projected.isDirectory()
       && opened.dev === projected.dev && opened.ino === projected.ino
   } catch (error) {
@@ -292,7 +303,7 @@ async function pathReferencesOpenDirectory(path, rootHandle) {
  */
 async function pathReferencesOpenFile(path, handle) {
   try {
-    const [opened, projected] = await Promise.all([handle.stat(), stat(path)])
+    const [opened, projected] = await Promise.all([handle.stat(), lstat(path)])
     return opened.isFile() && projected.isFile()
       && opened.dev === projected.dev && opened.ino === projected.ino
   } catch (error) {
@@ -301,26 +312,39 @@ async function pathReferencesOpenFile(path, handle) {
   }
 }
 
-/** @param {string} root @param {string} name @param {Buffer} bytes @param {string} expected */
-async function snapshotExecutable(root, name, bytes, expected) {
+/**
+ * @param {string} root
+ * @param {string} name
+ * @param {Buffer} bytes
+ * @param {string} expected
+ * @param {typeof open} openFile
+ */
+export async function snapshotExecutable(root, name, bytes, expected, openFile = open) {
   const path = join(root, name)
-  const writer = await open(
+  const writer = await openFile(
     path,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
     0o500,
   )
+  let writerOpen = true
+  let reader
+  let createdIdentity
   try {
+    const created = await writer.stat()
+    if (!created.isFile()) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    }
+    createdIdentity = { dev: created.dev, ino: created.ino }
     await writer.writeFile(bytes)
     await writer.sync()
     await writer.chmod(0o500)
-  } finally {
     await writer.close()
-  }
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-  try {
-    const before = await handle.stat()
-    const snapshotBytes = await handle.readFile()
-    const after = await handle.stat()
+    writerOpen = false
+
+    reader = await openFile(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const before = await reader.stat()
+    const snapshotBytes = await reader.readFile()
+    const after = await reader.stat()
     const identity = fingerprint(before)
     const ownerTrusted = typeof process.getuid !== 'function' || before.uid === process.getuid()
     if (!before.isFile() || !ownerTrusted || before.nlink !== 1
@@ -330,28 +354,38 @@ async function snapshotExecutable(root, name, bytes, expected) {
       || createHash('sha256').update(snapshotBytes).digest('hex') !== expected) {
       throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
     }
-    return Object.freeze({ path, handle, identity })
+    return Object.freeze({ path, handle: reader, identity })
   } catch (error) {
-    if (await pathReferencesOpenFile(path, handle).catch(() => false)) {
-      await unlink(path).catch(() => {})
+    if (writerOpen) await writer.close().catch(() => {})
+    await reader?.close().catch(() => {})
+    if (createdIdentity !== undefined) {
+      try {
+        const projected = await lstat(path)
+        if (projected.isFile()
+          && projected.dev === createdIdentity.dev && projected.ino === createdIdentity.ino) {
+          await unlink(path)
+        }
+      } catch (cleanupError) {
+        if (record(cleanupError)?.code !== 'ENOENT') {
+          process.emitWarning('dsh-runtime-kit: partial authenticated snapshot cleanup failed')
+        }
+      }
     }
-    await handle.close().catch(() => {})
     throw error
   }
 }
 
 /**
- * Detach every executable pathname before the authenticated handles become
- * visible to a runtime consumer. Later execution and disposal therefore own
- * only open file descriptions; replacing the retired random pathname cannot
- * redirect execution or cause cleanup to delete somebody else's files.
+ * Publish one descriptor-authoritative snapshot only while its private linked
+ * names still identify the authenticated inodes. The links are not execution
+ * authority, but self-inspecting children need `/proc/self/exe` or
+ * `process.execPath` to remain resolvable for their lifetime.
  *
  * @param {string} root
  * @param {import('node:fs/promises').FileHandle} rootHandle
  * @param {Array<Awaited<ReturnType<typeof snapshotExecutable>>>} binaries
  */
-async function detachSnapshot(root, rootHandle, binaries) {
-  const detachedBinaries = []
+async function retainSnapshotLinks(root, rootHandle, binaries) {
   if (!await pathReferencesOpenDirectory(root, rootHandle)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
   }
@@ -359,22 +393,70 @@ async function detachSnapshot(root, rootHandle, binaries) {
     if (!await pathReferencesOpenFile(binary.path, binary.handle)) {
       throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
     }
-    await unlink(binary.path)
-    const detached = await binary.handle.stat()
-    if (detached.nlink !== 0) {
+    const linked = await binary.handle.stat()
+    if (linked.nlink !== 1 || !sameFingerprint(binary.identity, fingerprint(linked))) {
       throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
     }
-    detachedBinaries.push(Object.freeze({
-      ...binary,
-      identity: fingerprint(detached),
-    }))
   }
   if (!await pathReferencesOpenDirectory(root, rootHandle)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
   }
-  await rmdir(root)
-  await rootHandle.close()
-  return detachedBinaries
+  return binaries
+}
+
+/**
+ * Retire linked snapshot names only when they still name the authenticated
+ * inodes. Linux can unlink through the retained directory descriptor even if
+ * the random root was renamed; other platforms preserve uncertain names and
+ * warn instead of deleting a replacement.
+ *
+ * @param {string} root
+ * @param {import('node:fs/promises').FileHandle} rootHandle
+ * @param {Array<Awaited<ReturnType<typeof snapshotExecutable>>>} binaries
+ */
+async function cleanupLinkedSnapshot(root, rootHandle, binaries) {
+  /** @type {unknown[]} */
+  const failures = []
+  let preservedName = false
+  for (const binary of binaries) {
+    const name = binary.path.slice(root.length + 1)
+    const cleanupPath = process.platform === 'linux'
+      ? `/proc/${process.pid}/fd/${rootHandle.fd}/${name}`
+      : binary.path
+    try {
+      if (await pathReferencesOpenFile(cleanupPath, binary.handle)) {
+        await unlink(cleanupPath)
+      } else {
+        preservedName = true
+      }
+    } catch (error) {
+      if (record(error)?.code !== 'ENOENT') failures.push(error)
+    }
+  }
+  const closeOutcomes = await Promise.allSettled(binaries.map(binary => binary.handle.close()))
+  failures.push(...closeOutcomes.flatMap(
+    outcome => outcome.status === 'rejected' ? [outcome.reason] : [],
+  ))
+  try {
+    if (await pathReferencesOpenDirectory(root, rootHandle)) {
+      await rmdir(root)
+    } else {
+      preservedName = true
+    }
+  } catch (error) {
+    if (record(error)?.code === 'ENOTEMPTY' || record(error)?.code === 'EEXIST') {
+      preservedName = true
+    } else if (record(error)?.code !== 'ENOENT') {
+      failures.push(error)
+    }
+  }
+  await rootHandle.close().catch(error => failures.push(error))
+  if (preservedName) {
+    process.emitWarning('dsh-runtime-kit: preserved a replaced or relocated private snapshot name during cleanup')
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'dsh-runtime-kit: authenticated nils snapshot cleanup failed')
+  }
 }
 
 /**
@@ -386,8 +468,14 @@ async function detachSnapshot(root, rootHandle, binaries) {
  * @param {() => Promise<void>} cleanup
  * @param {number} disposeTimeoutMs
  * @param {((spec: Record<string, unknown>) => SubprocessHandle) | undefined} spawn
+ * @param {(message: string) => void} warn
  */
-export function createSnapshotExecutionOwner(cleanup, disposeTimeoutMs = 2_000, spawn) {
+export function createSnapshotExecutionOwner(
+  cleanup,
+  disposeTimeoutMs = 2_000,
+  spawn,
+  warn = message => { process.emitWarning(message) },
+) {
   let closing = false
   /** @type {Map<symbol, {controller: AbortController, settled: Promise<void>}>} */
   const active = new Map()
@@ -500,7 +588,9 @@ export function createSnapshotExecutionOwner(cleanup, disposeTimeoutMs = 2_000, 
           .then(() => cleanup())
         // Retain the cleanup task after the bounded Cordis disposer returns
         // without turning a late cleanup error into an unhandled rejection.
-        void disposal.catch(() => {})
+        void disposal.catch(() => {
+          warn('dsh-runtime-kit: authenticated nils snapshot cleanup failed')
+        })
       }
       /** @type {ReturnType<typeof setTimeout> | undefined} */
       let timer
@@ -557,13 +647,15 @@ async function runAuthenticatedHealthCommand(
 
 /**
  * Bind one already-authenticated open executable to DSH's native descriptor
- * spawn primitive. The display pathname was unlinked before publication and
- * is used only to select the matching retained descriptor.
+ * spawn primitive. The private display pathname remains linked only so the
+ * child can resolve its own executable; the retained descriptor remains the
+ * sole execution authority.
  *
  * @param {Context} ctx
  * @param {Map<string, {handle: import('node:fs/promises').FileHandle, identity: ReturnType<typeof fingerprint>}>} binaries
+ * @param {{service: any, mode: string, spawnDescriptor: Function}} binding
  */
-function authenticatedDescriptorSpawner(ctx, binaries) {
+function authenticatedDescriptorSpawner(ctx, binaries, binding) {
   return (/** @type {Record<string, any>} */ spec) => {
     const command = Array.isArray(spec.argv) ? spec.argv[0] : undefined
     const binary = typeof command === 'string' ? binaries.get(command) : undefined
@@ -579,11 +671,14 @@ function authenticatedDescriptorSpawner(ctx, binaries) {
     if (!sameFingerprint(binary.identity, current)) {
       throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
     }
-    const subprocess = /** @type {any} */ (ctx.subprocess)
-    if (typeof subprocess.spawnDescriptor !== 'function') {
+    const tracedSubprocess = /** @type {any} */ (ctx.subprocess)
+    const subprocess = originalCordisService(tracedSubprocess)
+    if (subprocess !== binding.service
+      || subprocess.descriptorSpawnMode !== binding.mode
+      || subprocess.spawnDescriptor !== binding.spawnDescriptor) {
       throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
     }
-    return subprocess.spawnDescriptor(spec, binary.handle.fd)
+    return binding.spawnDescriptor.call(tracedSubprocess, spec, binary.handle.fd)
   }
 }
 
@@ -702,14 +797,27 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   const compatibility = resolveNilsHealthCompatibility(
     options.compatibility ?? await loadCompatibility(),
   )
+  const expectedDescriptorSpawnMode = compatibility.platform === 'x86_64-unknown-linux-gnu'
+    ? 'atomic-descriptor'
+    : compatibility.platform === 'aarch64-apple-darwin'
+      ? 'verified-transient'
+      : undefined
   const commandQuiescenceMs = options.commandQuiescenceMs ?? COMMAND_QUIESCENCE_MS
   if (!Number.isSafeInteger(commandQuiescenceMs) || commandQuiescenceMs <= 0
     || commandQuiescenceMs > COMMAND_QUIESCENCE_MS) {
     throw new TypeError('dsh-runtime-kit: command quiescence deadline is invalid')
   }
-  if (/** @type {any} */ (ctx.subprocess).descriptorSpawnSupported !== true) {
+  const subprocess = originalCordisService(/** @type {any} */ (ctx.subprocess))
+  if (expectedDescriptorSpawnMode === undefined
+    || subprocess.descriptorSpawnMode !== expectedDescriptorSpawnMode
+    || typeof subprocess.spawnDescriptor !== 'function') {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
   }
+  const descriptorBinding = Object.freeze({
+    service: subprocess,
+    mode: expectedDescriptorSpawnMode,
+    spawnDescriptor: subprocess.spawnDescriptor,
+  })
   const agentHook = resolveAgentHookRuntime(config)
   const agentDocs = config.agentDocs ?? 'agent-docs'
   if (typeof agentDocs !== 'string' || agentDocs.length === 0 || agentDocs.includes('\0')) {
@@ -717,13 +825,22 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   }
   const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
-  const runtimeCwd = await realpath(agentHook.stateDir)
-  const canonicalDocsHome = await realpath(docsHome)
-  const prepareSignal = new AbortController().signal
-  const hookArgv = await resolveSubprocessArgv(ctx, agentHook.argv([]), prepareSignal)
-  const docsArgv = await resolveSubprocessArgv(ctx, [agentDocs], prepareSignal)
-  const sourceHook = await readAuthenticatedBinary(hookArgv[0], compatibility.hookSha256)
-  const sourceDocs = await readAuthenticatedBinary(docsArgv[0], compatibility.docsSha256)
+  let runtimeCwd
+  let canonicalDocsHome
+  let sourceHook
+  let sourceDocs
+  try {
+    runtimeCwd = await realpath(agentHook.stateDir)
+    canonicalDocsHome = await realpath(docsHome)
+    const prepareSignal = new AbortController().signal
+    const hookArgv = await resolveSubprocessArgv(ctx, agentHook.argv([]), prepareSignal)
+    const docsArgv = await resolveSubprocessArgv(ctx, [agentDocs], prepareSignal)
+    sourceHook = await readAuthenticatedBinary(hookArgv[0], compatibility.hookSha256)
+    sourceDocs = await readAuthenticatedBinary(docsArgv[0], compatibility.docsSha256)
+  } catch (error) {
+    if (error instanceof HealthProbeFailure) throw error
+    throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
+  }
   const snapshotRoot = await mkdtemp(join(tmpdir(), 'dsh-runtime-health-executables-'))
   let snapshotRootHandle
   let hook
@@ -753,10 +870,9 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
       sourceDocs.bytes,
       compatibility.docsSha256,
     )
-    const detached = await detachSnapshot(snapshotRoot, snapshotRootHandle, [hook, docs])
-    hook = detached[0]
-    docs = detached[1]
-    snapshotRootHandle = undefined
+    const retained = await retainSnapshotLinks(snapshotRoot, snapshotRootHandle, [hook, docs])
+    hook = retained[0]
+    docs = retained[1]
   } catch (error) {
     if (snapshotRootHandle !== undefined) {
       await snapshotRootHandle.chmod(0o700).catch(() => {})
@@ -779,16 +895,12 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   const disposeSnapshot = async () => {
     if (snapshotDisposed) return
     snapshotDisposed = true
-    const outcomes = await Promise.allSettled([hook.handle.close(), docs.handle.close()])
-    const failures = outcomes.flatMap(outcome => outcome.status === 'rejected' ? [outcome.reason] : [])
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'dsh-runtime-kit: authenticated nils snapshot cleanup failed')
-    }
+    await cleanupLinkedSnapshot(snapshotRoot, snapshotRootHandle, [hook, docs])
   }
   const spawnDescriptor = authenticatedDescriptorSpawner(ctx, new Map([
     [hook.path, hook],
     [docs.path, docs],
-  ]))
+  ]), descriptorBinding)
   const executionOwner = createSnapshotExecutionOwner(
     disposeSnapshot,
     health.disposeTimeoutMs,

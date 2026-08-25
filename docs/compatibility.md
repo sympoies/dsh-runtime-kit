@@ -65,7 +65,8 @@ authenticates and packs the pristine upstream artifact closure, applies the
 reviewed patch, rebuilds DSH, runs DSH's complete tool, LLM, and
 descriptor-subprocess runtime tests and the packed runtime smoke, reverses the
 patch, and proves the checkout pristine.
-It then rebuilds the pristine host and authenticates the unpatched tools
+It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
+and authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
 The rc.7 and rc.8 releases are independently pinned and receive the same local
@@ -74,10 +75,14 @@ advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
 
 A separate blocking macOS ARM64 lane authenticates the released nils-cli
-archive, exercises the Darwin descriptor-bound health provider, proves that an
-inherited executable file descriptor is the byte authority for a private
-mode-`0500` per-spawn materialization, checks immediate success/failure cleanup,
-the 64 MiB executable ceiling, and stable source/target identity, runs the
+archive, exercises the declared Darwin `verified-transient` health provider,
+proves that an inherited executable file descriptor supplies the verified bytes
+for a private mode-`0500` per-spawn materialization, checks post-spawn
+self-resolution through descendant exit, root/current-UID temp-parent ownership
+and writable-mode validation, immediate
+pre-spawn identity validation, process-tree-bound identity cleanup, and
+preserved cleanup failures, the 64 MiB executable
+ceiling, and stable source/target identity, runs the
 native tools/LLM boundary tests and packed smoke, then reverses the patch and
 authenticates the pristine DSH checkout. Direct fdesc execution,
 dyld-as-executable bridging, and directory traversal through

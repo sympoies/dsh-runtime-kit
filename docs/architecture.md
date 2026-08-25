@@ -471,27 +471,48 @@ so neither can prove that a health check precedes every cache, routing,
 short-circuit, or adapter path. The native guard is monotonic and returns a
 stable denial code without adding health text to model messages.
 
-The patch also supplies `SubprocessRuntime.spawnDescriptor` and implements it
-in the local provider. Runtime-kit authenticates private executable copies,
-opens them read-only, unlinks every snapshot pathname before publication, and
-retains only those file descriptions. The provider maps the selected file
-description to child fd 3 and executes the child-owned `/proc/self/fd/3` on
-Linux. Darwin exposes no supported descriptor-only exec primitive, so the
-local provider copies the exact descriptor bytes into a mode-`0500` file under
-a fresh mode-`0700` random directory for each spawn. It caps the executable at
-64 MiB, verifies the source identity, size, timestamps, target metadata, and
-SHA-256 digest, invokes the native spawn call with the requested `argv[0]` as
-display identity, and removes the transient file and directory before
-returning the handle. A provider or platform without this primitive fails
-closed instead of silently falling back to the replaceable runtime snapshot
-pathname.
+The patch also supplies `SubprocessRuntime.spawnDescriptor`, its explicit
+`descriptorSpawnMode`, and a local implementation. Runtime-kit authenticates
+private executable copies, opens them read-only, and retains the mode-`0500`
+links under one mode-`0700` random directory only for child self-resolution.
+Those names are not execution authority: the provider maps the selected file
+description to child fd 3 and executes the child-owned `/proc/self/fd/3` in
+`atomic-descriptor` mode on Linux. The links and descriptors remain owned until
+all child scopes settle because `current_exe()` and `process.execPath` resolve
+the executable name after spawn. Disposal removes only names that still bind
+the authenticated inodes; replacements are preserved, and a renamed private
+root can leave a bounded residue with a host warning rather than authorize
+pathname cleanup.
+
+Darwin exposes no supported descriptor-only exec primitive, so its declared
+`verified-transient` local provider copies the exact descriptor bytes into a
+mode-`0500` file under a fresh mode-`0700` random directory for each spawn. It
+caps the executable at 64 MiB, verifies the source identity, size, timestamps,
+target metadata, and SHA-256 digest, invokes the native spawn call with the
+requested `argv[0]` as display identity, requires every temp-parent ancestor to
+be owned by root or the current UID, rejects an untrusted writable chain, and
+revalidates the private directory and executable identity immediately before
+spawn. It retains that transient until the whole
+child process tree settles so descendant self-inspection remains valid.
+Synchronous spawn failure and process-tree settlement both trigger inode-bound
+removal. Foreign replacements and unexpected unlink failures are preserved
+with host warnings; the provider never reports those residues as successful
+cleanup or reuses them. A provider with a missing or platform-mismatched mode
+fails closed instead of silently falling back to the replaceable runtime
+snapshot pathname.
 
 The Darwin transition is necessarily path-based between verified
-materialization and the kernel's spawn operation. The private random pathname
-removes ordinary worktree and concurrent-agent collisions and has no
-long-lived reuse window, but macOS cannot make that transition atomic against
-a malicious same-UID process. That platform limitation is a documented
-residual risk; Linux remains descriptor-native end to end.
+materialization and the kernel's spawn operation. The private random pathname,
+trusted-parent validation, and pre-spawn identity check remove ordinary
+worktree and concurrent-agent collisions and bound the package-owned process
+tree lifetime, but macOS cannot make that transition atomic against a
+malicious same-UID process. That platform limitation is a documented residual
+risk; Linux remains descriptor-native end to end. Retaining private
+self-resolution links also permits malicious same-UID unlink or rename to deny
+self-inspection, but cannot substitute execution bytes on Linux. This boundary
+protects ordinary worktree, concurrent-agent, stale-path, and ambient binary
+replacement. It is not a sandbox against arbitrary malicious code already
+running as the same UID, which can also alter the surrounding user runtime.
 
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the

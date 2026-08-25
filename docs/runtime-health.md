@@ -50,27 +50,43 @@ Companion commands run only through DSH's subprocess service with an isolated
 environment and bounded output. At activation the provider opens each exact
 release binary without following a final symlink, authenticates the bytes and
 filesystem ownership, and copies those authenticated bytes into a private
-read-only executable snapshot. The provider opens each snapshot, unlinks both
-file names, removes the random directory, and publishes only the authenticated
-open file descriptions. Every runtime-kit consumer receives a package-owned
-execution scope that resolves a display name to the matching retained
-descriptor, so replacing the ambient source or retired snapshot pathname
-cannot change the selected bytes.
+read-only executable snapshot. It retains the mode-`0500` links under their
+mode-`0700` random directory until every child scope settles so executable
+self-inspection remains valid. Every runtime-kit consumer receives a
+package-owned execution scope that resolves a display name to the matching
+retained descriptor; the display path never becomes execution authority, so
+replacing the ambient source or snapshot pathname cannot change the selected
+bytes.
 
-DSH's local subprocess provider executes the inherited descriptor directly
-through `/proc/self/fd/3` on Linux. On macOS it copies and verifies the exact
-descriptor bytes into a fresh private per-spawn executable because Darwin has
-no supported descriptor-only exec primitive, then removes that path before the
-subprocess handle is returned. Unsupported providers and platforms fail
-closed. A platform-specific release archive and the individual `agent-hook`
-and `agent-docs` digests must be recorded in the compatibility manifest before
-that platform can activate. Health, policy, context, finish-line, and
-workspace-lease transports each hold the package-owned scope; a naked
-descriptor projection or retired snapshot path without that owner is rejected.
+DSH's local subprocess provider declares one exact execution mode. Linux uses
+`atomic-descriptor` and executes the inherited descriptor directly through
+`/proc/self/fd/3`. macOS uses `verified-transient`: it copies and verifies the
+exact descriptor bytes into a fresh private per-spawn executable because
+Darwin has no supported descriptor-only exec primitive. That transient remains
+linked until synchronous spawn failure or the complete child process tree has
+settled so `current_exe()` and `process.execPath` remain resolvable for
+descendants. The provider requires every temp-parent ancestor to be owned by
+root or the current UID and rejects an untrusted writable chain. It
+revalidates the private directory and executable identity immediately before
+spawn. Snapshot and transient cleanup check the materialized inode before
+unlinking; a foreign replacement is preserved.
+An unexpected unlink failure or relocated snapshot root emits a host warning
+and may leave that private random residue instead of claiming cleanup
+succeeded. Unsupported, undeclared, or platform-mismatched modes fail closed.
+A platform-specific release archive
+and the individual `agent-hook` and `agent-docs` digests must be recorded in the
+compatibility manifest before that platform can activate. Health, policy,
+context, finish-line, and workspace-lease transports each hold the
+package-owned scope; a naked descriptor projection or retired snapshot path
+without that owner is rejected.
 The scope covers resolution, spawn, response authentication, process-tree
 quiescence, and any finish-line cleanup command. During parallel HMR teardown,
 existing scopes may finish their cleanup but cannot survive transport disposal,
-and each snapshot descriptor remains open until every scope has settled.
+and each snapshot descriptor and private self-resolution link remain owned
+until every scope has settled. A malicious same-UID process can rename or
+unlink those private names and cause self-inspection denial, but Linux execution
+remains bound to the authenticated descriptor; arbitrary hostile same-UID code
+is outside this non-sandbox boundary.
 
 Completion is not accepted until the process tree is observed quiescent. A
 false or late quiescence observation triggers termination and an authoritative
