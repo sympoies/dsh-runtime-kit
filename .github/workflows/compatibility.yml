@@ -181,7 +181,7 @@ jobs:
         if: always()
         working-directory: deepseek-harness
         run: |
-          pnpm run build:lib:host
+          pnpm run build:lib
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
@@ -226,8 +226,9 @@ jobs:
         working-directory: dsh-runtime-kit
         run: |
           npm ci --ignore-scripts --omit=peer
-          npm install --no-save --package-lock=false --ignore-scripts --legacy-peer-deps \
-            "$GITHUB_WORKSPACE/deepseek-harness/vendor/cordis"
+          mkdir -p node_modules/@deepseek-ai
+          ln -s "$GITHUB_WORKSPACE/deepseek-harness/vendor/cordis" \
+            node_modules/@deepseek-ai/cordis
       - name: Apply authenticated DSH execution-boundary patch
         working-directory: dsh-runtime-kit
         run: >-
@@ -268,7 +269,7 @@ jobs:
         if: always()
         working-directory: deepseek-harness
         run: |
-          pnpm run build:lib:host
+          pnpm run build:lib
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
