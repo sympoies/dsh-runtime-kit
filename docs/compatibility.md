@@ -5,7 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.0` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.2` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | `1.27.8` minimum; exactly validated through `1.27.9` |

@@ -81,13 +81,19 @@ Two exact DSH `0.1.1-rc.2` compositions are supported:
 
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
-  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.0`, then
+  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.2`, then
   `@sympoies/dsh-runtime-kit` in that order.
 
 Unknown profile names contain only the base bundle. They are neither equivalent
 to `headless` nor accepted as Agent Console profiles. The machine-readable
 Agent Console boundary is
 [`compatibility/agent-console.json`](compatibility/agent-console.json).
+With pnpm 11, the Agent Console provisioner must use the adjacent
+[`compatibility/agent-console-pnpm-workspace.yaml`](compatibility/agent-console-pnpm-workspace.yaml)
+installation contract before installing the TUI. It preserves DSH's native
+profile linker and peer settings while recording the TUI release's explicit
+`false` lifecycle decisions. Those package-install decisions do not restrict
+the agent's host CLI or `PATH`.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball
