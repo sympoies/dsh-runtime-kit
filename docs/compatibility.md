@@ -75,9 +75,10 @@ evidence; it cannot silently broaden the supported range.
 
 A separate blocking macOS ARM64 lane authenticates the released nils-cli
 archive, exercises the Darwin descriptor-bound health provider, proves that an
-inherited executable file descriptor launches through `/dev/fd/3`, runs the
-native tools/LLM boundary tests and packed smoke, then reverses the patch and
-authenticates the pristine DSH checkout. Directory traversal through
+inherited executable file descriptor is loaded by the trusted system dyld from
+`/dev/fd/3`, runs the native tools/LLM boundary tests and packed smoke, then
+reverses the patch and authenticates the pristine DSH checkout. Direct fdesc
+execution and directory traversal through
 `/dev/fd/<directory-fd>` is deliberately not part of the contract.
 
 Contributor commands and staging examples are in

@@ -1816,19 +1816,23 @@ index 433ba01791..0fae72f128 100644
    if (spec.signal?.aborted) {
      throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
    }
-@@ -347,13 +356,22 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -347,13 +356,26 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
    const stdinMode = spec.stdio.stdin
  
    const env = childEnv(spec.env)
 -  const child = spawn(program, args, {
 +  const childExecutableFd = 3
 +  let executable = program
++  let spawnArgs = args
 +  if (executableFd !== undefined) {
 +    if (platform === 'linux') executable = `/proc/self/fd/${childExecutableFd}`
-+    else if (platform === 'darwin') executable = `/dev/fd/${childExecutableFd}`
++    else if (platform === 'darwin') {
++      executable = '/usr/lib/dyld'
++      spawnArgs = [`/dev/fd/${childExecutableFd}`, ...args]
++    }
 +    else throw new Error('subprocess descriptor-bound execution is unsupported on this platform')
 +  }
-+  const child = spawn(executable, args, {
++  const child = spawn(executable, spawnArgs, {
 +    ...(executableFd === undefined ? {} : { argv0: program }),
      cwd: spec.cwd,
      env,

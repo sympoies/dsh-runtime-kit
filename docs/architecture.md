@@ -476,7 +476,9 @@ in the local provider. Runtime-kit authenticates private executable copies,
 opens them read-only, unlinks every snapshot pathname before publication, and
 retains only those file descriptions. The provider maps the selected file
 description to child fd 3 and executes the child-owned `/proc/self/fd/3` on
-Linux or `/dev/fd/3` on Darwin. `argv[0]` remains display identity only. A
+Linux. Darwin's kernel rejects direct fdesc execution, so the local provider
+starts the trusted system dyld with `/dev/fd/3` as the Mach-O input. `argv[0]`
+remains display identity only. A
 provider without this primitive fails closed, so a replaceable pathname cannot
 silently regain execution authority.
 
