@@ -28,6 +28,19 @@ test('the checked-in manifest authenticates the checked-in patch artifact', asyn
   }
 })
 
+test('the checked-in DSH patch preserves the host environment only in danger-full-access mode', async () => {
+  const artifact = await readFile(
+    join(projectRoot, 'patches', 'deepseek-harness', 'tool-execution-prerequisite.patch'),
+    'utf8',
+  )
+  assert.match(
+    artifact,
+    /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/,
+  )
+  assert.match(artifact, /inherits the ambient host environment in danger-full-access mode/)
+  assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
+})
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-patch-'))
   const sourcePath = 'packages/core/tools/src/index.ts'

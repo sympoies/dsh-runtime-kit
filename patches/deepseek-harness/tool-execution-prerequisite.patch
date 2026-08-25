@@ -1790,7 +1790,7 @@ index 261f614fba..2686bec756 100644
      // Release ownership only once the whole TREE is gone, not at direct-child
      // settlement — a TERM-trapping helper that outlives the leader must stay
 diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
-index 433ba01791..431145e7f6 100644
+index 433ba01791..b7d93c2973 100644
 --- a/packages/subprocess/subprocess-local/src/spawn.ts
 +++ b/packages/subprocess/subprocess-local/src/spawn.ts
 @@ -7,12 +7,27 @@
@@ -1825,6 +1825,32 @@ index 433ba01791..431145e7f6 100644
  import { setTimeout as sleepMs } from 'node:timers/promises'
  import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+@@ -27,15 +42,19 @@ import type {
+ import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+ 
+ /**
+- * Build a child environment: explicit caller entries override the scrubbed
+- * parent base using the target platform's environment-key semantics. A string
+- * deliberately restores or overrides an entry; an explicit `undefined`
+- * tombstone removes an ordinary ambient entry.
+- * @param extra - explicit caller entries and tombstones, merged after the scrub.
++ * Build a child environment: danger-full-access inherits the complete host
++ * environment, while every other permission mode keeps the upstream scrubbed
++ * base. Explicit caller entries then override the selected base using the
++ * target platform's environment-key semantics. A string deliberately restores
++ * or overrides an entry; an explicit `undefined` tombstone removes an ordinary
++ * ambient entry.
++ * @param extra - explicit caller entries and tombstones, merged after the base.
+  * @returns the environment to hand to `spawn` for the child process.
+  */
+ export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+-  const env = scrubbedParentEnv()
++  const env = process.env.DSH_PERMISSION_MODE === 'danger-full-access'
++    ? { ...process.env }
++    : scrubbedParentEnv()
+   if (process.platform !== 'win32') return { ...env, ...extra }
+   let entries: [string, string | undefined][] = Object.entries(env)
+   for (const [key, value] of Object.entries(extra ?? {})) {
 @@ -54,10 +69,17 @@ export interface SpawnInternals {
    taskkill?: (pid: number) => void
    /** Host platform override for signalling decisions. */
@@ -2126,7 +2152,7 @@ index 433ba01791..431145e7f6 100644
      })
      child.on('exit', (exitCode, signal) => {
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfaaa1..fbb98ae3a1 100644
+index 1f21dfaaa1..02b4977972 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 @@ -1,4 +1,5 @@
@@ -2136,6 +2162,11 @@ index 1f21dfaaa1..fbb98ae3a1 100644
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
  import { describe, expect, it, vi } from 'vitest'
+@@ -11,3 +12,4 @@
+ import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
+ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
++import * as spawnModule from '../src/spawn.ts'
+ 
 @@ -58,14 +59,35 @@
 -const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
 +const { failNextClose, failNextUnlink, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
@@ -2184,10 +2215,43 @@ index 1f21dfaaa1..fbb98ae3a1 100644
          throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
        }
        actual.unlinkSync(path)
-@@ -179,6 +205,261 @@ describe('spawnSubprocess', () => {
+@@ -179,6 +205,294 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
++  it('inherits the ambient host environment in danger-full-access mode', () => {
++    const previousMode = process.env.DSH_PERMISSION_MODE
++    const previousCanary = process.env.DSH_HOST_ENV_TOKEN
++    try {
++      process.env.DSH_PERMISSION_MODE = 'danger-full-access'
++      process.env.DSH_HOST_ENV_TOKEN = 'ambient-canary'
++      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBe('ambient-canary')
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: 'explicit-override' }).DSH_HOST_ENV_TOKEN)
++        .toBe('explicit-override')
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: undefined }).DSH_HOST_ENV_TOKEN).toBeUndefined()
++    } finally {
++      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
++      else process.env.DSH_PERMISSION_MODE = previousMode
++      if (previousCanary === undefined) delete process.env.DSH_HOST_ENV_TOKEN
++      else process.env.DSH_HOST_ENV_TOKEN = previousCanary
++    }
++  })
++
++  it('keeps scrubbing ambient credentials outside danger-full-access mode', () => {
++    const previousMode = process.env.DSH_PERMISSION_MODE
++    const previousCanary = process.env.DSH_HOST_ENV_TOKEN
++    try {
++      process.env.DSH_PERMISSION_MODE = 'workspace-write'
++      process.env.DSH_HOST_ENV_TOKEN = 'ambient-canary'
++      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBeUndefined()
++    } finally {
++      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
++      else process.env.DSH_PERMISSION_MODE = previousMode
++      if (previousCanary === undefined) delete process.env.DSH_HOST_ENV_TOKEN
++      else process.env.DSH_HOST_ENV_TOKEN = previousCanary
++    }
++  })
++
 +  it.runIf(process.platform === 'linux')(
 +    'executes Linux descriptor bytes when the display pathname does not exist',
 +    async () => {
