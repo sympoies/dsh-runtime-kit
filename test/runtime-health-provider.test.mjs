@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { fstatSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -21,7 +21,7 @@ function sha256(value) {
 }
 
 async function fixture(overrides = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-health-provider-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-runtime-health-provider-')))
   const hook = join(root, 'agent-hook')
   const docs = join(root, 'agent-docs')
   const hookBytes = Buffer.from('authenticated agent-hook fixture')
