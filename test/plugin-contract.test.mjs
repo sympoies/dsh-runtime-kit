@@ -2560,6 +2560,37 @@ test('an outer waterfall cannot reverse an authoritative nils denial', async () 
   assert.equal(delegated, false)
 })
 
+test('policy denials report only blocking reasons from the normalized decision', async () => {
+  const subject = harness({
+    envelope: decision('block', {
+      reasons: [
+        {
+          rule_id: 'dsh.owner-unclaimed',
+          code: 'owner-unclaimed',
+          disposition: 'allow',
+        },
+        {
+          rule_id: 'dsh.semantic-conflict',
+          code: 'semantic-conflict',
+          disposition: 'allow',
+        },
+        {
+          rule_id: 'dsh.pre-edit-intent-gate',
+          code: 'pre-edit-intent-gate',
+          disposition: 'block',
+        },
+      ],
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+
+  assert.equal(result.kind, 'deny')
+  assert.match(result.reason, /agent-hook:pre-edit-intent-gate/)
+  assert.doesNotMatch(result.reason, /owner-unclaimed|semantic-conflict/)
+  assert.equal(delegated, false)
+})
+
 test('downstream pre-execute exceptions preserve their exact rc.7 failure', async () => {
   const subject = harness()
   const distinctive = new Error('distinctive downstream pre-execute failure')

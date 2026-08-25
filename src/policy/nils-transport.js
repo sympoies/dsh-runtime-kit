@@ -75,6 +75,7 @@ function denial(reason) {
 function policyReason(decision) {
   const codes = Array.isArray(decision.reasons)
     ? decision.reasons
+      .filter(reason => reason?.disposition === 'block')
       .map(reason => reason?.code)
       .filter(code => typeof code === 'string' && code.length > 0)
     : []
