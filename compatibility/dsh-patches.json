@@ -4,8 +4,36 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "98b7f11ccbaab0fe22f58b5210f6431e1c5bff1513cf1587d53c4f9ea9e89bb2",
+      "sha256": "61f8ac5b54049ff753236f701f82e3a697efe74a1fe96a1a594f28ee4d653e76",
       "targets": {
+        "packages/subprocess/subprocess/src/index.ts": {
+          "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
+          "after_sha256": "21192493e2cc9926b7e89a69e42a1474291c664207bd94e33fb3add7693d0843"
+        },
+        "packages/subprocess/subprocess-local/src/index.ts": {
+          "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
+          "after_sha256": "78584216bb891e9fe0e81f44d552ce91ef204f5e4f6610ea25f118071dc45e4d"
+        },
+        "packages/subprocess/subprocess-local/src/spawn.ts": {
+          "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
+          "after_sha256": "62189c323910da7108df9dfb1de0613cce807c5a5caf0a1f8657201d129b6e6e"
+        },
+        "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
+              "after_sha256": "ca84e301603a98a069854dc1d5bb2f766a6665c79d66eb61183af584439d3a0c"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "0034f5e428606d7185b5567eabfcfb6fcf4cdfeba5fe8d66c0dd4b2f03e349f8"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "0034f5e428606d7185b5567eabfcfb6fcf4cdfeba5fe8d66c0dd4b2f03e349f8"
+            }
+          }
+        },
         "packages/core/tools/src/index.ts": {
           "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
           "after_sha256": "b806149fbef863d702061fd8ca563f28161dbb48b08dc66f0f89b3897db0c39c"

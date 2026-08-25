@@ -330,7 +330,7 @@ export function createNilsTransport(ctx, config = {}) {
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
   const agentDocsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   const agentDocsStateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
-  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveOperation>} */
   const active = new Set()
@@ -457,7 +457,7 @@ export function createNilsTransport(ctx, config = {}) {
     signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
-    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
     let executionLease
     try {
       if (signal.aborted) operation.cancel('caller-aborted', signal.reason)
@@ -486,7 +486,7 @@ export function createNilsTransport(ctx, config = {}) {
           agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
           executionSignal,
         )
-        operation.handle = ctx.subprocess.spawn({
+        operation.handle = executionLease.spawn({
           argv,
           cwd,
           stdio: {

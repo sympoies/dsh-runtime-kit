@@ -471,6 +471,15 @@ so neither can prove that a health check precedes every cache, routing,
 short-circuit, or adapter path. The native guard is monotonic and returns a
 stable denial code without adding health text to model messages.
 
+The patch also supplies `SubprocessRuntime.spawnDescriptor` and implements it
+in the local provider. Runtime-kit authenticates private executable copies,
+opens them read-only, unlinks every snapshot pathname before publication, and
+retains only those file descriptions. The provider maps the selected file
+description to child fd 3 and executes the child-owned `/proc/self/fd/3` on
+Linux or `/dev/fd/3` on Darwin. `argv[0]` remains display identity only. A
+provider without this primitive fails closed, so a replaceable pathname cannot
+silently regain execution authority.
+
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the
 patch and every before/after file hash for each supported revision; targets
@@ -478,8 +487,8 @@ whose release contents differ carry release-specific hash pairs. Apply and
 reverse reject unknown revisions, partial state, content drift, or unrelated
 checkout changes. Nils remains the sole owner of catalogs, policy resolution,
 receipt semantics, and durable activation; the patch owns only exact DSH
-execution ordering, result/context attachment, and pre-waterfall model
-admission.
+execution ordering, result/context attachment, pre-waterfall model admission,
+and descriptor-bound local subprocess launch.
 
 ## Private skill discovery
 

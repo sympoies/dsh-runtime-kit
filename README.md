@@ -57,7 +57,8 @@ contract and promotion checks.
 Every supported DSH checkout must carry the authenticated
 `tool-execution-prerequisite-v1` patch before runtime-kit is activated. It adds
 the exact tool-prerequisite transaction boundary and the native pre-waterfall
-model guard; it does not copy or fork DSH. The
+model guard, plus fail-closed descriptor-bound subprocess execution for
+authenticated companion snapshots; it does not copy or fork DSH. The
 packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 

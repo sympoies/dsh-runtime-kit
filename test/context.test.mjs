@@ -201,16 +201,20 @@ test('context holds its authenticated descriptor lease across delayed resolution
   assert.equal(cleaned, true)
 })
 
-test('context rejects a naked Linux or Darwin descriptor path without its execution owner', () => {
+test('context rejects a naked descriptor or retired snapshot path without its execution owner', () => {
   const subject = contextTransportHarness()
-  for (const agentDocs of ['/proc/123/fd/9/agent-docs', '/dev/fd/9/agent-docs']) {
+  for (const agentDocs of [
+    '/proc/123/fd/9/agent-docs',
+    '/dev/fd/9/agent-docs',
+    '/tmp/dsh-runtime-health-executables-ABC123/agent-docs',
+  ]) {
     assert.throws(
       () => createNilsContextClient(subject.ctx, {
         agentDocs,
         agentDocsHome: '/runtime/policies',
         agentDocsStateHome: '/runtime/state',
       }),
-      /authenticated nils descriptor requires an execution owner/,
+      /authenticated nils executable requires an execution owner/,
     )
   }
 })

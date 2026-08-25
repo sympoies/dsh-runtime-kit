@@ -144,7 +144,10 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm run typecheck
-          pnpm vitest run packages/core/tools/tests/tools.spec.ts packages/llm/llm/tests/service.spec.ts
+          pnpm vitest run \
+            packages/core/tools/tests/tools.spec.ts \
+            packages/llm/llm/tests/service.spec.ts \
+            packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib
       - name: Download authenticated nils-cli acceptance binaries
         run: |
@@ -243,7 +246,10 @@ jobs:
           cd dsh-runtime-kit
           node --test test/runtime-health-provider.test.mjs
           cd ../deepseek-harness
-          pnpm vitest run packages/core/tools/tests/tools.spec.ts packages/llm/llm/tests/service.spec.ts
+          pnpm vitest run \
+            packages/core/tools/tests/tools.spec.ts \
+            packages/llm/llm/tests/service.spec.ts \
+            packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib
       - name: Download authenticated macOS nils-cli acceptance binaries
         run: |

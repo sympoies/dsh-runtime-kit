@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { fstatSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -45,50 +46,55 @@ async function fixture(overrides = {}) {
     problems: 0,
     suggested_actions: [],
   }
+  function spawned(spec) {
+    calls.push(spec)
+    let stdout
+    if (spec.argv.includes('doctor')) {
+      stdout = JSON.stringify({
+        schema_version: 'cli.agent-hook.doctor.v1',
+        ok: true,
+        data: [{
+          product: 'dsh',
+          registration_owner: 'dsh-runtime-kit',
+          dispatch_supported: true,
+        }],
+      })
+    } else if (spec.argv.includes('--version')) {
+      stdout = 'agent-docs 1.27.8 (fixture)\n'
+    } else {
+      stdout = JSON.stringify(audit)
+    }
+    return {
+      done: overrides.doneReject === true
+        ? Promise.reject(new Error('subprocess completion failed'))
+        : Promise.resolve({ exitCode: 0, signal: null }),
+      collected: {
+        stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
+        stderr: { readFrom: () => ({ text: '', lossy: false }) },
+      },
+      terminate() { terminations += 1 },
+      async waitForExit() {
+        quiescenceWaits += 1
+        if (overrides.waitNeverSettles === true) return pendingQuiescence
+        if (overrides.waitForExitFalseOnce === true && quiescenceWaits === 1) return false
+        if (Number.isSafeInteger(overrides.waitForExitDelayMs)
+          && quiescenceWaits === 1) {
+          await new Promise(resolve => setTimeout(resolve, overrides.waitForExitDelayMs))
+        }
+        return true
+      },
+    }
+  }
   const subprocess = {
+    descriptorSpawnSupported: overrides.descriptorSpawnSupported ?? true,
     async resolveExecutable(command) {
       if (command === 'agent-hook') return hook
       if (command === 'agent-docs') return docs
       throw new Error('unexpected executable')
     },
-    spawn(spec) {
-      calls.push(spec)
-      let stdout
-      if (spec.argv.includes('doctor')) {
-        stdout = JSON.stringify({
-          schema_version: 'cli.agent-hook.doctor.v1',
-          ok: true,
-          data: [{
-            product: 'dsh',
-            registration_owner: 'dsh-runtime-kit',
-            dispatch_supported: true,
-          }],
-        })
-      } else if (spec.argv.includes('--version')) {
-        stdout = 'agent-docs 1.27.8 (fixture)\n'
-      } else {
-        stdout = JSON.stringify(audit)
-      }
-      return {
-        done: overrides.doneReject === true
-          ? Promise.reject(new Error('subprocess completion failed'))
-          : Promise.resolve({ exitCode: 0, signal: null }),
-        collected: {
-          stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
-          stderr: { readFrom: () => ({ text: '', lossy: false }) },
-        },
-        terminate() { terminations += 1 },
-        async waitForExit() {
-          quiescenceWaits += 1
-          if (overrides.waitNeverSettles === true) return pendingQuiescence
-          if (overrides.waitForExitFalseOnce === true && quiescenceWaits === 1) return false
-          if (Number.isSafeInteger(overrides.waitForExitDelayMs)
-            && quiescenceWaits === 1) {
-            await new Promise(resolve => setTimeout(resolve, overrides.waitForExitDelayMs))
-          }
-          return true
-        },
-      }
+    spawn(spec) { return spawned({ ...spec, executionBinding: 'path' }) },
+    spawnDescriptor(spec, executableFd) {
+      return spawned({ ...spec, executionBinding: 'descriptor', executableFd })
     },
   }
   const compatibility = {
@@ -166,6 +172,8 @@ test('authenticated nils providers report runtime and project readiness without 
     assert.equal(subject.calls.length, 3)
     assert.equal(subject.calls.every(call => call.env?.HOME === undefined), true)
     assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook && call.argv[0] !== subject.docs), true)
+    assert.equal(subject.calls.every(call => call.executionBinding === 'descriptor'), true)
+    assert.equal(subject.calls.every(call => Number.isSafeInteger(call.executableFd)), true)
     assert.equal(subject.calls[0].argv[0], subject.authenticatedConfig.agentHook)
   } finally {
     await subject.dispose()
@@ -179,6 +187,19 @@ test('runtime health blocks an unauthenticated companion before executing it', a
   })
   try {
     assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health fails closed when the subprocess provider lacks descriptor execution', async () => {
+  const subject = await fixture({
+    descriptorSpawnSupported: false,
+    captureInstallFailure: true,
+  })
+  try {
+    assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
     assert.equal(subject.calls.length, 0)
   } finally {
     await subject.dispose()
@@ -353,81 +374,67 @@ test('post-start source replacement cannot change the authenticated executable s
   }
 })
 
-test('snapshot execution stays descriptor-bound across root pathname replacement', async () => {
+test('snapshot execution stays descriptor-bound after its private pathname is retired', async () => {
   const subject = await fixture()
-  const descriptorDirectory = dirname(subject.authenticatedConfig.agentHook)
-  const snapshotRoot = await realpath(descriptorDirectory)
-  const displacedRoot = `${snapshotRoot}-displaced`
+  const snapshotRoot = dirname(subject.authenticatedConfig.agentHook)
   let disposed = false
   try {
     assert.deepEqual(
       Object.keys(subject.authenticatedConfig).sort(),
       ['agentDocs', 'agentHook', 'authenticatedNilsExecution'],
     )
-    await rename(snapshotRoot, displacedRoot)
+    await assert.rejects(stat(snapshotRoot), { code: 'ENOENT' })
     await mkdir(snapshotRoot, { mode: 0o700 })
     await writeFile(join(snapshotRoot, 'agent-hook'), 'replacement hook', { mode: 0o700 })
     await writeFile(join(snapshotRoot, 'agent-docs'), 'replacement docs', { mode: 0o700 })
 
     const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
     assert.equal(runtime.state, 'ready')
-    const descriptorPrefix = process.platform === 'darwin' ? '/dev/fd/' : '/proc/'
-    assert.equal(subject.calls.every(call => call.argv[0].startsWith(descriptorPrefix)), true)
+    assert.equal(subject.calls.every(call => call.executionBinding === 'descriptor'), true)
+    assert.equal(subject.calls.every(call => Number.isSafeInteger(call.executableFd)), true)
 
     await subject.ctx.fiber.dispose()
     disposed = true
     assert.equal(await readFile(join(snapshotRoot, 'agent-hook'), 'utf8'), 'replacement hook')
     assert.equal(await readFile(join(snapshotRoot, 'agent-docs'), 'utf8'), 'replacement docs')
-    await assert.rejects(stat(join(displacedRoot, 'agent-hook')), { code: 'ENOENT' })
-    await assert.rejects(stat(join(displacedRoot, 'agent-docs')), { code: 'ENOENT' })
   } finally {
     await rm(snapshotRoot, { recursive: true, force: true })
-    await chmod(displacedRoot, 0o700).catch(() => {})
-    await rm(displacedRoot, { recursive: true, force: true })
     if (!disposed) await subject.ctx.fiber.dispose()
     await subject.dispose()
   }
 })
 
-test('snapshot disposal drains a pre-spawn lease before closing or reusing its descriptor', async () => {
+test('snapshot disposal drains a pre-spawn lease before closing its executable descriptor', async () => {
   let enterSpawnBarrier
   let releaseSpawnBarrier
   const entered = new Promise(resolve => { enterSpawnBarrier = resolve })
   const barrier = new Promise(resolve => { releaseSpawnBarrier = resolve })
+  let blockSpawn = false
   const subject = await fixture({
     async beforeCommandSpawn() {
+      if (!blockSpawn) return
       enterSpawnBarrier()
       await barrier
     },
   })
-  const descriptorPath = subject.authenticatedConfig.agentHook
-  const descriptorMatch = process.platform === 'darwin'
-    ? /^\/dev\/fd\/(\d+)\//u.exec(descriptorPath)
-    : /^\/proc\/\d+\/fd\/(\d+)\//u.exec(descriptorPath)
-  assert.notEqual(descriptorMatch, null)
-  const descriptorFd = Number(descriptorMatch[1])
-  const probing = subject.ctx.dshRuntimeHealth.probe('runtime-core').catch(error => error)
+  await subject.ctx.dshRuntimeHealth.require('runtime-core')
+  assert.equal(subject.calls.length, 2)
+  const descriptorFd = subject.calls[0].executableFd
+  blockSpawn = true
+  const probing = subject.ctx.dshRuntimeHealth.probe('runtime-core', { force: true }).catch(error => error)
   await entered
 
   let disposed = false
   const disposing = subject.ctx.fiber.dispose().then(() => { disposed = true })
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(disposed, false)
-  assert.equal(subject.calls.length, 0)
-  assert.equal((await stat(descriptorPath)).isFile(), true)
-
-  const pressure = await Promise.all(
-    Array.from({ length: 32 }, () => open(subject.hook, 'r')),
-  )
-  try {
-    assert.equal(pressure.some(handle => handle.fd === descriptorFd), false)
-  } finally {
-    await Promise.all(pressure.map(handle => handle.close()))
-  }
+  assert.equal(subject.calls.length, 2)
 
   releaseSpawnBarrier()
   await Promise.allSettled([probing, disposing])
   assert.equal(disposed, true)
-  assert.equal(subject.calls.length, 0)
+  assert.equal(subject.calls.length, 2)
+  assert.equal(subject.calls[0].executionBinding, 'descriptor')
+  assert.throws(() => fstatSync(descriptorFd), { code: 'EBADF' })
   await rm(subject.root, { recursive: true, force: true })
 })

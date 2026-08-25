@@ -318,6 +318,7 @@
     "skills.register",
     "subprocess.resolveExecutable",
     "subprocess.spawn",
+    "subprocess.spawnDescriptor",
     "tools.bindPrerequisite",
     "tools.get",
     "tools.register",

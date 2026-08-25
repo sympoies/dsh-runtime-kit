@@ -62,8 +62,9 @@ checkout bytes.
 
 CI keeps separate blocking `pinned` and `upstream-next` matrix rows. Each row
 authenticates and packs the pristine upstream artifact closure, applies the
-reviewed patch, rebuilds DSH, runs DSH's complete tool and LLM runtime tests and the
-packed runtime smoke, reverses the patch, and proves the checkout pristine.
+reviewed patch, rebuilds DSH, runs DSH's complete tool, LLM, and
+descriptor-subprocess runtime tests and the packed runtime smoke, reverses the
+patch, and proves the checkout pristine.
 It then rebuilds the pristine host and authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
@@ -73,9 +74,11 @@ advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
 
 A separate blocking macOS ARM64 lane authenticates the released nils-cli
-archive, exercises the Darwin descriptor-bound health provider, runs the native
-tools/LLM boundary tests and packed smoke, then reverses the patch and
-authenticates the pristine DSH checkout.
+archive, exercises the Darwin descriptor-bound health provider, proves that an
+inherited executable file descriptor launches through `/dev/fd/3`, runs the
+native tools/LLM boundary tests and packed smoke, then reverses the patch and
+authenticates the pristine DSH checkout. Directory traversal through
+`/dev/fd/<directory-fd>` is deliberately not part of the contract.
 
 Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture

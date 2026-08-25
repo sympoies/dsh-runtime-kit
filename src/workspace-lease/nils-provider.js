@@ -364,7 +364,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
     DEFAULT_MAX_ACTIVE,
     MAX_ACTIVE,
   )
-  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   /** @type {Set<ActiveRequest>} */
   const active = new Set()
   let open = true
@@ -451,7 +451,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
     signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
-    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
     let executionLease
     try {
       if (signal.aborted) cancel(operation, 'caller')
@@ -466,7 +466,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
           agentHook.argv(['workspace-lease', action, '--format', 'json']),
           executionSignal,
         )
-        operation.handle = ctx.subprocess.spawn({
+        operation.handle = executionLease.spawn({
           argv,
           // The request carries the authoritative workspace. Shell cwd is a
           // fixed runtime directory and never participates in canonicalization.

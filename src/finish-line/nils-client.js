@@ -309,7 +309,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     HARD_TEARDOWN_TIMEOUT_MS,
   )
   const maxActive = positiveInteger(config.maxActiveFinishLineRequests, DEFAULT_MAX_ACTIVE, HARD_MAX_ACTIVE)
-  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveRequest>} */
   const active = new Set()
@@ -371,7 +371,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       runner_capability: request.runner_capability,
     })
     let handle
-    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
     let executionLease
     try {
       const explicitEnvironment = {
@@ -387,7 +387,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
         executionLease.signal,
       )
-      handle = ctx.subprocess.spawn({
+      handle = executionLease.spawn({
         argv,
         cwd: /** @type {string} */ (request.cwd),
         stdio: {
@@ -510,7 +510,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
-    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
     let executionLease
     try {
       if (callerSignal?.aborted) cancel(operation, 'caller')
@@ -532,7 +532,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           agentHook.argv(['finish-line', action, '--format', 'json']),
           executionSignal,
         )
-        operation.handle = ctx.subprocess.spawn({
+        operation.handle = executionLease.spawn({
           argv,
           cwd: /** @type {string} */ (request.cwd),
           stdio: {

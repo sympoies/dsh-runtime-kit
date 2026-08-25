@@ -71,7 +71,7 @@ function validRuntime() {
     shell: { resolve() {} },
     shellEnv: { collect() {} },
     skills: { register() {} },
-    subprocess: { resolveExecutable() {}, spawn() {} },
+    subprocess: { resolveExecutable() {}, spawn() {}, spawnDescriptor() {} },
     tools: { bindPrerequisite() {}, get() {}, register() {}, guard() {} },
   }
 }
@@ -338,6 +338,18 @@ test('runtime public-surface preflight returns a typed report or one typed incom
       assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
       assert.deepEqual(error.diagnostic.missing, ['tools.get'])
       assert.equal(error.diagnostic.compatible, false)
+      return true
+    },
+  )
+
+  const missingDescriptorSpawn = validRuntime()
+  delete missingDescriptorSpawn.subprocess.spawnDescriptor
+  assert.throws(
+    () => assertDshRc7Runtime(missingDescriptorSpawn),
+    error => {
+      assert.equal(error instanceof DshCompatibilityError, true)
+      assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+      assert.deepEqual(error.diagnostic.missing, ['subprocess.spawnDescriptor'])
       return true
     },
   )
@@ -759,8 +771,12 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
   assert.match(workflow, /npm run --silent stage:compatibility-peers/)
   assert.match(workflow, /--action apply/)
-  assert.match(workflow, /pnpm vitest run packages\/core\/tools\/tests\/tools\.spec\.ts/)
+  assert.equal(workflow.match(/packages\/core\/tools\/tests\/tools\.spec\.ts/g)?.length, 2)
   assert.match(workflow, /packages\/llm\/llm\/tests\/service\.spec\.ts/)
+  assert.equal(
+    workflow.match(/packages\/subprocess\/subprocess-local\/tests\/spawn\.spec\.ts/g)?.length,
+    2,
+  )
   assert.match(workflow, /Validate patched DSH execution boundary[\s\S]+pnpm run build:lib/)
   assert.match(workflow, /npm run test:smoke/)
   assert.match(workflow, /--action reverse/)

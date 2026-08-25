@@ -1759,3 +1759,152 @@ index ed7d8d9bf8..dfe2b5246a 100644
    it('awaits adapter cleanup on downstream close and leaves cleanup failure thrown', async () => {
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
+diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
+index 261f614fba..1fa801a509 100644
+--- a/packages/subprocess/subprocess-local/src/index.ts
++++ b/packages/subprocess/subprocess-local/src/index.ts
+@@ -35,6 +35,7 @@ import { LocalTerminalHandle } from './terminal.ts'
+  * JavaScript-observable host exit.
+  */
+ export class LocalSubprocessRuntime extends SubprocessRuntime {
++  override readonly descriptorSpawnSupported: boolean = true
+   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
+   private live = new Set<LocalSubprocessHandle>()
+   /** Live terminals retained through normal quiescence or host-exit finalization. */
+@@ -144,7 +144,14 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
+   }
+ 
+   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
+-    const handle = spawnSubprocess(spec, this.internals)
++    return this.own(spawnSubprocess(spec, this.internals))
++  }
++
++  spawnDescriptor(spec: SubprocessSpawnSpec, executableFd: number): SubprocessHandle {
++    return this.own(spawnSubprocess(spec, this.internals, executableFd))
++  }
++
++  private own(handle: LocalSubprocessHandle): SubprocessHandle {
+     this.live.add(handle)
+     // Release ownership only once the whole TREE is gone, not at direct-child
+     // settlement — a TERM-trapping helper that outlives the leader must stay
+diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
+index 433ba01791..0fae72f128 100644
+--- a/packages/subprocess/subprocess-local/src/spawn.ts
++++ b/packages/subprocess/subprocess-local/src/spawn.ts
+@@ -323,7 +323,11 @@ function signalTree(
+  * @returns live subprocess handle.
+  * @throws when `graceMs` cannot be represented by one Node timer.
+  */
+-export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): LocalSubprocessHandle {
++export function spawnSubprocess(
++  spec: SubprocessSpawnSpec,
++  internals: SpawnInternals = {},
++  executableFd?: number,
++): LocalSubprocessHandle {
+   if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
+     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
+   }
+@@ -332,6 +336,11 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+   const taskkill = internals.taskkill ?? taskkillProcessTree
+   const linuxGroupHasLiveMembers = internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers
+ 
++  if (executableFd !== undefined
++    && (!Number.isSafeInteger(executableFd) || executableFd < 0)) {
++    throw new Error('subprocess executable descriptor must be a non-negative safe integer')
++  }
++
+   if (spec.signal?.aborted) {
+     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
+   }
+@@ -347,13 +356,22 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+   const stdinMode = spec.stdio.stdin
+ 
+   const env = childEnv(spec.env)
+-  const child = spawn(program, args, {
++  const childExecutableFd = 3
++  let executable = program
++  if (executableFd !== undefined) {
++    if (platform === 'linux') executable = `/proc/self/fd/${childExecutableFd}`
++    else if (platform === 'darwin') executable = `/dev/fd/${childExecutableFd}`
++    else throw new Error('subprocess descriptor-bound execution is unsupported on this platform')
++  }
++  const child = spawn(executable, args, {
++    ...(executableFd === undefined ? {} : { argv0: program }),
+     cwd: spec.cwd,
+     env,
+     stdio: [
+       stdinMode === 'ignore' ? 'ignore' : 'pipe',
+       outMode === 'inherit' ? 'inherit' : 'pipe',
+       errMode === 'inherit' ? 'inherit' : 'pipe',
++      ...(executableFd === undefined ? [] : [executableFd]),
+     ],
+     // `detached` gives teardown a tree root on POSIX (its own process group);
+     // Windows terminates by root pid through taskkill /T instead.
+diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
+index 1f87fd67cc..1f51c7259e 100644
+--- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
++++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
+@@ -1,4 +1,4 @@
+-import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
++import { closeSync, mkdtempSync, openSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { dirname, join } from 'node:path'
+ import { describe, expect, it, vi } from 'vitest'
+@@ -135,6 +135,23 @@ describe('spawnSubprocess', () => {
+     expect(result.stderr.text).toBe('')
+   })
+ 
++  it.skipIf(process.platform === 'win32')(
++    'executes the retained descriptor rather than a replaceable argv pathname',
++    async () => {
++      const executableFd = openSync('/bin/bash', 'r')
++      try {
++        const result = await finish(spawnSubprocess({
++          ...spec('printf descriptor-bound'),
++          argv: ['/definitely/replaced/bash', '-c', 'printf descriptor-bound'],
++        }, {}, executableFd))
++        expect(result.exitCode).toBe(0)
++        expect(result.stdout.text).toBe('descriptor-bound')
++      } finally {
++        closeSync(executableFd)
++      }
++    },
++  )
++
+   it('captures stderr separately', async () => {
+     const result = await finish(spawnSubprocess(spec('echo oops >&2')))
+     expect(result.exitCode).toBe(0)
+diff --git a/packages/subprocess/subprocess/src/index.ts b/packages/subprocess/subprocess/src/index.ts
+index a7413159f9..f72def3912 100644
+--- a/packages/subprocess/subprocess/src/index.ts
++++ b/packages/subprocess/subprocess/src/index.ts
+@@ -100,6 +100,9 @@ declare module '@deepseek-ai/cordis' {
+  *   when the top-level process exits.
+  */
+ export abstract class SubprocessRuntime extends Service {
++  /** True only when `spawnDescriptor` makes the descriptor authoritative. */
++  readonly descriptorSpawnSupported: boolean = false
++
+   constructor(ctx: Context) {
+     super(ctx, 'subprocess')
+   }
+@@ -129,6 +129,19 @@ export abstract class SubprocessRuntime extends Service {
+    */
+   abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+ 
++  /**
++   * Start one managed child from an already-open executable descriptor. The
++   * provider must make the descriptor the executable authority; `argv[0]` is
++   * retained only as the child's display identity and argument vector. The
++   * default fails closed so providers cannot silently fall back to the
++   * replaceable pathname.
++   * @param spec - fully specified child process request.
++   * @param executableFd - caller-owned readable executable descriptor retained through spawn.
++   */
++  spawnDescriptor(_spec: SubprocessSpawnSpec, _executableFd: number): SubprocessHandle {
++    throw new Error('subprocess: descriptor-bound execution is unsupported by this provider')
++  }
++
+   /**
+    * Allocate a real terminal and start one owned process session. This is the
+    * only non-pipe process primitive: implementations own terminal byte I/O,

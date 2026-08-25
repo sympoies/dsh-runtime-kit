@@ -272,7 +272,7 @@ export function createNilsContextClient(ctx, config = {}) {
     DEFAULT_MAX_ACTIVE_CONTEXT_REQUESTS,
     MAX_ACTIVE_CONTEXT_REQUESTS,
   )
-  const authenticatedExecution = resolveAuthenticatedNilsExecution(config)
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   // JSON may encode one input byte as a six-byte escape (for example a
   // control character). Bound the worst valid encoding rather than silently
   // rejecting content that was within the advertised document budget.
@@ -374,7 +374,7 @@ export function createNilsContextClient(ctx, config = {}) {
     exec.signal.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
-    /** @type {{signal: AbortSignal, release: () => void} | undefined} */
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
     let executionLease
     try {
       if (exec.signal.aborted) operation.cancel('caller-aborted', exec.signal.reason)
@@ -388,7 +388,7 @@ export function createNilsContextClient(ctx, config = {}) {
           ? isolatedNilsEnvironment(undefined)
           : authenticatedNilsEnvironment(principal.environment)
         const resolvedArgv = await resolveSubprocessArgv(ctx, argv, executionSignal)
-        operation.handle = ctx.subprocess.spawn({
+        operation.handle = executionLease.spawn({
           argv: resolvedArgv,
           cwd,
           stdio: {
