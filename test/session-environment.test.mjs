@@ -6,7 +6,7 @@ import {
   isolatedNilsEnvironment,
 } from '../src/nils/session-environment.js'
 
-test('nils subprocess keeps only the trusted user-runtime route needed by finish-line', () => {
+test('nils subprocess leaves the normal host PATH to the upstream scrubbed environment', () => {
   assert.deepEqual(
     isolatedNilsEnvironment(
       {
@@ -30,7 +30,6 @@ test('nils subprocess keeps only the trusted user-runtime route needed by finish
     {
       XDG_RUNTIME_DIR: '/run/user/1000',
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
-      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       DSH_RUNTIME_KIT_TEST: 'enabled',
       AGENT_SESSION_TOKEN: undefined,
       AGENT_SESSION_OTHER: undefined,
@@ -49,7 +48,7 @@ test('nils subprocess does not project a noncanonical runtime directory or user 
       },
       { uid: 1000, platform: 'linux' },
     ),
-    { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' },
+    {},
   )
 })
 
@@ -70,7 +69,6 @@ test('an authenticated lane bridge restores explicit managed fields while ambien
       { uid: 1000, platform: 'linux' },
     ),
     {
-      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
       UNRELATED_SECRET: 'must-not-cross',
       AGENT_SESSION_ID: 'worker-one',
       AGENT_SESSION_CAPABILITY_FILE: '/private/capability',

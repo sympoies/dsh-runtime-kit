@@ -1,7 +1,6 @@
 // @ts-check
 
 const MANAGED_SESSION_PREFIX = 'AGENT_SESSION_'
-const TRUSTED_SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const HOST_RUNTIME_FIELDS = new Set([
   'DBUS_SESSION_BUS_ADDRESS',
   'HOME',
@@ -22,21 +21,19 @@ function selectExplicitNilsEnvironment(explicit) {
 }
 
 /**
- * Select the small host-runtime boundary required by nils itself. DSH
- * subprocess environments are replacement maps, so omitting these values
- * disconnects Linux agent-hook children from the authenticated user manager.
- * Ambient PATH, HOME, and D-Bus addresses remain untrusted: the path is fixed
- * and the bus address is derived only from the canonical per-UID runtime
- * directory. Every nils user/config/state root is already passed explicitly.
+ * Select the host-runtime values that need an authenticated replacement.
+ * DSH's subprocess service already starts from its credential-scrubbed parent
+ * environment, so PATH and HOME must remain ordinary host values instead of
+ * being replaced here. Only the Linux user bus is reconstructed from its
+ * canonical per-UID runtime directory; explicit caller values cannot override
+ * any of these host-runtime fields.
  *
  * @param {Readonly<NodeJS.ProcessEnv>} environment
  * @param {{uid?: number, platform?: NodeJS.Platform}} runtime
  */
 function selectNilsHostEnvironment(environment, runtime) {
   const uid = runtime.uid
-  const selected = /** @type {NodeJS.ProcessEnv} */ ({
-    PATH: TRUSTED_SYSTEM_PATH,
-  })
+  const selected = /** @type {NodeJS.ProcessEnv} */ ({})
   if (runtime.platform === 'linux'
     && typeof uid === 'number'
     && Number.isSafeInteger(uid)
