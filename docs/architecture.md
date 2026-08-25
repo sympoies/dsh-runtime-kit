@@ -476,11 +476,22 @@ in the local provider. Runtime-kit authenticates private executable copies,
 opens them read-only, unlinks every snapshot pathname before publication, and
 retains only those file descriptions. The provider maps the selected file
 description to child fd 3 and executes the child-owned `/proc/self/fd/3` on
-Linux. Darwin's kernel rejects direct fdesc execution, so the local provider
-starts the trusted system dyld with `/dev/fd/3` as the Mach-O input. `argv[0]`
-remains display identity only. A
-provider without this primitive fails closed, so a replaceable pathname cannot
-silently regain execution authority.
+Linux. Darwin exposes no supported descriptor-only exec primitive, so the
+local provider copies the exact descriptor bytes into a mode-`0500` file under
+a fresh mode-`0700` random directory for each spawn. It caps the executable at
+64 MiB, verifies the source identity, size, timestamps, target metadata, and
+SHA-256 digest, invokes the native spawn call with the requested `argv[0]` as
+display identity, and removes the transient file and directory before
+returning the handle. A provider or platform without this primitive fails
+closed instead of silently falling back to the replaceable runtime snapshot
+pathname.
+
+The Darwin transition is necessarily path-based between verified
+materialization and the kernel's spawn operation. The private random pathname
+removes ordinary worktree and concurrent-agent collisions and has no
+long-lived reuse window, but macOS cannot make that transition atomic against
+a malicious same-UID process. That platform limitation is a documented
+residual risk; Linux remains descriptor-native end to end.
 
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the

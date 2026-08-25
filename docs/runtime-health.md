@@ -50,19 +50,27 @@ Companion commands run only through DSH's subprocess service with an isolated
 environment and bounded output. At activation the provider opens each exact
 release binary without following a final symlink, authenticates the bytes and
 filesystem ownership, and copies those authenticated bytes into a private
-read-only executable snapshot. Every runtime-kit consumer receives those same
-snapshot paths, so replacing the ambient source after activation cannot change
-the executed artifact. The snapshot directory remains bound to its opened inode
-through `/proc/<pid>/fd/<fd>` on Linux and `/dev/fd/<fd>` on macOS; unsupported
-platforms fail closed. A platform-specific release archive and the individual
-`agent-hook` and `agent-docs` digests must be recorded in the compatibility
-manifest before that platform can activate. Health, policy, context,
-finish-line, and workspace-lease transports each hold a package-owned execution
-scope; a descriptor path without that owner is rejected. The scope covers
-resolution, spawn, response authentication, process-tree quiescence, and any
-finish-line cleanup command. During parallel HMR teardown, existing scopes may
-finish their cleanup but cannot survive transport disposal, and the snapshot
-descriptor cannot close until every scope has settled.
+read-only executable snapshot. The provider opens each snapshot, unlinks both
+file names, removes the random directory, and publishes only the authenticated
+open file descriptions. Every runtime-kit consumer receives a package-owned
+execution scope that resolves a display name to the matching retained
+descriptor, so replacing the ambient source or retired snapshot pathname
+cannot change the selected bytes.
+
+DSH's local subprocess provider executes the inherited descriptor directly
+through `/proc/self/fd/3` on Linux. On macOS it copies and verifies the exact
+descriptor bytes into a fresh private per-spawn executable because Darwin has
+no supported descriptor-only exec primitive, then removes that path before the
+subprocess handle is returned. Unsupported providers and platforms fail
+closed. A platform-specific release archive and the individual `agent-hook`
+and `agent-docs` digests must be recorded in the compatibility manifest before
+that platform can activate. Health, policy, context, finish-line, and
+workspace-lease transports each hold the package-owned scope; a naked
+descriptor projection or retired snapshot path without that owner is rejected.
+The scope covers resolution, spawn, response authentication, process-tree
+quiescence, and any finish-line cleanup command. During parallel HMR teardown,
+existing scopes may finish their cleanup but cannot survive transport disposal,
+and each snapshot descriptor remains open until every scope has settled.
 
 Completion is not accepted until the process tree is observed quiescent. A
 false or late quiescence observation triggers termination and an authoritative
