@@ -120,6 +120,11 @@ const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed
 const agentDocsHome = join(runtimeRoot, 'agent-docs')
 const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
 const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
+const agentConsoleProfileWorkspace = join(
+  projectRoot,
+  'compatibility',
+  'agent-console-pnpm-workspace.yaml',
+)
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
@@ -412,6 +417,56 @@ function runDsh(args, options = {}) {
   return result
 }
 
+function runAgentConsoleTuiStartupSmoke() {
+  if (process.platform !== 'linux') return false
+  const launcher = join(temporaryRoot, 'dsh-tui-startup-smoke.mjs')
+  writeFileSync(launcher, `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
+
+const result = spawnSync('timeout', [
+  '--foreground',
+  '--signal=TERM',
+  '--kill-after=2s',
+  '8s',
+  process.execPath,
+  ${JSON.stringify(ownerLauncher)},
+  '--runtime-root',
+  ${JSON.stringify(runtimeRoot)},
+  '--',
+  ${JSON.stringify(pnpmBin)},
+  'dsh',
+  '--profile',
+  ${JSON.stringify(profile)},
+], { stdio: 'inherit' })
+
+process.exit(result.status ?? 125)
+`, { mode: 0o700 })
+  const result = spawnSync('script', ['-qefc', launcher, '/dev/null'], {
+    cwd: dshRoot,
+    env: { ...environment, TERM: 'xterm-256color' },
+    encoding: 'utf8',
+    timeout: 15_000,
+  })
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  const bytes = Buffer.byteLength(output)
+  const sha256 = createHash('sha256').update(output).digest('hex')
+  assert.equal(
+    result.status,
+    124,
+    `enabled dsh-tui did not stay live for the bounded PTY window (status=${result.status}, bytes=${bytes}, sha256=${sha256})`,
+  )
+  assert.ok(
+    bytes > 0,
+    `enabled dsh-tui emitted no PTY readiness output (sha256=${sha256})`,
+  )
+  assert.equal(
+    /(?:ERR_MODULE_NOT_FOUND|Cannot find module|SyntaxError)/u.test(output),
+    false,
+    `enabled dsh-tui reported a startup/import failure (bytes=${bytes}, sha256=${sha256})`,
+  )
+  return true
+}
+
 function collectFiles(directory, prefix = '') {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
@@ -672,17 +727,23 @@ description = "packed ${dshManifest.version} finish-line smoke"
     assert.equal(extracted.status, 0, `could not inspect packed ${relative}`)
     assert.doesNotMatch(extracted.stdout, privateIdentityPattern)
   }
+  const profileDirectory = join(dshHome, 'profiles', profile)
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
-      '@deepseek-harness-tui/dsh-tui@0.9.0',
+      '@deepseek-harness-tui/dsh-tui@0.9.2',
       'the Agent Console smoke accepts only the authenticated TUI release',
+    )
+    mkdirSync(profileDirectory, { recursive: true, mode: 0o700 })
+    writeFileSync(
+      join(profileDirectory, 'pnpm-workspace.yaml'),
+      readFileSync(agentConsoleProfileWorkspace, 'utf8'),
+      { mode: 0o600 },
     )
     runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
 
-  const profileDirectory = join(dshHome, 'profiles', profile)
   const installedProfileManifest = JSON.parse(
     readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
   )
@@ -693,7 +754,20 @@ description = "packed ${dshManifest.version} finish-line smoke"
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
   let installedTuiVersion
+  let agentConsoleTuiStartupVerified = false
   if (agentConsoleTuiPackage !== undefined) {
+    const profileWorkspace = parseYaml(readFileSync(
+      join(profileDirectory, 'pnpm-workspace.yaml'),
+      'utf8',
+    ))
+    assert.equal(profileWorkspace.nodeLinker, 'hoisted')
+    assert.equal(profileWorkspace.autoInstallPeers, false)
+    assert.deepEqual(profileWorkspace.allowBuilds, {
+      '@google/genai': false,
+      esbuild: false,
+      koffi: false,
+      protobufjs: false,
+    })
     assert.deepEqual(installedBundles, [
       '@deepseek-ai/dsh-base',
       '@deepseek-harness-tui/dsh-tui',
@@ -707,10 +781,11 @@ description = "packed ${dshManifest.version} finish-line smoke"
       'package.json',
     ), 'utf8'))
     installedTuiVersion = installedTuiManifest.version
-    assert.equal(installedTuiVersion, '0.9.0')
+    assert.equal(installedTuiVersion, '0.9.2')
     assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
     assert.match(dump, /id: dsh-tui/)
     assert.match(dump, /id: user-questions/)
+    agentConsoleTuiStartupVerified = runAgentConsoleTuiStartupSmoke()
   }
   assert.doesNotMatch(dump, /agent-runtime-kit/u)
   assert.doesNotMatch(dump, /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i)
@@ -2103,6 +2178,7 @@ ${agentConsoleTuiOverlay}
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined
       ? false
       : receipt.agentConsoleInspection.compatible,
+    agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false
       : receipt.agentConsoleObservation.composition.controllerTools

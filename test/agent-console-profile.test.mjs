@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 
 import * as runtimeKit from '../index.js'
+
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const CONTROLLER_TOOLS = [
   'runtime_kit_plus_one',
@@ -37,7 +43,7 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.9.0',
+    version: '0.9.2',
   },
   bundles: [
     '@deepseek-ai/dsh-base',
@@ -136,7 +142,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.1-rc.2',
-    tui_version: '0.9.0',
+    tui_version: '0.9.2',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -152,6 +158,25 @@ test('the package pins the complete latest Agent Console composition contract', 
       sandbox_mode: 'workspace-write',
       approval_policy: 'ask',
       credentials: 'environment-reference-only',
+    },
+  })
+})
+
+test('the Agent Console install contract preserves DSH profile settings and disables unneeded TUI builds', () => {
+  const workspace = parseYaml(readFileSync(join(
+    projectRoot,
+    'compatibility',
+    'agent-console-pnpm-workspace.yaml',
+  ), 'utf8'))
+  assert.deepEqual(workspace, {
+    packages: ['.'],
+    nodeLinker: 'hoisted',
+    autoInstallPeers: false,
+    allowBuilds: {
+      '@google/genai': false,
+      esbuild: false,
+      koffi: false,
+      protobufjs: false,
     },
   })
 })
