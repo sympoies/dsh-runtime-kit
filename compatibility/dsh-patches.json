@@ -4,7 +4,7 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "66dc9dac36b02494cc6e0f9ec0682c5420d632150490c50651fe5f1663f2c0ad",
+      "sha256": "8cf87b22f3adbd5fb24211e941223e69f29b961cc51a9c6b4f882c8bcd0f1141",
       "targets": {
         "packages/subprocess/subprocess/src/index.ts": {
           "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
@@ -16,21 +16,21 @@
         },
         "packages/subprocess/subprocess-local/src/spawn.ts": {
           "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
-          "after_sha256": "f6916c9247538dfdeae3d23ce80e13a74c31414e60e757143e77f3647191a70f"
+          "after_sha256": "dd152585671fdf5f0c0e36bddab0e54d3a828ca01df6abba1fdcfebb7b87b288"
         },
         "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
-              "after_sha256": "22a871a3772eb5391387e7c43587097dfa9b4cb4f78ab5d8965cc71c0773eb57"
+              "after_sha256": "294b884b0706097186bddb81e5f4a6704b818a923e1f3cc4772ecdb6fc68c9fb"
             },
             "0.1.0-rc.8": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "5e0f24c0f217522df45d197f2c8cd0afa339b8c3b9006c7d0c432474aac1a7de"
+              "after_sha256": "db7f4ba0603f63ebadf2fc7d661e5cb6b341b478ea1d88fa10aeff7e118a3ee7"
             },
             "0.1.1-rc.2": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "5e0f24c0f217522df45d197f2c8cd0afa339b8c3b9006c7d0c432474aac1a7de"
+              "after_sha256": "db7f4ba0603f63ebadf2fc7d661e5cb6b341b478ea1d88fa10aeff7e118a3ee7"
             }
           }
         },

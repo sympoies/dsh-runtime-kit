@@ -81,7 +81,7 @@ for a private mode-`0500` per-spawn materialization, checks post-spawn
 self-resolution through descendant exit, root/current-UID temp-parent ownership
 and writable-mode validation, immediate
 pre-spawn identity validation, process-tree-bound identity cleanup, and
-preserved cleanup failures, the 64 MiB executable
+preserved cleanup failures, the 256 MiB executable
 ceiling, and stable source/target identity, runs the
 native tools/LLM boundary tests and packed smoke, then reverses the patch and
 authenticates the pristine DSH checkout. Direct fdesc execution,

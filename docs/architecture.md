@@ -487,7 +487,7 @@ pathname cleanup.
 Darwin exposes no supported descriptor-only exec primitive, so its declared
 `verified-transient` local provider copies the exact descriptor bytes into a
 mode-`0500` file under a fresh mode-`0700` random directory for each spawn. It
-caps the executable at 64 MiB, verifies the source identity, size, timestamps,
+caps the executable at 256 MiB, verifies the source identity, size, timestamps,
 target metadata, and SHA-256 digest, invokes the native spawn call with the
 requested `argv[0]` as display identity, requires every temp-parent ancestor to
 be owned by root or the current UID, rejects an untrusted writable chain, and

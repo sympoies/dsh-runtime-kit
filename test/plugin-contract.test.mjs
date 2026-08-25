@@ -34,6 +34,21 @@ const dshRuntime = Object.freeze({
   validateEscalationArgs,
 })
 
+async function waitForAbort(signal, timeoutMs = 1_000) {
+  if (signal.aborted) return
+  await new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      reject(new Error(`signal did not abort within ${timeoutMs}ms`))
+    }, timeoutMs)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
   const principal = mode => ({
     environment: { AGENT_SESSION_COORDINATION_MODE: mode },
@@ -2461,7 +2476,8 @@ test('a stalled policy subprocess is terminated and fails closed on deadline', a
   })
   const started = Date.now()
   const invocation = subject.invoke({ value: 41 })
-  await new Promise(resolve => setTimeout(resolve, 30))
+  await new Promise(resolve => setImmediate(resolve))
+  await waitForAbort(subject.signal)
   subject.release(0, { exitCode: null, signal: 'SIGTERM' })
   let settled = false
   void invocation.then(() => { settled = true })
@@ -2811,7 +2827,8 @@ test('the first cancellation cause remains authoritative while quiescence is pen
     { value: 41 },
     { signal: timeoutController.signal },
   )
-  await new Promise(resolve => setTimeout(resolve, 20))
+  await new Promise(resolve => setImmediate(resolve))
+  await waitForAbort(timeoutFirst.signal)
   timeoutController.abort(new Error('caller second'))
   timeoutFirst.release(0, { exitCode: null, signal: 'SIGTERM' })
   assert.match((await timeoutInvocation).result.reason, /policy-timeout/)

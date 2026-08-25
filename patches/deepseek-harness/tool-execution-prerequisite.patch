@@ -1838,7 +1838,7 @@ index 433ba01791..431145e7f6 100644
  }
  
 +type SpawnProcess = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess
-+const MAX_DESCRIPTOR_EXECUTABLE_BYTES = 64 * 1024 * 1024
++const MAX_DESCRIPTOR_EXECUTABLE_BYTES = 256 * 1024 * 1024
 +
  /**
   * Local-only synchronous final termination used by the owning service during
@@ -2132,15 +2132,16 @@ index 1f21dfaaa1..fbb98ae3a1 100644
 @@ -1,4 +1,5 @@
 -import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 +import { spawn as spawnChild } from 'node:child_process'
-+import { chmodSync, closeSync, existsSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
++import { chmodSync, closeSync, existsSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
  import { describe, expect, it, vi } from 'vitest'
-@@ -58,14 +59,34 @@
+@@ -58,14 +59,35 @@
 -const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
-+const { failNextClose, failNextUnlink, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
++const { failNextClose, failNextUnlink, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
    failNextClose: { value: false },
    failNextUnlink: { value: false },
++  failUnlinkPath: { value: undefined as string | undefined },
 +  foreignOwnerPath: { value: undefined as string | undefined },
 +  replaceTransientOnClose: { parent: undefined as string | undefined, path: undefined as string | undefined },
  }))
@@ -2172,7 +2173,18 @@ index 1f21dfaaa1..fbb98ae3a1 100644
          throw Object.assign(new Error('simulated EIO on close'), { code: 'EIO' })
        }
        actual.closeSync(fd)
-@@ -179,6 +200,260 @@ describe('spawnSubprocess', () => {
+@@ -73,6 +95,10 @@ vi.mock('node:fs', async (importOriginal) => {
+     unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]): void {
++      if (String(path) === failUnlinkPath.value) {
++        failUnlinkPath.value = undefined
++        throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
++      }
+       if (failNextUnlink.value) {
+         failNextUnlink.value = false
+         throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
+       }
+       actual.unlinkSync(path)
+@@ -179,6 +205,261 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
@@ -2331,7 +2343,7 @@ index 1f21dfaaa1..fbb98ae3a1 100644
 +      const executableFd = openSync('/bin/bash', 'r')
 +      const descriptorExecDir = mkdtempSync(join(tmpdir(), 'dsh-descriptor-foreign-owner-spec-'))
 +      chmodSync(descriptorExecDir, 0o755)
-+      foreignOwnerPath.value = descriptorExecDir
++      foreignOwnerPath.value = realpathSync(descriptorExecDir)
 +      try {
 +        expect(() => spawnSubprocess(spec('true'), {
 +          platform: 'darwin',
@@ -2384,24 +2396,25 @@ index 1f21dfaaa1..fbb98ae3a1 100644
 +      const descriptorExecDir = mkdtempSync(join(tmpdir(), 'dsh-descriptor-cleanup-spec-'))
 +      const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {})
 +      let materializedPath: string | undefined
-+      failNextUnlink.value = true
 +      try {
 +        const handle = spawnSubprocess(spec('true'), {
 +          platform: 'darwin',
 +          descriptorExecDir,
 +          spawnProcess(program, args, options) {
 +            materializedPath = program
++            failUnlinkPath.value = program
 +            return spawnChild(program, args, options)
 +          },
 +        }, executableFd)
 +        const result = await finish(handle)
 +        expect(await handle.waitForExit()).toBe(true)
 +        expect(result.exitCode).toBe(0)
-+        expect(failNextUnlink.value).toBe(false)
++        expect(failUnlinkPath.value).toBeUndefined()
 +        expect(materializedPath).toBeDefined()
 +        expect(readFileSync(materializedPath!)).toEqual(readFileSync('/bin/bash'))
 +        expect(warning).toHaveBeenCalled()
 +      } finally {
++        failUnlinkPath.value = undefined
 +        warning.mockRestore()
 +        closeSync(executableFd)
 +        if (materializedPath !== undefined && existsSync(materializedPath)) {
@@ -2419,9 +2432,9 @@ index 1f21dfaaa1..fbb98ae3a1 100644
 +      const oversized = join(mkdtempSync(join(tmpdir(), 'dsh-descriptor-oversize-spec-')), 'oversized')
 +      const executableFd = openSync(oversized, 'w+')
 +      try {
-+        ftruncateSync(executableFd, 64 * 1024 * 1024 + 1)
++        ftruncateSync(executableFd, 256 * 1024 * 1024 + 1)
 +        expect(() => spawnSubprocess(spec('true'), { platform: 'darwin' }, executableFd))
-+          .toThrow('no larger than 67108864 bytes')
++          .toThrow('no larger than 268435456 bytes')
 +      } finally {
 +        closeSync(executableFd)
 +        unlinkSync(oversized)
