@@ -1779,7 +1779,7 @@ index 261f614fba..1fa801a509 100644
 +    return this.own(spawnSubprocess(spec, this.internals))
 +  }
 +
-+  spawnDescriptor(spec: SubprocessSpawnSpec, executableFd: number): SubprocessHandle {
++  override spawnDescriptor(spec: SubprocessSpawnSpec, executableFd: number): SubprocessHandle {
 +    return this.own(spawnSubprocess(spec, this.internals, executableFd))
 +  }
 +

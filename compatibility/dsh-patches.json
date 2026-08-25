@@ -4,7 +4,7 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "61f8ac5b54049ff753236f701f82e3a697efe74a1fe96a1a594f28ee4d653e76",
+      "sha256": "92d0b11e97a91343328a6d14d73bfa07cd432d96df67436db12294c16c663196",
       "targets": {
         "packages/subprocess/subprocess/src/index.ts": {
           "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
@@ -12,7 +12,7 @@
         },
         "packages/subprocess/subprocess-local/src/index.ts": {
           "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
-          "after_sha256": "78584216bb891e9fe0e81f44d552ce91ef204f5e4f6610ea25f118071dc45e4d"
+          "after_sha256": "c7a33db5b6f5786c12b2b18311a17b67d163f54e525ed263b55198a048887e17"
         },
         "packages/subprocess/subprocess-local/src/spawn.ts": {
           "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
