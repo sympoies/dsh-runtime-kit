@@ -1610,6 +1610,11 @@ ${agentConsoleTuiOverlay}
   )
   assert.notEqual(blockedHealthBoot.status, 0, 'unauthenticated health companion must block DSH boot')
   const blockedHealthOutput = `${blockedHealthBoot.stdout}\n${blockedHealthBoot.stderr}`
+  assert.match(
+    blockedHealthOutput,
+    /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u,
+    'blocked runtime health must report the exact companion identity denial',
+  )
   assert.equal(
     blockedHealthOutput.includes(marker),
     false,
@@ -1697,7 +1702,7 @@ ${agentConsoleTuiOverlay}
       gitBin: '/usr/bin/git',
     })
     assert.deepEqual(finalDshCheckout, initialDshCheckout)
-    process.stdout.write(JSON.stringify({
+    const healthReceipt = {
       schema_version: 'dsh-runtime-kit.runtime-health-smoke.v1',
       ok: true,
       dshVersion: dshManifest.version,
@@ -1705,9 +1710,12 @@ ${agentConsoleTuiOverlay}
       tool: 'runtime_kit_plus_one',
       input: 41,
       output: projectHealthRecoveredReceipt.result.value,
-      unauthenticatedCompanionBlockedBeforeModel: !blockedHealthOutput.includes(marker),
+      unauthenticatedCompanionBlockedBeforeModel:
+        blockedHealthOutput.includes('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+        && !blockedHealthOutput.includes(marker),
       projectHealthBlockedBeforeModel:
         projectHealthBlockedReceipt.adapterSessionCalls === 0
+        && projectHealthBlockedReceipt.adapterParentCalls === 0
         && projectHealthBlockedReceipt.modelMiddlewareCalls === 0,
       sameSessionRecovery:
         projectHealthRecoveredReceipt.result.value === 42
@@ -1718,7 +1726,22 @@ ${agentConsoleTuiOverlay}
       ].every(candidate => candidate.healthContextVisibility.every(value => value === false)
         && candidate.healthAuditSentinelVisibility.every(value => value === false)),
       patchState: finalDshCheckout.after,
-    }) + '\n')
+    }
+    assert.deepEqual(healthReceipt, {
+      schema_version: 'dsh-runtime-kit.runtime-health-smoke.v1',
+      ok: true,
+      dshVersion: dshManifest.version,
+      dshProfile: profile,
+      tool: 'runtime_kit_plus_one',
+      input: 41,
+      output: 42,
+      unauthenticatedCompanionBlockedBeforeModel: true,
+      projectHealthBlockedBeforeModel: true,
+      sameSessionRecovery: true,
+      healthContextAbsent: true,
+      patchState: 'patched',
+    })
+    process.stdout.write(JSON.stringify(healthReceipt) + '\n')
   } else {
     resetCheckoutLease()
 
