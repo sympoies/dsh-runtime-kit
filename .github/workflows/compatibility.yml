@@ -33,15 +33,37 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.10-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
-          echo "1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.10/nils-cli-v1.27.10-x86_64-unknown-linux-gnu.tar.gz"
+          echo "99769e39f2267a64885435ae81350df69bcdb78230659c17ff6d95459cb6ef2f  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
+      - name: Provision systemd user scope for released Git trust smoke
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          uid="$(id -u)"
+          sudo loginctl enable-linger "${USER}"
+          sudo systemctl start "user@${uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus" >> "$GITHUB_ENV"
+          test -S "/run/user/${uid}/systemd/private"
+      - name: Prove released scope lock trusts contained system Git
+        run: |
+          probe="$RUNNER_TEMP/nils-cli-private-users-git"
+          install -d -m 0700 "$probe"
+          git -C "$probe" init --quiet
+          systemd-run --user --wait --pipe --collect \
+            --property=PrivateUsers=yes \
+            --working-directory="$probe" \
+            "$RUNNER_TEMP/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-scope-lock" \
+            create --path . --owner compatibility-private-users-git --format json
+          test -f "$probe/.git/agent-scope-lock.json"
 
   upstream:
     runs-on: ubuntu-latest
@@ -152,27 +174,27 @@ jobs:
           pnpm run build:lib
       - name: Download authenticated nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.10-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
-          echo "1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.10/nils-cli-v1.27.10-x86_64-unknown-linux-gnu.tar.gz"
+          echo "99769e39f2267a64885435ae81350df69bcdb78230659c17ff6d95459cb6ef2f  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime smoke on the patched DSH boundary
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-docs
         run: npm run test:smoke
       - name: Run exact Agent Console TUI composition smoke
         if: matrix.channel == 'pinned'
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.9.2'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
@@ -255,19 +277,19 @@ jobs:
           pnpm run build:lib
       - name: Download authenticated macOS nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.9-aarch64-apple-darwin.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.10-aarch64-apple-darwin.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-aarch64-apple-darwin.tar.gz"
-          echo "7268ab12592e7e49bf696687070b75b0abd2c779ec73f4991566b47b0a48a76d  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.10/nils-cli-v1.27.10-aarch64-apple-darwin.tar.gz"
+          echo "eb0608772760241c65692299e086bb12d1a67e1fe84969009989cae41b996472  $archive" \
             | shasum -a 256 --check
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime-health smoke on macOS
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-aarch64-apple-darwin/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-aarch64-apple-darwin/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-aarch64-apple-darwin/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.10-aarch64-apple-darwin/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
