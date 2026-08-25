@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { createRuntimeContextTool } from '../src/context/index.js'
 import { createNilsContextClient } from '../src/context/nils-context.js'
+import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 function execution(overrides = {}) {
@@ -179,6 +180,43 @@ test('the context deadline covers executable resolution before spawn', async () 
   await assert.rejects(client.prepare(execution(), 'project-dev'), /runtime-context-timeout/)
   assert.equal(subject.specs.length, 0)
   assert.equal(client.active, 0)
+})
+
+test('context holds its authenticated descriptor lease across delayed resolution and HMR disposal', async () => {
+  const subject = contextTransportHarness({ resolutionPending: true })
+  let cleaned = false
+  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocs: 'agent-docs',
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+    authenticatedNilsExecution: owner,
+  })
+  const pending = client.prepare(execution(), 'project-dev')
+  const rejected = assert.rejects(pending, /runtime-context-(?:disposed|unavailable)/)
+  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
+  await Promise.all([owner.dispose(), subject.dispose()])
+  await rejected
+  assert.equal(subject.specs.length, 0)
+  assert.equal(cleaned, true)
+})
+
+test('context rejects a naked descriptor or retired snapshot path without its execution owner', () => {
+  const subject = contextTransportHarness()
+  for (const agentDocs of [
+    '/proc/123/fd/9/agent-docs',
+    '/dev/fd/9/agent-docs',
+    '/tmp/dsh-runtime-health-executables-ABC123/agent-docs',
+  ]) {
+    assert.throws(
+      () => createNilsContextClient(subject.ctx, {
+        agentDocs,
+        agentDocsHome: '/runtime/policies',
+        agentDocsStateHome: '/runtime/state',
+      }),
+      /authenticated nils executable requires an execution owner/,
+    )
+  }
 })
 
 test('runtime_context returns one sanitized bounded intent result on demand', async () => {

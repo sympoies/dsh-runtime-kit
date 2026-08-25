@@ -128,6 +128,19 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh --profile headless "run the requested task"
 ```
 
+The management-plane doctor and the in-process native health service are
+separate gates. Doctor validates the installed runtime before launch. During
+bundle activation, native `runtime-core` health authenticates the exact
+`agent-hook` and `agent-docs` artifacts into private executable snapshots that
+all runtime-kit consumers share. Before every session-associated model stream
+enters DSH's `llm/stream` waterfall, `project-docs` audits that session's
+canonical cwd through the same authenticated snapshot. A failure blocks before
+middleware, cache, routing, the provider request, or a dependent tool body
+and never adds diagnostic text to the prompt. Optional Main Agent and
+specialist-review health may be degraded while independent runtime-kit tools
+continue to operate. The complete state and recovery contract is in
+[Native runtime health](runtime-health.md).
+
 For Agent Console, run doctor with `--profile dsh-tui`, inspect the composed
 tree with `dsh --profile dsh-tui --dump-config`, then invoke `dsh-tui` through
 the same launcher. The composed evidence must satisfy
@@ -232,6 +245,10 @@ them individually:
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
 the released and validated v1.27.9 executables for every supported DSH row.
+An older or any other unreviewed replacement is intentionally rejected.
+Restore the exact recorded release and restart DSH, or promote the new release
+through the full compatibility matrix; do not work around the health gate from
+an agent shell.
 Missing or non-absolute isolation paths fail
 plugin activation; ambient XDG, Codex, and Claude Code paths are not fallbacks.
 

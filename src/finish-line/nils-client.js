@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
 import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-execution.js'
 import {
   authenticatedNilsEnvironment,
   isolatedNilsEnvironment,
@@ -308,6 +309,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     HARD_TEARDOWN_TIMEOUT_MS,
   )
   const maxActive = positiveInteger(config.maxActiveFinishLineRequests, DEFAULT_MAX_ACTIVE, HARD_MAX_ACTIVE)
+  const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   const managedSessionBridge = config.managedSessionBridge
   /** @type {Set<ActiveRequest>} */
   const active = new Set()
@@ -369,6 +371,8 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       runner_capability: request.runner_capability,
     })
     let handle
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
+    let executionLease
     try {
       const explicitEnvironment = {
         ...childEnvironment,
@@ -377,12 +381,13 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       const environment = principal === undefined
         ? isolatedNilsEnvironment(childEnvironment)
         : authenticatedNilsEnvironment(explicitEnvironment)
+      executionLease = authenticatedExecution.acquire(AbortSignal.timeout(teardownTimeoutMs))
       const argv = await resolveSubprocessArgv(
         ctx,
         agentHook.argv(['finish-line', 'quiesce', '--format', 'json']),
-        AbortSignal.timeout(teardownTimeoutMs),
+        executionLease.signal,
       )
-      handle = ctx.subprocess.spawn({
+      handle = executionLease.spawn({
         argv,
         cwd: /** @type {string} */ (request.cwd),
         stdio: {
@@ -391,9 +396,11 @@ export function createNilsFinishLineClient(ctx, config = {}) {
           stderr: { maxBytes: MAX_ERROR_BYTES },
         },
         graceMs: 1_000,
+        signal: executionLease.signal,
         env: environment,
       })
     } catch {
+      executionLease?.release()
       return false
     }
     /** @type {ReturnType<typeof setTimeout> | undefined} */
@@ -431,6 +438,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         && data.operation_id === request.operation_id
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      executionLease?.release()
     }
   }
 
@@ -502,12 +510,16 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
     /** @type {ReturnType<typeof setTimeout> | undefined} */
     let timer
+    /** @type {{signal: AbortSignal, release: () => void, spawn: (spec: Record<string, unknown>) => SubprocessHandle} | undefined} */
+    let executionLease
     try {
       if (callerSignal?.aborted) cancel(operation, 'caller')
       if (!open || (!accepting && action !== 'release')) cancel(operation, 'disposed')
       if (operation.cause !== undefined) throw new Error('dsh-runtime-kit: finish-line request cancelled')
       timer = setTimeout(() => cancel(operation, 'timeout'), requestTimeoutMs)
       try {
+        executionLease = authenticatedExecution.acquire(operation.controller.signal)
+        const executionSignal = executionLease.signal
         const explicitEnvironment = {
           ...childEnvironment,
           ...principal?.environment,
@@ -518,9 +530,9 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         const argv = await resolveSubprocessArgv(
           ctx,
           agentHook.argv(['finish-line', action, '--format', 'json']),
-          operation.controller.signal,
+          executionSignal,
         )
-        operation.handle = ctx.subprocess.spawn({
+        operation.handle = executionLease.spawn({
           argv,
           cwd: /** @type {string} */ (request.cwd),
           stdio: {
@@ -529,7 +541,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
             stderr: { maxBytes: MAX_ERROR_BYTES },
           },
           graceMs: 1_000,
-          signal: operation.controller.signal,
+          signal: executionSignal,
           env: environment,
         })
       } catch {
@@ -559,6 +571,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       }
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      executionLease?.release()
       callerSignal?.removeEventListener('abort', onCallerAbort)
       active.delete(operation)
       operation.resolveSettled()
@@ -605,10 +618,14 @@ export function createNilsFinishLineClient(ctx, config = {}) {
   }
 
   async function dispose() {
-    await drain()
-    open = false
-    openRetryTokens.clear()
-    beginRetryTokens.clear()
+    try {
+      await drain()
+      open = false
+      openRetryTokens.clear()
+      beginRetryTokens.clear()
+    } finally {
+      await authenticatedExecution.dispose()
+    }
   }
 
   ctx.effect(() => dispose, 'dsh-runtime-kit nils finish-line client')

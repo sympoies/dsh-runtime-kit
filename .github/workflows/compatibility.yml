@@ -96,8 +96,12 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm run build:lib
-          sha256sum packages/core/tools/lib/index.js > "$RUNNER_TEMP/pristine-tools-build.sha256"
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
+            "$GITHUB_WORKSPACE/deepseek-harness" \
+            > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
       - name: Install runtime-kit dependencies
         working-directory: dsh-runtime-kit
         run: npm ci --ignore-scripts --omit=peer
@@ -141,7 +145,10 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm run typecheck
-          pnpm vitest run packages/core/tools/tests/tools.spec.ts
+          pnpm vitest run \
+            packages/core/tools/tests/tools.spec.ts \
+            packages/llm/llm/tests/service.spec.ts \
+            packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib
       - name: Download authenticated nils-cli acceptance binaries
         run: |
@@ -179,9 +186,110 @@ jobs:
         if: always()
         working-directory: deepseek-harness
         run: |
+          pnpm run clean
           pnpm run build:lib:host
-          sha256sum --check "$RUNNER_TEMP/pristine-tools-build.sha256"
+          pnpm dsh --help >/dev/null
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
+            "$GITHUB_WORKSPACE/deepseek-harness" \
+            > "$RUNNER_TEMP/restored-dsh-build-closure.json"
+          cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
+            "$RUNNER_TEMP/restored-dsh-build-closure.json"
       - name: Assert upstream checkout returned to pristine state
+        if: always()
+        working-directory: deepseek-harness
+        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+  macos-runtime-health:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: dsh-runtime-kit
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+          path: deepseek-harness
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: deepseek-harness/pnpm-lock.yaml
+      - name: Build pristine DSH on macOS
+        working-directory: deepseek-harness
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run clean
+          pnpm run build:lib:host
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
+            "$GITHUB_WORKSPACE/deepseek-harness" \
+            > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
+      - name: Install runtime-kit dependencies
+        working-directory: dsh-runtime-kit
+        run: |
+          npm ci --ignore-scripts --omit=peer
+          mkdir -p node_modules/@deepseek-ai
+          ln -s "$GITHUB_WORKSPACE/deepseek-harness/vendor/cordis" \
+            node_modules/@deepseek-ai/cordis
+      - name: Apply authenticated DSH execution-boundary patch
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent dsh-patch --
+          --action apply
+          --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Validate Darwin descriptor binding and patched DSH boundary
+        run: |
+          cd dsh-runtime-kit
+          node --test test/runtime-health-provider.test.mjs
+          cd ../deepseek-harness
+          pnpm vitest run \
+            packages/core/tools/tests/tools.spec.ts \
+            packages/llm/llm/tests/service.spec.ts \
+            packages/subprocess/subprocess-local/tests/spawn.spec.ts
+          pnpm run build:lib
+      - name: Download authenticated macOS nils-cli acceptance binaries
+        run: |
+          archive="$RUNNER_TEMP/nils-cli-v1.27.9-aarch64-apple-darwin.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-aarch64-apple-darwin.tar.gz"
+          echo "7268ab12592e7e49bf696687070b75b0abd2c779ec73f4991566b47b0a48a76d  $archive" \
+            | shasum -a 256 --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+      - name: Run packed runtime-health smoke on macOS
+        working-directory: dsh-runtime-kit
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-aarch64-apple-darwin/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-aarch64-apple-darwin/bin/agent-docs
+          DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'
+        run: npm run test:smoke
+      - name: Reverse authenticated DSH patch
+        if: always()
+        working-directory: dsh-runtime-kit
+        run: >-
+          npm run --silent dsh-patch --
+          --action reverse
+          --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Rebuild and authenticate unpatched DSH runtime
+        if: always()
+        working-directory: deepseek-harness
+        run: |
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
+            "$GITHUB_WORKSPACE/deepseek-harness" \
+            > "$RUNNER_TEMP/restored-dsh-build-closure.json"
+          cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
+            "$RUNNER_TEMP/restored-dsh-build-closure.json"
+      - name: Assert macOS DSH checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
         run: test -z "$(git status --porcelain=v1 --untracked-files=all)"

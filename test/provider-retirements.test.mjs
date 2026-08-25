@@ -91,6 +91,8 @@ test('the shipped DSH runtime has no Claude provider or automatic Claude coautho
     ).href)
     assert.deepEqual(runtime.inject, [
       'agents',
+      'invariants',
+      'llm',
       'sessions',
       'shell',
       'shellEnv',
@@ -98,7 +100,7 @@ test('the shipped DSH runtime has no Claude provider or automatic Claude coautho
       'subprocess',
       'tools',
     ])
-    assert.equal(runtime.inject.includes('llm'), false)
+    assert.equal(runtime.inject.includes('llm'), true)
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }

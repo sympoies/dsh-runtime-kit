@@ -24,6 +24,9 @@ tools, sandbox, approvals, skills, and subagents.
   available without injecting a documentation corpus into every prompt.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
+- Model-hidden native runtime health for exact DSH/nils identity, project
+  catalog readiness, and optional child capabilities. Failed dependencies are
+  rejected at DSH admission boundaries instead of becoming prompt context.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
@@ -52,7 +55,10 @@ candidates after rc.2 or the eventual stable `0.1.x` line. See the
 contract and promotion checks.
 
 Every supported DSH checkout must carry the authenticated
-`tool-execution-prerequisite-v1` patch before runtime-kit is activated. The
+`tool-execution-prerequisite-v1` patch before runtime-kit is activated. It adds
+the exact tool-prerequisite transaction boundary and the native pre-waterfall
+model guard, plus fail-closed descriptor-bound subprocess execution for
+authenticated companion snapshots; it does not copy or fork DSH. The
 packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 
@@ -179,6 +185,7 @@ for its ownership model and current limitations.
 - [Documentation index](docs/README.md)
 - [Operations](docs/operations.md)
 - [Architecture and runtime contract](docs/architecture.md)
+- [Native runtime health](docs/runtime-health.md)
 - [Workspace identity and leases](docs/workspace-leases.md)
 - [Compatibility](docs/compatibility.md)
 - [Private and project skills](docs/private-skills.md)

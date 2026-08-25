@@ -1,7 +1,9 @@
 # Architecture
 
-`dsh-runtime-kit` is an out-of-tree DSH bundle. It composes only through public
-Cordis and DSH service APIs and never patches or vendors the harness.
+`dsh-runtime-kit` is an out-of-tree DSH bundle. It does not fork or vendor the
+harness. Runtime integration uses public Cordis and DSH service APIs; the
+execution-ordering gaps are carried in one authenticated, version-scoped
+downstream patch documented by the compatibility contract.
 
 ## Responsibility split
 
@@ -22,6 +24,19 @@ cross-process leases and fencing. The exported contract is documented in
 activates that service and its strict nils provider before registering runtime
 policy, so every agent mutation is classified at the native DSH tool boundary.
 
+Runtime health follows that boundary as well. The bundle owns a typed Cordis
+health service and DSH admission/invariant integration, DSH owns lifecycle and
+subprocess execution, and nils-cli owns the deterministic doctor/audit
+contracts. `runtime-core` blocks activation, `project-docs` gates every
+session-associated model stream attempt, and optional child degradation blocks
+only dependent tools. DSH evaluates model health before cooperative stream
+middleware, so cache, routing, and short-circuit listeners cannot bypass it;
+its public post-waterfall tool guard enforces optional-tool health
+monotonically. Snapshot projection contains
+stable codes and hashed project scopes; no health output or recovery prose is
+added to model messages. See
+[Native runtime health](runtime-health.md).
+
 ## Runtime composition and policy
 
 Live composition has an explicit runtime-root boundary. The package requires
@@ -40,7 +55,7 @@ the stable 101-row, 27-capability compatibility contract implemented by the
 public parity verifier.
 
 `policy/runtime-rule-parity.yaml` is the internal migration-status projection.
-It maps the same source rules into 23 nils capabilities, two stronger
+It maps the same source rules into 22 nils capabilities, three stronger
 DSH-native seams, and one provider-obsolete retirement. A group becomes
 dispatchable only through its implemented runtime owner, never merely by
 appearing in this file. The nils `DshCapabilityGroup` schema independently
@@ -449,13 +464,75 @@ duplicating context inside one execution.
 Public DSH registry APIs cannot provide this exact transaction: an agent-scoped
 definition cannot be wrapped at the same layer, `tools/change` carries no
 definition identity, and HMR can replace the selected body after admission.
+The same patch supplies an effect-owned asynchronous `llm.guard` before DSH
+enters the `llm/stream` waterfall. Public `agent/pre-step` and `llm/stream`
+middleware are cooperative: a later prepended listener can skip downstream,
+so neither can prove that a health check precedes every cache, routing,
+short-circuit, or adapter path. The native guard is monotonic and returns a
+stable denial code without adding health text to model messages.
+
+The patch also supplies `SubprocessRuntime.spawnDescriptor`, its explicit
+`descriptorSpawnMode`, and a local implementation. Runtime-kit authenticates
+private executable copies, opens them read-only, and retains the mode-`0500`
+links under one mode-`0700` random directory only for child self-resolution.
+Those names are not execution authority: the provider maps the selected file
+description to child fd 3 and executes the child-owned `/proc/self/fd/3` in
+`atomic-descriptor` mode on Linux. The links and descriptors remain owned until
+all child scopes settle because `current_exe()` and `process.execPath` resolve
+the executable name after spawn. Disposal removes only names that still bind
+the authenticated inodes; replacements are preserved, and a renamed private
+root can leave a bounded residue with a host warning rather than authorize
+pathname cleanup.
+
+Darwin exposes no supported descriptor-only exec primitive, so its declared
+`verified-transient` local provider copies the exact descriptor bytes into a
+mode-`0500` file under a fresh mode-`0700` random directory for each spawn. It
+caps the executable at 256 MiB, verifies the source identity, size, timestamps,
+target metadata, and SHA-256 digest, invokes the native spawn call with the
+requested `argv[0]` as display identity, requires every temp-parent ancestor to
+be owned by root or the current UID, rejects an untrusted writable chain, and
+revalidates the private directory and executable identity immediately before
+spawn. It retains that transient until the whole
+child process tree settles so descendant self-inspection remains valid.
+Synchronous spawn failure and process-tree settlement both trigger inode-bound
+removal. Foreign replacements and unexpected unlink failures are preserved
+with host warnings; the provider never reports those residues as successful
+cleanup or reuses them. A provider with a missing or platform-mismatched mode
+fails closed instead of silently falling back to the replaceable runtime
+snapshot pathname.
+
+The Darwin transition is necessarily path-based between verified
+materialization and the kernel's spawn operation. The private random pathname,
+trusted-parent validation, and pre-spawn identity check remove ordinary
+worktree and concurrent-agent collisions and bound the package-owned process
+tree lifetime, but macOS cannot make that transition atomic against a
+malicious same-UID process. That platform limitation is a documented residual
+risk; Linux remains descriptor-native end to end. Retaining private
+self-resolution links also permits malicious same-UID unlink or rename to deny
+self-inspection, but cannot substitute execution bytes on Linux. This boundary
+protects ordinary worktree, concurrent-agent, stale-path, and ambient binary
+replacement. It is not a sandbox against arbitrary malicious code already
+running as the same UID, which can also alter the surrounding user runtime.
+
+Compatibility acceptance follows that platform boundary. Linux runs the
+complete packed runtime, including authoritative nils finish-line validation
+inside its required systemd/cgroup containment. The blocking macOS lane instead
+runs a packed runtime-health smoke through DSH's real tools pipeline: it proves
+companion authentication, fail-closed project health before model or adapter
+work, same-session recovery, context non-disclosure, and the plus-one tool
+result. It does not reinterpret `finish-line-containment-unavailable` as an
+advisory success. Patch reversal, pristine rebuild, CLI startup, exact build
+closure, and clean-checkout proofs remain mandatory on both platforms.
+
 The narrow downstream patch is therefore maintained in this repository rather
 than a fork or upstream PR. `compatibility/dsh-patches.json` authenticates the
-patch and every before/after file hash for each supported revision. Apply and
+patch and every before/after file hash for each supported revision; targets
+whose release contents differ carry release-specific hash pairs. Apply and
 reverse reject unknown revisions, partial state, content drift, or unrelated
 checkout changes. Nils remains the sole owner of catalogs, policy resolution,
 receipt semantics, and durable activation; the patch owns only exact DSH
-execution ordering and result/context attachment.
+execution ordering, result/context attachment, pre-waterfall model admission,
+and descriptor-bound local subprocess launch.
 
 ## Private skill discovery
 

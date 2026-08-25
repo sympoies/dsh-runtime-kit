@@ -195,16 +195,6 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "portable-paths-scan" }
 
 [[rules]]
-id = "dsh.session-start-healthcheck"
-products = ["dsh"]
-events = ["UserPromptSubmit"]
-priority = 260
-mode = "enforce"
-failure_posture = "closed"
-override_class = "locked"
-capability = { id = "dsh.policy.v1", group = "session-start-healthcheck" }
-
-[[rules]]
 id = "dsh.skill-usage-reminder"
 products = ["dsh"]
 events = ["UserPromptSubmit"]

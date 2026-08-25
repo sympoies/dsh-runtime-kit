@@ -41,22 +41,31 @@ const DEFAULT_BROKER_READY_TIMEOUT_MS = 15_000
 const HARD_BROKER_READY_TIMEOUT_MS = 60_000
 const BROKER_READY_POLL_MS = 100
 const BROKER_STATUS_SCHEMA = 'agent-session.coordination-broker.v1'
+const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
+const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
+const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
+  runInitialize: 'main_agent_run_initialize',
+  workerLaunch: 'main_agent_worker_launch',
+  workerInterrupt: 'main_agent_worker_interrupt',
+  laneClose: 'main_agent_lane_close',
+  workerSupervise: 'main_agent_worker_supervise',
+  workerRequestChanges: 'main_agent_worker_request_changes',
+  workerAccept: 'main_agent_worker_accept',
+  runCloseout: 'main_agent_run_closeout',
+})
+
+/** Canonical owner inventory consumed by runtime registration and health admission. */
+export const MAIN_AGENT_TOOL_INVENTORY = Object.freeze({
+  controller: Object.freeze(Object.values(MAIN_AGENT_CONTROLLER_TOOLS)),
+  lane: Object.freeze([LANE_BOOTSTRAP_TOOL, LANE_CHECKPOINT_TOOL]),
+})
 
 /**
  * Bundle-owned global tools hidden from a managed worker lane. rc.7 validates
  * visibility filters against the exact global registry, so this list contains
  * only tools this bundle guarantees it registered before launch.
  */
-const DEFAULT_LANE_VISIBILITY_DENIED_TOOLS = Object.freeze([
-  'main_agent_run_initialize',
-  'main_agent_worker_launch',
-  'main_agent_worker_interrupt',
-  'main_agent_lane_close',
-  'main_agent_worker_supervise',
-  'main_agent_worker_request_changes',
-  'main_agent_worker_accept',
-  'main_agent_run_closeout',
-])
+const DEFAULT_LANE_VISIBILITY_DENIED_TOOLS = MAIN_AGENT_TOOL_INVENTORY.controller
 
 /**
  * Tools a managed worker lane must never execute. The monotonic child guard
@@ -76,8 +85,6 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
  * is registered per child inside that child's context, never globally, so no
  * other session can reach another lane's checkpoint authority.
  */
-const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
-const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
 const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_ID',
@@ -1026,7 +1033,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const initializeTool = {
-    name: 'main_agent_run_initialize',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.runInitialize,
     description: 'Run the fixed DSH compatibility and authenticated controller-readiness '
       + 'gates, then initialize this controller\'s durable Main Agent run from one '
       + 'private objective packet. Use this native tool instead of a shell command.',
@@ -1186,7 +1193,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const launchTool = {
-    name: 'main_agent_worker_launch',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerLaunch,
     description: 'Start one managed Main Agent Mode worker lane: run the fenced '
       + 'main-agent worker start bookkeeping, spawn the lane child in its own '
       + 'worktree, start its broker heartbeat, and publish its liveness sidecar. '
@@ -1448,7 +1455,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const interruptTool = {
-    name: 'main_agent_worker_interrupt',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerInterrupt,
     description: 'Interrupt one managed worker lane: stop its current turn while '
       + 'keeping the lane, its inbox, and its durable session intact.',
     parameters: {
@@ -1503,7 +1510,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const closeTool = {
-    name: 'main_agent_lane_close',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.laneClose,
     description: 'Permanently close one managed worker lane after its assignment '
       + 'reached a terminal state: interrupt the child, stop the broker '
       + 'heartbeat, and mark the liveness sidecar terminated so reconcile and '
@@ -1624,7 +1631,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const superviseTool = {
-    name: 'main_agent_worker_supervise',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerSupervise,
     description: 'Supervise one managed worker lane: run the store-side bounded '
       + 'supervision macro and fold this runtime\'s lane transport facts (child '
       + 'activity, turn phase, lane state) onto its typed classification.',
@@ -1679,7 +1686,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const requestChangesTool = {
-    name: 'main_agent_worker_request_changes',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerRequestChanges,
     description: 'Return one submitted assignment to its exact worker lane for bounded '
       + 'revisions: record the fenced store-side request-changes decision, then deliver '
       + 'it into that lane\'s inbox. Never sends raw terminal input.',
@@ -1771,7 +1778,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const acceptTool = {
-    name: 'main_agent_worker_accept',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerAccept,
     description: 'Accept one submitted worker result after Main Agent review, recording '
       + 'the fenced store-side acceptance. The lane stays live until it is closed '
       + 'explicitly, so its worktree and inbox remain inspectable.',
@@ -1829,7 +1836,7 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /** @type {ToolDefinition} */
   const closeoutTool = {
-    name: 'main_agent_run_closeout',
+    name: MAIN_AGENT_CONTROLLER_TOOLS.runCloseout,
     description: 'Close out the run: terminate every remaining lane, record the fenced '
       + 'final run checkpoint through the store closeout macro, then drain this '
       + 'runtime\'s lane descendants. The controller session survives to deliver the '
@@ -1955,19 +1962,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     },
     workerRoute,
     /** The tool names this runtime owns, so a composition can audit its surface. */
-    tools: Object.freeze({
-      controller: Object.freeze([
-        initializeTool.name,
-        launchTool.name,
-        interruptTool.name,
-        closeTool.name,
-        superviseTool.name,
-        requestChangesTool.name,
-        acceptTool.name,
-        closeoutTool.name,
-      ]),
-      lane: Object.freeze([LANE_BOOTSTRAP_TOOL, LANE_CHECKPOINT_TOOL]),
-    }),
+    tools: MAIN_AGENT_TOOL_INVENTORY,
   })
   ctx.provide('mainAgentOrchestration', orchestrationService)
   // The pre-service name stays bound to the same object: it shipped in the

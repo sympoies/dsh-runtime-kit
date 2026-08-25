@@ -14,6 +14,7 @@
     ".": "./index.js",
     "./agent-console-profile": "./src/compat/agent-console.js",
     "./governed-commit": "./src/governed-commit/index.js",
+    "./runtime-health": "./src/health/index.js",
     "./workspace-lease": "./src/workspace-lease/index.js",
     "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",

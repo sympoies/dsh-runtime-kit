@@ -109,14 +109,17 @@ DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN=/path/to/nils-cli/bin/semantic-commit 
 npm run test:smoke
 node scripts/manage-dsh-patch.mjs --action reverse \
   --source-root /path/to/deepseek-harness
+pnpm --dir /path/to/deepseek-harness run clean
 pnpm --dir /path/to/deepseek-harness run build:lib:host
+pnpm --dir /path/to/deepseek-harness dsh --help >/dev/null
 test -z "$(git -C /path/to/deepseek-harness status --porcelain=v1 --untracked-files=all)"
 ```
 
 `upstream_checkout_clean` and `source_checkout_clean` attest the source tree;
 the same receipt deliberately reports `runtime_rebuilt: false`. Rebuilding and
-smoke-testing the pristine host is a required part of rollback, because ignored
-`lib/` output may still contain the patched dispatcher after source reversal.
+smoke-testing the pristine host process is a required part of rollback, because
+ignored `lib/` output may still contain the patched dispatcher after source
+reversal.
 
 The disposable profile is intentionally unmanaged and therefore does not
 claim the owner/coordination authority required for governed default-branch

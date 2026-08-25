@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createNilsFinishLineClient } from '../src/finish-line/nils-client.js'
+import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`
@@ -91,6 +92,8 @@ function fixture({
   agentHook = '/test/agent-hook',
   teardownTimeoutMs = 20,
   onTerminate = () => {},
+  authenticatedNilsExecution,
+  resolutionPendingAt,
 } = {}) {
   const effects = []
   const spawns = []
@@ -103,6 +106,12 @@ function fixture({
     subprocess: {
       async resolveExecutable(command, env, signal) {
         resolutions.push({ command, env, signal })
+        if (resolutions.length === resolutionPendingAt) {
+          return new Promise((resolve, reject) => {
+            if (signal?.aborted) reject(signal.reason)
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        }
         return `/resolved/${command}`
       },
       spawn(spec) {
@@ -157,6 +166,7 @@ function fixture({
     finishLineTimeoutMs: 100,
     finishLineTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveFinishLineRequests: 4,
+    authenticatedNilsExecution,
   })
   return {
     client,
@@ -752,6 +762,36 @@ test('an invalid execution response is quiesced before the client returns failur
     agentHookArgs('finish-line', 'quiesce', '--format', 'json'),
   )
   assert.equal(subject.spawns[1].request.operation_id, 'operation:failed-run')
+})
+
+test('finish-line cleanup holds an authenticated descriptor lease across HMR disposal', async () => {
+  let cleaned = false
+  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
+  const subject = fixture({
+    agentHook: 'agent-hook',
+    authenticatedNilsExecution: owner,
+    resolutionPendingAt: 2,
+    responder(action, request) {
+      return responseFor(action, request, action === 'run'
+        ? { operation_id: 'operation:replayed' }
+        : {})
+    },
+  })
+  const running = subject.client.run({
+    ...identity,
+    operationId: 'operation:descriptor-cleanup',
+    runnerCapability: 'finish-line-runner:opaque',
+    intent: 'project-dev',
+    command: ':',
+    timeoutMs: 5_000,
+    execution: dangerFullAccessExecution,
+  })
+  const rejected = assert.rejects(running, /finish-line response invalid/)
+  while (subject.resolutions.length < 2) await new Promise(resolve => setImmediate(resolve))
+  await Promise.all([owner.dispose(), subject.dispose()])
+  await rejected
+  assert.equal(subject.spawns.length, 1)
+  assert.equal(cleaned, true)
 })
 
 test('disposal waits for authenticated failed-run quiescence to settle', async () => {

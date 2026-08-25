@@ -4,8 +4,36 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "eae64729d726b944ba51b53b4ece1022321a283dee9ea671671bf85f68b61587",
+      "sha256": "8cf87b22f3adbd5fb24211e941223e69f29b961cc51a9c6b4f882c8bcd0f1141",
       "targets": {
+        "packages/subprocess/subprocess/src/index.ts": {
+          "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
+          "after_sha256": "78882536c81b181b338fab12530615f1b8e8f739224f20e4d1ad8865b0286d30"
+        },
+        "packages/subprocess/subprocess-local/src/index.ts": {
+          "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
+          "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
+        },
+        "packages/subprocess/subprocess-local/src/spawn.ts": {
+          "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
+          "after_sha256": "dd152585671fdf5f0c0e36bddab0e54d3a828ca01df6abba1fdcfebb7b87b288"
+        },
+        "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
+              "after_sha256": "294b884b0706097186bddb81e5f4a6704b818a923e1f3cc4772ecdb6fc68c9fb"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "db7f4ba0603f63ebadf2fc7d661e5cb6b341b478ea1d88fa10aeff7e118a3ee7"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "db7f4ba0603f63ebadf2fc7d661e5cb6b341b478ea1d88fa10aeff7e118a3ee7"
+            }
+          }
+        },
         "packages/core/tools/src/index.ts": {
           "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
           "after_sha256": "b806149fbef863d702061fd8ca563f28161dbb48b08dc66f0f89b3897db0c39c"
@@ -13,6 +41,38 @@
         "packages/core/tools/tests/tools.spec.ts": {
           "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
           "after_sha256": "95be1c8ae3127e71204565275e8f1c8141dfa81b634aa0a5716170995bf90c5f"
+        },
+        "packages/llm/llm/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "71c03b10d948a2dc2403db5c544ee9a2d6db7a45eb0b97d2b0bb2f733507526f",
+              "after_sha256": "b9c6cabf129ae9e51a9c0a9d95d94fde02193d5488403c69dade5e946d968e6a"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "71c03b10d948a2dc2403db5c544ee9a2d6db7a45eb0b97d2b0bb2f733507526f",
+              "after_sha256": "b9c6cabf129ae9e51a9c0a9d95d94fde02193d5488403c69dade5e946d968e6a"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "2107297b628bd4a4991297a09fa0d41fae351392f100ba47973383690c97afaf",
+              "after_sha256": "74c9d793744ecfbd03b0bfd7fc3ea7f3d7cdbb7b06baeaf66ded312eb750521c"
+            }
+          }
+        },
+        "packages/llm/llm/tests/service.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "aeff7be7b5cbf09bb1cf93e0e21295167d893d06ba6c8deb0efc52c38c2cb8f5",
+              "after_sha256": "a64ec2bab529b6158b7702d5e681fc3d8622baf08540afcc958a3d9c448808ac"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "484b43a30f43c02b01661a18cb6c339628da484fc97baa499743ba5286278563",
+              "after_sha256": "369999aa84b60e5a37951636895e901728a92934dddc6168998b4b8050a8aef1"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "0e6476cfd202f93d57e38e87296ed7ce2b4a1e9b688e5e1829a0b52ba30e4dcd",
+              "after_sha256": "b0a35ffd2aed099383ff5458df435ed5503bbdd19d538828c097f085848f08b9"
+            }
+          }
         }
       },
       "validated_releases": {

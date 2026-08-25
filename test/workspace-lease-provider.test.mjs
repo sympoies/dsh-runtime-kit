@@ -9,6 +9,7 @@ import {
   applyNilsWorkspaceLease,
   createNilsWorkspaceLeaseProvider,
 } from '../src/workspace-lease/nils-provider.js'
+import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 function agentHookArgs(...args) {
@@ -70,6 +71,8 @@ function fixture({
   maxActive = 4,
   timeoutMs = 100,
   teardownTimeoutMs = 20,
+  authenticatedNilsExecution,
+  resolutionPending = false,
 } = {}) {
   const effects = []
   const spawns = []
@@ -81,6 +84,16 @@ function fixture({
     subprocess: {
       async resolveExecutable(command, environment, candidateSignal) {
         resolutions.push({ command, environment, signal: candidateSignal })
+        if (resolutionPending) {
+          return new Promise((resolve, reject) => {
+            if (candidateSignal?.aborted) reject(candidateSignal.reason)
+            candidateSignal?.addEventListener(
+              'abort',
+              () => reject(candidateSignal.reason),
+              { once: true },
+            )
+          })
+        }
         return `/resolved/${command}`
       },
       spawn(spec) {
@@ -124,6 +137,7 @@ function fixture({
     workspaceLeaseTimeoutMs: timeoutMs,
     workspaceLeaseTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveWorkspaceLeaseRequests: maxActive,
+    authenticatedNilsExecution,
   })
   return {
     provider,
@@ -382,6 +396,38 @@ test('concurrency, caller cancellation, timeout, and disposal are bounded', asyn
     }, new AbortController().signal),
     error => error instanceof WorkspaceLeaseError,
   )
+})
+
+test('workspace lease holds its authenticated descriptor scope across delayed resolution and HMR disposal', async () => {
+  let cleaned = false
+  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
+  const subject = fixture({
+    agentHook: 'agent-hook',
+    authenticatedNilsExecution: owner,
+    resolutionPending: true,
+  })
+  const pending = subject.provider.bind({
+    version: 1,
+    requestId: 'descriptor-bind-request',
+    sessionId: 'session-1',
+    source: 'startup',
+  }, new AbortController().signal)
+  const rejected = assert.rejects(
+    pending,
+    error => error instanceof WorkspaceLeaseError
+      && error.code === WORKSPACE_LEASE_UNAVAILABLE,
+  )
+  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
+
+  const ownerDisposal = owner.dispose()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(cleaned, false, 'snapshot cleanup must wait for the transport scope to drain')
+  assert.equal(subject.spawns.length, 0)
+  const providerDisposal = subject.dispose()
+  await Promise.all([ownerDisposal, providerDisposal])
+  await rejected
+  assert.equal(subject.spawns.length, 0)
+  assert.equal(cleaned, true)
 })
 
 test('a portable agent-hook name is resolved without ambient repository selection', async () => {

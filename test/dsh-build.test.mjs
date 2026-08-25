@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -38,6 +38,10 @@ test('DSH build closure binds every generated lib file, including non-tools pack
     await rm(join(value.agent, 'extra.js'))
     const removed = await digestDshBuildClosure(value.root)
     assert.equal(removed.sha256, mutated.sha256)
+
+    await chmod(join(value.agent, 'index.js'), 0o700)
+    const modeChanged = await digestDshBuildClosure(value.root)
+    assert.notEqual(modeChanged.sha256, removed.sha256)
   } finally {
     await rm(value.root, { recursive: true, force: true })
   }

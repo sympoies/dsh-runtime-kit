@@ -42,6 +42,15 @@ function relativePath(path) {
     && !path.split(/[\\/]/u).includes('..')
 }
 
+/** @param {unknown} value */
+function validHashPair(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const pair = /** @type {Record<string, unknown>} */ (value)
+  return typeof pair.before_sha256 === 'string' && SHA256.test(pair.before_sha256)
+    && typeof pair.after_sha256 === 'string' && SHA256.test(pair.after_sha256)
+    && pair.before_sha256 !== pair.after_sha256
+}
+
 /** Validate the complete checked-in patch contract before it can mutate DSH. */
 export function validateDshPatchManifest(/** @type {unknown} */ value) {
   const manifest = record(value, 'DSH patch manifest must be an object')
@@ -71,10 +80,14 @@ export function validateDshPatchManifest(/** @type {unknown} */ value) {
   }
   for (const [path, value] of Object.entries(targets)) {
     const target = record(value, `DSH patch target ${path} is invalid`)
-    if (!relativePath(path)
-      || typeof target.before_sha256 !== 'string' || !SHA256.test(target.before_sha256)
-      || typeof target.after_sha256 !== 'string' || !SHA256.test(target.after_sha256)
-      || target.before_sha256 === target.after_sha256) {
+    const direct = validHashPair(target)
+    const releaseHashes = target.release_hashes === undefined
+      ? undefined
+      : record(target.release_hashes, `DSH patch target ${path} release hashes are invalid`)
+    const versioned = releaseHashes !== undefined
+      && Object.keys(releaseHashes).length > 0
+      && Object.values(releaseHashes).every(validHashPair)
+    if (!relativePath(path) || direct === versioned) {
       throw new DshPatchError(
         'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
         `DSH patch target ${path} hashes are invalid`,
@@ -103,7 +116,22 @@ export function validateDshPatchManifest(/** @type {unknown} */ value) {
     }
     revisions.add(release.revision)
   }
+  const releaseNames = Object.keys(releases).sort().join('\0')
+  for (const [path, target] of Object.entries(targets)) {
+    if (target.release_hashes !== undefined
+      && Object.keys(target.release_hashes).sort().join('\0') !== releaseNames) {
+      throw new DshPatchError(
+        'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+        `DSH patch target ${path} release hashes do not match the validated release set`,
+      )
+    }
+  }
   return Object.freeze(structuredClone(manifest))
+}
+
+/** @param {Record<string, any>} target @param {string} release */
+function targetHashes(target, release) {
+  return target.release_hashes?.[release] ?? target
 }
 
 /** @param {string | NodeJS.ArrayBufferView} value */
@@ -549,6 +577,12 @@ export async function manageDshPatch(input) {
       { revision },
     )
   }
+  const selectedTargets = Object.fromEntries(
+    Object.entries(patch.targets).map(([path, target]) => [
+      path,
+      targetHashes(target, release[0]),
+    ]),
+  )
   const patchFile = contained(patchRoot, patch.path)
   const patchBytes = await readFile(patchFile)
   if (digest(patchBytes) !== patch.sha256) {
@@ -561,7 +595,7 @@ export async function manageDshPatch(input) {
   validatePatchTargets(patchBytes, Object.keys(patch.targets))
 
   const inspect = async () => {
-    const states = await Promise.all(Object.entries(patch.targets).map(async ([path, hashes]) => {
+    const states = await Promise.all(Object.entries(selectedTargets).map(async ([path, hashes]) => {
       let bytes
       try {
         bytes = await readFile(contained(sourceRoot, path))
@@ -591,7 +625,7 @@ export async function manageDshPatch(input) {
     const state = states[0]
     await verifyRawCheckout(gitBin, sourceRoot, new Map(
       state === 'patched'
-        ? Object.entries(patch.targets).map(([path, hashes]) => [path, hashes.after_sha256])
+        ? Object.entries(selectedTargets).map(([path, hashes]) => [path, hashes.after_sha256])
         : [],
     ))
     return state
