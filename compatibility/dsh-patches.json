@@ -4,15 +4,15 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "3236b876a0231c1a13a62b3849f0b2a82ee5b47be950f8b8d1b869d068328175",
+      "sha256": "eae64729d726b944ba51b53b4ece1022321a283dee9ea671671bf85f68b61587",
       "targets": {
         "packages/core/tools/src/index.ts": {
           "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
-          "after_sha256": "7d12502aa571cd8913c415afdfe79bb7afb02700e9684d288858c810b7c0a3f8"
+          "after_sha256": "b806149fbef863d702061fd8ca563f28161dbb48b08dc66f0f89b3897db0c39c"
         },
         "packages/core/tools/tests/tools.spec.ts": {
           "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
-          "after_sha256": "a5f3196e6f35a9a98392a8434ad9da74a07b7586cf3b330c188ce608249012b4"
+          "after_sha256": "95be1c8ae3127e71204565275e8f1c8141dfa81b634aa0a5716170995bf90c5f"
         }
       },
       "validated_releases": {

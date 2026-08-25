@@ -1,5 +1,5 @@
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 377015feb..2713bc44f 100644
+index 377015feb..b2b54866f 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -287,6 +287,23 @@ export interface ToolDefinition extends ToolSchema {
@@ -483,7 +483,7 @@ index 377015feb..2713bc44f 100644
 +        if (this.callerCancelled(exec)) {
 +          return { kind: 'post-result', result: this.cancellationResult(exec) }
 +        }
-+        throw error
++        return { kind: 'post-result', result: toolErrorResult(error) }
 +      }
 +      if (this.callerCancelled(exec)) {
 +        return { kind: 'post-result', result: toolAbortedBeforeDispatchResult() }
@@ -675,7 +675,7 @@ index 377015feb..2713bc44f 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
-index ec770592a..28b39e191 100644
+index ec770592a..f7eae4b00 100644
 --- a/packages/core/tools/tests/tools.spec.ts
 +++ b/packages/core/tools/tests/tools.spec.ts
 @@ -4,9 +4,10 @@ import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@de
@@ -690,7 +690,7 @@ index ec770592a..28b39e191 100644
    type InferArgs, type JsonValue, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
    type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
  } from '@deepseek-ai/dsh-tools'
-@@ -93,6 +94,660 @@ describe('ToolRuntime', () => {
+@@ -93,6 +94,696 @@ describe('ToolRuntime', () => {
      expect(observed).toEqual(result)
    })
  
@@ -1049,6 +1049,42 @@ index ec770592a..28b39e191 100644
 +    },
 +  )
 +
++  it('publishes a post-execute failure when a prerequisite rejects before dispatch', async () => {
++    const ctx = await setup()
++    let bodies = 0
++    let postFailures = 0
++    const tool = {
++      ...echoTool,
++      name: 'prerequisite-pre-dispatch-failure',
++      async execute() { bodies += 1; return 'unexpected' },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() { throw new Error('prerequisite denied before dispatch') },
++        async commit() {},
++      })
++      return next()
++    })
++    ctx.on('tools/post-execute', async (_exec, result, next) => {
++      if (result.isError) postFailures += 1
++      return next()
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('prerequisite-pre-dispatch-failure'),
++      name: tool.name,
++      arguments: {},
++    })
++
++    expect(result).toMatchObject({
++      isError: true,
++      error: { message: 'prerequisite denied before dispatch' },
++    })
++    expect({ bodies, postFailures }).toEqual({ bodies: 0, postFailures: 1 })
++  })
++
 +  it('does not commit after a post-execute failure or caller cancellation', async () => {
 +    for (const failure of ['post', 'cancel'] as const) {
 +      const ctx = await setup()
@@ -1351,7 +1387,7 @@ index ec770592a..28b39e191 100644
    it('projects presentation metadata from the canonical value', async () => {
      const ctx = await setup()
      ctx.tools.register({
-@@ -758,6 +1413,45 @@ describe('ToolRuntime', () => {
+@@ -758,6 +1449,45 @@ describe('ToolRuntime', () => {
        expect(seen[0]?.signal).toBe(controller.signal)
      })
  
@@ -1397,7 +1433,7 @@ index ec770592a..28b39e191 100644
      it('denies with the user-rejection reason on rejected', async () => {
        const ctx = await approvalSetup()
        ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
-@@ -1256,7 +1950,7 @@ describe('ToolRuntime', () => {
+@@ -1256,7 +1986,7 @@ describe('ToolRuntime', () => {
      expect(dispatched).toBe(0)
    })
  
@@ -1406,7 +1442,7 @@ index ec770592a..28b39e191 100644
      const ctx = await setup()
      let dispatched = 0
      ctx.tools.register({
-@@ -1292,14 +1986,127 @@ describe('ToolRuntime', () => {
+@@ -1292,14 +2022,127 @@ describe('ToolRuntime', () => {
      release.resolve(undefined)
  
      await expect(pending).resolves.toMatchObject({
