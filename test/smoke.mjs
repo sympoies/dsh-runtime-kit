@@ -1770,11 +1770,17 @@ ${agentConsoleTuiOverlay}
     1,
     'the versioned orchestration service is provided in a real DSH composition',
   )
+  const forbiddenRuntimeSurface = /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i
+  assert.equal(receipt.tools.some(name => forbiddenRuntimeSurface.test(name)), false)
   assert.equal(
-    [...receipt.providers, ...receipt.tools]
-      .some(name => /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i.test(name)),
+    receipt.providers.some(name => /co.?author(?:ship)?[-_ ]?trailer/i.test(name)),
     false,
   )
+  if (agentConsoleTuiPackage === undefined) {
+    assert.equal(receipt.providers.some(name => forbiddenRuntimeSurface.test(name)), false)
+  } else {
+    assert.equal(receipt.providers.includes('codex-proxy'), true)
+  }
   assert.deepEqual(receipt.lifecycle, [
     'session-start:startup',
     'pre-step:1:1',
