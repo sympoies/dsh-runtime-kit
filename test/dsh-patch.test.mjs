@@ -446,7 +446,27 @@ test('an apply subprocess that closes stdin early returns a typed failure instea
       }),
       error => error instanceof DshPatchError
         && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_GIT_FAILED'
-        && error.diagnostic.operation === 'apply-check',
+        && error.diagnostic.operation === 'apply-check'
+        && error.diagnostic.exit_code === 23,
+    )
+
+    await writeFile(fakeGit, [
+      '#!/bin/sh',
+      'for argument in "$@"; do',
+      '  if [ "$argument" = "apply" ]; then exit 0; fi',
+      'done',
+      'exec /usr/bin/git "$@"',
+      '',
+    ].join('\n'))
+    await assert.rejects(
+      manageDshPatch({
+        action: 'apply', sourceRoot: value.root, patchRoot: artifactRoot,
+        manifest: value.manifest, gitBin: fakeGit,
+      }),
+      error => error instanceof DshPatchError
+        && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_GIT_FAILED'
+        && error.diagnostic.operation === 'apply-check'
+        && error.diagnostic.exit_code === undefined,
     )
   } finally {
     await rm(value.root, { recursive: true, force: true })

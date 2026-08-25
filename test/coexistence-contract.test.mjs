@@ -11,22 +11,22 @@ test('the published nils release is pinned by exact source, archive, and binary 
 
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.8')
-  assert.equal(manifest.validated_release, '1.27.8')
+  assert.equal(manifest.validated_release, '1.27.9')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.8',
-    source_commit: '424c919d8d071f10d5754e2ba654fcf11b131f0f',
+    source_revision: 'v1.27.9',
+    source_commit: '9458a5e274e4a683eac4d285135061c2fc35aeae',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: 'f779483d7d31d8e6a3a47b669124a95137d814cdedbf2dfeee17b926deef6a57',
+      name: 'nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: '1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b',
     },
     artifacts: {
-      'agent-hook': { sha256: '4f74974c3c31d1b9b345417b2f4a0b24b33dc96102feac777fac3cdcb3d5378d' },
-      'agent-docs': { sha256: '1e607a54176f2f718ae2a9ae4efd2dc2ca07d54b04e65f369af2c95d7e648e7c' },
-      'forge-cli': { sha256: '569df27c66a4b80ffd8247004ffef396f3ad7ab962ae036ce4f6877f4e03134d' },
-      'git-cli': { sha256: '55719efda980c7d602268236dd5735043bda02fd60fb76467d367606e5b4f735' },
-      'review-specialists': { sha256: '2ac326f13f427b8be16d6381ed1404c2f740116758563d6e65963defa9c4583a' },
-      'semantic-commit': { sha256: '68450677b32491d842b14b1c1937c0773ed724bdcdccab952e8666d61c608a02' },
+      'agent-hook': { sha256: '1eaee0c0d6dd55822f20cfc6314afa866d8381b17c16711e55fa1052222c80f0' },
+      'agent-docs': { sha256: 'b30cbdd920c2c8e564ea25ad46a755d5545adb1d604c8e9df011604c97c74288' },
+      'forge-cli': { sha256: 'cf1505392fe68939e0d7944163e99fbaa64ebf0970a8d4885224697517b2eebb' },
+      'git-cli': { sha256: '7b161e9ee388578e33ef9c62279ac4e0d7190f32301dd89b8d59f70ba779175e' },
+      'review-specialists': { sha256: '8a664f167ec8ab01496d6c7b782618c6ec6ff95c4de4286896b35e4232122edb' },
+      'semantic-commit': { sha256: 'f1f9ad4ad3d3e4b040e8250291d7052791b0d81dae058f4b3e1fb3cffaf9f7b8' },
     },
   })
   assert.ok(manifest.commands.every(command => command.status === 'released'))

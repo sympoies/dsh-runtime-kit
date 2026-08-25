@@ -33,14 +33,14 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.8/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
-          echo "f779483d7d31d8e6a3a47b669124a95137d814cdedbf2dfeee17b926deef6a57  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
+          echo "1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
 
   upstream:
@@ -145,19 +145,19 @@ jobs:
           pnpm run build:lib
       - name: Download authenticated nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.8/nils-cli-v1.27.8-x86_64-unknown-linux-gnu.tar.gz"
-          echo "f779483d7d31d8e6a3a47b669124a95137d814cdedbf2dfeee17b926deef6a57  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.9/nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz"
+          echo "1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime smoke on the patched DSH boundary
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.8-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.9-x86_64-unknown-linux-gnu/bin/agent-docs
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
         if: always()

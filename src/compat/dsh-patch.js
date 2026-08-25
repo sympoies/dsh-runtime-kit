@@ -165,28 +165,29 @@ async function trustedGit(gitBin) {
  */
 function execFileWithInput(file, args, options, input) {
   return new Promise((resolve, reject) => {
-    let settled = false
-    /** @param {() => void} complete */
-    const settle = complete => {
-      if (settled) return
-      settled = true
-      complete()
-    }
+    /** @type {Error | undefined} */
+    let stdinError
     const child = execFile(file, args, options, (error, stdout, stderr) => {
       if (error !== null) {
-        settle(() => reject(error))
+        reject(error)
         return
       }
-      settle(() => resolve({ stdout, stderr }))
+      if (stdinError !== undefined) {
+        reject(stdinError)
+        return
+      }
+      resolve({ stdout, stderr })
     })
     if (child.stdin === null) {
-      settle(() => reject(new Error('authenticated Git subprocess has no stdin')))
+      reject(new Error('authenticated Git subprocess has no stdin'))
       return
     }
     // A trusted Git wrapper can exit before consuming the authenticated patch
-    // bytes. Own the pipe error before writing so EPIPE becomes the same typed
-    // Git-operation failure as an ordinary non-zero child exit.
-    child.stdin.once('error', error => settle(() => reject(error)))
+    // bytes. Consume and retain EPIPE before writing, but let the execFile
+    // completion remain authoritative for the child's numeric exit status.
+    // If the child otherwise succeeds, the retained pipe error still fails
+    // closed rather than accepting a partial authenticated patch.
+    child.stdin.once('error', error => { stdinError = error })
     child.stdin.end(input)
   })
 }
