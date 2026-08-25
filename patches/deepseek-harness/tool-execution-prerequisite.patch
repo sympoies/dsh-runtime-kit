@@ -2152,7 +2152,7 @@ index 433ba01791..b7d93c2973 100644
      })
      child.on('exit', (exitCode, signal) => {
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfaaa1..43fa4934ca 100644
+index 1f21dfaaa1..02b4977972 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 @@ -1,4 +1,5 @@
@@ -2162,6 +2162,11 @@ index 1f21dfaaa1..43fa4934ca 100644
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
  import { describe, expect, it, vi } from 'vitest'
+@@ -11,3 +12,4 @@
+ import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
+ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
++import * as spawnModule from '../src/spawn.ts'
+ 
 @@ -58,14 +59,35 @@
 -const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
 +const { failNextClose, failNextUnlink, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
@@ -2220,10 +2225,10 @@ index 1f21dfaaa1..43fa4934ca 100644
 +    try {
 +      process.env.DSH_PERMISSION_MODE = 'danger-full-access'
 +      process.env.DSH_HOST_ENV_TOKEN = 'ambient-canary'
-+      expect(childEnv().DSH_HOST_ENV_TOKEN).toBe('ambient-canary')
-+      expect(childEnv({ DSH_HOST_ENV_TOKEN: 'explicit-override' }).DSH_HOST_ENV_TOKEN)
++      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBe('ambient-canary')
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: 'explicit-override' }).DSH_HOST_ENV_TOKEN)
 +        .toBe('explicit-override')
-+      expect(childEnv({ DSH_HOST_ENV_TOKEN: undefined }).DSH_HOST_ENV_TOKEN).toBeUndefined()
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: undefined }).DSH_HOST_ENV_TOKEN).toBeUndefined()
 +    } finally {
 +      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
 +      else process.env.DSH_PERMISSION_MODE = previousMode
@@ -2238,7 +2243,7 @@ index 1f21dfaaa1..43fa4934ca 100644
 +    try {
 +      process.env.DSH_PERMISSION_MODE = 'workspace-write'
 +      process.env.DSH_HOST_ENV_TOKEN = 'ambient-canary'
-+      expect(childEnv().DSH_HOST_ENV_TOKEN).toBeUndefined()
++      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBeUndefined()
 +    } finally {
 +      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
 +      else process.env.DSH_PERMISSION_MODE = previousMode
