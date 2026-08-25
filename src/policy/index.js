@@ -390,6 +390,11 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     contextClient,
     createUserMessage,
     async (exec, correlation, proof) => {
+      // The authoritative finish-line probe already classified this exact
+      // execution as the declared validation. Re-running generic opaque-shell
+      // policy during native prerequisite verification would contradict that
+      // typed classification and poison the still-reserved validation.
+      if (finishLine.isDeclaredValidation(exec)) return undefined
       // A last-mile decision supersedes the earlier pre-approval advisory.
       // Publish it only after transport succeeds so a repeated native check is
       // transactional: uncertainty retains the last verified bounded context.
