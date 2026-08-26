@@ -46,30 +46,30 @@ test('the published nils release is pinned by exact source, archive, and binary 
     feature: 'authoritative-finish-line-acceptance',
     status: 'reviewed-source-candidate',
     pull_request: 'https://github.com/sympoies/nils-cli/pull/1507',
-    source_commit: 'cd0e16d465727b009fb012eba31b781d91c3a2c2',
-    source_parent: 'f845ff5cc9889d695295e6fd67c7c9b179da6606',
-    source_tree: '62885f54530502a2492dbc2929a4882c9f71bc46',
-    merge_base: 'c4d4a4621f06b5c8a433daad7f23cf7fe1ed0892',
+    source_commit: '844d64657030c53131b252f12199f830264ec93a',
+    source_parent: 'c1ea1b6a047152d6331f864a98d31d0c5ee74558',
+    source_tree: '605bb9edd78b90361408aaff8dee013f490e17cd',
+    merge_base: 'd3a80a13cd6d66d51104e4d1a26cc152e6ec064e',
     version: '1.27.12',
     platform: 'x86_64-unknown-linux-gnu',
     artifacts: {
       'agent-hook': {
-        sha256: 'a97ae89e91571a36f4919376d3f94fafcfcc6f4eb77586404d45a54266db9240',
+        sha256: 'e0a2a26e69728ad55ac6238ce3ba143e98aed9563c1d1d3798cc2964a03dfa10',
       },
       'agent-docs': {
-        sha256: 'a890f1e1a561ef55d1877c2874d89758c8320a222ba49474675d865a0f248b2e',
+        sha256: '6d532155ee295683966e6461498f9aa4a062825f3ea6d5007b8eb0c0d6240e68',
       },
       'forge-cli': {
-        sha256: 'aaf0f23b46c5314400647822eda326902eef3a0e1b4a5174b9f607dc889d27a6',
+        sha256: '28325f7c1e7915550e858017ccbe25a971a02e83fb8e3033b76e90e30fa72af6',
       },
       'git-cli': {
-        sha256: 'a1e38d4535496e72ba1f444d9ba1b40b15589aab167a8db4201ecbcca7056659',
+        sha256: 'f8a4a720684e6334c1c194467a1b874d66d69405518af975de53a31cb8c3d14b',
       },
       'review-specialists': {
-        sha256: 'fe4cf0db4dc88d24a39f82a675f0ee42e37569c29489e2d5471009d0e655fcc4',
+        sha256: '449b793f1b57649add64694e03cd63b9eaaeef295ccef1f2f964473d66b94612',
       },
       'semantic-commit': {
-        sha256: '66fed4e6a2549e8d7a4381c749042c702a93c137507540bbebb0fc24fcfb698b',
+        sha256: '067cd24102045ee9594fa88f084f49814d4bff10b26f29fd598d7618b806a9b1',
       },
     },
     validation: 'exact-reviewed-source',
