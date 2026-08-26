@@ -10,8 +10,23 @@ import { createCliClient } from '../main-agent/cli-client.js'
 
 const READINESS_ENVELOPE_SCHEMA = 'cli.main-agent.self-readiness.v1'
 const READINESS_SCHEMA = 'main-agent.runtime-readiness.v1'
+const WORK_CONTEXT_SET_ENVELOPE_SCHEMA = 'cli.agent-session.work-context-set.v1'
+const WORK_CONTEXT_SET_SCHEMA = 'agent-session.work-context-set-result.v1'
+const WORK_CONTEXT_SCHEMA = 'agent-session.work-context.v1'
+const CONFLICT_EVALUATION_SCHEMA = 'agent-session.conflict-evaluation.v1'
+const BASELINE_INTENT = 'project-dev'
+const BASELINE_TIER = 'L2'
+const BASELINE_SUMMARY = 'DSH project-dev session'
 const AGENT_SESSION_BASENAME = 'agent-session'
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+const CLAIM_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
+const CONFLICT_CLASSIFICATIONS = new Set([
+  'conflict',
+  'potential_conflict',
+  'unknown',
+  'no_known_conflict',
+  'clear',
+])
 const PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_ID',
   'AGENT_SESSION_RUNTIME_ID',
@@ -43,6 +58,86 @@ function selectCandidateEnvironment(environment) {
     selected[name] = value
   }
   return Object.freeze(selected)
+}
+
+/** @param {unknown} value */
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** @param {unknown} value @param {number} maximum */
+function isBoundedText(value, maximum) {
+  return typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= maximum
+}
+
+/** @param {unknown} value */
+function validPublicWorkContext(value) {
+  if (!isRecord(value)) return false
+  const context = /** @type {Record<string, any>} */ (value)
+  return context.schema_version === WORK_CONTEXT_SCHEMA
+    && SESSION_ID.test(context.session_id ?? '')
+    && isBoundedText(context.session_incarnation, 256)
+    && CLAIM_ID.test(context.claim_id ?? '')
+    && Number.isSafeInteger(context.revision)
+    && context.revision > 0
+    && context.state === 'active'
+    && isBoundedText(context.intent, 64)
+    && isBoundedText(context.tier, 16)
+    && isBoundedText(context.summary, 240)
+    && Array.isArray(context.repositories)
+    && Array.isArray(context.worktrees)
+    && Array.isArray(context.provider_refs)
+    && Array.isArray(context.plan_refs)
+    && Array.isArray(context.scopes)
+    && isBoundedText(context.updated_at, 64)
+    && isBoundedText(context.expires_at, 64)
+}
+
+/** @param {unknown} value */
+function validConflictEvaluation(value) {
+  if (!isRecord(value)) return false
+  const evaluation = /** @type {Record<string, any>} */ (value)
+  return evaluation.schema_version === CONFLICT_EVALUATION_SCHEMA
+    && CONFLICT_CLASSIFICATIONS.has(evaluation.classification)
+    && typeof evaluation.complete === 'boolean'
+    && Array.isArray(evaluation.reasons)
+    && Array.isArray(evaluation.peers)
+}
+
+/**
+ * @param {unknown} envelope
+ * @param {Readonly<Record<string, string>>} candidate
+ */
+function validBaselineClaim(envelope, candidate) {
+  if (!isRecord(envelope)) return false
+  const outer = /** @type {Record<string, any>} */ (envelope)
+  const data = outer.data
+  if (outer.schema_version !== WORK_CONTEXT_SET_ENVELOPE_SCHEMA
+    || outer.ok !== true
+    || !isRecord(data)) {
+    return false
+  }
+  const context = data.context
+  return data.schema_version === WORK_CONTEXT_SET_SCHEMA
+    && typeof data.changed === 'boolean'
+    && validPublicWorkContext(context)
+    && context.session_id === candidate.AGENT_SESSION_ID
+    && context.session_incarnation === candidate.AGENT_SESSION_RUNTIME_ID
+    && validConflictEvaluation(data.evaluation)
+    && data.mode === candidate.AGENT_SESSION_COORDINATION_MODE
+    && (data.changed === false
+      || (context.intent === BASELINE_INTENT
+        && context.tier === BASELINE_TIER
+        && context.summary === BASELINE_SUMMARY))
+}
+
+/** @param {number} deadlineAt */
+function remainingAuthenticationMs(deadlineAt) {
+  const remaining = Math.floor(deadlineAt - Date.now())
+  if (remaining <= 0) {
+    throw new Error('dsh-runtime-kit: managed session authentication deadline exceeded')
+  }
+  return remaining
 }
 
 /**
@@ -80,7 +175,11 @@ export function applyManagedSessionAuthentication(
   const client = createCliClient(ctx, config)
   /** @type {Map<string, Readonly<{principal: Readonly<{sessionId:string, environment:Readonly<Record<string,string>>}>, dispose: () => void}>>} */
   const bindings = new Map()
-  /** @type {Map<string, Promise<Readonly<{principal: Readonly<{sessionId:string, environment:Readonly<Record<string,string>>}>, dispose: () => void}>>>} */
+  /** @type {Map<string, Readonly<{
+   *   agent: object,
+   *   controller: AbortController,
+   *   promise: Promise<Readonly<{principal: Readonly<{sessionId:string, environment:Readonly<Record<string,string>>}>, dispose: () => void}>>,
+   * }>>} */
   const authenticating = new Map()
   /** @type {WeakSet<object>} */
   const disposedAgents = new WeakSet()
@@ -102,13 +201,21 @@ export function applyManagedSessionAuthentication(
     const existing = bindings.get(providerSessionId)
     if (existing !== undefined) return existing
     const pending = authenticating.get(providerSessionId)
-    if (pending !== undefined) return pending
+    if (pending !== undefined) return pending.promise
+    if (exec?.agent === null
+      || typeof exec?.agent !== 'object'
+      || disposedAgents.has(exec.agent)) {
+      throw new Error('dsh-runtime-kit: managed session agent unavailable')
+    }
+    const controller = new AbortController()
+    const onExecAbort = () => controller.abort(exec.signal?.reason)
+    exec.signal?.addEventListener('abort', onExecAbort, { once: true })
+    if (exec.signal?.aborted) controller.abort(exec.signal.reason)
+    const deadlineAt = Date.now() + client.timeoutMs
+    const deadlineTimer = setTimeout(() => {
+      controller.abort(new Error('dsh-runtime-kit managed session authentication deadline exceeded'))
+    }, client.timeoutMs)
     const authentication = (async () => {
-      if (exec?.agent === null
-        || typeof exec?.agent !== 'object'
-        || disposedAgents.has(exec.agent)) {
-        throw new Error('dsh-runtime-kit: managed session agent unavailable')
-      }
       const candidate = selectCandidateEnvironment(environment)
       const cwd = dshRc7SessionHeader(exec?.agent).cwd
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
@@ -120,14 +227,19 @@ export function applyManagedSessionAuthentication(
         'readiness',
         '--format',
         'json',
-      ], { cwd, signal: exec.signal, env: candidate })
+      ], {
+        cwd,
+        signal: controller.signal,
+        timeoutMs: remainingAuthenticationMs(deadlineAt),
+        env: candidate,
+      })
       if (!result.ok
         || result.envelope.schema_version !== READINESS_ENVELOPE_SCHEMA
         || result.envelope.ok !== true) {
         throw new Error('dsh-runtime-kit: managed session readiness unavailable')
       }
       const readiness = result.envelope.data
-      const trustedHelper = await trustedAgentSessionCli(exec.signal)
+      const trustedHelper = await trustedAgentSessionCli(controller.signal)
       let helperMatches = false
       try {
         helperMatches = trustedHelper !== undefined
@@ -135,7 +247,8 @@ export function applyManagedSessionAuthentication(
       } catch {
         helperMatches = false
       }
-      if (readiness?.schema_version !== READINESS_SCHEMA
+      if (trustedHelper === undefined
+        || readiness?.schema_version !== READINESS_SCHEMA
         || readiness.ready !== true
         || readiness.session_id !== candidate.AGENT_SESSION_ID
         || readiness.session_incarnation !== candidate.AGENT_SESSION_RUNTIME_ID
@@ -148,6 +261,31 @@ export function applyManagedSessionAuthentication(
         || !helperMatches) {
         throw new Error('dsh-runtime-kit: managed session principal invalid')
       }
+      if (closing || controller.signal.aborted || disposedAgents.has(exec.agent)) {
+        throw new Error('dsh-runtime-kit: managed session authentication interrupted')
+      }
+      const baseline = await client.run([
+        trustedHelper,
+        'work-context',
+        'set',
+        '--if-absent',
+        '--intent',
+        BASELINE_INTENT,
+        '--tier',
+        BASELINE_TIER,
+        '--summary',
+        BASELINE_SUMMARY,
+        '--format',
+        'json',
+      ], {
+        cwd,
+        signal: controller.signal,
+        timeoutMs: remainingAuthenticationMs(deadlineAt),
+        env: candidate,
+      })
+      if (!baseline.ok || !validBaselineClaim(baseline.envelope, candidate)) {
+        throw new Error('dsh-runtime-kit: managed session baseline claim unavailable')
+      }
       const principal = Object.freeze({
         sessionId: candidate.AGENT_SESSION_ID,
         environment: candidate,
@@ -156,7 +294,7 @@ export function applyManagedSessionAuthentication(
       if (typeof dispose !== 'function') {
         throw new Error('dsh-runtime-kit: managed session bridge unavailable')
       }
-      if (closing || exec.signal?.aborted || disposedAgents.has(exec.agent)) {
+      if (closing || controller.signal.aborted || disposedAgents.has(exec.agent)) {
         dispose()
         throw new Error('dsh-runtime-kit: managed session authentication interrupted')
       }
@@ -164,11 +302,14 @@ export function applyManagedSessionAuthentication(
       bindings.set(providerSessionId, binding)
       return binding
     })()
-    authenticating.set(providerSessionId, authentication)
+    const record = Object.freeze({ agent: exec.agent, controller, promise: authentication })
+    authenticating.set(providerSessionId, record)
     try {
       return await authentication
     } finally {
-      if (authenticating.get(providerSessionId) === authentication) {
+      clearTimeout(deadlineTimer)
+      exec.signal?.removeEventListener('abort', onExecAbort)
+      if (authenticating.get(providerSessionId) === record) {
         authenticating.delete(providerSessionId)
       }
     }
@@ -184,14 +325,22 @@ export function applyManagedSessionAuthentication(
 
   ctx.effect(() => () => {
     closing = true
-    authenticating.clear()
+    for (const pending of authenticating.values()) {
+      pending.controller.abort(new Error('dsh-runtime-kit managed session authentication disposed'))
+    }
     for (const providerSessionId of [...bindings.keys()]) release(providerSessionId)
   }, 'dsh-runtime-kit managed session authentication')
 
   ctx.on('agent/disposed', ({ agent }) => {
     if (agent !== null && typeof agent === 'object') disposedAgents.add(agent)
     const sessionId = dshRc7SessionHeader(agent).id
-    if (typeof sessionId === 'string') release(sessionId)
+    if (typeof sessionId === 'string') {
+      const pending = authenticating.get(sessionId)
+      if (pending?.agent === agent) {
+        pending.controller.abort(new Error('dsh-runtime-kit managed session agent disposed'))
+      }
+      release(sessionId)
+    }
   })
 
   ctx.on('agent/pre-step', async (payload, next) => {
