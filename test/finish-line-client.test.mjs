@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createNilsFinishLineClient } from '../src/finish-line/nils-client.js'
+import {
+  DshFinishLineTemporaryError,
+  createNilsFinishLineClient,
+} from '../src/finish-line/nils-client.js'
 import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
@@ -103,6 +106,12 @@ function responseFor(action, request, overrides = {}) {
       requirements: [
         { name: 'unit', status: 'missing', attempt_generation: null },
       ],
+      completion_reservation: request.completion_reservation === undefined
+        ? null
+        : {
+            operation_id: request.completion_reservation.operation_id,
+            status: 'reserved',
+          },
     },
     quiesce: {
       schema_version: 'agent-hook.finish-line.quiesce-result.v1',
@@ -130,6 +139,7 @@ function fixture({
   onTerminate = () => {},
   authenticatedNilsExecution,
   resolutionPendingAt,
+  exitCodeFor,
 } = {}) {
   const effects = []
   const spawns = []
@@ -157,8 +167,10 @@ function fixture({
         spawns.push({ spec, request })
         let settle
         const response = () => responder(action, request)
-        const exitCode = ['stop', 'verdict'].includes(action)
-          && response().data.action === 'block' ? 1 : 0
+        const exitCode = exitCodeFor === undefined
+          ? ['stop', 'verdict'].includes(action)
+            && response().data.action === 'block' ? 1 : 0
+          : exitCodeFor(action, response())
         const shouldPend = (pending && action !== 'quiesce')
           || (pendingQuiesce && action === 'quiesce')
         const done = shouldPend
@@ -288,6 +300,88 @@ test('acceptance RPCs preserve strict wire shapes and private admission retries'
       agentHookArgs('finish-line', action, '--format', 'json')
     )),
   )
+})
+
+test('acceptance verdict binds an optional provider-owned completion reservation', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      return responseFor(action, request, action === 'verdict'
+        ? { action: 'allow', aggregate: 'satisfied', reason_codes: [], requirements: [{
+            name: 'unit',
+            status: 'satisfied',
+            attempt_generation: 5,
+          }] }
+        : {})
+    },
+  })
+  const selected = await subject.client.acceptanceVerdict({
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+    contractDigest: digest,
+    completionReservation: 'goal-completion:1',
+  })
+  assert.deepEqual(selected.completionReservation, {
+    operationId: 'goal-completion:1',
+    status: 'reserved',
+  })
+  assert.deepEqual(subject.spawns[0].request.completion_reservation, {
+    operation_id: 'goal-completion:1',
+  })
+})
+
+test('abandoned acceptance admissions do not permanently consume the retry-token bound', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      return responseFor(action, request, action === 'admit'
+        ? { operation_id: 'ambiguous-lost-response' }
+        : {})
+    },
+  })
+  for (let index = 0; index < 257; index += 1) {
+    const request = {
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+      contractDigest: digest,
+      operationId: `acceptance:abandoned-${index}`,
+      operation: {
+        kind: 'mutation',
+        toolName: 'edit',
+        definitionDigest: digest,
+      },
+    }
+    await assert.rejects(subject.client.admitAcceptance(request), /finish-line response invalid/u)
+    subject.client.abandonAcceptance(request)
+  }
+  assert.equal(subject.spawns.length, 257)
+})
+
+test('an authenticated completion reservation is a typed temporary admission denial', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      if (action !== 'admit') return responseFor(action, request)
+      return {
+        schema_version: 'cli.agent-hook.finish-line-admit.v1',
+        ok: false,
+        error: {
+          code: 'finish-line-completion-reserved',
+          message: 'repository completion is reserved',
+        },
+      }
+    },
+    exitCodeFor(action) { return action === 'admit' ? 75 : 0 },
+  })
+  const request = {
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+    contractDigest: digest,
+    operationId: 'acceptance:temporarily-blocked',
+    operation: { kind: 'mutation', toolName: 'edit', definitionDigest: digest },
+  }
+  await assert.rejects(subject.client.admitAcceptance(request), error => (
+    error instanceof DshFinishLineTemporaryError
+      && error.code === 'DSH_FINISH_LINE_TEMPORARY'
+  ))
+  subject.client.abandonAcceptance(request)
 })
 
 test('finish-line resolves a bare agent-hook command before spawning', async () => {

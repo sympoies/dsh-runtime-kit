@@ -43,6 +43,22 @@ const NODE_SIGNALS = new Set([
 const IDENTIFIER = /^[\x21-\x7e]{1,256}$/
 
 /**
+ * A provider-authoritative temporary conflict is a complete response, not an
+ * ambiguous transport failure. Callers may reject the current host operation
+ * without poisoning the session or retrying the same request under the live
+ * repository reservation.
+ */
+export class DshFinishLineTemporaryError extends Error {
+  /** @param {string} providerCode */
+  constructor(providerCode) {
+    super('dsh-runtime-kit: finish-line operation temporarily blocked')
+    this.name = 'DshFinishLineTemporaryError'
+    this.code = 'DSH_FINISH_LINE_TEMPORARY'
+    this.providerCode = providerCode
+  }
+}
+
+/**
  * @typedef ActiveRequest
  * @property {'open' | 'begin' | 'run' | 'stop' | 'release' | 'register' | 'admit' | 'observe' | 'verdict'} action
  * @property {AbortController} controller
@@ -248,6 +264,19 @@ function envelopeData(envelope, schema) {
     throw new Error('dsh-runtime-kit: finish-line response invalid')
   }
   return data
+}
+
+/** @param {unknown} envelope @param {unknown} outcome @param {string} schema */
+function throwTemporaryProviderError(envelope, outcome, schema) {
+  const result = record(outcome)
+  const value = record(envelope)
+  const error = record(value?.error)
+  if (result?.exitCode === 75 && result.signal === null
+    && value?.schema_version === schema && value.ok === false
+    && error?.code === 'finish-line-completion-reserved'
+    && typeof error.message === 'string' && error.message.length > 0) {
+    throw new DshFinishLineTemporaryError('finish-line-completion-reserved')
+  }
 }
 
 /** @param {unknown} value */
@@ -921,6 +950,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         operation,
       }, signal)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        throwTemporaryProviderError(envelope, outcome, 'cli.agent-hook.finish-line-admit.v1')
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-admit.v1')
@@ -946,6 +976,15 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       }
     },
 
+    /** @param {import('./index.js').FinishLineIdentity & {operationId: string}} request */
+    abandonAcceptance(request) {
+      if (!identifier(request.operationId)) return
+      const retryKey = JSON.stringify([
+        request.product, request.sessionId, request.cwd, request.operationId,
+      ])
+      acceptanceRetryTokens.delete(retryKey)
+    },
+
     /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, operationId: string, observation: unknown}} request @param {AbortSignal} [signal] */
     async observeAcceptance(request, signal) {
       if (!identifier(request.runnerCapability) || !identifier(request.operationId)) {
@@ -963,7 +1002,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-observe.v1')
-      const statuses = ['applied', 'stale', 'superseded']
+      const statuses = ['applied', 'stale', 'superseded', 'duplicate']
       const observations = [
         'succeeded', 'failed', 'cancelled', 'timed-out', 'signalled', 'uncertain',
         'infrastructure-blocked',
@@ -986,9 +1025,11 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       }
     },
 
-    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, contractDigest: string}} request @param {AbortSignal} [signal] */
+    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, contractDigest: string, completionReservation?: string}} request @param {AbortSignal} [signal] */
     async acceptanceVerdict(request, signal) {
-      if (!identifier(request.runnerCapability) || !digestIdentifier(request.contractDigest)) {
+      if (!identifier(request.runnerCapability) || !digestIdentifier(request.contractDigest)
+        || (request.completionReservation !== undefined
+          && !identifier(request.completionReservation))) {
         throw new Error('dsh-runtime-kit: finish-line request invalid')
       }
       const { envelope, outcome } = await invoke('verdict', {
@@ -996,6 +1037,9 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         ...identityPayload(request),
         runner_capability: request.runnerCapability,
         contract_digest: request.contractDigest,
+        ...request.completionReservation === undefined
+          ? {}
+          : { completion_reservation: { operation_id: request.completionReservation } },
       }, signal)
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-verdict.v1')
       const statuses = [
@@ -1010,7 +1054,13 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         || !identifier(data.correlation_id)
         || !Array.isArray(data.reason_codes)
         || !data.reason_codes.every(reason => statuses.includes(reason))
-        || !Array.isArray(data.requirements)) {
+        || !Array.isArray(data.requirements)
+        || !(data.completion_reservation === null
+          || (record(data.completion_reservation) !== undefined
+            && identifier(record(data.completion_reservation)?.operation_id)
+            && ['reserved', 'duplicate'].includes(
+              /** @type {string} */ (record(data.completion_reservation)?.status),
+            )))) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       const requirements = data.requirements.map(raw => {
@@ -1032,8 +1082,14 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         }
       })
       const expectedExit = data.action === 'allow' ? 0 : 1
+      const reservation = record(data.completion_reservation)
       if (outcome.exitCode !== expectedExit || outcome.signal !== null
-        || (data.action === 'allow') !== (data.aggregate === 'satisfied')) {
+        || (data.action === 'allow') !== (data.aggregate === 'satisfied')
+        || (request.completionReservation === undefined
+          ? reservation !== undefined
+          : data.action === 'allow'
+            ? reservation?.operation_id !== request.completionReservation
+            : reservation !== undefined)) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       return {
@@ -1044,6 +1100,14 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         correlationId: /** @type {string} */ (data.correlation_id),
         reasonCodes: /** @type {string[]} */ (data.reason_codes),
         requirements,
+        ...reservation === undefined
+          ? {}
+          : {
+              completionReservation: {
+                operationId: /** @type {string} */ (reservation.operation_id),
+                status: /** @type {'reserved' | 'duplicate'} */ (reservation.status),
+              },
+            },
       }
     },
 

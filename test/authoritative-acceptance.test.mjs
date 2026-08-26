@@ -74,7 +74,7 @@ function fixture() {
   ])
   const currentAgents = new Map()
   const effects = []
-  const calls = { register: [], admit: [], observe: [], verdict: [] }
+  const calls = { register: [], admit: [], observe: [], verdict: [], abandon: [] }
   const sources = new Map()
   let currentVerdict = verdict([
     ['package', 'missing', undefined],
@@ -147,8 +147,17 @@ function fixture() {
     },
     async acceptanceVerdict(request) {
       calls.verdict.push(request)
-      return currentVerdict
+      return request.completionReservation === undefined || currentVerdict.action !== 'allow'
+        ? currentVerdict
+        : {
+            ...currentVerdict,
+            completionReservation: {
+              operationId: request.completionReservation,
+              status: 'reserved',
+            },
+          }
     },
+    abandonAcceptance(request) { calls.abandon.push(request) },
   }
   const authority = {
     async withAuthority(owner, turnId, signal, invoke) {
@@ -190,6 +199,7 @@ function fixture() {
     sources,
     calls,
     client,
+    addAgent(selected) { currentAgents.set(selected.id, selected) },
     setVerdict(value) { currentVerdict = value },
   }
 }
@@ -228,6 +238,12 @@ function execution(owner, definition, callId) {
     agent: owner,
     signal: new AbortController().signal,
   }
+}
+
+function deferred() {
+  let resolve
+  const promise = new Promise(settle => { resolve = settle })
+  return { promise, resolve }
 }
 
 const call = exec => ({
@@ -345,14 +361,18 @@ test('the provider owns mutation generations, exact validator observations, and 
   value.coordinator.result(unitExec, { isError: false, content: [], value: 2 })
   await value.coordinator.settle(value.owner)
 
-  assert.doesNotThrow(
+  assert.throws(
     () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError,
   )
   assert.equal(await value.coordinator.turnStopping({
     agent: value.owner,
     turn: 1,
     signal: new AbortController().signal,
   }), true)
+  assert.doesNotThrow(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+  )
   assert.deepEqual(value.calls.register[0].requirements.map(entry => entry.name), ['package', 'unit'])
   assert.deepEqual(
     value.calls.register[0].requirements.map(entry => entry.validators[0].toolName),
@@ -360,6 +380,212 @@ test('the provider owns mutation generations, exact validator observations, and 
     'registration and admission must bind the same exact DSH tool names',
   )
   assert.equal(value.owner.appended.length, 0, 'authority must not write custom rollback-hostile events')
+})
+
+test('a stale refresh cannot restore completion after a newer admission', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+  value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 })
+  await value.coordinator.settle(value.owner)
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+
+  const started = deferred()
+  const release = deferred()
+  const providerVerdict = value.client.acceptanceVerdict
+  let delayed = true
+  value.client.acceptanceVerdict = async request => {
+    if (!delayed) return providerVerdict(request)
+    delayed = false
+    const captured = verdict([
+      ['package', 'satisfied', 0],
+      ['unit', 'satisfied', 0],
+    ], 'satisfied', 0)
+    started.resolve()
+    await release.promise
+    return request.completionReservation === undefined
+      ? captured
+      : {
+          ...captured,
+          completionReservation: {
+            operationId: request.completionReservation,
+            status: 'reserved',
+          },
+        }
+  }
+  const staleStop = value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 2,
+    signal: new AbortController().signal,
+  })
+  await started.promise
+
+  const mutation = execution(value.owner, value.mutation, 'newer-mutation')
+  const mutationAdmission = value.coordinator.admit(mutation, call(mutation))
+  release.resolve()
+  await mutationAdmission
+  assert.equal(await staleStop, false)
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+})
+
+test('goal completion blocks while provider admission is in flight', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const started = deferred()
+  const release = deferred()
+  const providerAdmit = value.client.admitAcceptance
+  value.client.admitAcceptance = async request => {
+    started.resolve()
+    await release.promise
+    return providerAdmit(request)
+  }
+  const exec = execution(value.owner, value.mutation, 'delayed-admission')
+  const admission = value.coordinator.admit(exec, call(exec))
+  await started.promise
+  try {
+    assert.throws(
+      () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+      error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+    )
+  } finally {
+    release.resolve()
+    await admission
+  }
+})
+
+test('an external completion reservation denies one mutation without poisoning its session', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  const originalAdmit = value.client.admitAcceptance
+  let reserved = true
+  value.client.admitAcceptance = async request => {
+    if (reserved) {
+      const error = new Error('temporary provider conflict')
+      error.code = 'DSH_FINISH_LINE_TEMPORARY'
+      throw error
+    }
+    return originalAdmit(request)
+  }
+
+  const blocked = execution(value.owner, value.mutation, 'externally-reserved')
+  await assert.rejects(
+    value.coordinator.admit(blocked, call(blocked)),
+    error => error?.code === 'DSH_FINISH_LINE_TEMPORARY',
+  )
+  assert.equal(value.calls.abandon.length, 1)
+
+  reserved = false
+  const retried = execution(value.owner, value.mutation, 'after-external-reservation')
+  assert.equal((await value.coordinator.admit(retried, call(retried))).kind, 'mutation')
+})
+
+test('a repository mutation invalidates completion reservations in every live session', async () => {
+  const value = fixture()
+  const other = agent('session-2')
+  value.addAgent(other)
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  await value.coordinator.sessionStarted({ agent: other, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const mutation = execution(other, value.mutation, 'cross-session-mutation')
+  await value.coordinator.admit(mutation, {
+    ...call(mutation),
+    sessionId: other.id,
+  })
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+  assert.equal(value.calls.observe.some(entry => (
+    entry.operationId.includes('goal-completion')
+      && entry.observation.status === 'cancelled'
+  )), true)
+})
+
+test('ordinary Bash invalidates a held completion reservation before provider execution', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+  const ordinary = execution(value.owner, value.bash, 'ordinary-bash-mutation')
+  await value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+  value.coordinator.reject(ordinary)
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('coordinator disposal joins and terminalizes an admission already in flight', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  const started = deferred()
+  const release = deferred()
+  const providerAdmit = value.client.admitAcceptance
+  value.client.admitAcceptance = async request => {
+    started.resolve()
+    await release.promise
+    return providerAdmit(request)
+  }
+  const exec = execution(value.owner, value.unit, 'dispose-during-admission')
+  const admission = value.coordinator.admit(exec, call(exec))
+  await started.promise
+  const disposal = value.coordinator.dispose()
+  release.resolve()
+  const [admissionResult, disposalResult] = await Promise.allSettled([admission, disposal])
+  assert.equal(admissionResult.status, 'rejected')
+  assert.equal(disposalResult.status, 'fulfilled')
+  assert.deepEqual(value.calls.observe.at(-1).observation, {
+    kind: 'host-observed',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(value.coordinator.activeOperations, 0)
 })
 
 test('definition replacement, provider failure, and unregistered deployments fail safely', async () => {

@@ -67,22 +67,32 @@ tool body. A non-shell validator is terminalized only from DSH's final
 `tools/result`; a contained Bash validator cites nils' observed execution facts
 instead of a caller-supplied status.
 
-The detached verdict has deterministic `satisfied`, `missing`, `failed`,
+The provider verdict has deterministic `satisfied`, `missing`, `failed`,
 `active`, `uncertain`, or `infrastructure-blocked` requirement states. Only an
 all-`satisfied` verdict allows completion. Runtime-kit retries one ambiguous
 provider transport failure with the exact semantic request; continued failure,
 malformed correlation, cancellation, crash, or unproven quiescence poisons the
 session closed.
 
-`agent/turn-stopping` refreshes this verdict before the older lifecycle policy.
+`agent/turn-stopping` refreshes this verdict and atomically reserves completion
+under nils' repository lock before the older lifecycle policy. The
+reservation blocks structured mutations and ordinary Bash in every session
+and process until the synchronous goal assertion consumes it. Runtime-kit
+invalidates every local session cache before mutation admission, rejects
+out-of-order provider responses, and joins in-flight admissions during
+disposal. A detached all-satisfied read without the exact live reservation is
+never sufficient for goal completion.
+
 When acceptance allows, runtime-kit releases the shared finish-line capability
 without asking the superseded legacy stop evaluator for a contradictory second
 verdict. When it blocks, the agent receives bounded remediation and remains
 active.
 
 The authenticated DSH patch adds one optional synchronous call immediately
-before `GoalService.complete()` mutates goal state. Runtime-kit serves that call
-from its last detached provider verdict. Missing, active, stale, or poisoned
+before `GoalService.complete()` mutates goal state. Runtime-kit consumes the
+exact cached provider reservation in that synchronous call, then terminalizes
+the reservation asynchronously after the DSH mutation stack returns. Missing,
+active, stale, unreserved, or poisoned
 state throws `DshAcceptanceBlockedError` with code `DSH_ACCEPTANCE_BLOCKED`;
 the goal revision and session events remain unchanged.
 

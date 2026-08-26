@@ -45,6 +45,12 @@ function plainRecord(value) {
     : undefined
 }
 
+/** @param {unknown} error */
+function temporaryProviderError(error) {
+  return error !== null && typeof error === 'object'
+    && /** @type {{code?: unknown}} */ (error).code === 'DSH_FINISH_LINE_TEMPORARY'
+}
+
 /**
  * Canonical lossless-JSON encoder with lexical object keys. Tool callbacks are
  * trusted code, not wire identity; the public schema plus execution metadata
@@ -408,6 +414,19 @@ function sanitizeVerdict(input) {
   })
   const names = requirements.map(entry => entry.name)
   const reasonCodes = /** @type {string[]} */ (value.reasonCodes)
+  const rawReservation = value.completionReservation
+  const completionReservation = rawReservation === undefined
+    ? undefined
+    : plainRecord(rawReservation)
+  if (rawReservation !== undefined
+    && (completionReservation === undefined
+      || typeof completionReservation.operationId !== 'string'
+      || !IDENTIFIER.test(completionReservation.operationId)
+      || !['reserved', 'duplicate'].includes(
+        /** @type {string} */ (completionReservation.status),
+      ))) {
+    throw new Error('dsh-runtime-kit: acceptance verdict invalid')
+  }
   if (new Set(names).size !== names.length
     || names.join('\0') !== [...names].sort().join('\0')
     || new Set(reasonCodes).size !== reasonCodes.length
@@ -426,6 +445,14 @@ function sanitizeVerdict(input) {
     contractDigest: /** @type {string} */ (value.contractDigest),
     reasonCodes: Object.freeze([...reasonCodes]),
     requirements: Object.freeze(requirements),
+    ...completionReservation === undefined
+      ? {}
+      : {
+          completionReservation: Object.freeze({
+            operationId: /** @type {string} */ (completionReservation.operationId),
+            status: /** @type {'reserved' | 'duplicate'} */ (completionReservation.status),
+          }),
+        },
   })
 }
 
@@ -450,7 +477,8 @@ function observedStatus(result, abortedCode) {
  *     registerAcceptance(request: any, signal?: AbortSignal): Promise<any>,
  *     admitAcceptance(request: any, signal?: AbortSignal): Promise<any>,
  *     observeAcceptance(request: any, signal?: AbortSignal): Promise<any>,
- *     acceptanceVerdict(request: any, signal?: AbortSignal): Promise<any>
+ *     acceptanceVerdict(request: any, signal?: AbortSignal): Promise<any>,
+ *     abandonAcceptance?(request: any): void
  *   },
  *   authority: {
  *     withAuthority(agent: Agent, turnId: string, signal: AbortSignal, invoke: (authority: any) => Promise<any>): Promise<any>,
@@ -474,6 +502,8 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   const liveStates = new Set()
   /** @type {Map<Readonly<ToolExecution>, OperationState>} */
   const operations = new Map()
+  /** @type {Set<Readonly<ToolExecution>>} */
+  const repositoryMutations = new Set()
   let open = true
 
   /**
@@ -495,6 +525,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       } catch (error) {
         lastError = error
         if (signal.aborted) throw error
+        if (temporaryProviderError(error)) throw error
       }
     }
     throw lastError
@@ -510,6 +541,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
 
   /** @param {SessionState} state @param {unknown} error */
   function poison(state, error) {
+    state.revision += 1
     state.poison = error instanceof Error ? error.message : 'acceptance provider unavailable'
     state.verdict = Object.freeze({
       action: /** @type {const} */ ('block'),
@@ -517,7 +549,20 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       generation: state.verdict?.generation ?? 0,
       contractDigest: state.contractDigest ?? `sha256:${'0'.repeat(64)}`,
       reasonCodes: Object.freeze(['infrastructure-blocked']),
-      requirements: Object.freeze([]),
+      requirements: state.verdict?.requirements ?? Object.freeze([]),
+    })
+  }
+
+  /** @param {SessionState} state */
+  function invalidate(state) {
+    state.revision += 1
+    state.verdict = Object.freeze({
+      action: /** @type {const} */ ('block'),
+      aggregate: 'active',
+      generation: state.verdict?.generation ?? 0,
+      contractDigest: state.contractDigest ?? `sha256:${'0'.repeat(64)}`,
+      reasonCodes: Object.freeze(['active']),
+      requirements: state.verdict?.requirements ?? Object.freeze([]),
     })
   }
 
@@ -530,11 +575,24 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     return task
   }
 
-  /** @param {SessionState} state @param {string} turnId @param {AbortSignal} signal */
-  async function refresh(state, turnId, signal) {
+  /**
+   * @param {SessionState} state
+   * @param {string} turnId
+   * @param {AbortSignal} signal
+   * @param {boolean} [reserveCompletion]
+   */
+  async function refresh(state, turnId, signal, reserveCompletion = false) {
     if (state.contractDigest === undefined) {
       throw new Error('dsh-runtime-kit: acceptance contract unavailable')
     }
+    const revision = state.revision
+    const sequence = ++state.refreshSequence
+    const completionReservation = reserveCompletion
+      ? state.completionReservationId
+        ?? (state.completionReservationId = createOperationId('completion', {
+          id: 'goal-completion',
+        }))
+      : undefined
     const response = await retryProvider(signal, () => options.authority.withAuthority(
       state.agent,
       turnId,
@@ -544,6 +602,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           ...authority.identity,
           runnerCapability: authority.runnerCapability,
           contractDigest: state.contractDigest,
+          ...completionReservation === undefined ? {} : { completionReservation },
         }, signal)
         authority.acceptCorrelation(result.correlationId)
         return result
@@ -559,9 +618,76 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: acceptance verdict requirements changed')
     }
     assertContractBindings(state.agent)
+    if (reserveCompletion && selected.action === 'allow'
+      && selected.completionReservation?.operationId !== completionReservation) {
+      throw new Error('dsh-runtime-kit: acceptance completion reservation invalid')
+    }
+    const stale = !open || state.disposed || revision !== state.revision
+      || sequence < state.appliedRefreshSequence
+      || (state.verdict !== undefined && selected.generation < state.verdict.generation)
+    if (stale) {
+      if (selected.completionReservation !== undefined) {
+        await releaseCompletion(
+          state,
+          turnId,
+          new AbortController().signal,
+          selected.completionReservation.operationId,
+          'cancelled',
+        )
+      }
+      return state.verdict ?? selected
+    }
+    state.appliedRefreshSequence = sequence
     state.verdict = selected
+    state.completionReservationActive = selected.completionReservation !== undefined
     state.poison = undefined
     return selected
+  }
+
+  /**
+   * @param {SessionState} state
+   * @param {string} turnId
+   * @param {AbortSignal} signal
+   * @param {string} operationId
+   * @param {string} status
+   */
+  async function releaseCompletion(state, turnId, signal, operationId, status) {
+    await retryProvider(signal, () => options.authority.withAuthority(
+      state.agent,
+      turnId,
+      signal,
+      async authority => {
+        const response = await options.client.observeAcceptance({
+          ...authority.identity,
+          runnerCapability: authority.runnerCapability,
+          operationId,
+          observation: { kind: 'host-observed', status },
+        }, signal)
+        authority.acceptCorrelation(response.correlationId)
+        if (!['applied', 'stale', 'superseded', 'duplicate'].includes(response.status)
+          || response.operationId !== operationId || response.observation !== status) {
+          throw new Error('dsh-runtime-kit: acceptance completion release invalid')
+        }
+      },
+    ))
+    if (state.completionReservationId === operationId) {
+      state.completionReservationId = undefined
+      state.completionReservationActive = false
+    }
+  }
+
+  /**
+   * @param {SessionState} state
+   * @param {string} turnId
+   * @param {AbortSignal} signal
+   * @param {boolean} [reserveCompletion]
+   */
+  function runRefresh(state, turnId, signal, reserveCompletion = false) {
+    const task = refresh(state, turnId, signal, reserveCompletion).finally(() => {
+      state.refreshes.delete(task)
+    })
+    state.refreshes.add(task)
+    return task
   }
 
   /** @param {SessionState} state @param {AbortSignal} signal */
@@ -588,7 +714,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: acceptance registration response invalid')
     }
     state.contractDigest = response.contractDigest
-    await refresh(state, 'acceptance-register', signal)
+    await runRefresh(state, 'acceptance-register', signal)
   }
 
   /** @param {Agent} agent */
@@ -608,6 +734,14 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       poison: undefined,
       registration: undefined,
       pending: new Set(),
+      admissions: new Set(),
+      refreshes: new Set(),
+      revision: 0,
+      refreshSequence: 0,
+      appliedRefreshSequence: 0,
+      activeOperations: 0,
+      completionReservationId: undefined,
+      completionReservationActive: false,
       disposed: false,
     }
     sessions.set(agent.session, state)
@@ -699,7 +833,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           observation,
         }, signal)
         authority.acceptCorrelation(response.correlationId)
-        if (!['applied', 'stale', 'superseded'].includes(response.status)
+        if (!['applied', 'stale', 'superseded', 'duplicate'].includes(response.status)
           || response.operationId !== operation.operationId
           || (observation.kind === 'host-observed'
             && response.observation !== observation.status)) {
@@ -707,7 +841,45 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         }
       },
     ))
-    await refresh(state, String(operation.call.turn), signal)
+    await runRefresh(state, String(operation.call.turn), signal)
+  }
+
+  /**
+   * Invalidate every local detached cache before a repository-changing tool
+   * can await provider admission. Any completion reservation already held by
+   * this runtime is terminalized first; reservations held by another process
+   * remain provider-owned blockers.
+   * @param {Readonly<ToolExecution>} exec
+   * @param {{turn: number}} call
+   */
+  async function prepareRepositoryMutation(exec, call) {
+    if (contract === undefined || repositoryMutations.has(exec)) return
+    repositoryMutations.add(exec)
+    const states = [...liveStates]
+    for (const state of states) invalidate(state)
+    const refreshing = states.flatMap(state => [...state.refreshes])
+    const settled = await Promise.allSettled(refreshing)
+    if (settled.some(result => result.status === 'rejected')) {
+      throw new Error('dsh-runtime-kit: acceptance refresh did not quiesce')
+    }
+    for (const state of states) {
+      if (!state.completionReservationActive || state.completionReservationId === undefined) {
+        state.completionReservationId = undefined
+        continue
+      }
+      try {
+        await releaseCompletion(
+          state,
+          String(call.turn),
+          new AbortController().signal,
+          state.completionReservationId,
+          'cancelled',
+        )
+      } catch (error) {
+        poison(state, error)
+        throw error
+      }
+    }
   }
 
   const service = Object.freeze({
@@ -772,12 +944,28 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         if (state !== undefined) poison(state, error)
       }
       const selected = state?.verdict
-      if (selected?.action !== 'allow') {
+      if (state === undefined || state.disposed || state.poison !== undefined
+        || state.admissions.size > 0 || state.activeOperations > 0
+        || state.pending.size > 0 || repositoryMutations.size > 0
+        || selected?.action !== 'allow'
+        || selected.completionReservation === undefined
+        || !state.completionReservationActive) {
         throw new DshAcceptanceBlockedError(
           selected?.aggregate ?? 'infrastructure-blocked',
           selected?.reasonCodes ?? ['infrastructure-blocked'],
         )
       }
+      const operationId = selected.completionReservation.operationId
+      invalidate(state)
+      queueMicrotask(() => {
+        track(state, releaseCompletion(
+          state,
+          'goal-completion',
+          new AbortController().signal,
+          operationId,
+          'succeeded',
+        ))
+      })
     },
   })
   ctx.provide('dshAcceptance', service)
@@ -792,6 +980,12 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     async sessionStarted(payload) {
       if (contract === undefined) return
       await ensureRegistered(payload.agent)
+    },
+
+    /** @param {Readonly<ToolExecution>} exec @param {{turn: number}} call */
+    async repositoryMutationStarting(exec, call) {
+      if (!open || contract === undefined) return
+      await prepareRepositoryMutation(exec, call)
     },
 
     /**
@@ -816,6 +1010,20 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (state === undefined || state.contractDigest === undefined) {
         throw new Error('dsh-runtime-kit: acceptance contract unavailable')
       }
+      const contractDigest = state.contractDigest
+      if (binding.kind === 'mutation') {
+        await prepareRepositoryMutation(exec, call)
+      } else if (state.completionReservationActive
+        && state.completionReservationId !== undefined) {
+        await releaseCompletion(
+          state,
+          String(call.turn),
+          exec.signal,
+          state.completionReservationId,
+          'cancelled',
+        )
+      }
+      invalidate(state)
       const operationId = createOperationId(binding.kind, binding)
       identifier(operationId, 'operation id')
       const sourceOperationId = binding.kind === 'validator'
@@ -836,52 +1044,88 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
             definitionDigest: binding.digest,
             ...sourceOperationId === undefined ? {} : { sourceOperationId },
           }
-      const response = await retryProvider(exec.signal, () => options.authority.withAuthority(
-        agent,
-        String(call.turn),
-        exec.signal,
-        async authority => {
-          const result = await options.client.admitAcceptance({
-            ...authority.identity,
-            runnerCapability: authority.runnerCapability,
-            contractDigest: state.contractDigest,
+      const admission = (async () => {
+        let response
+        try {
+          response = await retryProvider(exec.signal, () => options.authority.withAuthority(
+            agent,
+            String(call.turn),
+            exec.signal,
+            async authority => {
+              const result = await options.client.admitAcceptance({
+                ...authority.identity,
+                runnerCapability: authority.runnerCapability,
+                contractDigest,
+                operationId,
+                operation,
+              }, exec.signal)
+              authority.acceptCorrelation(result.correlationId)
+              return result
+            },
+          ))
+          if (!['admitted', 'duplicate'].includes(response.status)
+            || response.operationId !== operationId
+            || response.operationKind !== binding.kind
+            || response.contractDigest !== contractDigest
+            || !Number.isSafeInteger(response.generation) || response.generation < 0) {
+            throw new Error('dsh-runtime-kit: acceptance admission response invalid')
+          }
+        } catch (error) {
+          options.client.abandonAcceptance?.({
+            product: 'dsh',
+            sessionId: agent.id,
+            turnId: String(call.turn),
+            cwd: call.cwd,
             operationId,
-            operation,
-          }, exec.signal)
-          authority.acceptCorrelation(result.correlationId)
-          return result
-        },
-      ))
-      if (!['admitted', 'duplicate'].includes(response.status)
-        || response.operationId !== operationId
-        || response.operationKind !== binding.kind
-        || response.contractDigest !== state.contractDigest
-        || !Number.isSafeInteger(response.generation) || response.generation < 0) {
-        throw new Error('dsh-runtime-kit: acceptance admission response invalid')
+          })
+          if (!exec.signal.aborted && !temporaryProviderError(error)) {
+            poison(state, error)
+          }
+          throw error
+        }
+        /** @type {OperationState} */
+        const record = { exec, state, binding, operationId, sourceOperationId, call }
+        if (!open || state.disposed) {
+          await observe(record, {
+            kind: /** @type {const} */ ('host-observed'),
+            status: 'infrastructure-blocked',
+          })
+          throw new Error('dsh-runtime-kit: acceptance session disposed')
+        }
+        state.verdict = Object.freeze({
+          action: /** @type {const} */ ('block'),
+          aggregate: 'active',
+          generation: Math.max(state.verdict?.generation ?? 0, response.generation),
+          contractDigest,
+          reasonCodes: Object.freeze(['active']),
+          requirements: state.verdict?.requirements ?? Object.freeze([]),
+        })
+        operations.set(exec, record)
+        state.activeOperations += 1
+        return Object.freeze({
+          kind: binding.kind,
+          replacesLegacyEdit: binding.kind === 'mutation',
+          ...sourceOperationId === undefined ? {} : { sourceOperationId },
+        })
+      })()
+      state.admissions.add(admission)
+      try {
+        return await admission
+      } catch (error) {
+        repositoryMutations.delete(exec)
+        throw error
+      } finally {
+        state.admissions.delete(admission)
       }
-      state.verdict = Object.freeze({
-        action: /** @type {const} */ ('block'),
-        aggregate: 'active',
-        generation: response.generation,
-        contractDigest: state.contractDigest,
-        reasonCodes: Object.freeze(['active']),
-        requirements: state.verdict?.requirements ?? Object.freeze([]),
-      })
-      /** @type {OperationState} */
-      const record = { exec, state, binding, operationId, sourceOperationId, call }
-      operations.set(exec, record)
-      return Object.freeze({
-        kind: binding.kind,
-        replacesLegacyEdit: binding.kind === 'mutation',
-        ...sourceOperationId === undefined ? {} : { sourceOperationId },
-      })
     },
 
     /** @param {Readonly<ToolExecution>} exec @param {ToolExecutionResult} result */
     result(exec, result) {
+      repositoryMutations.delete(exec)
       const operation = operations.get(exec)
       if (operation === undefined) return
       operations.delete(exec)
+      operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
       let bindingChanged = false
       try { assertContractBindings(operation.state.agent) } catch { bindingChanged = true }
       const observation = bindingChanged
@@ -895,9 +1139,11 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
 
     /** @param {Readonly<ToolExecution>} exec @param {string} [status] */
     reject(exec, status = 'cancelled') {
+      repositoryMutations.delete(exec)
       const operation = operations.get(exec)
       if (operation === undefined) return
       operations.delete(exec)
+      operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
       track(operation.state, observe(operation, {
         kind: /** @type {const} */ ('host-observed'),
         status,
@@ -910,7 +1156,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       const state = sessions.get(agent.session)
       if (state === undefined) return
       for (;;) {
-        const pending = [...state.pending]
+        const pending = [...state.pending, ...state.admissions, ...state.refreshes]
         if (pending.length === 0) return
         await Promise.allSettled(pending)
       }
@@ -934,14 +1180,27 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       }
       if (state === undefined) return true
       await coordinator.settle(payload.agent)
+      if (repositoryMutations.size > 0) {
+        if (!payload.signal.aborted) {
+          payload.agent.steer(createSteeringMessage(
+            'Authoritative acceptance blocked completion: active. Wait for repository mutations to terminalize and retry.',
+          ))
+        }
+        return false
+      }
+      if (state.verdict?.action === 'allow'
+        && state.verdict.completionReservation !== undefined
+        && state.completionReservationActive) return true
       let selected
       try {
-        selected = await refresh(state, String(payload.turn), payload.signal)
+        selected = await runRefresh(state, String(payload.turn), payload.signal, true)
       } catch (error) {
         poison(state, error)
         selected = state.verdict
       }
-      if (selected?.action === 'allow') return true
+      if (selected?.action === 'allow'
+        && selected.completionReservation !== undefined
+        && state.completionReservationActive) return true
       if (!payload.signal.aborted) {
         const details = selected?.reasonCodes.join(', ') || 'infrastructure-blocked'
         payload.agent.steer(createSteeringMessage(
@@ -955,35 +1214,55 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     async agentDisposed(agent) {
       const state = sessions.get(agent.session)
       if (state === undefined) return
+      state.disposed = true
+      invalidate(state)
       for (const [exec, operation] of operations) {
         if (operation.state !== state) continue
         operations.delete(exec)
+        repositoryMutations.delete(exec)
+        state.activeOperations = Math.max(0, state.activeOperations - 1)
         track(state, observe(operation, {
           kind: /** @type {const} */ ('host-observed'),
           status: 'infrastructure-blocked',
         }))
       }
       await coordinator.settle(agent)
-      state.disposed = true
       liveStates.delete(state)
     },
 
     async dispose() {
       if (!open) return
       open = false
+      for (const state of liveStates) {
+        state.disposed = true
+        invalidate(state)
+      }
       for (const [exec, operation] of operations) {
         operations.delete(exec)
+        repositoryMutations.delete(exec)
+        operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
         track(operation.state, observe(operation, {
           kind: /** @type {const} */ ('host-observed'),
           status: 'infrastructure-blocked',
         }))
       }
-      await Promise.allSettled([...liveStates].flatMap(state => [...state.pending]))
+      await Promise.allSettled([...liveStates].flatMap(state => [
+        ...state.pending,
+        ...state.admissions,
+        ...state.refreshes,
+      ]))
+      repositoryMutations.clear()
       liveStates.clear()
       sessions = new WeakMap()
     },
 
-    get activeOperations() { return operations.size },
+    get activeOperations() {
+      let untrackedRepositoryMutations = 0
+      for (const exec of repositoryMutations) {
+        if (!operations.has(exec)) untrackedRepositoryMutations += 1
+      }
+      return operations.size + untrackedRepositoryMutations
+    },
   })
 
   ctx.effect(() => () => coordinator.dispose(), 'dsh-runtime-kit authoritative acceptance')
@@ -999,6 +1278,14 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
  * @property {string | undefined} poison
  * @property {Promise<void> | undefined} registration
  * @property {Set<Promise<unknown>>} pending
+ * @property {Set<Promise<unknown>>} admissions
+ * @property {Set<Promise<unknown>>} refreshes
+ * @property {number} revision
+ * @property {number} refreshSequence
+ * @property {number} appliedRefreshSequence
+ * @property {number} activeOperations
+ * @property {string | undefined} completionReservationId
+ * @property {boolean} completionReservationActive
  * @property {boolean} disposed
  */
 

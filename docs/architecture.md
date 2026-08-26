@@ -402,9 +402,11 @@ Contained Bash validators are selected from the exact probe reservation;
 ordinary Bash keeps the finish-line path above and advances the shared nils
 generation without producing evidence. Non-shell mutations advance generation
 before their body, while non-shell validators terminalize only from the final
-DSH result. Turn stop refreshes a detached verdict, and the authenticated
-`native-execution-boundaries-v2` patch consults the same cached verdict
-synchronously before GoalService completion state changes.
+DSH result. Turn stop asks nils to reserve an all-satisfied verdict under the
+repository lock. The authenticated `native-execution-boundaries-v2` patch
+consumes that exact cached reservation synchronously before GoalService
+completion state changes; a detached verdict without a live reservation is
+diagnostic only.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

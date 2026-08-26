@@ -678,6 +678,14 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     } catch {
       return rememberDenial(denial('acceptance-unavailable').reason)
     }
+    if (finishProbe.kind === 'ordinary' && exec.agent !== undefined
+      && acceptance.governs(exec.agent)) {
+      try {
+        await acceptance.repositoryMutationStarting(exec, correlation.context)
+      } catch {
+        return rememberDenial(denial('acceptance-unavailable').reason)
+      }
+    }
     if (acceptanceReservation.kind !== 'mutation') {
       const finishReservation = await finishLine.begin(exec, correlation.context)
       if (!finishReservation.ok) {
