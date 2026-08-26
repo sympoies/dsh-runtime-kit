@@ -507,6 +507,29 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   let open = true
 
   /**
+   * Preserve nils' exact contained source on every lifecycle path. Natural
+   * contained results carry no caller status so nils derives execution facts;
+   * host denial, drift, and disposal can only degrade them to the one explicit
+   * fail-closed terminal the provider accepts.
+   * @param {OperationState} operation
+   * @param {string | undefined} status
+   */
+  function operationObservation(operation, status) {
+    if (operation.binding.kind === 'validator'
+      && operation.binding.execution.kind === 'contained-bash') {
+      return {
+        kind: /** @type {const} */ ('contained-bash'),
+        operationId: operation.sourceOperationId,
+        ...status === undefined ? {} : { status: 'infrastructure-blocked' },
+      }
+    }
+    if (status === undefined) {
+      throw new Error('dsh-runtime-kit: host-observed acceptance status unavailable')
+    }
+    return { kind: /** @type {const} */ ('host-observed'), status }
+  }
+
+  /**
    * Retry one ambiguous provider transport failure with the exact semantic
    * request. Admission keeps its private attempt token inside the client;
    * register, observe, and verdict are provider-idempotent at their own keys.
@@ -537,6 +560,24 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       || typeof agent.session.header.cwd !== 'string') {
       throw new Error('dsh-runtime-kit: acceptance agent identity invalid')
     }
+  }
+
+  /** @param {Agent} agent */
+  async function awaitPublication(agent) {
+    if (agent.session?.header?.id !== agent.id
+      || typeof agent.session.header.cwd !== 'string') {
+      throw new Error('dsh-runtime-kit: acceptance agent identity invalid')
+    }
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (!open) throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
+      const published = ctx.agents.get(agent.id)
+      if (published === agent) return
+      if (published !== undefined) {
+        throw new Error('dsh-runtime-kit: acceptance agent identity invalid')
+      }
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    throw new Error('dsh-runtime-kit: acceptance agent publication unavailable')
   }
 
   /** @param {SessionState} state @param {unknown} error */
@@ -722,6 +763,12 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     assertLive(agent)
     let state = sessions.get(agent.session)
     if (state !== undefined) {
+      if (state.disposed && state.agent !== agent) {
+        sessions.delete(agent.session)
+        state = undefined
+      }
+    }
+    if (state !== undefined) {
       if (state.agent !== agent) throw new Error('dsh-runtime-kit: acceptance session rebound')
       if (state.disposed) throw new Error('dsh-runtime-kit: acceptance session disposed')
       return state
@@ -817,7 +864,8 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   /** @param {OperationState} operation @param {any} observation */
   async function observe(operation, observation) {
     const state = operation.state
-    if (state.disposed && observation.kind !== 'host-observed') {
+    if (state.disposed && observation.kind !== 'host-observed'
+      && observation.status !== 'infrastructure-blocked') {
       throw new Error('dsh-runtime-kit: acceptance session disposed')
     }
     const signal = new AbortController().signal
@@ -835,7 +883,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         authority.acceptCorrelation(response.correlationId)
         if (!['applied', 'stale', 'superseded', 'duplicate'].includes(response.status)
           || response.operationId !== operation.operationId
-          || (observation.kind === 'host-observed'
+          || (observation.status !== undefined
             && response.observation !== observation.status)) {
           throw new Error('dsh-runtime-kit: acceptance observation response invalid')
         }
@@ -912,11 +960,16 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           }
         } catch {}
       }
-      let disposed = false
+      let registrationDisposed = false
       return () => {
-        if (disposed) return
-        disposed = true
-        if (contract === selected && liveStates.size === 0) contract = undefined
+        if (registrationDisposed) return
+        registrationDisposed = true
+        // Registration is process-lifetime immutable. A provider fiber may be
+        // torn down after the last live Agent and before that session resumes;
+        // withdrawing the contract there would silently turn governed DSH into
+        // an ungoverned deployment. Tool/service withdrawal is instead caught
+        // by binding authentication, while coordinator disposal closes the
+        // entire runtime boundary.
       }
     },
 
@@ -925,12 +978,18 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (contract === undefined) return undefined
       assertLive(agent)
       const state = sessions.get(agent.session)
+      if (state === undefined) {
+        throw new Error('dsh-runtime-kit: acceptance session unavailable')
+      }
+      if (state.verdict === undefined) {
+        throw new Error('dsh-runtime-kit: acceptance verdict unavailable')
+      }
       try {
         assertContractBindings(agent)
       } catch (error) {
         if (state !== undefined) poison(state, error)
       }
-      return state?.verdict
+      return state.verdict
     },
 
     /** @param {Agent} agent @param {unknown} _ref */
@@ -979,6 +1038,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     /** @param {{agent: Agent, source: unknown}} payload */
     async sessionStarted(payload) {
       if (contract === undefined) return
+      await awaitPublication(payload.agent)
       await ensureRegistered(payload.agent)
     },
 
@@ -1086,10 +1146,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         /** @type {OperationState} */
         const record = { exec, state, binding, operationId, sourceOperationId, call }
         if (!open || state.disposed) {
-          await observe(record, {
-            kind: /** @type {const} */ ('host-observed'),
-            status: 'infrastructure-blocked',
-          })
+          await observe(record, operationObservation(record, 'infrastructure-blocked'))
           throw new Error('dsh-runtime-kit: acceptance session disposed')
         }
         state.verdict = Object.freeze({
@@ -1128,12 +1185,12 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
       let bindingChanged = false
       try { assertContractBindings(operation.state.agent) } catch { bindingChanged = true }
-      const observation = bindingChanged
-        ? { kind: /** @type {const} */ ('host-observed'), status: 'infrastructure-blocked' }
+      const observation = bindingChanged || operation.state.disposed || !open
+        ? operationObservation(operation, 'infrastructure-blocked')
         : operation.binding.kind === 'validator'
           && operation.binding.execution.kind === 'contained-bash'
-          ? { kind: /** @type {const} */ ('contained-bash'), operationId: operation.sourceOperationId }
-          : { kind: /** @type {const} */ ('host-observed'), status: observedStatus(result, abortedCode) }
+          ? operationObservation(operation, undefined)
+          : operationObservation(operation, observedStatus(result, abortedCode))
       track(operation.state, observe(operation, observation))
     },
 
@@ -1144,10 +1201,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (operation === undefined) return
       operations.delete(exec)
       operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
-      track(operation.state, observe(operation, {
-        kind: /** @type {const} */ ('host-observed'),
-        status,
-      }))
+      track(operation.state, observe(operation, operationObservation(operation, status)))
     },
 
     /** @param {Agent} agent */
@@ -1221,10 +1275,10 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         operations.delete(exec)
         repositoryMutations.delete(exec)
         state.activeOperations = Math.max(0, state.activeOperations - 1)
-        track(state, observe(operation, {
-          kind: /** @type {const} */ ('host-observed'),
-          status: 'infrastructure-blocked',
-        }))
+        track(state, observe(
+          operation,
+          operationObservation(operation, 'infrastructure-blocked'),
+        ))
       }
       await coordinator.settle(agent)
       liveStates.delete(state)
@@ -1241,10 +1295,10 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         operations.delete(exec)
         repositoryMutations.delete(exec)
         operation.state.activeOperations = Math.max(0, operation.state.activeOperations - 1)
-        track(operation.state, observe(operation, {
-          kind: /** @type {const} */ ('host-observed'),
-          status: 'infrastructure-blocked',
-        }))
+        track(operation.state, observe(
+          operation,
+          operationObservation(operation, 'infrastructure-blocked'),
+        ))
       }
       await Promise.allSettled([...liveStates].flatMap(state => [
         ...state.pending,

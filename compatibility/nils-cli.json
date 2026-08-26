@@ -52,30 +52,30 @@
     "feature": "authoritative-finish-line-acceptance",
     "status": "reviewed-source-candidate",
     "pull_request": "https://github.com/sympoies/nils-cli/pull/1507",
-    "source_commit": "387c214fc861d0b6c3aee57cf1516319dcccbd2e",
-    "source_parent": "c5c1e3018932ac3fba7e33e2cba055aeb9fd15eb",
-    "source_tree": "630efc153c2ac26cfd5b16bf811881d6bfac1a16",
-    "merge_base": "7662a44aae2ffc362fe41e7606a1106e21e70cdf",
+    "source_commit": "844d64657030c53131b252f12199f830264ec93a",
+    "source_parent": "c1ea1b6a047152d6331f864a98d31d0c5ee74558",
+    "source_tree": "605bb9edd78b90361408aaff8dee013f490e17cd",
+    "merge_base": "d3a80a13cd6d66d51104e4d1a26cc152e6ec064e",
     "version": "1.27.12",
     "platform": "x86_64-unknown-linux-gnu",
     "artifacts": {
       "agent-hook": {
-        "sha256": "9f2e631672da34922e7fb253158d41be8dac35f4d1059fabb79baa568e871122"
+        "sha256": "e0a2a26e69728ad55ac6238ce3ba143e98aed9563c1d1d3798cc2964a03dfa10"
       },
       "agent-docs": {
-        "sha256": "96318770890e583d537b5fba150b65e1dc843a32b8886a979bf3554f30b89f79"
+        "sha256": "6d532155ee295683966e6461498f9aa4a062825f3ea6d5007b8eb0c0d6240e68"
       },
       "forge-cli": {
-        "sha256": "5f4a9a19d88afb3b921675dd7045696622a30dbbe483614fd0146b87a81c106c"
+        "sha256": "28325f7c1e7915550e858017ccbe25a971a02e83fb8e3033b76e90e30fa72af6"
       },
       "git-cli": {
-        "sha256": "f6534a8306d638839fd992c93fad7a5ee5a7a29cb2a673359247cf5cdff2388e"
+        "sha256": "f8a4a720684e6334c1c194467a1b874d66d69405518af975de53a31cb8c3d14b"
       },
       "review-specialists": {
-        "sha256": "ce9f8558b2a5242ddfa06f28de9e803d2cad5a8781daabda32ec427024e79f6a"
+        "sha256": "449b793f1b57649add64694e03cd63b9eaaeef295ccef1f2f964473d66b94612"
       },
       "semantic-commit": {
-        "sha256": "4236319410f0549bd5f3659f6cb6daa892a8abba38eaa0161b24c88b19d80845"
+        "sha256": "067cd24102045ee9594fa88f084f49814d4bff10b26f29fd598d7618b806a9b1"
       }
     },
     "validation": "exact-reviewed-source",
@@ -93,6 +93,37 @@
       "cli.agent-hook.finish-line-verdict.v1",
       "agent-hook.finish-line.verdict-result.v1"
     ]
+  },
+  "rollback_validation": {
+    "runtime_package_sha256": "1cdb239378d5113bcf0634392d63bcefd4bb11be33bb04bd30049b299f858f7a",
+    "version": "1.27.9",
+    "source_revision": "v1.27.9",
+    "source_commit": "9458a5e274e4a683eac4d285135061c2fc35aeae",
+    "platform": "x86_64-unknown-linux-gnu",
+    "archive": {
+      "name": "nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b"
+    },
+    "artifacts": {
+      "agent-hook": {
+        "sha256": "1eaee0c0d6dd55822f20cfc6314afa866d8381b17c16711e55fa1052222c80f0"
+      },
+      "agent-docs": {
+        "sha256": "b30cbdd920c2c8e564ea25ad46a755d5545adb1d604c8e9df011604c97c74288"
+      },
+      "forge-cli": {
+        "sha256": "cf1505392fe68939e0d7944163e99fbaa64ebf0970a8d4885224697517b2eebb"
+      },
+      "git-cli": {
+        "sha256": "7b161e9ee388578e33ef9c62279ac4e0d7190f32301dd89b8d59f70ba779175e"
+      },
+      "review-specialists": {
+        "sha256": "8a664f167ec8ab01496d6c7b782618c6ec6ff95c4de4286896b35e4232122edb"
+      },
+      "semantic-commit": {
+        "sha256": "f1f9ad4ad3d3e4b040e8250291d7052791b0d81dae058f4b3e1fb3cffaf9f7b8"
+      }
+    }
   },
   "commands": [
     {

@@ -44,6 +44,7 @@ const sourceProjectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI_SCHEMA = 'dsh-runtime-kit.acceptance-cli.v1'
 const MAX_OUTPUT = 64 * 1024 * 1024
 const SCENARIO_TIMEOUT_MS = 5 * 60 * 1000
+const AUTHORITATIVE_SCENARIO_TIMEOUT_MS = 15 * 60 * 1000
 const DEFAULT_GIT = '/usr/bin/git'
 const DEFAULT_TAR = '/usr/bin/tar'
 const DEFAULT_SYSTEMD_RUN = '/usr/bin/systemd-run'
@@ -105,6 +106,10 @@ function parseCli() {
         'run-id': { type: 'string' },
         'package-tarball': { type: 'string' },
         'package-sha256': { type: 'string' },
+        'baseline-package-tarball': { type: 'string' },
+        'baseline-package-sha256': { type: 'string' },
+        'baseline-nils-bin-dir': { type: 'string' },
+        'baseline-nils-source-commit': { type: 'string' },
         output: { type: 'string' },
         'allow-source-nils': { type: 'boolean', default: false },
         'acknowledge-trusted-code': { type: 'boolean', default: false },
@@ -134,9 +139,19 @@ function parseCli() {
     ...required,
     parsed.values.output,
     parsed.values['package-tarball'],
+    parsed.values['baseline-package-tarball'],
+    parsed.values['baseline-nils-bin-dir'],
   ].filter(value => value !== undefined)
   const hasPackageTarball = parsed.values['package-tarball'] !== undefined
   const hasPackageSha256 = parsed.values['package-sha256'] !== undefined
+  const baselineValues = [
+    parsed.values['baseline-package-tarball'],
+    parsed.values['baseline-package-sha256'],
+    parsed.values['baseline-nils-bin-dir'],
+    parsed.values['baseline-nils-source-commit'],
+  ]
+  const hasAnyBaseline = baselineValues.some(value => value !== undefined)
+  const hasCompleteBaseline = baselineValues.every(value => value !== undefined)
   const nilsSourceCommit = parsed.values['nils-source-commit']
   const nilsArchiveName = parsed.values['nils-archive-name']
   const nilsArchiveSha256 = parsed.values['nils-archive-sha256']
@@ -145,6 +160,7 @@ function parseCli() {
     || (parsed.values['run-id'] !== undefined
       && !RUN_ID.test(parsed.values['run-id']))
     || hasPackageTarball !== hasPackageSha256
+    || hasAnyBaseline !== hasCompleteBaseline
     || typeof nilsSourceCommit !== 'string'
     || !/^[0-9a-f]{40,64}$/u.test(nilsSourceCommit)
     || typeof nilsArchiveName !== 'string'
@@ -152,7 +168,10 @@ function parseCli() {
     || typeof nilsArchiveSha256 !== 'string'
     || !/^[0-9a-f]{64}$/u.test(nilsArchiveSha256)
     || (hasPackageSha256
-      && !/^[0-9a-f]{64}$/u.test(parsed.values['package-sha256']))) {
+      && !/^[0-9a-f]{64}$/u.test(parsed.values['package-sha256']))
+    || (hasCompleteBaseline
+      && (!/^[0-9a-f]{64}$/u.test(parsed.values['baseline-package-sha256'])
+        || !/^[0-9a-f]{40,64}$/u.test(parsed.values['baseline-nils-source-commit'])))) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
       'acceptance executable and source paths must be absolute',
@@ -177,6 +196,10 @@ function parseCli() {
     runId: parsed.values['run-id'],
     packageTarball: parsed.values['package-tarball'],
     packageSha256: parsed.values['package-sha256'],
+    baselinePackageTarball: parsed.values['baseline-package-tarball'],
+    baselinePackageSha256: parsed.values['baseline-package-sha256'],
+    baselineNilsBinDir: parsed.values['baseline-nils-bin-dir'],
+    baselineNilsSourceCommit: parsed.values['baseline-nils-source-commit'],
     output: parsed.values.output,
     allowSourceNils: parsed.values['allow-source-nils'] === true,
     acknowledgeTrustedCode: parsed.values['acknowledge-trusted-code'] === true,
@@ -245,6 +268,38 @@ async function trustedRegularFile(path, label) {
     path: canonical,
     sha256: await digest(canonical),
   })
+}
+
+/** @param {string} path */
+async function trustedNilsBinDirectory(path) {
+  let canonical
+  let info
+  try {
+    canonical = await realpath(path)
+    info = await stat(canonical)
+  } catch {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
+      'baseline nils binary directory is unavailable',
+    )
+  }
+  const trustedOwner = typeof process.getuid !== 'function'
+    || info.uid === 0
+    || info.uid === process.getuid()
+  if (!info.isDirectory() || !trustedOwner || (info.mode & 0o022) !== 0) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
+      'baseline nils binary directory is not trusted',
+    )
+  }
+  return Object.freeze(Object.fromEntries(await Promise.all([
+    'agent-hook',
+    'agent-docs',
+    'forge-cli',
+    'git-cli',
+    'review-specialists',
+    'semantic-commit',
+  ].map(async name => [name, await trustedExecutable(resolve(canonical, name), `baseline ${name}`)]))))
 }
 
 /** @param {string} path @param {string} label */
@@ -548,10 +603,12 @@ async function prepareRuntimeLeg(root, artifact, tarballSha256, tools, env) {
  * @param {Record<string,string>} env
  * @param {string} label
  * @param {{path:string,sha256:string}} systemdRun
+ * @param {{timeout?:number}} [options]
  */
-async function runScenario(script, env, label, systemdRun) {
+async function runScenario(script, env, label, systemdRun, options = {}) {
   const before = await digest(script)
   const unit = 'dsh-runtime-kit-acceptance-' + randomUUID()
+  const timeout = options.timeout ?? SCENARIO_TIMEOUT_MS
   const scenarioEnvironment = Object.entries(env)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => name + '=' + value)
@@ -573,7 +630,7 @@ async function runScenario(script, env, label, systemdRun) {
     '--unit=' + unit,
     '--property=KillMode=control-group',
     '--property=TimeoutStopSec=5s',
-    '--property=RuntimeMaxSec=300s',
+    '--property=RuntimeMaxSec=' + Math.ceil(timeout / 1000) + 's',
     '--property=UMask=0022',
     '--working-directory=' + dirname(dirname(script)),
     '/usr/bin/env',
@@ -583,7 +640,7 @@ async function runScenario(script, env, label, systemdRun) {
     script,
   ], {
     env: managerEnvironment,
-    timeout: SCENARIO_TIMEOUT_MS + 30_000,
+    timeout: timeout + 30_000,
     label,
     failureDetails: result => scenarioFailureDiagnostic(
       String(result.stdout ?? '') + '\n' + String(result.stderr ?? ''),
@@ -641,6 +698,25 @@ async function main() {
       trustedExecutable(input.forgeCliBin, 'forge-cli'),
       trustedExecutable(input.systemdRunBin, 'systemd-run'),
     ])
+    if (input.baselinePackageTarball === undefined
+      || input.baselinePackageSha256 === undefined
+      || input.baselineNilsBinDir === undefined
+      || input.baselineNilsSourceCommit === undefined) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
+        'the exact rollback baseline package and nils binary set are required',
+      )
+    }
+    const [baselinePackage, baselineSources] = await Promise.all([
+      trustedRegularFile(input.baselinePackageTarball, 'baseline runtime-kit package tarball'),
+      trustedNilsBinDirectory(input.baselineNilsBinDir),
+    ])
+    if (baselinePackage.sha256 !== input.baselinePackageSha256) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+        'baseline runtime-kit package tarball digest does not match its binding',
+      )
+    }
     const tools = Object.freeze({ git, tar, pnpm, npm })
     enterPhase('workspace')
     const toolPath = await createToolPath(runRoot, tools)
@@ -655,6 +731,7 @@ async function main() {
       mkdir(cache, { mode: 0o700 }),
     ])
     const env = {
+      CI: 'true',
       HOME: home,
       XDG_CONFIG_HOME: config,
       XDG_STATE_HOME: state,
@@ -749,6 +826,14 @@ async function main() {
       snapshotBinary(runRoot, semanticCommitSource, 'semantic-commit'),
       snapshotBinary(runRoot, forgeCliSource, 'forge-cli'),
     ])
+    const baselineRoot = resolve(runRoot, 'baseline')
+    await mkdir(resolve(baselineRoot, 'bin'), { recursive: true, mode: 0o700 })
+    const baselineBinaries = Object.freeze(Object.fromEntries(await Promise.all(
+      Object.entries(baselineSources).map(async ([name, source]) => [
+        name,
+        await snapshotBinary(baselineRoot, source, name),
+      ]),
+    )))
     const scenarioBaseEnv = {
       ...env,
       PATH: resolve(runRoot, 'bin') + ':' + env.PATH,
@@ -778,6 +863,22 @@ async function main() {
         'nils acceptance binaries do not have the same build identity',
       )
     }
+    const baselineEnvironment = {
+      ...scenarioBaseEnv,
+      PATH: resolve(baselineRoot, 'bin') + ':' + env.PATH,
+    }
+    const baselineIdentities = Object.freeze(Object.fromEntries(Object.entries(
+      baselineBinaries,
+    ).map(([name, binary]) => [name, nilsIdentity(binary, name, baselineEnvironment)])))
+    const baselineIdentityRows = Object.values(baselineIdentities)
+    const baselineHookIdentity = baselineIdentities['agent-hook']
+    if (baselineIdentityRows.some(identity => identity.version !== baselineHookIdentity.version
+      || identity.source_revision !== baselineHookIdentity.source_revision)) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_NILS_IDENTITY_INVALID',
+        'baseline nils acceptance binaries do not have the same build identity',
+      )
+    }
     const compatibility = await jsonFile(
       resolve(operationsLeg.project, 'compatibility', 'nils-cli.json'),
       'nils compatibility manifest',
@@ -786,6 +887,32 @@ async function main() {
       throw new AcceptanceError(
         'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
         'final acceptance requires exact validated nils release artifacts',
+      )
+    }
+    const rollbackValidation = compatibility.rollback_validation
+    const rollbackArtifacts = rollbackValidation?.artifacts
+    const baselineArtifactNames = Object.keys(baselineIdentities).sort()
+    const rollbackArtifactNames = rollbackArtifacts !== null
+      && typeof rollbackArtifacts === 'object'
+      ? Object.keys(rollbackArtifacts).sort()
+      : []
+    if (rollbackValidation === null || typeof rollbackValidation !== 'object'
+      || rollbackValidation.runtime_package_sha256 !== baselinePackage.sha256
+      || rollbackValidation.version !== baselineHookIdentity.version
+      || rollbackValidation.source_revision !== baselineHookIdentity.source_revision
+      || rollbackValidation.source_commit !== input.baselineNilsSourceCommit
+      || rollbackValidation.platform !== 'x86_64-unknown-linux-gnu'
+      || typeof rollbackValidation.archive?.name !== 'string'
+      || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u.test(rollbackValidation.archive.name)
+      || typeof rollbackValidation.archive?.sha256 !== 'string'
+      || !/^[0-9a-f]{64}$/u.test(rollbackValidation.archive.sha256)
+      || JSON.stringify(rollbackArtifactNames) !== JSON.stringify(baselineArtifactNames)
+      || baselineArtifactNames.some(name => (
+        rollbackArtifacts[name]?.sha256 !== baselineIdentities[name].sha256
+      ))) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_NILS_IDENTITY_INVALID',
+        'rollback baseline does not match the exact compatibility manifest',
       )
     }
     const nilsEvidence = {
@@ -810,7 +937,6 @@ async function main() {
       : undefined
     const scenarioEnv = {
       ...scenarioBaseEnv,
-      DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: '1',
       ...sourceCandidate === undefined ? {} : {
         DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: sourceCandidate.feature,
       },
@@ -819,6 +945,7 @@ async function main() {
     const operationsScript = resolve(operationsLeg.project, 'test', 'operations-smoke.mjs')
     const controlDigests = new Map([
       [artifact.tarball, packageSha256],
+      [baselinePackage.path, baselinePackage.sha256],
       ...[
         agentHook,
         agentDocs,
@@ -832,6 +959,7 @@ async function main() {
         npm,
         systemdRun,
       ].map(item => [item.path, item.sha256]),
+      ...Object.values(baselineBinaries).map(item => [item.path, item.sha256]),
     ])
     async function verifyControlPlane() {
       for (const [path, expected] of controlDigests) {
@@ -892,14 +1020,149 @@ async function main() {
     )
     const runtimeScript = resolve(runtimeProject, 'test', 'smoke.mjs')
     enterPhase('packed-runtime-scenario')
-    const runtime = await runScenario(
+    const packedRuntime = await runScenario(
       runtimeScript,
       scenarioEnv,
       'packed runtime scenario',
       systemdRun,
     )
-    enterPhase('final-verification')
+    const authoritativeScript = resolve(
+      runtimeProject,
+      'test',
+      'authoritative-acceptance-smoke.mjs',
+    )
+    const authoritativeEnv = {
+      ...scenarioEnv,
+      PNPM_BIN: pnpm.path,
+      NPM_BIN: npm.path,
+      DSH_ACCEPTANCE_CANDIDATE_PACKAGE_TARBALL: artifact.tarball,
+      DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256: packageSha256,
+      DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL: baselinePackage.path,
+      DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256: baselinePackage.sha256,
+      DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR: resolve(baselineRoot, 'bin'),
+      DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT: input.baselineNilsSourceCommit,
+      DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT: input.nilsSourceCommit,
+      DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS: JSON.stringify(Object.fromEntries(
+        Object.entries(nilsEvidence.artifacts).map(([name, value]) => [name, value.sha256]),
+      )),
+      DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS: JSON.stringify(Object.fromEntries(
+        Object.entries(baselineIdentities).map(([name, value]) => [name, value.sha256]),
+      )),
+      DSH_ACCEPTANCE_DSH_VERSION: selected.version,
+      DSH_ACCEPTANCE_DSH_REVISION: selected.revision,
+    }
+    enterPhase('authoritative-acceptance-scenario')
+    const authoritative = await runScenario(
+      authoritativeScript,
+      authoritativeEnv,
+      'authoritative acceptance packed process matrix',
+      systemdRun,
+      { timeout: AUTHORITATIVE_SCENARIO_TIMEOUT_MS },
+    )
+    if (authoritative.schema_version
+        !== 'dsh-runtime-kit.authoritative-acceptance-smoke.v1'
+      || authoritative.matrix === undefined) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+        'authoritative acceptance scenario receipt is invalid',
+      )
+    }
+    enterPhase('patched-final-verification')
     const finalDshPatch = await verifyControlPlane()
+    const reverseDshPatch = await manageDshPatch({
+      action: 'reverse',
+      sourceRoot: dshSourceRoot,
+      patchRoot: sourceProjectRoot,
+      manifest: dshPatchManifest,
+      gitBin: git.path,
+    })
+    runChecked(tools.pnpm.path, ['run', 'build:lib:host'], {
+      cwd: dshSourceRoot,
+      env,
+      timeout: SCENARIO_TIMEOUT_MS,
+      label: 'unpatched DSH host build',
+    })
+    const pristineDshBuild = await digestDshBuildClosure(dshSourceRoot)
+    const pristinePatchState = await manageDshPatch({
+      action: 'check',
+      sourceRoot: dshSourceRoot,
+      patchRoot: sourceProjectRoot,
+      manifest: dshPatchManifest,
+      gitBin: git.path,
+    })
+    if (pristinePatchState.after !== 'pristine'
+      || pristinePatchState.source_checkout_clean !== true) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
+        'DSH source was not pristine after authenticated reverse and rebuild',
+      )
+    }
+    enterPhase('unpatched-dsh-tools-scenario')
+    const unpatched = await runScenario(
+      authoritativeScript,
+      { ...authoritativeEnv, DSH_ACCEPTANCE_UNPATCHED_ONLY: '1' },
+      'unpatched DSH tools scenario',
+      systemdRun,
+    )
+    if (unpatched.schema_version !== 'dsh-runtime-kit.authoritative-unpatched-smoke.v1'
+      || unpatched.tool_outcome !== 'succeeded'
+      || unpatched.acceptance_mode !== 'absent') {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+        'unpatched DSH tools receipt is invalid',
+      )
+    }
+    const lifecycle = {
+      apply: {
+        action: dshPatch.action,
+        before: dshPatch.before,
+        after: dshPatch.after,
+        changed: dshPatch.changed,
+        runtime_rebuilt: dshPatch.runtime_rebuilt,
+      },
+      patched_build: patchedDshBuild,
+      reverse: {
+        action: reverseDshPatch.action,
+        before: reverseDshPatch.before,
+        after: reverseDshPatch.after,
+        changed: reverseDshPatch.changed,
+        runtime_rebuilt: reverseDshPatch.runtime_rebuilt,
+      },
+      pristine_build: pristineDshBuild,
+      unpatched_smoke: {
+        process_instance_sha256: unpatched.process_instance_sha256,
+        tool_outcome: unpatched.tool_outcome,
+        acceptance_mode: unpatched.acceptance_mode,
+      },
+      final_source_state: pristinePatchState.after,
+    }
+    const runtime = {
+      ...packedRuntime,
+      scenarios: [
+        ...packedRuntime.scenarios,
+        {
+          id: 'authoritative-acceptance',
+          status: 'passed',
+          producer: 'packed-runtime',
+          evidence: [
+            'acceptance:goal-completion-blocked-pre-mutation',
+            'acceptance:exact-provider-verdict-satisfied',
+            'acceptance:goal-completion-allowed-post-evidence',
+            'acceptance:negative-goal-blocked-without-mutation',
+            'acceptance:positive-exact-evidence-completed',
+            'acceptance:concurrent-mutation-denied-before-body',
+            'acceptance:active-contained-cancellation-terminalized',
+            'acceptance:restart-retained-evidence-without-revalidation',
+            'acceptance:recovery-revalidated-after-infrastructure-block',
+            'acceptance:upgrade-rejected-baseline-stale-evidence',
+            'acceptance:rollback-baseline-stop-blocked-and-revalidated',
+            'acceptance:rollback-pristine-rebuild-unpatched-tools-smoke',
+          ],
+          matrix: { ...authoritative.matrix, dsh_lifecycle: lifecycle },
+        },
+      ],
+    }
+    enterPhase('final-verification')
     for (const [name, original, copy] of [
       ['agent-hook', hookSource, agentHook],
       ['agent-docs', docsSource, agentDocs],

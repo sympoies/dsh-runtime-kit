@@ -2093,6 +2093,11 @@ process.stdout.write('agent-docs 1.27.14 (v1.27.14, test)\\n')
     assert.equal(validatedCurrent.status, 0, validatedCurrent.stderr)
     assert.equal(validatedCurrent.value.data.agent_docs.version, '1.27.14')
 
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
     const reviewedCandidate = run(subject, ['doctor', '--profile', 'work'], {
       DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
     })

@@ -58,6 +58,45 @@ export function requiresAuthoritativeFinishLine(platform, principal) {
 }
 
 /**
+ * Serialize asynchronous Agent cleanup against the next acceptance startup in
+ * the same workspace. DSH disposal events deliberately do not await returned
+ * promises, so the barrier must be recorded synchronously by the listener and
+ * joined by the later session-start path.
+ */
+export function createWorkspaceDisposalBarrier() {
+  /** @type {Map<string, Promise<void>>} */
+  const pending = new Map()
+  /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+  const workspace = (agent) => {
+    const cwd = agent.session?.header?.cwd
+    if (typeof cwd !== 'string' || cwd.length === 0) {
+      throw new Error('dsh-runtime-kit: agent workspace unavailable')
+    }
+    return cwd
+  }
+  return Object.freeze({
+    /**
+     * @param {{session?: {header?: {cwd?: unknown}}}} agent
+     * @param {() => Promise<unknown>} cleanup
+     */
+    track(agent, cleanup) {
+      const key = workspace(agent)
+      const previous = pending.get(key) ?? Promise.resolve()
+      const current = previous.catch(() => {}).then(cleanup).then(() => {})
+      pending.set(key, current)
+      void current.finally(() => {
+        if (pending.get(key) === current) pending.delete(key)
+      }).catch(() => {})
+      return current
+    },
+    /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+    async wait(agent) {
+      await pending.get(workspace(agent))
+    },
+  })
+}
+
+/**
  * @typedef Authorization
  * @property {'allow' | 'deny'} kind
  * @property {string | undefined} reason
@@ -394,6 +433,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
     }),
   })
+  const workspaceDisposals = createWorkspaceDisposalBarrier()
   const compatibility = createDshRc7Compatibility(ctx)
   /** @type {Map<Readonly<ToolExecution>, Authorization>} */
   const authorizations = new Map()
@@ -475,15 +515,22 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.on('agent/session-start', payload => {
     if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
-    if (!isReviewer(payload.agent)) void acceptance.sessionStarted(payload).catch(() => {})
+    if (!isReviewer(payload.agent)) {
+      void workspaceDisposals.wait(payload.agent)
+        .then(() => acceptance.sessionStarted(payload))
+        .catch(() => {})
+    }
   })
   ctx.on('agent/disposed', ({ agent }) => {
     if (isReviewer(agent)) return
     prerequisites.detachAgent(agent)
-    void acceptance.agentDisposed(agent)
-      .catch(() => {})
-      .then(() => finishLine.agentDisposed(agent))
-      .catch(() => {})
+    void workspaceDisposals.track(agent, async () => {
+      try {
+        await acceptance.agentDisposed(agent)
+      } finally {
+        await finishLine.agentDisposed(agent)
+      }
+    }).catch(() => {})
   })
   ctx.on('agent/pre-step', async (payload, next) => {
     if (isReviewer(payload.agent)) return next()

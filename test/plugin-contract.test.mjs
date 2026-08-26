@@ -10,6 +10,7 @@ import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
 import {
   boundedUtf8Segments,
+  createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
 } from '../src/policy/index.js'
 import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
@@ -61,6 +62,25 @@ async function waitForAbort(signal, timeoutMs = 1_000) {
     signal.addEventListener('abort', onAbort, { once: true })
   })
 }
+
+test('workspace disposal cleanup completes before a replacement session starts', async () => {
+  const barrier = createWorkspaceDisposalBarrier()
+  const first = { session: { header: { cwd: '/workspace/one' } } }
+  const replacement = { session: { header: { cwd: '/workspace/one' } } }
+  let releaseCleanup
+  const cleanupGate = new Promise(resolve => { releaseCleanup = resolve })
+  const cleanup = barrier.track(first, async () => cleanupGate)
+  let replacementStarted = false
+  const start = barrier.wait(replacement).then(() => { replacementStarted = true })
+
+  await Promise.resolve()
+  assert.equal(replacementStarted, false)
+  releaseCleanup()
+  await Promise.all([cleanup, start])
+  assert.equal(replacementStarted, true)
+
+  await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
+})
 
 test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
   const principal = mode => ({

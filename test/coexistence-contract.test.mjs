@@ -46,30 +46,30 @@ test('the published nils release is pinned by exact source, archive, and binary 
     feature: 'authoritative-finish-line-acceptance',
     status: 'reviewed-source-candidate',
     pull_request: 'https://github.com/sympoies/nils-cli/pull/1507',
-    source_commit: '387c214fc861d0b6c3aee57cf1516319dcccbd2e',
-    source_parent: 'c5c1e3018932ac3fba7e33e2cba055aeb9fd15eb',
-    source_tree: '630efc153c2ac26cfd5b16bf811881d6bfac1a16',
-    merge_base: '7662a44aae2ffc362fe41e7606a1106e21e70cdf',
+    source_commit: 'cd0e16d465727b009fb012eba31b781d91c3a2c2',
+    source_parent: 'f845ff5cc9889d695295e6fd67c7c9b179da6606',
+    source_tree: '62885f54530502a2492dbc2929a4882c9f71bc46',
+    merge_base: 'c4d4a4621f06b5c8a433daad7f23cf7fe1ed0892',
     version: '1.27.12',
     platform: 'x86_64-unknown-linux-gnu',
     artifacts: {
       'agent-hook': {
-        sha256: '9f2e631672da34922e7fb253158d41be8dac35f4d1059fabb79baa568e871122',
+        sha256: 'a97ae89e91571a36f4919376d3f94fafcfcc6f4eb77586404d45a54266db9240',
       },
       'agent-docs': {
-        sha256: '96318770890e583d537b5fba150b65e1dc843a32b8886a979bf3554f30b89f79',
+        sha256: 'a890f1e1a561ef55d1877c2874d89758c8320a222ba49474675d865a0f248b2e',
       },
       'forge-cli': {
-        sha256: '5f4a9a19d88afb3b921675dd7045696622a30dbbe483614fd0146b87a81c106c',
+        sha256: 'aaf0f23b46c5314400647822eda326902eef3a0e1b4a5174b9f607dc889d27a6',
       },
       'git-cli': {
-        sha256: 'f6534a8306d638839fd992c93fad7a5ee5a7a29cb2a673359247cf5cdff2388e',
+        sha256: 'a1e38d4535496e72ba1f444d9ba1b40b15589aab167a8db4201ecbcca7056659',
       },
       'review-specialists': {
-        sha256: 'ce9f8558b2a5242ddfa06f28de9e803d2cad5a8781daabda32ec427024e79f6a',
+        sha256: 'fe4cf0db4dc88d24a39f82a675f0ee42e37569c29489e2d5471009d0e655fcc4',
       },
       'semantic-commit': {
-        sha256: '4236319410f0549bd5f3659f6cb6daa892a8abba38eaa0161b24c88b19d80845',
+        sha256: '66fed4e6a2549e8d7a4381c749042c702a93c137507540bbebb0fc24fcfb698b',
       },
     },
     validation: 'exact-reviewed-source',
@@ -87,6 +87,25 @@ test('the published nils release is pinned by exact source, archive, and binary 
       'cli.agent-hook.finish-line-verdict.v1',
       'agent-hook.finish-line.verdict-result.v1',
     ],
+  })
+  assert.deepEqual(manifest.rollback_validation, {
+    runtime_package_sha256: '1cdb239378d5113bcf0634392d63bcefd4bb11be33bb04bd30049b299f858f7a',
+    version: '1.27.9',
+    source_revision: 'v1.27.9',
+    source_commit: '9458a5e274e4a683eac4d285135061c2fc35aeae',
+    platform: 'x86_64-unknown-linux-gnu',
+    archive: {
+      name: 'nils-cli-v1.27.9-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: '1fb0a8acfe5c6a1d2239d3428c6cd356b25e60e7ec737c2faaa6d14779b1824b',
+    },
+    artifacts: {
+      'agent-hook': { sha256: '1eaee0c0d6dd55822f20cfc6314afa866d8381b17c16711e55fa1052222c80f0' },
+      'agent-docs': { sha256: 'b30cbdd920c2c8e564ea25ad46a755d5545adb1d604c8e9df011604c97c74288' },
+      'forge-cli': { sha256: 'cf1505392fe68939e0d7944163e99fbaa64ebf0970a8d4885224697517b2eebb' },
+      'git-cli': { sha256: '7b161e9ee388578e33ef9c62279ac4e0d7190f32301dd89b8d59f70ba779175e' },
+      'review-specialists': { sha256: '8a664f167ec8ab01496d6c7b782618c6ec6ff95c4de4286896b35e4232122edb' },
+      'semantic-commit': { sha256: 'f1f9ad4ad3d3e4b040e8250291d7052791b0d81dae058f4b3e1fb3cffaf9f7b8' },
+    },
   })
   assert.equal(
     manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,

@@ -200,6 +200,7 @@ function fixture() {
     calls,
     client,
     addAgent(selected) { currentAgents.set(selected.id, selected) },
+    removeAgent(selected) { currentAgents.delete(selected.id) },
     setVerdict(value) { currentVerdict = value },
   }
 }
@@ -221,6 +222,30 @@ function registration(value) {
           id: 'package-check',
           definition: value.packageCheck,
           execution: { kind: 'host-observed' },
+        }],
+      },
+    ],
+    invalidators: [value.mutation],
+  }
+}
+
+function containedRegistration(value) {
+  return {
+    requirements: [
+      {
+        name: 'unit',
+        validators: [{
+          id: 'unit-bash',
+          definition: value.bash,
+          execution: { kind: 'contained-bash', intent: 'test', command: 'npm test -- unit' },
+        }],
+      },
+      {
+        name: 'package',
+        validators: [{
+          id: 'package-bash',
+          definition: value.bash,
+          execution: { kind: 'contained-bash', intent: 'test', command: 'npm test -- package' },
         }],
       },
     ],
@@ -255,6 +280,16 @@ const call = exec => ({
   rootCallId: exec.rootCallId,
   name: exec.name,
 })
+
+function containedExecution(value, callId, command = 'npm test -- unit') {
+  const exec = execution(value.owner, value.bash, callId)
+  value.sources.set(exec, {
+    operationId: `finish-line-source:${callId}`,
+    intent: 'test',
+    command,
+  })
+  return exec
+}
 
 test('definition digests bind the complete public schema and ignore callback identity', () => {
   const left = definition('validator')
@@ -825,6 +860,118 @@ test('contained Bash selects the exact reserved validator while ordinary Bash re
   assert.equal(value.calls.admit.at(-1).operation.sourceOperationId, 'finish-line-source:beta')
 })
 
+test('contained Bash natural results preserve provider-owned execution facts', async () => {
+  const value = fixture()
+  value.service.register(containedRegistration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  const exec = containedExecution(value, 'contained-success')
+  await value.coordinator.admit(exec, call(exec))
+  value.coordinator.result(exec, { isError: false, content: [], value: null })
+  await value.coordinator.settle(value.owner)
+  assert.deepEqual(value.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-success',
+  })
+})
+
+test('contained Bash rejection terminalizes through its exact source as infrastructure-blocked', async () => {
+  const value = fixture()
+  value.service.register(containedRegistration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  const exec = containedExecution(value, 'contained-rejected')
+  await value.coordinator.admit(exec, call(exec))
+  value.coordinator.reject(exec, 'cancelled')
+  await value.coordinator.settle(value.owner)
+  assert.deepEqual(value.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-rejected',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('contained Bash definition drift terminalizes without manufacturing a host result', async () => {
+  const value = fixture()
+  value.service.register(containedRegistration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  const exec = containedExecution(value, 'contained-drift')
+  await value.coordinator.admit(exec, call(exec))
+  value.bash.parameters.additionalProperties = true
+  value.coordinator.result(exec, { isError: false, content: [], value: null })
+  await value.coordinator.settle(value.owner)
+  assert.deepEqual(value.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-drift',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(value.service.verdict(value.owner).aggregate, 'infrastructure-blocked')
+})
+
+test('contained Bash agent and coordinator disposal terminalize exact sources', async () => {
+  const agentDisposed = fixture()
+  agentDisposed.service.register(containedRegistration(agentDisposed))
+  await agentDisposed.coordinator.sessionStarted({
+    agent: agentDisposed.owner,
+    source: 'startup',
+  })
+  const agentExec = containedExecution(agentDisposed, 'contained-agent-disposed')
+  await agentDisposed.coordinator.admit(agentExec, call(agentExec))
+  await agentDisposed.coordinator.agentDisposed(agentDisposed.owner)
+  assert.deepEqual(agentDisposed.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-agent-disposed',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(agentDisposed.coordinator.activeOperations, 0)
+
+  const coordinatorDisposed = fixture()
+  coordinatorDisposed.service.register(containedRegistration(coordinatorDisposed))
+  await coordinatorDisposed.coordinator.sessionStarted({
+    agent: coordinatorDisposed.owner,
+    source: 'startup',
+  })
+  const coordinatorExec = containedExecution(coordinatorDisposed, 'contained-coordinator-disposed')
+  await coordinatorDisposed.coordinator.admit(coordinatorExec, call(coordinatorExec))
+  await coordinatorDisposed.coordinator.dispose()
+  assert.deepEqual(coordinatorDisposed.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-coordinator-disposed',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(coordinatorDisposed.coordinator.activeOperations, 0)
+})
+
+test('contained Bash admission completing during disposal terminalizes its reserved source', async () => {
+  const value = fixture()
+  value.service.register(containedRegistration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  const started = deferred()
+  const release = deferred()
+  const providerAdmit = value.client.admitAcceptance
+  value.client.admitAcceptance = async request => {
+    started.resolve()
+    await release.promise
+    return providerAdmit(request)
+  }
+  const exec = containedExecution(value, 'contained-dispose-during-admission')
+  const admission = value.coordinator.admit(exec, call(exec))
+  await started.promise
+  const disposal = value.coordinator.dispose()
+  release.resolve()
+  const [admissionResult, disposalResult] = await Promise.allSettled([admission, disposal])
+  assert.equal(admissionResult.status, 'rejected')
+  assert.equal(disposalResult.status, 'fulfilled')
+  assert.deepEqual(value.calls.observe.at(-1).observation, {
+    kind: 'contained-bash',
+    operationId: 'finish-line-source:contained-dispose-during-admission',
+    status: 'infrastructure-blocked',
+  })
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
 test('cancellation and agent disposal terminalize admitted work and reject session reuse', async () => {
   const value = fixture()
   value.service.register(registration(value))
@@ -856,6 +1003,53 @@ test('cancellation and agent disposal terminalize admitted work and reject sessi
     }),
     /acceptance session disposed/u,
   )
+})
+
+test('a replacement agent may resume a disposed session from the durable fail-closed verdict', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  const interrupted = execution(value.owner, value.unit, 'disposed-before-resume')
+  await value.coordinator.admit(interrupted, call(interrupted))
+  await value.coordinator.agentDisposed(value.owner)
+
+  const replacement = agent(value.owner.id)
+  replacement.session = value.owner.session
+  value.addAgent(replacement)
+  await value.coordinator.sessionStarted({ agent: replacement, source: 'resume' })
+
+  assert.equal(value.service.verdict(replacement).aggregate, 'infrastructure-blocked')
+  assert.throws(
+    () => value.service.verdict(value.owner),
+    /acceptance agent identity invalid/u,
+  )
+})
+
+test('the immutable contract survives its registration disposer until coordinator disposal', async () => {
+  const value = fixture()
+  const unregister = value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  await value.coordinator.agentDisposed(value.owner)
+
+  unregister()
+
+  assert.throws(
+    () => value.service.register(registration(value)),
+    /acceptance contract already registered or disposed/u,
+  )
+})
+
+test('session start waits for the exact resume agent to become publicly live', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  value.removeAgent(value.owner)
+
+  const started = value.coordinator.sessionStarted({ agent: value.owner, source: 'resume' })
+  queueMicrotask(() => value.addAgent(value.owner))
+  await started
+
+  assert.equal(value.service.verdict(value.owner).aggregate, 'missing')
 })
 
 test('caller abort and coordinator quiesce fail closed without orphaned operations', async () => {

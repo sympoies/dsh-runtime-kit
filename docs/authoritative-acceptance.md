@@ -33,8 +33,10 @@ unique in their scopes. Runtime-kit hashes the public execution-relevant tool
 schema and rechecks exact in-process definition identity and schema at
 admission, result, verdict, and synchronous completion. A changed definition,
 ambiguous binding, conflicting invalidator, or different second registration
-fails closed. The disposer removes the contract
-only after no governed session remains; it cannot erase live authority.
+fails closed. Registration is process-lifetime immutable. The returned disposer
+releases only the registering provider's ownership; it cannot unregister the
+contract or erase live authority. A different contract remains rejected until
+the coordinator itself is disposed.
 
 A validator can instead cite an exact contained Bash target:
 

@@ -285,6 +285,22 @@ test('acceptance RPCs preserve strict wire shapes and private admission retries'
   })
   assert.equal(observed.observation, 'succeeded')
 
+  const containedTerminal = await subject.client.observeAcceptance({
+    ...common,
+    operationId: 'acceptance:unit:2',
+    observation: {
+      kind: 'contained-bash',
+      operationId: 'finish-line-source:unit',
+      status: 'infrastructure-blocked',
+    },
+  })
+  assert.equal(containedTerminal.observation, 'infrastructure-blocked')
+  assert.deepEqual(subject.spawns.at(-1).request.observation, {
+    kind: 'contained-bash',
+    operation_id: 'finish-line-source:unit',
+    status: 'infrastructure-blocked',
+  })
+
   const selected = await subject.client.acceptanceVerdict({
     ...common,
     contractDigest: digest,
@@ -296,7 +312,7 @@ test('acceptance RPCs preserve strict wire shapes and private admission retries'
   }])
   assert.deepEqual(
     subject.spawns.map(spawn => spawn.spec.argv),
-    ['register', 'admit', 'observe', 'verdict'].map(action => (
+    ['register', 'admit', 'observe', 'observe', 'verdict'].map(action => (
       agentHookArgs('finish-line', action, '--format', 'json')
     )),
   )

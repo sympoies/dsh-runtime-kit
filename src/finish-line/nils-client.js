@@ -194,9 +194,19 @@ function acceptanceOperation(value) {
 /** @param {unknown} value */
 function acceptanceObservation(value) {
   const input = record(value)
-  if (input?.kind === 'contained-bash' && identifier(input.operationId)
-    && Object.keys(input).sort().join('\0') === 'kind\0operationId') {
-    return { kind: 'contained-bash', operation_id: input.operationId }
+  if (input?.kind === 'contained-bash' && identifier(input.operationId)) {
+    const keys = Object.keys(input).sort().join('\0')
+    if (keys === 'kind\0operationId') {
+      return { kind: 'contained-bash', operation_id: input.operationId }
+    }
+    if (keys === 'kind\0operationId\0status'
+      && input.status === 'infrastructure-blocked') {
+      return {
+        kind: 'contained-bash',
+        operation_id: input.operationId,
+        status: 'infrastructure-blocked',
+      }
+    }
   }
   const statuses = [
     'succeeded', 'failed', 'cancelled', 'timed-out', 'signalled', 'uncertain',

@@ -36,6 +36,8 @@
     "docs",
     "scripts",
     "test/smoke.mjs",
+    "test/authoritative-acceptance-smoke.mjs",
+    "test/fixtures/authoritative-acceptance-canary",
     "test/workspace-lease-smoke.mjs",
     "test/workspace-lease-native-smoke.mjs",
     "test/operations-smoke.mjs",
@@ -73,6 +75,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:smoke": "node test/smoke.mjs",
+    "test:authoritative-acceptance-smoke": "node test/authoritative-acceptance-smoke.mjs",
     "test:workspace-lease-smoke": "node test/workspace-lease-smoke.mjs",
     "test:workspace-lease-native-smoke": "node test/workspace-lease-native-smoke.mjs",
     "test:operations-smoke": "node test/operations-smoke.mjs",
