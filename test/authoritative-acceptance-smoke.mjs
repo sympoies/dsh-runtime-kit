@@ -430,6 +430,9 @@ digest = ${JSON.stringify(policyDigest)}
     const cleanAfterRollback = run('git', ['status', '--porcelain'], { cwd: workspace })
     assert.equal(cleanAfterRollback.stdout, '')
 
+    assert.equal(positive.body_executions, 2)
+    assert.equal(downstream.body_executions, 0)
+
     const matrix = {
       schema_version: 'dsh-runtime-kit.authoritative-acceptance-matrix.v1',
       dsh: { version: dshVersion, revision: dshRevision },
@@ -449,13 +452,13 @@ digest = ${JSON.stringify(policyDigest)}
           goal: positive.goal,
           denial: positive.denial,
           tool_outcomes: positiveToolOutcomes,
-          body_executions: 2,
+          body_executions: positive.body_executions,
           verdict: positive.final_verdict,
         },
         {
           ...common(downstream, 'post-admission-denial'),
           listener_entries: downstream.listener_entries,
-          body_executions: 0,
+          body_executions: downstream.body_executions,
           tool_outcome: exactResults(downstream, ['canary_host_validator'])[0],
           execution_order: downstream.sequence.slice(0, 2),
           verdict: downstream.turn_verdicts[0],

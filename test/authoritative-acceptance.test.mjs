@@ -61,7 +61,7 @@ function verdict(requirements, aggregate = 'missing', generation = 0) {
   }
 }
 
-function fixture() {
+function fixture({ useDefaultOperationId = false, ...coordinatorOverrides } = {}) {
   const mutation = definition('edit')
   const unit = definition('runtime_kit_plus_one')
   const packageCheck = definition('package_check')
@@ -95,7 +95,7 @@ function fixture() {
       return {
         status: 'registered',
         contractDigest,
-        requirementCount: 2,
+        requirementCount: request.requirements.length,
         correlationId,
       }
     },
@@ -177,14 +177,18 @@ function fixture() {
     sourceOperation(exec) { return sources.get(exec) },
   }
   let operationSequence = 0
-  const coordinator = createAuthoritativeAcceptanceCoordinator(ctx, {
+  const coordinatorOptions = {
     client,
     authority,
-    createOperationId(kind, binding) {
+    ...coordinatorOverrides,
+  }
+  if (!useDefaultOperationId) {
+    coordinatorOptions.createOperationId = (kind, binding) => {
       operationSequence += 1
       return `acceptance:${binding.id ?? kind}:${operationSequence}`
-    },
-  })
+    }
+  }
+  const coordinator = createAuthoritativeAcceptanceCoordinator(ctx, coordinatorOptions)
   const owner = agent()
   currentAgents.set(owner.id, owner)
   return {
@@ -271,6 +275,24 @@ function deferred() {
   return { promise, resolve }
 }
 
+function controlledReadiness() {
+  let available = true
+  let gate = Promise.resolve()
+  let settleGate = () => {}
+  return {
+    block() {
+      available = false
+      gate = new Promise(resolve => { settleGate = resolve })
+    },
+    release() {
+      available = true
+      settleGate()
+    },
+    async wait(_agent) { await gate },
+    ready(_agent) { return available },
+  }
+}
+
 const call = exec => ({
   sessionId: exec.agent.id,
   cwd: exec.agent.session.header.cwd,
@@ -300,6 +322,128 @@ test('definition digests bind the complete public schema and ignore callback ide
     toolDefinitionDigest(left),
     toolDefinitionDigest({ ...left, description: 'drifted description' }),
   )
+})
+
+test('registration uses nils-compatible lexical ordering for every public identifier', async () => {
+  const value = fixture()
+  const validators = ['a', '~', 'Z', '!'].map(id => ({
+    id,
+    definition: definition(`validator-${id}`),
+    execution: { kind: 'host-observed' },
+  }))
+  for (const validator of validators) {
+    value.visible.set(validator.definition.name, validator.definition)
+  }
+  const secondary = {
+    id: 'secondary',
+    definition: definition('validator-secondary'),
+    execution: { kind: 'host-observed' },
+  }
+  value.visible.set(secondary.definition.name, secondary.definition)
+  const invalidators = ['mutation-a', 'mutation-Z', 'mutation-!'].map(definition)
+  for (const invalidator of invalidators) value.visible.set(invalidator.name, invalidator)
+  value.service.register({
+    requirements: [
+      { name: 'a', validators: [secondary] },
+      { name: 'Z', validators: [validators[1], validators[0], validators[2], validators[3]] },
+    ],
+    invalidators,
+  })
+  value.setVerdict(verdict([
+    ['Z', 'missing', undefined],
+    ['a', 'missing', undefined],
+  ]))
+
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  assert.deepEqual(value.calls.register[0].requirements.map(entry => entry.name), ['Z', 'a'])
+  assert.deepEqual(
+    value.calls.register[0].requirements[0].validators.map(entry => entry.id),
+    ['!', 'Z', 'a', '~'],
+  )
+  assert.deepEqual(
+    value.calls.register[0].invalidators.map(entry => entry.toolName),
+    ['mutation-!', 'mutation-Z', 'mutation-a'],
+  )
+  assert.equal(value.service.verdict(value.owner).aggregate, 'missing')
+})
+
+test('default operation ids stay bounded for a maximum-length validator id', async () => {
+  const value = fixture({ useDefaultOperationId: true })
+  const input = registration(value)
+  input.requirements[0].validators[0].id = 'v'.repeat(256)
+  value.service.register(input)
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  const exec = execution(value.owner, value.unit, 'maximum-validator-id')
+  await value.coordinator.admit(exec, call(exec))
+
+  const operationId = value.calls.admit.at(-1).operationId
+  assert.equal(operationId.length <= 256, true)
+  assert.match(operationId, /^dsh-acceptance:validator:[0-9a-f]{64}:[0-9a-f-]{36}$/u)
+})
+
+test('replacement readiness gates startup, admission, mutation, stop, and synchronous completion', async () => {
+  const readiness = controlledReadiness()
+  const value = fixture({ workspaceReadiness: readiness })
+  value.service.register(registration(value))
+
+  readiness.block()
+  let startupSettled = false
+  const startup = value.coordinator.sessionStarted({ agent: value.owner, source: 'resume' })
+    .then(() => { startupSettled = true })
+  await Promise.resolve()
+  assert.equal(startupSettled, false)
+  assert.equal(value.calls.register.length, 0)
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError
+      && error.aggregate === 'infrastructure-blocked',
+  )
+  readiness.release()
+  await startup
+  assert.equal(value.calls.register.length, 1)
+
+  readiness.block()
+  const admitted = execution(value.owner, value.unit, 'replacement-validator')
+  let admissionSettled = false
+  const admission = value.coordinator.admit(admitted, call(admitted))
+    .then(result => { admissionSettled = true; return result })
+  await Promise.resolve()
+  assert.equal(admissionSettled, false)
+  assert.equal(value.calls.admit.length, 0)
+  readiness.release()
+  assert.equal((await admission).kind, 'validator')
+  value.coordinator.reject(admitted)
+
+  readiness.block()
+  const ordinary = execution(value.owner, value.bash, 'replacement-mutation')
+  let mutationSettled = false
+  const mutation = value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+    .then(() => { mutationSettled = true })
+  await Promise.resolve()
+  assert.equal(mutationSettled, false)
+  assert.equal(value.coordinator.activeOperations, 0)
+  readiness.release()
+  await mutation
+  assert.equal(value.coordinator.activeOperations, 1)
+  value.coordinator.reject(ordinary)
+
+  readiness.block()
+  let stopSettled = false
+  const stop = value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 2,
+    signal: new AbortController().signal,
+  }).then(result => { stopSettled = true; return result })
+  await Promise.resolve()
+  assert.equal(stopSettled, false)
+  assert.throws(
+    () => value.service.verdict(value.owner),
+    /workspace disposal pending/u,
+  )
+  readiness.release()
+  assert.equal(typeof (await stop), 'boolean')
 })
 
 test('the session projection folds only standard tool events and exposes no authority material', () => {

@@ -91,7 +91,20 @@ export function createWorkspaceDisposalBarrier() {
     },
     /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
     async wait(agent) {
-      await pending.get(workspace(agent))
+      const key = workspace(agent)
+      for (;;) {
+        const current = pending.get(key)
+        if (current === undefined) return
+        await current
+        if (pending.get(key) === current) {
+          pending.delete(key)
+          return
+        }
+      }
+    },
+    /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+    ready(agent) {
+      return !pending.has(workspace(agent))
     },
   })
 }
@@ -424,16 +437,17 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
     }),
   })
+  const workspaceDisposals = createWorkspaceDisposalBarrier()
   const acceptance = createAuthoritativeAcceptanceCoordinator(ctx, {
     client: finishLineClient,
     authority: finishLine,
     abortedCode: TOOL_ABORTED,
+    workspaceReadiness: workspaceDisposals,
     createSteeringMessage: text => createUserMessage({
       content: [{ type: 'text', text }],
       source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
     }),
   })
-  const workspaceDisposals = createWorkspaceDisposalBarrier()
   const compatibility = createDshRc7Compatibility(ctx)
   /** @type {Map<Readonly<ToolExecution>, Authorization>} */
   const authorizations = new Map()
@@ -516,9 +530,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
     if (!isReviewer(payload.agent)) {
-      void workspaceDisposals.wait(payload.agent)
-        .then(() => acceptance.sessionStarted(payload))
-        .catch(() => {})
+      void acceptance.sessionStarted(payload).catch(() => {})
     }
   })
   ctx.on('agent/disposed', ({ agent }) => {

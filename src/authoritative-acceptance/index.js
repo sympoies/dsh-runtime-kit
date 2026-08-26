@@ -20,6 +20,10 @@ const VERDICT_STATUSES = new Set([
   'infrastructure-blocked',
 ])
 
+/** Locale-independent ordering shared with nils' default string sort. */
+/** @type {(left: string, right: string) => number} */
+const lexicalCompare = (left, right) => left < right ? -1 : left > right ? 1 : 0
+
 /**
  * Synchronous completion denial thrown through the patched GoalService seam.
  * It carries only the sanitized aggregate and reason codes; provider
@@ -221,9 +225,9 @@ function normalizeRegistration(input) {
       }
       validatorBindings.set(definition, Object.freeze([...prior, binding]))
       return binding
-    }).sort((left, right) => left.id.localeCompare(right.id))
+    }).sort((left, right) => lexicalCompare(left.id, right.id))
     return Object.freeze({ name, validators: Object.freeze(validators) })
-  }).sort((left, right) => left.name.localeCompare(right.name))
+  }).sort((left, right) => lexicalCompare(left.name, right.name))
 
   const invalidatorDefinitions = new Set()
   const invalidators = value.invalidators.map(rawDefinition => {
@@ -244,7 +248,7 @@ function normalizeRegistration(input) {
       name: definition.name,
       digest,
     })
-  }).sort((left, right) => left.name.localeCompare(right.name))
+  }).sort((left, right) => lexicalCompare(left.name, right.name))
 
   return Object.freeze({
     requirements: Object.freeze(requirements),
@@ -485,13 +489,26 @@ function observedStatus(result, abortedCode) {
  *     sourceOperation(exec: ToolExecution): {operationId: string, intent: string, command: string} | undefined
  *   },
  *   createOperationId?: (kind: string, binding: any) => string,
+ *   workspaceReadiness?: {
+ *     wait(agent: Agent): Promise<void>,
+ *     ready(agent: Agent): boolean
+ *   },
  *   createSteeringMessage?: (text: string) => any,
  *   abortedCode?: string,
  * }} options
  */
 export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   const createOperationId = options.createOperationId
-    ?? ((kind, binding) => `dsh-acceptance:${kind}:${binding.id ?? 'mutation'}:${randomUUID()}`)
+    ?? ((kind, binding) => {
+      const bindingIdentity = createHash('sha256')
+        .update(String(binding.id ?? binding.name ?? 'mutation'))
+        .digest('hex')
+      return `dsh-acceptance:${kind}:${bindingIdentity}:${randomUUID()}`
+    })
+  const workspaceReadiness = options.workspaceReadiness ?? Object.freeze({
+    async wait(_agent) {},
+    ready(_agent) { return true },
+  })
   const createSteeringMessage = options.createSteeringMessage ?? (text => text)
   const abortedCode = options.abortedCode ?? 'ABORTED'
   /** @type {ReturnType<typeof normalizeRegistration> | undefined} */
@@ -505,6 +522,21 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   /** @type {Set<Readonly<ToolExecution>>} */
   const repositoryMutations = new Set()
   let open = true
+
+  /** @param {Agent} agent */
+  async function awaitWorkspaceReady(agent) {
+    await workspaceReadiness.wait(agent)
+    if (!open) throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
+  }
+
+  /** @param {Agent} agent */
+  function isWorkspaceReady(agent) {
+    try {
+      return workspaceReadiness.ready(agent)
+    } catch {
+      return false
+    }
+  }
 
   /**
    * Preserve nils' exact contained source on every lifecycle path. Natural
@@ -952,13 +984,12 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         })
       }
       for (const agent of ctx.agents.list()) {
-        try {
-          const state = stateFor(agent)
-          if (state.registration === undefined) {
-            state.registration = registerState(state, new AbortController().signal)
-              .catch(error => { poison(state, error) })
-          }
-        } catch {}
+        void awaitWorkspaceReady(agent)
+          .then(() => ensureRegistered(agent))
+          .catch(error => {
+            const state = sessions.get(agent.session)
+            if (state !== undefined) poison(state, error)
+          })
       }
       let registrationDisposed = false
       return () => {
@@ -977,6 +1008,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     verdict(agent) {
       if (contract === undefined) return undefined
       assertLive(agent)
+      if (!isWorkspaceReady(agent)) {
+        throw new Error('dsh-runtime-kit: acceptance workspace disposal pending')
+      }
       const state = sessions.get(agent.session)
       if (state === undefined) {
         throw new Error('dsh-runtime-kit: acceptance session unavailable')
@@ -1003,7 +1037,8 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         if (state !== undefined) poison(state, error)
       }
       const selected = state?.verdict
-      if (state === undefined || state.disposed || state.poison !== undefined
+      if (!isWorkspaceReady(agent)
+        || state === undefined || state.disposed || state.poison !== undefined
         || state.admissions.size > 0 || state.activeOperations > 0
         || state.pending.size > 0 || repositoryMutations.size > 0
         || selected?.action !== 'allow'
@@ -1039,12 +1074,18 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     async sessionStarted(payload) {
       if (contract === undefined) return
       await awaitPublication(payload.agent)
+      await awaitWorkspaceReady(payload.agent)
       await ensureRegistered(payload.agent)
     },
 
     /** @param {Readonly<ToolExecution>} exec @param {{turn: number}} call */
     async repositoryMutationStarting(exec, call) {
       if (!open || contract === undefined) return
+      if (exec.agent === undefined) {
+        throw new Error('dsh-runtime-kit: acceptance agent unavailable')
+      }
+      await awaitWorkspaceReady(exec.agent)
+      assertLive(exec.agent)
       await prepareRepositoryMutation(exec, call)
     },
 
@@ -1066,6 +1107,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         throw new Error('dsh-runtime-kit: acceptance execution correlation invalid')
       }
       const agent = exec.agent
+      await awaitWorkspaceReady(agent)
       const state = await ensureRegistered(agent, exec.signal)
       if (state === undefined || state.contractDigest === undefined) {
         throw new Error('dsh-runtime-kit: acceptance contract unavailable')
@@ -1221,6 +1263,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (contract === undefined) return true
       let state
       try {
+        await awaitWorkspaceReady(payload.agent)
         state = await ensureRegistered(payload.agent, payload.signal)
       } catch (error) {
         const existing = sessions.get(payload.agent.session)

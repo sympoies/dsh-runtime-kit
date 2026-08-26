@@ -70,6 +70,7 @@ test('workspace disposal cleanup completes before a replacement session starts',
   let releaseCleanup
   const cleanupGate = new Promise(resolve => { releaseCleanup = resolve })
   const cleanup = barrier.track(first, async () => cleanupGate)
+  assert.equal(barrier.ready(replacement), false)
   let replacementStarted = false
   const start = barrier.wait(replacement).then(() => { replacementStarted = true })
 
@@ -78,6 +79,7 @@ test('workspace disposal cleanup completes before a replacement session starts',
   releaseCleanup()
   await Promise.all([cleanup, start])
   assert.equal(replacementStarted, true)
+  assert.equal(barrier.ready(replacement), true)
 
   await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
 })

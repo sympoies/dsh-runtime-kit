@@ -117,7 +117,7 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 The implementation currently integrates the exact reviewed nils-cli PR #1507
 head recorded in `compatibility/nils-cli.json`. The released compatibility row
-remains nils-cli 1.27.11 until the provider change is merged, released, and
+remains nils-cli 1.27.13 until the provider change is merged, released, and
 independently authenticated. Registering an acceptance contract against a
 nils build without these RPCs fails closed; leaving the service unregistered
 preserves the released deployment.

@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { CallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+
+import { observableChildPid } from './observable-child-pid.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
 export const inject = ['agents', 'goals', 'llm', 'tools']
@@ -141,30 +143,6 @@ function processAlive(pid) {
     if (error?.code === 'ESRCH') return false
     throw error
   }
-}
-
-function observableChildPid(namespacePid, pidPath, heartbeatPath) {
-  const matches = []
-  try {
-    for (const entry of readdirSync('/proc', { withFileTypes: true })) {
-      if (!entry.isDirectory() || !/^\d+$/u.test(entry.name)) continue
-      try {
-        const argv = readFileSync(`/proc/${entry.name}/cmdline`, 'utf8').split('\0')
-        if (argv[1] === '-e'
-          && argv[2]?.includes(pidPath)
-          && argv[2]?.includes(heartbeatPath)) {
-          matches.push(Number.parseInt(entry.name, 10))
-        }
-      } catch {}
-    }
-  } catch {
-    return namespacePid
-  }
-  if (matches.length !== 1) {
-    throw new Error('expected one host-visible cancellable child, got '
-      + JSON.stringify(matches))
-  }
-  return matches[0]
 }
 
 export function apply(ctx) {
