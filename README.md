@@ -91,7 +91,7 @@ Two exact DSH `0.1.1-rc.2` compositions are supported:
 
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
-  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.2`, then
+  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.3`, then
   `@sympoies/dsh-runtime-kit` in that order.
 
 Unknown profile names contain only the base bundle. They are neither equivalent

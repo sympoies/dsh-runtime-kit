@@ -45,7 +45,19 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.9.2',
+    version: '0.9.3',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.9.3',
+    source: {
+      repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
+      tag: 'v0.9.3',
+      tag_object: '8c4e68461ef688528dbb22da566515044d2cf0ef',
+      revision: 'a3439a3c7d7e7b3c9cfc505e833525376e8558d0',
+    },
+    artifact: {
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.9.3.tgz',
+      integrity: 'sha512-8AR+/EO+5iBlS9a8OWFqPHtmRXa1EFM8L/0rlTvgLn1YVa2sKIqECfOpuBLxWRQ1ABUb+iSkoyJ1p0bsCC0FTA==',
+      shasum: '6a2925a4a3bfee39db897efe0ed6c04cab4d3931',
+    },
   },
   bundles: [
     '@deepseek-ai/dsh-base',
@@ -87,7 +99,10 @@ const EXPECTED_CONTRACT = Object.freeze({
 const VALID_OBSERVATION = Object.freeze({
   profile: 'dsh-tui',
   dsh: EXPECTED_CONTRACT.dsh,
-  tui: EXPECTED_CONTRACT.tui,
+  tui: {
+    package: EXPECTED_CONTRACT.tui.package,
+    version: EXPECTED_CONTRACT.tui.version,
+  },
   bundles: EXPECTED_CONTRACT.bundles,
   composition: {
     rowIds: EXPECTED_CONTRACT.required_rows,
@@ -144,7 +159,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.1-rc.2',
-    tui_version: '0.9.2',
+    tui_version: '0.9.3',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',

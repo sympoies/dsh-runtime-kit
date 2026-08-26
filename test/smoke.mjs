@@ -62,6 +62,21 @@ assert.deepEqual(manifest.peerDependencies, {
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
 )
+const agentConsoleCompatibility = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'agent-console.json'), 'utf8'),
+)
+assert.equal(
+  agentConsoleCompatibility.tui.specifier,
+  '@deepseek-harness-tui/dsh-tui@0.9.3',
+)
+assert.equal(
+  agentConsoleCompatibility.tui.source.revision,
+  'a3439a3c7d7e7b3c9cfc505e833525376e8558d0',
+)
+assert.equal(
+  agentConsoleCompatibility.tui.artifact.integrity,
+  'sha512-8AR+/EO+5iBlS9a8OWFqPHtmRXa1EFM8L/0rlTvgLn1YVa2sKIqECfOpuBLxWRQ1ABUb+iSkoyJ1p0bsCC0FTA==',
+)
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.27.17')
@@ -746,7 +761,7 @@ try {
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
-      '@deepseek-harness-tui/dsh-tui@0.9.2',
+      agentConsoleCompatibility.tui.specifier,
       'the Agent Console smoke accepts only the authenticated TUI release',
     )
     mkdirSync(profileDirectory, { recursive: true, mode: 0o700 })
@@ -796,7 +811,7 @@ try {
       'package.json',
     ), 'utf8'))
     installedTuiVersion = installedTuiManifest.version
-    assert.equal(installedTuiVersion, '0.9.2')
+    assert.equal(installedTuiVersion, agentConsoleCompatibility.tui.version)
     assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
     assert.match(dump, /id: dsh-tui/)
     assert.match(dump, /id: user-questions/)

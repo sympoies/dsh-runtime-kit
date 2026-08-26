@@ -5,7 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.2` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.3` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
 | nils-cli | exactly `1.27.17` |
@@ -62,6 +62,12 @@ the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
 and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
 authority facts a sanitized live observation must prove. It does not broaden
 the generic DSH version range or authorize another custom profile.
+The TUI pin includes the exact package specifier, annotated release-tag object,
+source revision, npm tarball URL, SRI, and shasum. The promoted 0.9.3 artifact
+contains the release's resume-argument forwarding, suggestion-viewport
+re-anchoring, macOS Terminal input repair, settings auto-save, and manifest-read
+version display; these remain upstream TUI behaviors rather than runtime-kit
+patches.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.
