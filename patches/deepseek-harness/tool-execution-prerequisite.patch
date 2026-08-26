@@ -2550,3 +2550,239 @@ index a7413159f9..dc41ea2b2b 100644
    /**
     * Allocate a real terminal and start one owned process session. This is the
     * only non-pipe process primitive: implementations own terminal byte I/O,
+diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
+index 695a9fdfc9..73fabfcc2f 100644
+--- a/packages/fs/tool-fs/src/sandbox.ts
++++ b/packages/fs/tool-fs/src/sandbox.ts
+@@ -13,7 +13,7 @@
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeEscalationArgs, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
+ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+ import { FsError } from '@deepseek-ai/dsh-fs'
+ 
+@@ -85,9 +85,13 @@ export class FsSandboxController {
+    *   unsandboxed backend.
+    */
+   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
+-    validateEscalationArgs(args.sandbox_permissions, args.justification)
+     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
+-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
++    const escalation = normalizeEscalationArgs(
++      args.sandbox_permissions,
++      args.justification,
++      standingPolicy?.mode,
++    )
++    if (escalation === undefined) {
+       return standingPolicy
+     }
+     if (this.escalationModes.length === 0) {
+@@ -95,7 +99,7 @@ export class FsSandboxController {
+     }
+     const policy = standingPolicy as SandboxExecutionPolicy
+     const approvedMode = await approveEscalation(
+-      { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: policy.mode, subject: 'operation' },
++      { requestedMode: escalation.sandboxPermissions, justification: escalation.justification, effectiveMode: policy.mode, subject: 'operation' },
+       {
+         approver: this.ctx.get('approval'),
+         agent: exec.agent,
+diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
+index cad6531766..a688524614 100644
+--- a/packages/fs/tool-fs/tests/tools.spec.ts
++++ b/packages/fs/tool-fs/tests/tools.spec.ts
+@@ -857,6 +857,25 @@ describe('sandbox escalation API (write/edit)', () => {
+     expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
+   })
+ 
++  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
++    const { ctx, fs } = await setupConfining()
++    const agent = escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }])
++    fs.files.set('key:a.txt', 'before')
++    await call(ctx, 'read', { file_path: 'a.txt' }, agent)
++
++    const result = await call(ctx, 'edit', {
++      file_path: 'a.txt',
++      old_string: 'before',
++      new_string: 'after',
++      sandbox_permissions: 'workspace-write',
++      justification: '',
++    }, agent)
++
++    expect(result.isError).toBe(false)
++    expect(fs.files.get('key:a.txt')).toBe('after')
++    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
++  })
++
+   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
+     const { ctx, fs } = await setupConfining()
+     fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
+index e0b9a2ce63..a9731e90fd 100644
+--- a/packages/sandbox/sandbox/src/escalation.ts
++++ b/packages/sandbox/sandbox/src/escalation.ts
+@@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
+   }
+ }
+ 
++/** A validated escalation pair, ready for the strictly-wider approval path. */
++export interface EscalationArgs {
++  sandboxPermissions: string
++  justification: string
++}
++
++/** Classify the only schema echoes that cannot widen the effective mode. */
++export function isNonWideningSandboxEcho(
++  sandboxPermissions: string | undefined,
++  effectiveMode: SandboxMode | undefined,
++): boolean {
++  return effectiveMode !== undefined
++    && (sandboxPermissions === effectiveMode
++      || (sandboxPermissions === 'workspace-write' && effectiveMode === 'danger-full-access'))
++}
++
++/**
++ * Normalize model/tool-protocol echoes that cannot widen the current call.
++ * Some callers materialize optional schema fields as the effective mode, or
++ * as the schema's `workspace-write` floor under `danger-full-access`, together
++ * with a concretized blank optional reason. Those shapes request no additional
++ * authority, so treat them as an ordinary call. Every other shape retains the
++ * strict pairing validation and approval choreography.
++ */
++export function normalizeEscalationArgs(
++  sandboxPermissions: string | undefined,
++  justification: string | undefined,
++  effectiveMode: SandboxMode | undefined,
++): EscalationArgs | undefined {
++  if (isNonWideningSandboxEcho(sandboxPermissions, effectiveMode)
++    && justification !== undefined
++    && justification.trim().length === 0) {
++    return undefined
++  }
++  validateEscalationArgs(sandboxPermissions, justification)
++  if (sandboxPermissions === undefined || justification === undefined) return undefined
++  return { sandboxPermissions, justification }
++}
++
+ /**
+  * The model-facing denial marker — the one vocabulary both enforcing families
+  * teach and report, so the model recognizes a policy denial identically
+diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
+index 2d9ee5b91b..28282b03e9 100644
+--- a/packages/sandbox/sandbox/src/index.ts
++++ b/packages/sandbox/sandbox/src/index.ts
+@@ -14,10 +14,12 @@ export {
+   WIDER_MODES,
+   approveEscalation,
+   escalationHintMarker,
++  isNonWideningSandboxEcho,
++  normalizeEscalationArgs,
+   sandboxDenialMarker,
+   validateEscalationArgs,
+ } from './escalation.ts'
+-export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
++export type { EscalationApproval, EscalationApprover, EscalationArgs, EscalationOutcome, EscalationRequest } from './escalation.ts'
+ export { canonicalPath, writableRoots } from './roots.ts'
+ 
+ /**
+diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
+index 37c4a762e3..f149209c6f 100644
+--- a/packages/shell/tool-bash/src/index.ts
++++ b/packages/shell/tool-bash/src/index.ts
+@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
+ import type {} from '@deepseek-ai/dsh-user-approval'
+ import type {} from '@deepseek-ai/dsh-shell-env'
+ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, canonicalPath, normalizeEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+ import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
+ import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
+@@ -62,9 +62,6 @@ function validateBashArgs(args: BashToolArgs): void {
+   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
+     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
+   }
+-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+-  // the shared rule both enforcing families validate identically.
+-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+ }
+ 
+ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
+@@ -331,8 +328,13 @@ export function apply(ctx: Context, config: Config = {}): void {
+       validateBashArgs(args)
+       // Description is display metadata; workdir defaults to the caller's session.
+       const standingPolicy = resolveSandboxPolicy(exec)
+-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+-        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
++      const escalation = normalizeEscalationArgs(
++        args.sandbox_permissions,
++        args.justification,
++        standingPolicy?.mode,
++      )
++      const approvedMode = escalation !== undefined
++        ? await approveBashEscalation(escalation.sandboxPermissions, escalation.justification, exec, standingPolicy)
+         : undefined
+       const policy = approvedMode === undefined
+         ? standingPolicy
+diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
+index 0f2e4d5a20..aaceb87775 100644
+--- a/packages/shell/tool-bash/tests/tools.spec.ts
++++ b/packages/shell/tool-bash/tests/tools.spec.ts
+@@ -620,6 +620,19 @@ describe('sandbox escalation through the generic task producer', () => {
+     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+   })
+ 
++  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
++    const { ctx, bash } = await setupSandboxed()
++    const result = await call(ctx, 'bash', {
++      command: 'true',
++      description: 'run ordinary full-access command',
++      sandbox_permissions: 'workspace-write',
++      justification: '',
++    }, sandboxAgent('danger-full-access'))
++
++    expect(result.isError).toBe(false)
++    expect(bash.modes).toEqual(['danger-full-access'])
++  })
++
+   it('fails closed when approval cannot be routed', async () => {
+     const withoutService = await setupSandboxed()
+     expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
+diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
+index 15810d09d5752896c81f00e9de1c891ea86792fe..6073180efcedd5917e261bd1c163e5729438222b 100644
+--- a/packages/sandbox/sandbox/tests/escalation.spec.ts
++++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
+@@ -12,6 +12,8 @@ import {
+   WIDER_MODES,
+   approveEscalation,
+   escalationHintMarker,
++  isNonWideningSandboxEcho,
++  normalizeEscalationArgs,
+   sandboxDenialMarker,
+   validateEscalationArgs,
+ } from '@deepseek-ai/dsh-sandbox'
+@@ -42,6 +44,23 @@ describe('validateEscalationArgs', () => {
+   })
+ })
+ 
++describe('normalizeEscalationArgs', () => {
++  it('normalizes only explicit blank echoes that cannot widen full access', () => {
++    expect(isNonWideningSandboxEcho('danger-full-access', 'danger-full-access')).toBe(true)
++    expect(isNonWideningSandboxEcho('workspace-write', 'danger-full-access')).toBe(true)
++    expect(isNonWideningSandboxEcho('danger-full-access', 'workspace-write')).toBe(false)
++    expect(normalizeEscalationArgs('danger-full-access', '', 'danger-full-access')).toBeUndefined()
++    expect(normalizeEscalationArgs('workspace-write', ' ', 'danger-full-access')).toBeUndefined()
++  })
++
++  it('preserves pairing and nonblank non-widening validation', () => {
++    expect(() => normalizeEscalationArgs('workspace-write', undefined, 'danger-full-access'))
++      .toThrow(/requires a justification/)
++    expect(normalizeEscalationArgs('workspace-write', 'requested explicitly', 'danger-full-access'))
++      .toEqual({ sandboxPermissions: 'workspace-write', justification: 'requested explicitly' })
++  })
++})
++
+ describe('the model-facing markers', () => {
+   it('the denial marker names the mode', () => {
+     expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')

@@ -501,6 +501,25 @@ cleanup or reuses them. A provider with a missing or platform-mismatched mode
 fails closed instead of silently falling back to the replaceable runtime
 snapshot pathname.
 
+The same version-scoped patch keeps DSH's native Bash and filesystem mutation
+tools usable when a tool-call protocol concretizes their optional escalation
+fields. If the requested mode is already effective, or is the schema's
+`workspace-write` floor while the effective mode is `danger-full-access`, a
+blank `justification` cannot widen authority and is normalized to an ordinary
+call before native dispatch. A missing paired field, any nonblank request, or
+any other mode shape continues through DSH's original pairing, strict-wider,
+approval, and denial checks. This compatibility normalization adds no policy
+engine and cannot grant a wider mode.
+
+The patched DSH sandbox exports the non-widening echo classifier as the single
+owner of that mode matrix. Native tool wrappers require an explicitly blank
+paired justification so their public pairing contract stays fail closed. The
+runtime-kit finish-line adapter delegates to the same classifier but also
+accepts a missing justification for a same-mode echo because it is revalidating
+an already captured validation operation, not admitting a new native tool
+request. Tests pin this intentional wrapper difference so the classifier cannot
+drift across the two execution paths.
+
 The Darwin transition is necessarily path-based between verified
 materialization and the kernel's spawn operation. The private random pathname,
 trusted-parent validation, and pre-spawn identity check remove ordinary
@@ -532,7 +551,8 @@ reverse reject unknown revisions, partial state, content drift, or unrelated
 checkout changes. Nils remains the sole owner of catalogs, policy resolution,
 receipt semantics, and durable activation; the patch owns only exact DSH
 execution ordering, result/context attachment, pre-waterfall model admission,
-and descriptor-bound local subprocess launch.
+descriptor-bound local subprocess launch, and the bounded non-widening schema
+echo normalization above.
 
 ## Private skill discovery
 

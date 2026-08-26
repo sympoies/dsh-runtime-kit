@@ -4,7 +4,7 @@
     {
       "id": "tool-execution-prerequisite-v1",
       "path": "patches/deepseek-harness/tool-execution-prerequisite.patch",
-      "sha256": "9f2cd7def88bea0bd94bcc486e4016ac1dd8bf8ded9808098f28db36697c1a44",
+      "sha256": "e7b5978570e233971dc0d2b91df3bcd9fa0d2833772859333b97b8d78f21f7a7",
       "targets": {
         "packages/subprocess/subprocess/src/index.ts": {
           "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
@@ -73,6 +73,34 @@
               "after_sha256": "b0a35ffd2aed099383ff5458df435ed5503bbdd19d538828c097f085848f08b9"
             }
           }
+        },
+        "packages/fs/tool-fs/src/sandbox.ts": {
+          "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
+          "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+        },
+        "packages/fs/tool-fs/tests/tools.spec.ts": {
+          "before_sha256": "8032f5051368c9e08888dcaa0de3a5f9c5711fb18efc131dc1ea4a0782ef2d2c",
+          "after_sha256": "979e17bf8ca8952a86a84cacbbc20b7dc453146d0a6dd3a3e73093b02e241d05"
+        },
+        "packages/sandbox/sandbox/src/escalation.ts": {
+          "before_sha256": "64c57a474667d3ae991377bc122a18449b059fd84721d7e30ff24f8ba4fd510e",
+          "after_sha256": "cffd9af94c0bf5521cef8ca322dea61430f9013e6a4c73614edbbbef40b29e55"
+        },
+        "packages/sandbox/sandbox/src/index.ts": {
+          "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
+          "after_sha256": "8929893c4b737cb0e8beb99dca9b1ce8c007b6d3611f14ac872fca0165eb97af"
+        },
+        "packages/sandbox/sandbox/tests/escalation.spec.ts": {
+          "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
+          "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+        },
+        "packages/shell/tool-bash/src/index.ts": {
+          "before_sha256": "e0302d4cc1d835ca4118434afc9913c4236773bbce92349ae7644d540d40c482",
+          "after_sha256": "a3a61ac8adf6c3bf70e5c1df418f155e8c4fab871dc9b68b8e7899550adf3584"
+        },
+        "packages/shell/tool-bash/tests/tools.spec.ts": {
+          "before_sha256": "b6ea441d7527773f9378456025f4ab694a854c95bd07efa031c828fda7b0534d",
+          "after_sha256": "751ce557d2263d26f9342ec0fb0ea603d211adcc17901eb32e0a7bca026cfbae"
         }
       },
       "validated_releases": {

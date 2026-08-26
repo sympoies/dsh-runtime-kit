@@ -207,18 +207,17 @@ function matchesAuthorization(authorization, exec) {
  * justification in a Bash call. Treat only those known non-escalating echoes
  * as no-ops; every other shape stays under the native escalation validator.
  *
- * @param {{permissions: string | undefined, justification: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access', validate(permissions: any, justification: any): void}} input
+ * @param {{permissions: string | undefined, justification: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access', isNonWideningEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validate(permissions: any, justification: any): void}} input
  * @returns {{permissions: string, justification: string} | undefined}
  */
 export function normalizeSandboxEscalationRequest({
   permissions,
   justification,
   effectiveMode,
+  isNonWideningEcho,
   validate,
 }) {
-  const knownNonEscalatingEcho = permissions === effectiveMode
-    || (permissions === 'workspace-write' && effectiveMode === 'danger-full-access')
-  if (knownNonEscalatingEcho
+  if (isNonWideningEcho(permissions, effectiveMode)
     && (justification === undefined || justification.trim().length === 0)) {
     return undefined
   }
@@ -235,7 +234,7 @@ export function normalizeSandboxEscalationRequest({
  * @param {Context} ctx
  * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} }} config
  * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
- * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
+ * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
  * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
  */
 export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugins = createChildPluginStatus()) {
@@ -249,8 +248,12 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     createUserMessage,
     approveEscalation,
     canonicalPath,
+    isNonWideningSandboxEcho,
     validateEscalationArgs,
   } = dshRuntime
+  if (typeof isNonWideningSandboxEcho !== 'function') {
+    throw new TypeError('dsh-runtime-kit: authenticated DSH sandbox echo classifier is required')
+  }
   const transport = createNilsTransport(ctx, config)
   const contextClient = createNilsContextClient(ctx, config)
   const finishLineClient = createNilsFinishLineClient(ctx, config)
@@ -288,6 +291,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
           permissions: operation.sandboxPermissions,
           justification: operation.justification,
           effectiveMode: policy.mode,
+          isNonWideningEcho: isNonWideningSandboxEcho,
           validate: validateEscalationArgs,
         })
         if (escalation !== undefined) {

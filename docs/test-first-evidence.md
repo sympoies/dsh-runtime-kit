@@ -1749,3 +1749,27 @@ and 5.916 ms p95
 through the authenticated nils-cli v1.27.8 `agent-hook`, with no residual
 children or live handles. Review, provider delivery, and clean post-merge
 canary deployment remain later gates and are not claimed by this record.
+
+## Issue #213 native sandbox echo evidence
+
+A fresh external DSH session running with `danger-full-access` reproduced two
+pre-dispatch capability failures. Its native `edit` call materialized optional
+escalation fields as `workspace-write` or `danger-full-access` with a blank
+reason and failed validation before the file operation. An ordinary Bash call
+hit the same schema boundary before process dispatch. Neither call changed the
+repository or provider state.
+
+Two behavioral regressions were added to a pristine, exact DSH 0.1.1-rc.2
+checkout carrying the existing authenticated patch. They began RED 0/2 because
+both results were errors. The smallest repair adds one shared DSH sandbox
+normalizer: only a blank same-mode echo, or the blank `workspace-write` schema
+floor under full access, becomes an ordinary call. Missing pairs, nonblank
+requests, other lower modes, strict widening, approval, and denial behavior
+remain fail closed. The focused regressions pass 2/2, the complete affected
+shared sandbox, filesystem, and Bash suites pass 174/174, and the patched host
+build completes. A review-follow-up RED proved the finish-line adapter still
+owned a duplicate mode matrix; its GREEN delegates classification to the
+authenticated DSH sandbox helper while explicit wrapper tests preserve the
+intentional missing-versus-blank pairing difference.
+Patch check/apply state is authenticated for rc.7, rc.8, and rc.2; provider
+delivery, deployment, and a new live DSH acceptance remain separate gates.

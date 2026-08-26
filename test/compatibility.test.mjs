@@ -422,6 +422,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     '@deepseek-ai/dsh-sandbox': {
       approveEscalation() {},
       canonicalPath() {},
+      isNonWideningSandboxEcho() {},
       validateEscalationArgs() {},
     },
     '@deepseek-ai/dsh-skill-filesystem': { apply() {} },
@@ -435,6 +436,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   })
   const loaded = await loadDshRc7Runtime(options())
   assert.equal(typeof loaded.createUserMessage, 'function')
+  assert.equal(typeof loaded.isNonWideningSandboxEcho, 'function')
   assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
 
   const rc8 = await loadDshRc7Runtime({

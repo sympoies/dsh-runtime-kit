@@ -474,6 +474,7 @@ export async function loadDshRc7Runtime(options = {}) {
     createUserMessage: llm.createUserMessage,
     approveEscalation: sandbox.approveEscalation,
     canonicalPath: sandbox.canonicalPath,
+    isNonWideningSandboxEcho: sandbox.isNonWideningSandboxEcho,
     validateEscalationArgs: sandbox.validateEscalationArgs,
     filesystemSkillsApply: skills.apply,
     TOOL_ABORTED: tools.TOOL_ABORTED,

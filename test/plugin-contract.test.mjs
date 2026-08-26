@@ -24,6 +24,8 @@ import { selectManagedSessionEnvironment } from '../src/policy/nils-transport.js
 import { createPrerequisiteCoordinator } from '../src/prerequisite/index.js'
 
 const sha256 = `sha256:${'0'.repeat(64)}`
+const isNonWideningSandboxEcho = (permissions, effectiveMode) => permissions === effectiveMode
+  || (permissions === 'workspace-write' && effectiveMode === 'danger-full-access')
 const dshRuntime = Object.freeze({
   ENV_OVERRIDES,
   HarnessError,
@@ -31,7 +33,18 @@ const dshRuntime = Object.freeze({
   createUserMessage,
   approveEscalation,
   canonicalPath,
+  isNonWideningSandboxEcho,
   validateEscalationArgs,
+})
+
+test('policy activation requires the authenticated DSH echo classifier', () => {
+  assert.throws(
+    () => applyPolicy({}, {}, undefined, {
+      ...dshRuntime,
+      isNonWideningSandboxEcho: undefined,
+    }),
+    /authenticated DSH sandbox echo classifier is required/,
+  )
 })
 
 async function waitForAbort(signal, timeoutMs = 1_000) {
