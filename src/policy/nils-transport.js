@@ -82,6 +82,33 @@ function policyReason(decision) {
   return codes.length > 0 ? `agent-hook:${codes.join(',')}` : 'agent-hook:blocked'
 }
 
+/**
+ * DSH executes Bash without an explicit workdir from the immutable session
+ * cwd. Project that same authoritative default into both policy lifecycle
+ * events so nils sees one stable target while the original tool arguments
+ * remain untouched.
+ *
+ * @param {ToolExecution} exec
+ * @param {string} cwd
+ */
+function policyToolArguments(exec, cwd) {
+  const arguments_ = /** @type {Record<string, unknown>} */ (exec.arguments)
+  if (exec.name !== 'bash'
+    || exec.arguments === null
+    || typeof exec.arguments !== 'object'
+    || Array.isArray(exec.arguments)
+    || (Object.hasOwn(arguments_, 'workdir') && arguments_.workdir !== undefined)) {
+    return exec.arguments
+  }
+  if (!boundedJsonMeasurement(arguments_, MAX_POLICY_INPUT_BYTES).ok) {
+    return exec.arguments
+  }
+  return {
+    ...arguments_,
+    workdir: cwd,
+  }
+}
+
 /** @param {string} value @param {number} remaining */
 function jsonStringBytes(value, remaining) {
   let bytes = 2
@@ -595,7 +622,7 @@ export function createNilsTransport(ctx, config = {}) {
         },
         tool: {
           name: exec.name,
-          arguments: exec.arguments,
+          arguments: policyToolArguments(exec, context.cwd),
           ...prerequisite === undefined
             ? {}
             : {
@@ -631,7 +658,7 @@ export function createNilsTransport(ctx, config = {}) {
         },
         tool: {
           name: exec.name,
-          arguments: exec.arguments,
+          arguments: policyToolArguments(exec, context.cwd),
         },
         result: { is_error: result.isError === true },
       }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse', principal, context.sessionId)
