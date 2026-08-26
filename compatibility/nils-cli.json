@@ -60,13 +60,22 @@
     "platform": "x86_64-unknown-linux-gnu",
     "artifacts": {
       "agent-hook": {
-          "sha256": "9f2e631672da34922e7fb253158d41be8dac35f4d1059fabb79baa568e871122"
+        "sha256": "9f2e631672da34922e7fb253158d41be8dac35f4d1059fabb79baa568e871122"
       },
       "agent-docs": {
-          "sha256": "96318770890e583d537b5fba150b65e1dc843a32b8886a979bf3554f30b89f79"
+        "sha256": "96318770890e583d537b5fba150b65e1dc843a32b8886a979bf3554f30b89f79"
+      },
+      "forge-cli": {
+        "sha256": "5f4a9a19d88afb3b921675dd7045696622a30dbbe483614fd0146b87a81c106c"
+      },
+      "git-cli": {
+        "sha256": "f6534a8306d638839fd992c93fad7a5ee5a7a29cb2a673359247cf5cdff2388e"
       },
       "review-specialists": {
-          "sha256": "ce9f8558b2a5242ddfa06f28de9e803d2cad5a8781daabda32ec427024e79f6a"
+        "sha256": "ce9f8558b2a5242ddfa06f28de9e803d2cad5a8781daabda32ec427024e79f6a"
+      },
+      "semantic-commit": {
+        "sha256": "4236319410f0549bd5f3659f6cb6daa892a8abba38eaa0161b24c88b19d80845"
       }
     },
     "validation": "exact-reviewed-source",

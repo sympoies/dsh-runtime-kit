@@ -11,6 +11,7 @@ import {
   AcceptanceError,
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
+  resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 
@@ -148,12 +149,22 @@ function nilsIdentity(
 }
 
 function pendingCompatibility() {
+  const nils = nilsIdentity()
   return {
     schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
     status: 'pending-release',
     minimum_supported_release: null,
     validated_release: null,
     release: null,
+    candidate_validation: {
+      feature: 'authoritative-finish-line-acceptance',
+      status: 'reviewed-source-candidate',
+      validation: 'exact-reviewed-source',
+      source_commit: nils.source_commit,
+      version: nils.version,
+      platform: 'x86_64-unknown-linux-gnu',
+      artifacts: nils.artifacts,
+    },
   }
 }
 
@@ -281,6 +292,32 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   )
   assert.equal(summary.execution_scope, 'functional-session')
   assert.equal('no_legacy_runtime_execution' in summary, false)
+})
+
+test('source rehearsal selects only the exact reviewed nils candidate', () => {
+  const input = baseInput()
+  assert.deepEqual(
+    resolveSourceCandidateAcceptance(input.compatibility, input.nils),
+    {
+      feature: 'authoritative-finish-line-acceptance',
+      source_commit: SOURCE_COMMIT,
+      version: '1.26.4',
+    },
+  )
+
+  for (const mutate of [
+    candidate => { candidate.source_commit = '0'.repeat(40) },
+    candidate => { candidate.artifacts['forge-cli'].sha256 = '0'.repeat(64) },
+    candidate => { candidate.feature = '../untrusted' },
+  ]) {
+    const compatibility = structuredClone(input.compatibility)
+    mutate(compatibility.candidate_validation)
+    assert.throws(
+      () => resolveSourceCandidateAcceptance(compatibility, input.nils),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
+    )
+  }
 })
 
 test('hosted acceptance rejects receipts that do not prove runtime coexistence isolation', () => {
@@ -619,6 +656,12 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
+  assert.match(runner, /resolveSourceCandidateAcceptance/u)
+  assert.match(runner, /DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: '1'/u)
+  assert.match(
+    runner,
+    /DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: sourceCandidate\.feature/u,
+  )
   assert.match(runner, /'run-id'/u)
   assert.match(runner, /'package-tarball'/u)
   assert.match(runner, /packageSha256/u)
@@ -642,6 +685,10 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(operationsSmoke, /upstream:patch-state-unchanged/u)
   assert.doesNotMatch(operationsSmoke, /assert\.equal\(upstreamBefore, ''\)/u)
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  assert.doesNotMatch(
+    runtimeSmoke,
+    /DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance'/u,
+  )
   assert.deepEqual(
     [...runtimeSmoke.matchAll(/(?:from\s+|import\s*\()\s*['"](\.\.\/[^'"]+)['"]/gu)]
       .map(match => match[1]),

@@ -24,6 +24,7 @@ import {
   AcceptanceError,
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
+  resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
@@ -748,7 +749,7 @@ async function main() {
       snapshotBinary(runRoot, semanticCommitSource, 'semantic-commit'),
       snapshotBinary(runRoot, forgeCliSource, 'forge-cli'),
     ])
-    const scenarioEnv = {
+    const scenarioBaseEnv = {
       ...env,
       PATH: resolve(runRoot, 'bin') + ':' + env.PATH,
       DSH_SOURCE_ROOT: dshSourceRoot,
@@ -756,12 +757,12 @@ async function main() {
       AGENT_DOCS_BIN: agentDocs.path,
     }
     enterPhase('tool-identity')
-    const hookIdentity = nilsIdentity(agentHook, 'agent-hook', scenarioEnv)
-    const docsIdentity = nilsIdentity(agentDocs, 'agent-docs', scenarioEnv)
-    const gitCliIdentity = nilsIdentity(gitCli, 'git-cli', scenarioEnv)
-    const reviewIdentity = nilsIdentity(reviewSpecialists, 'review-specialists', scenarioEnv)
-    const semanticCommitIdentity = nilsIdentity(semanticCommit, 'semantic-commit', scenarioEnv)
-    const forgeCliIdentity = nilsIdentity(forgeCli, 'forge-cli', scenarioEnv)
+    const hookIdentity = nilsIdentity(agentHook, 'agent-hook', scenarioBaseEnv)
+    const docsIdentity = nilsIdentity(agentDocs, 'agent-docs', scenarioBaseEnv)
+    const gitCliIdentity = nilsIdentity(gitCli, 'git-cli', scenarioBaseEnv)
+    const reviewIdentity = nilsIdentity(reviewSpecialists, 'review-specialists', scenarioBaseEnv)
+    const semanticCommitIdentity = nilsIdentity(semanticCommit, 'semantic-commit', scenarioBaseEnv)
+    const forgeCliIdentity = nilsIdentity(forgeCli, 'forge-cli', scenarioBaseEnv)
     const nilsIdentities = [
       hookIdentity,
       docsIdentity,
@@ -786,6 +787,33 @@ async function main() {
         'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
         'final acceptance requires exact validated nils release artifacts',
       )
+    }
+    const nilsEvidence = {
+      version: hookIdentity.version,
+      source_revision: hookIdentity.source_revision,
+      source_commit: input.nilsSourceCommit,
+      archive: {
+        name: input.nilsArchiveName,
+        sha256: input.nilsArchiveSha256,
+      },
+      artifacts: {
+        'agent-hook': { sha256: hookIdentity.sha256 },
+        'agent-docs': { sha256: docsIdentity.sha256 },
+        'git-cli': { sha256: gitCliIdentity.sha256 },
+        'review-specialists': { sha256: reviewIdentity.sha256 },
+        'semantic-commit': { sha256: semanticCommitIdentity.sha256 },
+        'forge-cli': { sha256: forgeCliIdentity.sha256 },
+      },
+    }
+    const sourceCandidate = input.allowSourceNils
+      ? resolveSourceCandidateAcceptance(compatibility, nilsEvidence)
+      : undefined
+    const scenarioEnv = {
+      ...scenarioBaseEnv,
+      DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: '1',
+      ...sourceCandidate === undefined ? {} : {
+        DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: sourceCandidate.feature,
+      },
     }
 
     const operationsScript = resolve(operationsLeg.project, 'test', 'operations-smoke.mjs')
@@ -913,23 +941,7 @@ async function main() {
         version: selected.version,
       },
       compatibility,
-      nils: {
-        version: hookIdentity.version,
-        source_revision: hookIdentity.source_revision,
-        source_commit: input.nilsSourceCommit,
-        archive: {
-          name: input.nilsArchiveName,
-          sha256: input.nilsArchiveSha256,
-        },
-        artifacts: {
-          'agent-hook': { sha256: hookIdentity.sha256 },
-          'agent-docs': { sha256: docsIdentity.sha256 },
-          'git-cli': { sha256: gitCliIdentity.sha256 },
-          'review-specialists': { sha256: reviewIdentity.sha256 },
-          'semantic-commit': { sha256: semanticCommitIdentity.sha256 },
-          'forge-cli': { sha256: forgeCliIdentity.sha256 },
-        },
-      },
+      nils: nilsEvidence,
       package_sha256: packageSha256,
       environment: {
         mode: 'local-source-rehearsal',

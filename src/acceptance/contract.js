@@ -11,6 +11,7 @@ const SHA256 = /^[0-9a-f]{64}$/u
 const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
 const REPOSITORY = /^https:\/\/github\.com\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)$/iu
 const ARCHIVE_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u
+const CANDIDATE_FEATURE = /^[a-z][a-z0-9-]{0,63}$/u
 const NILS_ARTIFACTS = Object.freeze([
   'agent-docs',
   'agent-hook',
@@ -252,6 +253,38 @@ function sameArtifacts(left, right) {
   return exactArtifacts(left)
     && exactArtifacts(right)
     && NILS_ARTIFACTS.every(name => left[name].sha256 === right[name].sha256)
+}
+
+/** @param {unknown} compatibilityValue @param {unknown} nilsValue */
+export function resolveSourceCandidateAcceptance(compatibilityValue, nilsValue) {
+  const compatibility = record(compatibilityValue, 'nils compatibility')
+  const nils = record(nilsValue, 'nils identity')
+  const candidate = record(
+    compatibility.candidate_validation,
+    'nils source candidate',
+  )
+  if (compatibility.schema_version !== 'dsh-runtime-kit.nils-compatibility.v1'
+    || candidate.status !== 'reviewed-source-candidate'
+    || candidate.validation !== 'exact-reviewed-source'
+    || typeof candidate.feature !== 'string'
+    || !CANDIDATE_FEATURE.test(candidate.feature)
+    || candidate.source_commit !== nils.source_commit
+    || typeof candidate.source_commit !== 'string'
+    || !COMMIT_SHA.test(candidate.source_commit)
+    || candidate.version !== nils.version
+    || typeof candidate.platform !== 'string'
+    || candidate.platform.length === 0
+    || !sameArtifacts(candidate.artifacts, nils.artifacts)) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
+      'source rehearsal requires the exact reviewed nils candidate',
+    )
+  }
+  return Object.freeze({
+    feature: candidate.feature,
+    source_commit: candidate.source_commit,
+    version: candidate.version,
+  })
 }
 
 /**
@@ -506,7 +539,9 @@ export function buildAcceptanceSummary(input) {
   }
 
   const releaseReady = releaseAccepted(compatibility, nils)
-  if (!releaseReady && input.allow_source_nils !== true) {
+  if (!releaseReady && input.allow_source_nils === true) {
+    resolveSourceCandidateAcceptance(compatibility, nils)
+  } else if (!releaseReady) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
       'final acceptance requires exact validated nils release artifacts',

@@ -131,6 +131,11 @@ const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PAC
 const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
 const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
 const authoritativeAcceptance = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
+const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+  ?? (authoritativeAcceptance
+    && nilsCompatibility.candidate_validation?.status === 'reviewed-source-candidate'
+    ? nilsCompatibility.candidate_validation.feature
+    : undefined)
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -257,9 +262,9 @@ const environment = {
   // tests; an unauthenticated shell wrapper must not become the live binary.
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
   DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
-  ...authoritativeAcceptance
-    ? { DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance' }
-    : {},
+  ...nilsCandidateFeature === undefined
+    ? {}
+    : { DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: nilsCandidateFeature },
   DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: smokeSemanticCommit,
   DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '0',
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
