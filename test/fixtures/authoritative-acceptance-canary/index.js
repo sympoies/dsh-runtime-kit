@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { CallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -141,6 +141,30 @@ function processAlive(pid) {
     if (error?.code === 'ESRCH') return false
     throw error
   }
+}
+
+function observableChildPid(namespacePid, pidPath, heartbeatPath) {
+  const matches = []
+  try {
+    for (const entry of readdirSync('/proc', { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^\d+$/u.test(entry.name)) continue
+      try {
+        const argv = readFileSync(`/proc/${entry.name}/cmdline`, 'utf8').split('\0')
+        if (argv[1] === '-e'
+          && argv[2]?.includes(pidPath)
+          && argv[2]?.includes(heartbeatPath)) {
+          matches.push(Number.parseInt(entry.name, 10))
+        }
+      } catch {}
+    }
+  } catch {
+    return namespacePid
+  }
+  if (matches.length !== 1) {
+    throw new Error('expected one host-visible cancellable child, got '
+      + JSON.stringify(matches))
+  }
+  return matches[0]
 }
 
 export function apply(ctx) {
@@ -634,8 +658,12 @@ export function apply(ctx) {
             && Number.parseInt(readFileSync(heartbeatPath, 'utf8'), 10) > 0,
           'cancellable child PID and live heartbeat',
         )
-        const childPid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10)
-        if (!Number.isSafeInteger(childPid) || childPid <= 1 || !processAlive(childPid)) {
+        const namespacePid = Number.parseInt(readFileSync(pidPath, 'utf8'), 10)
+        if (!Number.isSafeInteger(namespacePid) || namespacePid <= 1) {
+          throw new Error('cancellable child did not publish a valid namespace PID')
+        }
+        const childPid = observableChildPid(namespacePid, pidPath, heartbeatPath)
+        if (!processAlive(childPid)) {
           throw new Error('cancellable child PID was not live before caller abort')
         }
         cancellationChildPidObserved = true
