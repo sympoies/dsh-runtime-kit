@@ -52,21 +52,21 @@
     "feature": "authoritative-finish-line-acceptance",
     "status": "reviewed-source-candidate",
     "pull_request": "https://github.com/sympoies/nils-cli/pull/1507",
-    "source_commit": "41329f0fe73e9704c74b0fbcf2ee7e1a098893ee",
-    "source_parent": "5be20fe1b5f99852fef0657dc00a0d26fc4d6e31",
-    "source_tree": "b5443934d9b0f5704181b5f52571312d1ccc51c1",
-    "merge_base": "5f74d50bc4cf4acc8b0e365e667ddf933b5d9cbd",
-    "version": "1.27.10",
+    "source_commit": "387c214fc861d0b6c3aee57cf1516319dcccbd2e",
+    "source_parent": "c5c1e3018932ac3fba7e33e2cba055aeb9fd15eb",
+    "source_tree": "630efc153c2ac26cfd5b16bf811881d6bfac1a16",
+    "merge_base": "7662a44aae2ffc362fe41e7606a1106e21e70cdf",
+    "version": "1.27.12",
     "platform": "x86_64-unknown-linux-gnu",
     "artifacts": {
       "agent-hook": {
-        "sha256": "b4138843dce69587ebbc5a5a6dfdd51e92d503e397f60c905c76bd86db168417"
+          "sha256": "9f2e631672da34922e7fb253158d41be8dac35f4d1059fabb79baa568e871122"
       },
       "agent-docs": {
-        "sha256": "1cca26d9b99cb4dc5301e1f75897561030ca18d6b7e949d6e0d34a9981548b27"
+          "sha256": "96318770890e583d537b5fba150b65e1dc843a32b8886a979bf3554f30b89f79"
       },
       "review-specialists": {
-        "sha256": "874ecfb5f9389ce10bd73c0d0307c7e0660dc0eef9b893cbe6f714384b46d92e"
+          "sha256": "ce9f8558b2a5242ddfa06f28de9e803d2cad5a8781daabda32ec427024e79f6a"
       }
     },
     "validation": "exact-reviewed-source",
