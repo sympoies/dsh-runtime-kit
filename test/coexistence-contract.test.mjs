@@ -10,33 +10,33 @@ test('the published nils release is pinned by exact source, archive, and binary 
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.8')
-  assert.equal(manifest.validated_release, '1.27.13')
+  assert.equal(manifest.minimum_supported_release, '1.27.14')
+  assert.equal(manifest.validated_release, '1.27.14')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.13',
-    source_commit: '3dee491576cbea2801dd066a911d76309d8836f2',
+    source_revision: 'v1.27.14',
+    source_commit: 'f3c372a2424096f81de05b4f6b96c179023174f7',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.13-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: '617d452481d4c992c0228684331d275c647096de94be8197f24cd5bdd2b527f4',
+      name: 'nils-cli-v1.27.14-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: '349941aa80aa224294f02d531d8865b2a810249b35f37e2963a84d31b75004d4',
     },
     artifacts: {
-      'agent-hook': { sha256: 'bc145e4b82b89e6011a0babe92f3c6c034d7a040c9f2ad1e14d4098dd35c6530' },
-      'agent-docs': { sha256: 'e7553e2a2e33a3415f7a3cb4126f86513fe5cdabc0703497557c56f95ec0d411' },
-      'forge-cli': { sha256: '5c48609163bd1c5e2d2a5e1b94b6a396483a4262f0ec7f1a66f351d428f096e0' },
-      'git-cli': { sha256: '92ca33a5aee56060f42c0de2ecdb1895e80313bf38ced109df0dd3bce6fc4e14' },
-      'review-specialists': { sha256: 'ed7eea3fcf2dd5cb127f3a09ff9aa51f736cdc7a8c1e5c99fbc77feaf3913782' },
-      'semantic-commit': { sha256: 'be802860ed28a0d72226d2e08419032891523ace490ea7e22e6e1d460f70d118' },
+      'agent-hook': { sha256: '0dd0fc857035498bdbf40c9a826050738203df8634b9088da544945534a672ea' },
+      'agent-docs': { sha256: '1c5c36e45694c3180e5a2a0a4c6ddf4bd3c78327b169918e796446e5481770a1' },
+      'forge-cli': { sha256: 'ae32e2f1bb0297f4583ddc26ad162c6c0cb8b3b741e57222bf0c65a6611cc9a2' },
+      'git-cli': { sha256: 'abc1423f1c45465d2a2a67324c1cfbbad0ef729ce028e0b16582ff331f9cfcc2' },
+      'review-specialists': { sha256: '508dc3d88bf94b64404e811b1376275ad5d660dad2ae484eb0fb4acdcd81c435' },
+      'semantic-commit': { sha256: '7dabad72e07fd3cd23d5738fc3f01ae5cc1f0787928dc9493458d9775d70ed4a' },
     },
     platforms: {
       'aarch64-apple-darwin': {
         archive: {
-          name: 'nils-cli-v1.27.13-aarch64-apple-darwin.tar.gz',
-          sha256: 'e8d447fe1e967ed8a2b7586c4a73ae7c4cfff7f7456cebde5fd66e6de7e3c2d6',
+          name: 'nils-cli-v1.27.14-aarch64-apple-darwin.tar.gz',
+          sha256: '157f38e6b4b655867ea17ef503df0ce138366ff26afce0274435a4b975efaa65',
         },
         artifacts: {
-          'agent-hook': { sha256: 'f11375b651dde5d6075dd8608e4dcd6db8706d4dad82682259feb04fd896624f' },
-          'agent-docs': { sha256: '1b4aee16e8eacbed21b8a87e11ef473a524e56e9bc720f857877239de8c884fd' },
+          'agent-hook': { sha256: '3d2202efe45241fff2d3306b647a8b550b78f85ef8933012ddcae458062aefcc' },
+          'agent-docs': { sha256: '6486a83da0bc8a1286d175f7be8a2514d041fb12ddd08f552ccb34b9d6a5f19b' },
         },
       },
     },
@@ -45,6 +45,21 @@ test('the published nils release is pinned by exact source, archive, and binary 
   assert.equal(
     manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,
     'release-bundle-validated',
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-session.work-context-set-if-absent'),
+    {
+      id: 'agent-session.work-context-set-if-absent',
+      binary: 'agent-session',
+      status: 'released',
+      validation: 'release-bundle-validated',
+      contracts: [
+        'agent-session work-context set --if-absent',
+        'cli.agent-session.work-context-set.v1',
+        'agent-session.work-context-set-result.v1',
+      ],
+      source_task: 'serenvia/sympoies-infra#213',
+    },
   )
 })
 

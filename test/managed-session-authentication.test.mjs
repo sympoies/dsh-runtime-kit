@@ -28,15 +28,73 @@ function readiness(environment = principalEnvironment) {
   }
 }
 
+function publicWorkContext(environment = principalEnvironment, overrides = {}) {
+  return {
+    schema_version: 'agent-session.work-context.v1',
+    session_id: environment.AGENT_SESSION_ID,
+    session_incarnation: environment.AGENT_SESSION_RUNTIME_ID,
+    claim_id: 'claim-one',
+    revision: 1,
+    state: 'active',
+    intent: 'project-dev',
+    tier: 'L2',
+    repositories: ['sympoies/example'],
+    worktrees: ['hmac-sha256:1:opaque'],
+    provider_refs: [],
+    plan_refs: [],
+    scopes: [],
+    summary: 'DSH project-dev session',
+    updated_at: '2026-08-27T00:00:00Z',
+    expires_at: '2026-08-27T00:30:00Z',
+    ...overrides,
+  }
+}
+
+function conflictEvaluation(overrides = {}) {
+  return {
+    schema_version: 'agent-session.conflict-evaluation.v1',
+    classification: 'clear',
+    complete: true,
+    reasons: [],
+    peers: [],
+    ...overrides,
+  }
+}
+
+function workContextSet(
+  environment = principalEnvironment,
+  overrides = {},
+  envelopeOverrides = {},
+) {
+  return {
+    schema_version: 'cli.agent-session.work-context-set.v1',
+    ok: true,
+    data: {
+      schema_version: 'agent-session.work-context-set-result.v1',
+      changed: true,
+      context: publicWorkContext(environment),
+      evaluation: conflictEvaluation(),
+      mode: environment.AGENT_SESSION_COORDINATION_MODE,
+      ...overrides,
+    },
+    ...envelopeOverrides,
+  }
+}
+
 function harness({
   environment = principalEnvironment,
   envelope = readiness(environment),
+  response = spec => spec.argv[1] === 'work-context'
+    ? workContextSet(environment)
+    : envelope,
   pending = false,
+  onRead = () => {},
+  resolveExecutable = async command => command,
 } = {}) {
   const listeners = new Map()
   const effects = []
   const spawned = []
-  let settle
+  const pendingSettlements = []
   const ctx = {
     on(event, listener) {
       const candidates = listeners.get(event) ?? []
@@ -53,18 +111,36 @@ function harness({
       return dispose
     },
     subprocess: {
-      async resolveExecutable(command) { return command },
+      resolveExecutable,
       spawn(spec) {
         spawned.push(spec)
-        const done = pending
-          ? new Promise(resolve => { settle = resolve })
+        const selectedEnvelope = response(spec)
+        const selectedPending = typeof pending === 'function' ? pending(spec) : pending
+        let settle
+        let settled = false
+        const settleOnce = outcome => {
+          if (settled) return
+          settled = true
+          settle?.(outcome)
+        }
+        const done = selectedPending
+          ? new Promise(resolve => {
+            settle = resolve
+            pendingSettlements.push(settleOnce)
+            spec.signal?.addEventListener('abort', () => {
+              settleOnce({ exitCode: null, signal: 'SIGTERM' })
+            }, { once: true })
+          })
           : Promise.resolve({ exitCode: 0, signal: null })
         return {
           done,
-          terminate() {},
+          terminate() { settleOnce({ exitCode: null, signal: 'SIGTERM' }) },
           collected: {
             stdout: {
-              readFrom: () => ({ text: JSON.stringify(envelope), lossy: false }),
+              readFrom: () => {
+                onRead(spec)
+                return { text: JSON.stringify(selectedEnvelope), lossy: false }
+              },
             },
           },
           async waitForExit() { return true },
@@ -77,7 +153,15 @@ function harness({
     effects,
     listeners,
     spawned,
-    settle: () => settle?.({ exitCode: 0, signal: null }),
+    settle: () => pendingSettlements.shift()?.({ exitCode: 0, signal: null }),
+  }
+}
+
+async function waitFor(predicate, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error('condition was not met before deadline')
+    await new Promise(resolve => setTimeout(resolve, 1))
   }
 }
 
@@ -86,7 +170,13 @@ function topLevelAgent(id = 'dsh-controller-one') {
 }
 
 test('always-on managed-session authentication binds before an optional child plugin activates', async () => {
-  const subject = harness()
+  const subject = harness({
+    response(spec) {
+      return spec.argv[1] === 'work-context'
+        ? workContextSet()
+        : readiness()
+    },
+  })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
     mainAgentCli: '/bin/true',
@@ -99,14 +189,112 @@ test('always-on managed-session authentication binds before an optional child pl
   )
 
   assert.deepEqual(entered, { kind: 'enter', messages: [] })
-  assert.deepEqual(subject.spawned.map(record => record.argv), [[
-    '/bin/true', 'self', 'readiness', '--format', 'json',
-  ]])
+  assert.deepEqual(subject.spawned.map(record => record.argv), [
+    ['/bin/true', 'self', 'readiness', '--format', 'json'],
+    [
+      '/bin/true', 'work-context', 'set', '--if-absent',
+      '--intent', 'project-dev', '--tier', 'L2',
+      '--summary', 'DSH project-dev session', '--format', 'json',
+    ],
+  ])
   assert.deepEqual(subject.spawned[0].env, principalEnvironment)
+  assert.deepEqual(subject.spawned[1].env, principalEnvironment)
   assert.deepEqual(bridge.resolve('dsh-controller-one'), {
     sessionId: 'console-session-one',
     environment: principalEnvironment,
   })
+})
+
+test('managed-session authentication fails before bridge binding on an invalid baseline claim result', async () => {
+  const subject = harness({
+    response(spec) {
+      return spec.argv[1] === 'work-context'
+        ? workContextSet(principalEnvironment, { mode: undefined })
+        : readiness()
+    },
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const rejected = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(rejected, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(subject.spawned.length, 2)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+test('managed-session authentication accepts additive output and preserves a richer existing claim', async () => {
+  const subject = harness({
+    response(spec) {
+      return spec.argv[1] === 'work-context'
+        ? workContextSet(principalEnvironment, {
+          changed: false,
+          context: publicWorkContext(principalEnvironment, {
+            intent: 'delivery',
+            tier: 'L3',
+            summary: 'User-owned delivery context',
+          }),
+          additive_result_metadata: { compatible: true },
+        }, {
+          warnings: ['compatible additive warning'],
+          additive_envelope_metadata: true,
+        })
+        : readiness()
+    },
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const entered = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(entered, { kind: 'enter', messages: [] })
+  assert.equal(bridge.resolve('dsh-controller-one').sessionId, 'console-session-one')
+})
+
+test('managed-session authentication rejects a malformed newly created baseline claim', async () => {
+  const subject = harness({
+    response(spec) {
+      return spec.argv[1] === 'work-context'
+        ? workContextSet(principalEnvironment, {
+          context: publicWorkContext(principalEnvironment, {
+            state: 'released',
+            summary: 'unexpected baseline',
+          }),
+        })
+        : readiness()
+    },
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const rejected = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(rejected, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
 })
 
 test('managed-session authentication forwards the authenticated coordination mode to policy children', async () => {
@@ -221,11 +409,134 @@ test('agent disposal during readiness cannot publish a stale principal', async (
     async () => ({ kind: 'enter', messages: [] }),
   )
   subject.listeners.get('agent/disposed')[0]({ agent })
-  subject.settle()
 
   assert.deepEqual(await entering, {
     kind: 'reject',
     reason: 'dsh-runtime-kit:managed-session-authentication-failed',
   })
+  assert.equal(subject.spawned[0].signal.aborted, true)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+test('agent disposal cancels an in-flight baseline claim before bridge publication', async () => {
+  const subject = harness({
+    pending: spec => spec.argv[1] === 'work-context',
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+  const agent = topLevelAgent()
+
+  const entering = subject.listeners.get('agent/pre-step')[0](
+    { agent, signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  await waitFor(() => subject.spawned.length === 2)
+  subject.listeners.get('agent/disposed')[0]({ agent })
+
+  assert.deepEqual(await entering, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(subject.spawned[1].signal.aborted, true)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+test('plugin disposal cancels every in-flight baseline claim before bridge publication', async () => {
+  const subject = harness({
+    pending: spec => spec.argv[1] === 'work-context',
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const entering = subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  await waitFor(() => subject.spawned.length === 2)
+  subject.effects.at(-1)()
+
+  assert.deepEqual(await entering, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(subject.spawned[1].signal.aborted, true)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+test('readiness and baseline claim share one authentication deadline', async () => {
+  const originalNow = Date.now
+  let fakeNow = 1_000
+  Date.now = () => fakeNow
+  try {
+    const subject = harness({
+      pending: spec => spec.argv[1] === 'work-context',
+      onRead(spec) {
+        if (spec.argv[1] === 'self') fakeNow += 40
+      },
+    })
+    const bridge = createManagedSessionBridge()
+    applyManagedSessionAuthentication(subject.ctx, {
+      mainAgentCli: '/bin/true',
+      agentSessionCli: '/bin/true',
+      cliTimeoutMs: 50,
+      cliTeardownTimeoutMs: 10,
+    }, bridge, principalEnvironment)
+
+    const startedAt = originalNow()
+    const rejected = await subject.listeners.get('agent/pre-step')[0](
+      { agent: topLevelAgent(), signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    const elapsedMs = originalNow() - startedAt
+
+    assert.deepEqual(rejected, {
+      kind: 'reject',
+      reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+    })
+    assert.equal(subject.spawned.length, 2)
+    assert.equal(elapsedMs < 35, true, `authentication took ${elapsedMs}ms`)
+    assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+  } finally {
+    Date.now = originalNow
+  }
+})
+
+test('authentication deadline aborts a stalled helper executable resolution', async () => {
+  let resolutionSignal
+  const subject = harness({
+    resolveExecutable(command, _options, signal) {
+      resolutionSignal = signal
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    },
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: 'agent-session',
+    cliTimeoutMs: 10,
+    cliTeardownTimeoutMs: 10,
+  }, bridge, principalEnvironment)
+
+  const startedAt = Date.now()
+  const rejected = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(rejected, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(resolutionSignal.aborted, true)
+  assert.equal(Date.now() - startedAt < 40, true)
+  assert.equal(subject.spawned.length, 1)
   assert.equal(bridge.resolve('dsh-controller-one'), undefined)
 })

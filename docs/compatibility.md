@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.2` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | `1.27.8` minimum; exactly validated through `1.27.13` |
+| nils-cli | exactly `1.27.14` |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
@@ -39,7 +39,10 @@ receipt for check, apply, or reverse.
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and six acceptance binary
-hashes, plus the macOS ARM64 archive and runtime-health companion hashes. A
+hashes, plus the macOS ARM64 archive and runtime-health companion hashes. The
+v1.27.14 floor is intentional: managed DSH startup requires the atomic
+`agent-session work-context set --if-absent` contract, so earlier releases are
+not runtime-compatible. A
 platform may activate native health only when its exact archive, `agent-hook`,
 and `agent-docs` digests are recorded. A local nils checkout or ambient
 prototype binary is not release compatibility evidence.
