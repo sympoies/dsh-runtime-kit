@@ -2188,6 +2188,70 @@ test('an ordinary shell script remains subject to generic policy after finish-li
   assert.equal(subject.service.activeFinishLineReservations, 0)
 })
 
+test('ordinary Bash projects an omitted workdir to the session cwd across policy ingress', async () => {
+  const policyIngresses = []
+  const subject = harness({
+    envelope: (spec) => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex >= 0) {
+        const action = spec.argv[finishLineIndex + 1]
+        const request = JSON.parse(spec.stdio.stdin.data)
+        if (action === 'open') {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-open.v1',
+            ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.open-result.v1',
+              status: 'opened',
+              runner_capability: 'runner:opaque',
+              correlation_id: 'correlation:opaque',
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.agent-hook.finish-line-run.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.run-result.v1',
+            status: 'ordinary-ready',
+            operation_id: request.operation_id,
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event === 'tools/pre-execute'
+        || ingress.event === 'tools/post-execute') {
+        policyIngresses.push(ingress)
+      }
+      return decision('allow', {
+        event: ingress.event === 'tools/post-execute'
+          ? ingress.result?.is_error === true ? 'PostToolUseFailure' : 'PostToolUse'
+          : 'PreToolUse',
+      })
+    },
+  })
+  subject.ctx.tools.register(Object.freeze({
+    name: 'bash',
+    async execute() { return { exitCode: 0 } },
+  }))
+  const arguments_ = Object.freeze({
+    command: 'pwd',
+    description: 'Show current directory',
+  })
+
+  const invocation = await subject.invoke(arguments_, { name: 'bash' })
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(policyIngresses.length >= 2, true)
+  assert.equal(
+    policyIngresses.every(ingress => ingress.tool.arguments.workdir === '/tmp'),
+    true,
+  )
+  assert.equal(invocation.exec.arguments, arguments_)
+  assert.equal(Object.hasOwn(arguments_, 'workdir'), false)
+})
+
 test('a mismatched Bash finish-line probe cannot bypass policy or retain correlation state', async () => {
   const actions = []
   const subject = harness({
@@ -3139,6 +3203,28 @@ test('high-cardinality and excessive-depth ingress are rejected without recursio
   assert.equal(broadResult.result.kind, 'deny')
   assert.match(broadResult.result.reason, /policy-input-too-complex/)
   assert.equal(broad.spawnCount, 0)
+
+  const bashArguments = {
+    command: 'pwd',
+    description: 'Show current directory',
+  }
+  for (let index = 0; index < 10_001; index += 1) {
+    bashArguments[`field_${String(index).padStart(5, '0')}`] = 0
+  }
+  Object.defineProperty(bashArguments, 'unbounded_projection', {
+    enumerable: true,
+    get() {
+      throw new Error('Bash workdir projection exceeded the policy input bound')
+    },
+  })
+  const broadBash = harness({ envelope: bashFinishLineEnvelope() })
+  const broadBashResult = await broadBash.invoke(bashArguments, { name: 'bash' })
+  assert.equal(broadBashResult.result.kind, 'deny')
+  assert.match(broadBashResult.result.reason, /policy-input-too-complex/)
+  assert.equal(broadBash.spawnSpecs.filter(spec => {
+    if (!spec.argv.includes('dispatch')) return false
+    return JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute'
+  }).length, 0)
 
   let nested = { value: 41 }
   for (let depth = 0; depth < 2_000; depth += 1) nested = { nested }
