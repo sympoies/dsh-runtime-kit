@@ -386,9 +386,8 @@ test('default operation ids stay bounded for a maximum-length validator id', asy
 test('replacement readiness gates startup, admission, mutation, stop, and synchronous completion', async () => {
   const readiness = controlledReadiness()
   const value = fixture({ workspaceReadiness: readiness })
-  value.service.register(registration(value))
-
   readiness.block()
+  value.service.register(registration(value))
   let startupSettled = false
   const startup = value.coordinator.sessionStarted({ agent: value.owner, source: 'resume' })
     .then(() => { startupSettled = true })
@@ -423,7 +422,7 @@ test('replacement readiness gates startup, admission, mutation, stop, and synchr
     .then(() => { mutationSettled = true })
   await Promise.resolve()
   assert.equal(mutationSettled, false)
-  assert.equal(value.coordinator.activeOperations, 0)
+  assert.equal(value.coordinator.activeOperations, 1)
   readiness.release()
   await mutation
   assert.equal(value.coordinator.activeOperations, 1)
@@ -444,6 +443,73 @@ test('replacement readiness gates startup, admission, mutation, stop, and synchr
   )
   readiness.release()
   assert.equal(typeof (await stop), 'boolean')
+})
+
+test('caller cancellation interrupts every blocked replacement readiness operation', async () => {
+  const readiness = controlledReadiness()
+  const value = fixture({ workspaceReadiness: readiness })
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  readiness.block()
+  const admissionAbort = new AbortController()
+  const admitted = {
+    ...execution(value.owner, value.unit, 'cancelled-replacement-validator'),
+    signal: admissionAbort.signal,
+  }
+  const admission = value.coordinator.admit(admitted, call(admitted))
+  assert.equal(value.coordinator.activeOperations, 1)
+  admissionAbort.abort(new Error('replacement admission cancelled'))
+  await assert.rejects(admission, /replacement admission cancelled/u)
+  assert.equal(value.coordinator.activeOperations, 0)
+  assert.equal(value.calls.admit.length, 0)
+  readiness.release()
+
+  readiness.block()
+  const mutationAbort = new AbortController()
+  const ordinary = {
+    ...execution(value.owner, value.bash, 'cancelled-replacement-mutation'),
+    signal: mutationAbort.signal,
+  }
+  const mutation = value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+  assert.equal(value.coordinator.activeOperations, 1)
+  mutationAbort.abort(new Error('replacement mutation cancelled'))
+  await assert.rejects(mutation, /replacement mutation cancelled/u)
+  assert.equal(value.coordinator.activeOperations, 0)
+  readiness.release()
+
+  readiness.block()
+  const stopAbort = new AbortController()
+  const stop = value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 3,
+    signal: stopAbort.signal,
+  })
+  assert.equal(value.coordinator.activeOperations, 1)
+  stopAbort.abort(new Error('replacement stop cancelled'))
+  assert.equal(await stop, false)
+  assert.equal(value.coordinator.activeOperations, 0)
+  readiness.release()
+  assert.equal(value.service.verdict(value.owner).aggregate, 'missing')
+})
+
+test('coordinator disposal interrupts and joins blocked replacement readiness', async () => {
+  const readiness = controlledReadiness()
+  const value = fixture({ workspaceReadiness: readiness })
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+
+  readiness.block()
+  const admitted = execution(value.owner, value.unit, 'disposed-replacement-validator')
+  const admission = value.coordinator.admit(admitted, call(admitted))
+  assert.equal(value.coordinator.activeOperations, 1)
+
+  const disposal = value.coordinator.dispose()
+  await assert.rejects(admission, /acceptance coordinator disposed/u)
+  await disposal
+  assert.equal(value.coordinator.activeOperations, 0)
+  assert.equal(value.calls.admit.length, 0)
+  readiness.release()
 })
 
 test('the session projection folds only standard tool events and exposes no authority material', () => {

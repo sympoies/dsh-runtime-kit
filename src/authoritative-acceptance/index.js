@@ -521,11 +521,66 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   const operations = new Map()
   /** @type {Set<Readonly<ToolExecution>>} */
   const repositoryMutations = new Set()
+  /** @type {Set<Promise<void>>} */
+  const readinessWaits = new Set()
+  const lifecycleAbort = new AbortController()
   let open = true
 
-  /** @param {Agent} agent */
-  async function awaitWorkspaceReady(agent) {
-    await workspaceReadiness.wait(agent)
+  /**
+   * Join prior workspace disposal without letting that provider-owned cleanup
+   * hide a live public operation from cancellation, quiescence, or resource
+   * accounting.
+   * @param {Agent} agent
+   * @param {AbortSignal} [callerSignal]
+   */
+  async function awaitWorkspaceReady(agent, callerSignal) {
+    const signals = callerSignal === undefined
+      ? [lifecycleAbort.signal]
+      : [callerSignal, lifecycleAbort.signal]
+    /** @type {Promise<void>} */
+    let tracked
+    tracked = new Promise((resolve, reject) => {
+      let settled = false
+      /** @type {Map<AbortSignal, () => void>} */
+      const listeners = new Map()
+      const cleanup = () => {
+        for (const [signal, listener] of listeners) {
+          signal.removeEventListener('abort', listener)
+        }
+      }
+      const succeed = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(undefined)
+      }
+      /** @param {unknown} error */
+      const fail = (error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+      for (const signal of signals) {
+        if (signal.aborted) {
+          fail(signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled'))
+          return
+        }
+        const listener = () => fail(
+          signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled'),
+        )
+        listeners.set(signal, listener)
+        signal.addEventListener('abort', listener, { once: true })
+      }
+      Promise.resolve()
+        .then(() => workspaceReadiness.wait(agent))
+        .then(
+          succeed,
+          fail,
+        )
+    }).finally(() => { readinessWaits.delete(tracked) })
+    readinessWaits.add(tracked)
+    await tracked
     if (!open) throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
   }
 
@@ -984,11 +1039,14 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         })
       }
       for (const agent of ctx.agents.list()) {
-        void awaitWorkspaceReady(agent)
-          .then(() => ensureRegistered(agent))
+        const ready = isWorkspaceReady(agent)
+        const registration = ready
+          ? ensureRegistered(agent)
+          : awaitWorkspaceReady(agent).then(() => ensureRegistered(agent))
+        void registration
           .catch(error => {
             const state = sessions.get(agent.session)
-            if (state !== undefined) poison(state, error)
+            if (state !== undefined && open) poison(state, error)
           })
       }
       let registrationDisposed = false
@@ -1073,8 +1131,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     /** @param {{agent: Agent, source: unknown}} payload */
     async sessionStarted(payload) {
       if (contract === undefined) return
+      if (!open) throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
       await awaitPublication(payload.agent)
-      await awaitWorkspaceReady(payload.agent)
+      if (!isWorkspaceReady(payload.agent)) await awaitWorkspaceReady(payload.agent)
       await ensureRegistered(payload.agent)
     },
 
@@ -1084,7 +1143,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (exec.agent === undefined) {
         throw new Error('dsh-runtime-kit: acceptance agent unavailable')
       }
-      await awaitWorkspaceReady(exec.agent)
+      if (!isWorkspaceReady(exec.agent)) await awaitWorkspaceReady(exec.agent, exec.signal)
       assertLive(exec.agent)
       await prepareRepositoryMutation(exec, call)
     },
@@ -1107,7 +1166,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         throw new Error('dsh-runtime-kit: acceptance execution correlation invalid')
       }
       const agent = exec.agent
-      await awaitWorkspaceReady(agent)
+      if (!isWorkspaceReady(agent)) await awaitWorkspaceReady(agent, exec.signal)
       const state = await ensureRegistered(agent, exec.signal)
       if (state === undefined || state.contractDigest === undefined) {
         throw new Error('dsh-runtime-kit: acceptance contract unavailable')
@@ -1261,13 +1320,16 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     /** @param {{agent: Agent, turn: number, signal: AbortSignal}} payload */
     async turnStopping(payload) {
       if (contract === undefined) return true
+      if (!open) return false
       let state
       try {
-        await awaitWorkspaceReady(payload.agent)
+        if (!isWorkspaceReady(payload.agent)) {
+          await awaitWorkspaceReady(payload.agent, payload.signal)
+        }
         state = await ensureRegistered(payload.agent, payload.signal)
       } catch (error) {
         const existing = sessions.get(payload.agent.session)
-        if (existing !== undefined) poison(existing, error)
+        if (existing !== undefined && !payload.signal.aborted && open) poison(existing, error)
         if (!payload.signal.aborted) {
           payload.agent.steer(createSteeringMessage(
             'Authoritative acceptance infrastructure is unavailable. Restore it and retry.',
@@ -1330,6 +1392,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     async dispose() {
       if (!open) return
       open = false
+      lifecycleAbort.abort(new Error('dsh-runtime-kit: acceptance coordinator disposed'))
       for (const state of liveStates) {
         state.disposed = true
         invalidate(state)
@@ -1348,6 +1411,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         ...state.admissions,
         ...state.refreshes,
       ]))
+      await Promise.allSettled([...readinessWaits])
       repositoryMutations.clear()
       liveStates.clear()
       sessions = new WeakMap()
@@ -1358,7 +1422,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       for (const exec of repositoryMutations) {
         if (!operations.has(exec)) untrackedRepositoryMutations += 1
       }
-      return operations.size + untrackedRepositoryMutations
+      return operations.size + untrackedRepositoryMutations + readinessWaits.size
     },
   })
 
