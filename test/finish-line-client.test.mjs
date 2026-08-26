@@ -6,6 +6,7 @@ import {
   createNilsFinishLineClient,
 } from '../src/finish-line/nils-client.js'
 import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
+import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`
@@ -138,6 +139,7 @@ function fixture({
   teardownTimeoutMs = 20,
   onTerminate = () => {},
   authenticatedNilsExecution,
+  managedSessionBridge,
   resolutionPendingAt,
   exitCodeFor,
 } = {}) {
@@ -216,6 +218,7 @@ function fixture({
     finishLineTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveFinishLineRequests: 4,
     authenticatedNilsExecution,
+    managedSessionBridge,
   })
   return {
     client,
@@ -551,6 +554,50 @@ test('release authenticates and retires one exact session capability', async () 
     cwd: '/workspace/project',
     runner_capability: 'finish-line-runner:opaque',
   })
+})
+
+test('managed finish-line identity remains pinned through bridge disposal and release', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  const principal = {
+    sessionId: 'managed-session-one',
+    environment: {
+      AGENT_SESSION_ID: 'managed-session-one',
+      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+    },
+  }
+  const disposeBinding = managedSessionBridge.bind(identity.sessionId, principal)
+  const subject = fixture({ managedSessionBridge })
+  const opened = await subject.client.open(identity)
+  disposeBinding()
+  await subject.client.registerAcceptance({
+    ...identity,
+    runnerCapability: opened.runnerCapability,
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'plus-one',
+        toolName: 'runtime_kit_plus_one',
+        definitionDigest: digest,
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [],
+  })
+  await subject.client.release({
+    ...identity,
+    runnerCapability: opened.runnerCapability,
+  })
+
+  assert.deepEqual(subject.spawns.map(spawn => spawn.request.session_id), [
+    'managed-session-one',
+    'managed-session-one',
+    'managed-session-one',
+  ])
+  assert.deepEqual(subject.spawns.map(spawn => spawn.spec.env.AGENT_SESSION_ID), [
+    'managed-session-one',
+    'managed-session-one',
+    'managed-session-one',
+  ])
 })
 
 test('drain closes ordinary admission but leaves authenticated release available', async () => {

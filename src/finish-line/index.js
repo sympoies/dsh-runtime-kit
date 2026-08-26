@@ -171,7 +171,7 @@ function matches(prepared, exec) {
 
 /**
  * @param {Context} ctx
- * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
+ * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
  */
 export function createFinishLineCoordinator(ctx, options) {
   const HarnessError = options.HarnessError ?? Error
@@ -185,6 +185,7 @@ export function createFinishLineCoordinator(ctx, options) {
   const createOperationId = options.createOperationId ?? (() => `dsh:${randomUUID()}`)
   const now = options.now ?? Date.now
   const requiresFinishLine = options.requiresFinishLine ?? (() => true)
+  const authenticatePrincipal = options.authenticatePrincipal ?? (async () => undefined)
   const prepareValidationRuntime = options.prepareValidationRuntime ?? (async (_exec, operation) => ({
     timeoutMs: resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
       ?? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS,
@@ -693,6 +694,12 @@ export function createFinishLineCoordinator(ctx, options) {
         || agent.session?.header?.id !== agent.id
         || typeof agent.session.header.cwd !== 'string'
         || !/^[\x21-\x7e]{1,256}$/u.test(turnId)) {
+        throw new Error('dsh-runtime-kit: finish-line acceptance authority unavailable')
+      }
+      await authenticatePrincipal(agent, signal)
+      if (!open || releaseDegraded || signal.aborted
+        || ctx.agents.get(agent.id) !== agent
+        || agent.session?.header?.id !== agent.id) {
         throw new Error('dsh-runtime-kit: finish-line acceptance authority unavailable')
       }
       const identity = {

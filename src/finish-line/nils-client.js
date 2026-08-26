@@ -481,9 +481,42 @@ export function createNilsFinishLineClient(ctx, config = {}) {
   const beginRetryTokens = new Map()
   /** @type {Map<string, string>} */
   const acceptanceRetryTokens = new Map()
+  /** @type {Map<string, ReturnType<typeof resolveManagedSessionPrincipal> | null>} */
+  const pinnedPrincipals = new Map()
   let open = true
   let accepting = true
   let degraded = false
+
+  /** @param {Record<string, unknown>} request */
+  function principalKey(request) {
+    const sessionId = typeof request.session_id === 'string'
+      ? request.session_id
+      : typeof request.sessionId === 'string'
+        ? request.sessionId
+        : ''
+    return JSON.stringify([request.product, sessionId, request.cwd])
+  }
+
+  /** @param {Record<string, unknown>} request */
+  function pinnedPrincipal(request) {
+    const key = principalKey(request)
+    if (pinnedPrincipals.has(key)) return pinnedPrincipals.get(key) ?? undefined
+    const sessionId = typeof request.session_id === 'string' ? request.session_id : ''
+    const resolved = resolveManagedSessionPrincipal(ctx, sessionId, managedSessionBridge)
+    const principal = resolved === undefined
+      ? undefined
+      : Object.freeze({
+          sessionId: resolved.sessionId,
+          environment: Object.freeze({ ...resolved.environment }),
+        })
+    pinnedPrincipals.set(key, principal ?? null)
+    return principal
+  }
+
+  /** @param {Record<string, unknown>} request */
+  function retirePrincipal(request) {
+    pinnedPrincipals.delete(principalKey(request))
+  }
 
   /** @param {ActiveRequest} operation @param {ActiveRequest['cause']} cause */
   function cancel(operation, cause) {
@@ -521,8 +554,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
    * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
    */
   async function quiesceCancelledRun(request, childEnvironment) {
-    const sessionId = typeof request.session_id === 'string' ? request.session_id : ''
-    const principal = resolveManagedSessionPrincipal(ctx, sessionId, managedSessionBridge)
+    const principal = pinnedPrincipal(request)
     const payload = serialize({
       schema_version: 'agent-hook.finish-line.quiesce.v1',
       product: request.product,
@@ -639,8 +671,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     childEnvironment = undefined,
     requestTimeoutMs = timeoutMs,
   ) {
-    const sessionId = typeof request.session_id === 'string' ? request.session_id : ''
-    const principal = resolveManagedSessionPrincipal(ctx, sessionId, managedSessionBridge)
+    const principal = pinnedPrincipal(request)
     const payload = serialize(principal === undefined
       ? request
       : { ...request, session_id: principal.sessionId })
@@ -786,6 +817,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       openRetryTokens.clear()
       beginRetryTokens.clear()
       acceptanceRetryTokens.clear()
+      pinnedPrincipals.clear()
     } finally {
       await authenticatedExecution.dispose()
     }
@@ -830,6 +862,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
     /** @param {import('./index.js').FinishLineIdentity} identity */
     abandonOpen(identity) {
       openRetryTokens.delete(openRetryKey(identity))
+      retirePrincipal(identity)
     },
 
     /** @param {import('./index.js').FinishLineIdentity & {operationId: string}} request @param {AbortSignal} [signal] */
@@ -897,6 +930,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       openRetryTokens.delete(openRetryKey(request))
+      retirePrincipal(request)
       return { correlationId: /** @type {string} */ (data.correlation_id) }
     },
 
