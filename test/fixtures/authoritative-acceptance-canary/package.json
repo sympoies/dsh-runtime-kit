@@ -6,6 +6,7 @@
   "main": "index.js",
   "files": [
     "index.js",
+    "body-execution-counter.js",
     "observable-child-pid.js",
     "cordis.patch.yml"
   ],

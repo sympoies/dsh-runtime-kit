@@ -107,11 +107,15 @@ const hookState = join(hookRoot, 'state')
 const docsState = join(temporaryRoot, 'agent-docs-state')
 const workspace = join(temporaryRoot, 'workspace')
 const cancellationMarker = join(workspace, '.git', 'dsh-contained-body-started')
+const validationMarker = join(workspace, '.git', 'dsh-validation-body-executed')
+const validationToken = randomUUID()
 const cancellationPid = join(workspace, '.git', 'dsh-contained-body.pid')
 const cancellationHeartbeat = join(workspace, '.git', 'dsh-contained-body.heartbeat')
 const crashMarker = join(workspace, '.git', 'dsh-crash-body-started')
 const providerProbePath = join(hookRoot, 'provider-mismatch-probe.json')
-const validationCommand = "node -e \"process.exit(0)\""
+const validationCommand = `node -e ${JSON.stringify(
+  `require('node:fs').appendFileSync(${JSON.stringify(validationMarker)},${JSON.stringify(`${validationToken}\n`)},{mode:0o600})`,
+)}`
 const cancellationCommand = `node -e ${JSON.stringify(
   `const fs=require('node:fs');let beat=0;fs.writeFileSync(${JSON.stringify(cancellationPid)},String(process.pid));fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(beat));fs.writeFileSync(${JSON.stringify(cancellationMarker)},'started\\n');setInterval(()=>fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(++beat)),25)`,
 )}`
@@ -141,6 +145,8 @@ Object.assign(baseEnvironment, {
   DSH_ACCEPTANCE_WORKSPACE: workspace,
   DSH_ACCEPTANCE_WORKSPACE_SHA256: 'sha256:' + createHash('sha256').update(workspace).digest('hex'),
   DSH_ACCEPTANCE_VALIDATION_COMMAND: validationCommand,
+  DSH_ACCEPTANCE_VALIDATION_MARKER: validationMarker,
+  DSH_ACCEPTANCE_VALIDATION_TOKEN: validationToken,
   DSH_ACCEPTANCE_CANCELLATION_COMMAND: cancellationCommand,
   DSH_ACCEPTANCE_CANCELLATION_MARKER: cancellationMarker,
   DSH_ACCEPTANCE_CANCELLATION_PID: cancellationPid,

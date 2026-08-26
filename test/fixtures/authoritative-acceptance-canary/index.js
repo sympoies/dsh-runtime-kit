@@ -5,6 +5,10 @@ import { join } from 'node:path'
 import { CallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
+import {
+  createBodyExecutionCounter,
+  validationBodyExecutions,
+} from './body-execution-counter.js'
 import { observableChildPid } from './observable-child-pid.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
@@ -17,6 +21,8 @@ const workspace = process.env.DSH_ACCEPTANCE_WORKSPACE
 const processInstance = process.env.DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256
 const workspaceSha = process.env.DSH_ACCEPTANCE_WORKSPACE_SHA256
 const validationCommand = process.env.DSH_ACCEPTANCE_VALIDATION_COMMAND
+const validationMarker = process.env.DSH_ACCEPTANCE_VALIDATION_MARKER
+const validationToken = process.env.DSH_ACCEPTANCE_VALIDATION_TOKEN
 const cancellationCommand = process.env.DSH_ACCEPTANCE_CANCELLATION_COMMAND
 const cancellationMarker = process.env.DSH_ACCEPTANCE_CANCELLATION_MARKER
 const cancellationPid = process.env.DSH_ACCEPTANCE_CANCELLATION_PID
@@ -175,8 +181,9 @@ export function apply(ctx) {
   }
   const acceptanceRequired = !['baseline-seed', 'baseline-rollback', 'unpatched-smoke']
     .includes(phase)
+  rmSync(required(validationMarker, 'validation marker'), { force: true })
   const sequence = []
-  let bodyExecutions = 0
+  const bodyExecutions = createBodyExecutionCounter()
   let maxConcurrentBodies = 0
   let activeBodies = 0
   let hostValidationExecutions = 0
@@ -191,7 +198,7 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute() {
-      bodyExecutions += 1
+      bodyExecutions.bodyExecuted()
       hostValidationExecutions += 1
       return 'validated'
     },
@@ -206,7 +213,7 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute(args) {
-      bodyExecutions += 1
+      bodyExecutions.bodyExecuted()
       mutationExecutions += 1
       activeBodies += 1
       maxConcurrentBodies = Math.max(maxConcurrentBodies, activeBodies)
@@ -262,7 +269,7 @@ export function apply(ctx) {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute() {
-      bodyExecutions += 1
+      bodyExecutions.bodyExecuted()
       mutationExecutions += 1
       return 'mutated'
     },
@@ -413,7 +420,9 @@ export function apply(ctx) {
       ctx.on('tools/result', (exec, result) => {
         if (exec.agent?.id === handle?.agent.id || exec.agent?.id === resumedHandle?.agent.id) {
           if (!result.isError && exec.name === 'bash'
-            && exec.arguments?.command === validationCommand) validationExecutions += 1
+            && exec.arguments?.command === validationCommand) {
+            validationExecutions += 1
+          }
           if (!result.isError && exec.name === 'write') mutationExecutions += 1
           if (phase === 'active-cancellation' && abortObservations > 0
             && exec.name === 'bash' && exec.arguments?.command === cancellationCommand
@@ -442,6 +451,10 @@ export function apply(ctx) {
       })
       ctx.on('agent/turn-stopping', ({ agent }) => {
         if (agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id) {
+          bodyExecutions.turnStopping(validationBodyExecutions(
+            required(validationMarker, 'validation marker'),
+            required(validationToken, 'validation token'),
+          ))
           turnStops += 1
           if (acceptanceEnabled) turnVerdicts.push(verdictView(acceptance.verdict(agent)))
           if (phase === 'crash-recover' && !recoveryTransitionRequested) {
@@ -840,7 +853,7 @@ export function apply(ctx) {
         resumed_verdict: resumedVerdict,
         turn_verdicts: turnVerdicts,
         listener_entries: listenerEntries,
-        body_executions: bodyExecutions,
+        body_executions: bodyExecutions.receipt(),
         mutation_executions: mutationExecutions,
         validation_executions: validationExecutions,
         host_validation_executions: hostValidationExecutions,
