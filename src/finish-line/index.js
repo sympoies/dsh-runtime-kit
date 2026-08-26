@@ -678,6 +678,72 @@ export function createFinishLineCoordinator(ctx, options) {
       return validationCalls.get(exec)?.readiness === 'validation'
     },
 
+    /**
+     * Run one internal acceptance RPC with the exact runner capability already
+     * owned by this session ledger. The capability never enters a public
+     * service, tool result, prompt, session event, or caller-provided config.
+     * @param {Agent} agent
+     * @param {string} turnId
+     * @param {AbortSignal} signal
+     * @param {(authority: {identity: FinishLineIdentity, runnerCapability: string, acceptCorrelation(correlationId: string): void}) => Promise<any>} invoke
+     */
+    async withAuthority(agent, turnId, signal, invoke) {
+      if (!open || releaseDegraded || signal.aborted
+        || ctx.agents.get(agent.id) !== agent
+        || agent.session?.header?.id !== agent.id
+        || typeof agent.session.header.cwd !== 'string'
+        || !/^[\x21-\x7e]{1,256}$/u.test(turnId)) {
+        throw new Error('dsh-runtime-kit: finish-line acceptance authority unavailable')
+      }
+      const identity = {
+        product: /** @type {const} */ ('dsh'),
+        sessionId: String(agent.id),
+        turnId,
+        cwd: agent.session.header.cwd,
+      }
+      if (requiresFinishLine(identity) === false) {
+        throw new Error('dsh-runtime-kit: finish-line acceptance requires an authoritative host')
+      }
+      await awaitPriorRelease(identity)
+      const ledger = ledgerFor(agent.session, identity)
+      if (ledger.poison !== undefined) {
+        throw new Error('dsh-runtime-kit: finish-line acceptance authority unavailable')
+      }
+      await ensureRunnerCapability(ledger, identity, signal)
+      return invoke(Object.freeze({
+        identity: Object.freeze(identity),
+        runnerCapability: /** @type {string} */ (ledger.runnerCapability),
+        acceptCorrelation(correlationId) { acceptCorrelation(ledger, correlationId) },
+      }))
+    },
+
+    /**
+     * Return the exact future contained-run reservation established by probe.
+     * Ordinary Bash and unreserved executions return undefined.
+     * @param {Readonly<ToolExecution>} exec
+     */
+    sourceOperationId(exec) {
+      const pending = validationCalls.get(exec)
+      return pending?.readiness === 'validation' ? pending.operationId : undefined
+    },
+
+    /**
+     * Return the exact private validation source reserved by probe. This is
+     * used only to select one registered contained-Bash acceptance binding;
+     * it never enters a public service, result, event, or model context.
+     * @param {Readonly<ToolExecution>} exec
+     */
+    sourceOperation(exec) {
+      const pending = validationCalls.get(exec)
+      return pending?.readiness === 'validation' && pending.operationId !== undefined
+        ? Object.freeze({
+            operationId: pending.operationId,
+            intent: pending.operation.intent,
+            command: pending.operation.command,
+          })
+        : undefined
+    },
+
     /** @param {unknown} _target @param {unknown} _observation @param {unknown} _actor */
     observeFs(_target, _observation, _actor) {},
 
@@ -740,6 +806,23 @@ export function createFinishLineCoordinator(ctx, options) {
     /** @param {Agent} agent */
     agentDisposed(agent) {
       return queueRelease(agent.session)
+    },
+
+    /**
+     * Release the shared capability after the authoritative acceptance verdict
+     * has allowed stop. This path deliberately does not ask the superseded
+     * legacy stop evaluator for a second, contradictory completion verdict.
+     * @param {Agent} agent
+     */
+    async releaseAfterAcceptance(agent) {
+      if (!open || releaseDegraded || ctx.agents.get(agent.id) !== agent) {
+        throw new Error('dsh-runtime-kit: finish-line release unavailable')
+      }
+      await queueRelease(agent.session)
+      if (releaseDegraded || ledgers.has(agent.session)) {
+        throw new Error('dsh-runtime-kit: finish-line release unavailable')
+      }
+      return true
     },
 
     async dispose() { await dispose() },

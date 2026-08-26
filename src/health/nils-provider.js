@@ -689,32 +689,63 @@ function runtimePlatformKey() {
   throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
 }
 
-/** @param {unknown} value @param {string} [platform] */
-export function resolveNilsHealthCompatibility(value, platform = runtimePlatformKey()) {
+/** @param {unknown} value @param {string} [platform] @param {string} [candidateFeature] */
+export function resolveNilsHealthCompatibility(
+  value,
+  platform = runtimePlatformKey(),
+  candidateFeature = undefined,
+) {
   const root = requiredRecord(value, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
-  const release = requiredRecord(root.release, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
-  let selected = release
-  if (typeof release.platform === 'string' && release.platform !== platform) {
-    const platforms = record(release.platforms)
-    const candidate = record(platforms?.[platform])
-    if (candidate === undefined) {
-      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
+  if (root.schema_version !== COMPATIBILITY_SCHEMA) {
+    throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
+  }
+  let selected
+  let version
+  if (candidateFeature !== undefined) {
+    const candidate = requiredRecord(
+      root.candidate_validation,
+      'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID',
+    )
+    if (typeof candidateFeature !== 'string'
+      || candidate.feature !== candidateFeature
+      || candidate.status !== 'reviewed-source-candidate'
+      || typeof candidate.version !== 'string'
+      || !/^\d+\.\d+\.\d+$/u.test(candidate.version)
+      || typeof candidate.source_commit !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(candidate.source_commit)
+      || candidate.platform !== platform) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
     }
     selected = candidate
+    version = candidate.version
+  } else {
+    const release = requiredRecord(root.release, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
+    selected = release
+    if (typeof release.platform === 'string' && release.platform !== platform) {
+      const platforms = record(release.platforms)
+      const candidate = record(platforms?.[platform])
+      if (candidate === undefined) {
+        throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED')
+      }
+      selected = candidate
+    }
+    const versionMatch = typeof release.source_revision === 'string'
+      ? RELEASE_PATTERN.exec(release.source_revision)
+      : null
+    if (versionMatch === null) {
+      throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
+    }
+    version = versionMatch.slice(1).join('.')
   }
   const artifacts = requiredRecord(selected.artifacts, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const hook = requiredRecord(artifacts['agent-hook'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const docs = requiredRecord(artifacts['agent-docs'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
-  const versionMatch = typeof release.source_revision === 'string'
-    ? RELEASE_PATTERN.exec(release.source_revision)
-    : null
-  if (root.schema_version !== COMPATIBILITY_SCHEMA || versionMatch === null
-    || typeof hook.sha256 !== 'string' || !SHA256_PATTERN.test(hook.sha256)
+  if (typeof hook.sha256 !== 'string' || !SHA256_PATTERN.test(hook.sha256)
     || typeof docs.sha256 !== 'string' || !SHA256_PATTERN.test(docs.sha256)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   }
   return Object.freeze({
-    version: versionMatch.slice(1).join('.'),
+    version,
     platform,
     hookSha256: hook.sha256,
     docsSha256: docs.sha256,
@@ -787,7 +818,7 @@ function ownRegistration(ctx, dispose, label) {
  *
  * @param {Context} ctx
  * @param {import('./index.js').RuntimeHealth} health
- * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
+ * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string}} config
  * @param {{compatibility?: unknown, dshRuntime: unknown, childPlugins: {main_agent_mode: {state:string}, review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}} options
  */
 export async function installNilsHealthProviders(ctx, health, config, options) {
@@ -796,6 +827,8 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   }
   const compatibility = resolveNilsHealthCompatibility(
     options.compatibility ?? await loadCompatibility(),
+    runtimePlatformKey(),
+    config.nilsCompatibilityCandidate,
   )
   const expectedDescriptorSpawnMode = compatibility.platform === 'x86_64-unknown-linux-gnu'
     ? 'atomic-descriptor'

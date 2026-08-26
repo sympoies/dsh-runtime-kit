@@ -30,6 +30,7 @@ const PRODUCERS = Object.freeze({
     'private-project-skill',
     'resume',
     'subagent',
+    'authoritative-acceptance',
     'finish-line',
     'failure-paths',
   ]),
@@ -47,6 +48,11 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
       'prerequisite:mutating-tool-body-gated',
       'prerequisite:code-mode-nested-dispatch-gated',
       'prerequisite:context-ferried-through-run-code',
+    ]),
+    'authoritative-acceptance': Object.freeze([
+      'acceptance:goal-completion-blocked-pre-mutation',
+      'acceptance:exact-provider-verdict-satisfied',
+      'acceptance:goal-completion-allowed-post-evidence',
     ]),
     'private-project-skill': Object.freeze([
       'coexistence:no-cross-loaded-hooks-skills-session-state',
@@ -95,6 +101,9 @@ function requiredScenarioEvidence(producer, id) {
   if (producer === 'packed-runtime' && id === 'automatic-prerequisite') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['automatic-prerequisite']
   }
+  if (producer === 'packed-runtime' && id === 'authoritative-acceptance') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['authoritative-acceptance']
+  }
   return []
 }
 
@@ -110,6 +119,7 @@ const SCENARIO_ORDER = Object.freeze([
   'pr-delivery',
   'resume',
   'subagent',
+  'authoritative-acceptance',
   'finish-line',
   'failure-paths',
 ])
@@ -311,7 +321,7 @@ function dshAccepted(actual, expected) {
     && typeof expected.version === 'string'
     && EXACT_VERSION.test(expected.version)
     && patch?.schema_version === 'dsh-runtime-kit.dsh-patch-receipt.v1'
-    && patch.patch_id === 'tool-execution-prerequisite-v1'
+    && patch.patch_id === 'native-execution-boundaries-v2'
     && patch.version === actual.version
     && patch.revision === actual.revision
     && patch.action === 'check'

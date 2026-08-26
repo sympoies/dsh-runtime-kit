@@ -389,6 +389,28 @@ of the transport set and waiting for rc.7 approval. The subprocess receives a
 fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
 no forwarded environment, and no spill or unbounded output path.
 
+## Authoritative completion acceptance
+
+`src/authoritative-acceptance/index.js` composes a nils-owned durable verdict
+over this finish-line authority. Trusted consumers register exact visible tool
+definitions as mutation invalidators or requirement validators. Runtime-kit
+binds admission and final observation to the same DSH execution object and
+shares the existing private runner capability without exposing it through the
+public `dshAcceptance` service.
+
+Contained Bash validators are selected from the exact probe reservation;
+ordinary Bash keeps the finish-line path above and advances the shared nils
+generation without producing evidence. Non-shell mutations advance generation
+before their body, while non-shell validators terminalize only from the final
+DSH result. Turn stop refreshes a detached verdict, and the authenticated
+`native-execution-boundaries-v2` patch consults the same cached verdict
+synchronously before GoalService completion state changes.
+
+The session projection is explicitly non-authoritative and uses only standard
+tool events, preserving old-runtime rollback reads. Detailed registration,
+failure, persistence, and rollback semantics are in
+[authoritative completion acceptance](authoritative-acceptance.md).
+
 ## Selective runtime context
 
 `src/context/nils-context.js` owns a separate bounded subprocess lifecycle for
@@ -423,7 +445,7 @@ seam below binds one registry-owned execution to one exact definition.
 `src/prerequisite/index.js` assigns process-local identities to the exact
 Agent, runtime workspace generation, and visible `ToolDefinition` object. It
 uses the version-scoped `tools.bindPrerequisite` seam supplied by
-`patches/deepseek-harness/tool-execution-prerequisite.patch`.
+`patches/deepseek-harness/native-execution-boundaries-v2.patch`.
 The default mutation surface (`bash`, `write`, `edit`,
 `str_replace_editor`, and `runtime_kit_governed_commit`) requires the named
 `project-dev-context` capability. Another trusted bundle may attach the same

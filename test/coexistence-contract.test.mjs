@@ -42,6 +42,43 @@ test('the published nils release is pinned by exact source, archive, and binary 
     },
   })
   assert.ok(manifest.commands.every(command => command.status === 'released'))
+  assert.deepEqual(manifest.candidate_validation, {
+    feature: 'authoritative-finish-line-acceptance',
+    status: 'reviewed-source-candidate',
+    pull_request: 'https://github.com/sympoies/nils-cli/pull/1507',
+    source_commit: '41329f0fe73e9704c74b0fbcf2ee7e1a098893ee',
+    source_parent: '5be20fe1b5f99852fef0657dc00a0d26fc4d6e31',
+    source_tree: 'b5443934d9b0f5704181b5f52571312d1ccc51c1',
+    merge_base: '5f74d50bc4cf4acc8b0e365e667ddf933b5d9cbd',
+    version: '1.27.10',
+    platform: 'x86_64-unknown-linux-gnu',
+    artifacts: {
+      'agent-hook': {
+        sha256: 'b4138843dce69587ebbc5a5a6dfdd51e92d503e397f60c905c76bd86db168417',
+      },
+      'agent-docs': {
+        sha256: '1cca26d9b99cb4dc5301e1f75897561030ca18d6b7e949d6e0d34a9981548b27',
+      },
+      'review-specialists': {
+        sha256: '874ecfb5f9389ce10bd73c0d0307c7e0660dc0eef9b893cbe6f714384b46d92e',
+      },
+    },
+    validation: 'exact-reviewed-source',
+    contracts: [
+      'agent-hook.finish-line.register.v1',
+      'cli.agent-hook.finish-line-register.v1',
+      'agent-hook.finish-line.register-result.v1',
+      'agent-hook.finish-line.admit.v1',
+      'cli.agent-hook.finish-line-admit.v1',
+      'agent-hook.finish-line.admit-result.v1',
+      'agent-hook.finish-line.observe.v1',
+      'cli.agent-hook.finish-line-observe.v1',
+      'agent-hook.finish-line.observe-result.v1',
+      'agent-hook.finish-line.verdict.v1',
+      'cli.agent-hook.finish-line-verdict.v1',
+      'agent-hook.finish-line.verdict-result.v1',
+    ],
+  })
   assert.equal(
     manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,
     'release-bundle-validated',

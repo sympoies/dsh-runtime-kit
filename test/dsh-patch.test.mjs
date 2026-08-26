@@ -29,16 +29,36 @@ test('the checked-in manifest authenticates the checked-in patch artifact', asyn
 })
 
 test('the checked-in DSH patch preserves the host environment only in danger-full-access mode', async () => {
-  const artifact = await readFile(
-    join(projectRoot, 'patches', 'deepseek-harness', 'tool-execution-prerequisite.patch'),
-    'utf8',
+  const manifest = JSON.parse(
+    await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
+  const artifact = await readFile(join(projectRoot, manifest.patches[0].path), 'utf8')
   assert.match(
     artifact,
     /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/,
   )
   assert.match(artifact, /inherits the ambient host environment in danger-full-access mode/)
   assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
+})
+
+test('the consolidated native patch adds only the synchronous goal acceptance boundary', async () => {
+  const manifest = JSON.parse(
+    await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+  )
+  assert.equal(manifest.patches.length, 1)
+  const patch = manifest.patches[0]
+  assert.equal(patch.id, 'native-execution-boundaries-v2')
+  assert.deepEqual(
+    Object.keys(patch.targets).filter(path => path.startsWith('packages/goal/goal/')).sort(),
+    [
+      'packages/goal/goal/src/index.ts',
+      'packages/goal/goal/tests/goal.spec.ts',
+    ],
+  )
+  const source = await readFile(join(projectRoot, patch.path), 'utf8')
+  assert.match(source, /ctx\.get\('dshAcceptance'\)\?\.assertGoalCompletion\(agent, ref\)/u)
+  assert.match(source, /does not mutate goal state when acceptance denies/u)
+  assert.match(source, /preserves completion when no acceptance provider is installed/u)
 })
 
 async function fixture() {
@@ -91,7 +111,7 @@ async function fixture() {
   const manifest = {
     schema_version: 'dsh-runtime-kit.dsh-patches.v1',
     patches: [{
-      id: 'tool-execution-prerequisite-v1',
+      id: 'native-execution-boundaries-v2',
       path: patchPath,
       sha256: sha256(patch),
       targets: {

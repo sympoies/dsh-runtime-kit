@@ -23,6 +23,7 @@ const DEFAULT_MAX_ACTIVE = 4
 const HARD_MAX_ACTIVE = 16
 const MAX_OPEN_RETRY_TOKENS = 64
 const MAX_BEGIN_RETRY_TOKENS = 128
+const MAX_ACCEPTANCE_RETRY_TOKENS = 256
 const VALIDATION_SETTLEMENT_GRACE_MS = 1_000
 const MAX_INPUT_BYTES = 64 * 1024
 const MAX_OUTPUT_BYTES = 256 * 1024
@@ -43,7 +44,7 @@ const IDENTIFIER = /^[\x21-\x7e]{1,256}$/
 
 /**
  * @typedef ActiveRequest
- * @property {'open' | 'begin' | 'run' | 'stop' | 'release'} action
+ * @property {'open' | 'begin' | 'run' | 'stop' | 'release' | 'register' | 'admit' | 'observe' | 'verdict'} action
  * @property {AbortController} controller
  * @property {SubprocessHandle | undefined} handle
  * @property {'caller' | 'timeout' | 'disposed' | 'degraded' | undefined} cause
@@ -70,6 +71,126 @@ function record(value) {
 /** @param {unknown} value */
 function identifier(value) {
   return typeof value === 'string' && IDENTIFIER.test(value)
+}
+
+/** @param {unknown} value */
+function digestIdentifier(value) {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value)
+}
+
+/** @param {unknown} value */
+function acceptanceExecution(value) {
+  const input = record(value)
+  if (input?.kind === 'host-observed' && Object.keys(input).length === 1) {
+    return { kind: 'host-observed' }
+  }
+  if (input?.kind === 'contained-bash'
+    && Object.keys(input).sort().join('\0') === 'command\0intent\0kind'
+    && identifier(input.intent)
+    && typeof input.command === 'string' && input.command.trim().length > 0
+    && !input.command.includes('\0')) {
+    return { kind: 'contained-bash', intent: input.intent, command: input.command }
+  }
+  throw new Error('dsh-runtime-kit: finish-line request invalid')
+}
+
+/** @param {unknown} value */
+function acceptanceRegistration(value) {
+  const input = record(value)
+  if (input === undefined || !Array.isArray(input.requirements)
+    || input.requirements.length < 1 || input.requirements.length > 128
+    || !Array.isArray(input.invalidators) || input.invalidators.length > 128) {
+    throw new Error('dsh-runtime-kit: finish-line request invalid')
+  }
+  const requirements = input.requirements.map(rawRequirement => {
+    const requirement = record(rawRequirement)
+    if (requirement === undefined || !identifier(requirement.name) || !Array.isArray(requirement.validators)
+      || requirement.validators.length < 1 || requirement.validators.length > 16) {
+      throw new Error('dsh-runtime-kit: finish-line request invalid')
+    }
+    return {
+      name: requirement.name,
+      validators: requirement.validators.map(rawValidator => {
+        const validator = record(rawValidator)
+        if (validator === undefined || !identifier(validator.id) || !identifier(validator.toolName)
+          || !digestIdentifier(validator.definitionDigest)) {
+          throw new Error('dsh-runtime-kit: finish-line request invalid')
+        }
+        return {
+          id: validator.id,
+          tool_name: validator.toolName,
+          definition_digest: validator.definitionDigest,
+          execution: acceptanceExecution(validator.execution),
+        }
+      }),
+    }
+  })
+  const invalidators = input.invalidators.map(rawInvalidator => {
+    const invalidator = record(rawInvalidator)
+    if (invalidator === undefined || !identifier(invalidator.toolName)
+      || !digestIdentifier(invalidator.definitionDigest)) {
+      throw new Error('dsh-runtime-kit: finish-line request invalid')
+    }
+    return {
+      tool_name: invalidator.toolName,
+      definition_digest: invalidator.definitionDigest,
+    }
+  })
+  return { requirements, invalidators }
+}
+
+/** @param {unknown} value */
+function acceptanceOperation(value) {
+  const input = record(value)
+  if (input?.kind === 'mutation'
+    && identifier(input.toolName) && digestIdentifier(input.definitionDigest)
+    && Object.keys(input).sort().join('\0') === 'definitionDigest\0kind\0toolName') {
+    return {
+      kind: 'mutation',
+      tool_name: input.toolName,
+      definition_digest: input.definitionDigest,
+    }
+  }
+  if (input?.kind === 'validator'
+    && identifier(input.requirement) && identifier(input.validatorId)
+    && identifier(input.toolName) && digestIdentifier(input.definitionDigest)
+    && (input.sourceOperationId === undefined || identifier(input.sourceOperationId))) {
+    const keys = Object.keys(input).sort().join('\0')
+    const expected = input.sourceOperationId === undefined
+      ? 'definitionDigest\0kind\0requirement\0toolName\0validatorId'
+      : 'definitionDigest\0kind\0requirement\0sourceOperationId\0toolName\0validatorId'
+    if (keys === expected) {
+      return {
+        kind: 'validator',
+        requirement: input.requirement,
+        validator_id: input.validatorId,
+        tool_name: input.toolName,
+        definition_digest: input.definitionDigest,
+        ...input.sourceOperationId === undefined
+          ? {}
+          : { source_operation_id: input.sourceOperationId },
+      }
+    }
+  }
+  throw new Error('dsh-runtime-kit: finish-line request invalid')
+}
+
+/** @param {unknown} value */
+function acceptanceObservation(value) {
+  const input = record(value)
+  if (input?.kind === 'contained-bash' && identifier(input.operationId)
+    && Object.keys(input).sort().join('\0') === 'kind\0operationId') {
+    return { kind: 'contained-bash', operation_id: input.operationId }
+  }
+  const statuses = [
+    'succeeded', 'failed', 'cancelled', 'timed-out', 'signalled', 'uncertain',
+    'infrastructure-blocked',
+  ]
+  if (input?.kind === 'host-observed' && statuses.includes(/** @type {string} */ (input.status))
+    && Object.keys(input).sort().join('\0') === 'kind\0status') {
+    return { kind: 'host-observed', status: input.status }
+  }
+  throw new Error('dsh-runtime-kit: finish-line request invalid')
 }
 
 /** @param {import('./index.js').FinishLineIdentity} identity */
@@ -319,6 +440,8 @@ export function createNilsFinishLineClient(ctx, config = {}) {
   const openRetryTokens = new Map()
   /** @type {Map<string, string>} */
   const beginRetryTokens = new Map()
+  /** @type {Map<string, string>} */
+  const acceptanceRetryTokens = new Map()
   let open = true
   let accepting = true
   let degraded = false
@@ -464,7 +587,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
   }
 
   /**
-   * @param {'open' | 'begin' | 'run' | 'stop' | 'release'} action
+   * @param {'open' | 'begin' | 'run' | 'stop' | 'release' | 'register' | 'admit' | 'observe' | 'verdict'} action
    * @param {Record<string, unknown>} request
    * @param {AbortSignal | undefined} callerSignal
    * @param {Readonly<NodeJS.ProcessEnv> | undefined} childEnvironment
@@ -623,6 +746,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       open = false
       openRetryTokens.clear()
       beginRetryTokens.clear()
+      acceptanceRetryTokens.clear()
     } finally {
       await authenticatedExecution.dispose()
     }
@@ -735,6 +859,192 @@ export function createNilsFinishLineClient(ctx, config = {}) {
       }
       openRetryTokens.delete(openRetryKey(request))
       return { correlationId: /** @type {string} */ (data.correlation_id) }
+    },
+
+    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, requirements: unknown[], invalidators: unknown[]}} request @param {AbortSignal} [signal] */
+    async registerAcceptance(request, signal) {
+      if (!identifier(request.runnerCapability)) {
+        throw new Error('dsh-runtime-kit: finish-line request invalid')
+      }
+      const registration = acceptanceRegistration(request)
+      const { envelope, outcome } = await invoke('register', {
+        schema_version: 'agent-hook.finish-line.register.v1',
+        ...identityPayload(request),
+        runner_capability: request.runnerCapability,
+        ...registration,
+      }, signal)
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      const data = envelopeData(envelope, 'cli.agent-hook.finish-line-register.v1')
+      if (data.schema_version !== 'agent-hook.finish-line.register-result.v1'
+        || !['registered', 'duplicate'].includes(/** @type {string} */ (data.status))
+        || !digestIdentifier(data.contract_digest)
+        || !Number.isSafeInteger(data.requirement_count)
+        || data.requirement_count !== registration.requirements.length
+        || !identifier(data.correlation_id)) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      return {
+        status: /** @type {'registered' | 'duplicate'} */ (data.status),
+        contractDigest: /** @type {string} */ (data.contract_digest),
+        requirementCount: /** @type {number} */ (data.requirement_count),
+        correlationId: /** @type {string} */ (data.correlation_id),
+      }
+    },
+
+    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, contractDigest: string, operationId: string, operation: unknown}} request @param {AbortSignal} [signal] */
+    async admitAcceptance(request, signal) {
+      if (!identifier(request.runnerCapability) || !digestIdentifier(request.contractDigest)
+        || !identifier(request.operationId)) {
+        throw new Error('dsh-runtime-kit: finish-line request invalid')
+      }
+      const operation = acceptanceOperation(request.operation)
+      const retryKey = JSON.stringify([
+        request.product, request.sessionId, request.cwd, request.operationId,
+      ])
+      let attemptToken = acceptanceRetryTokens.get(retryKey)
+      if (attemptToken === undefined) {
+        if (acceptanceRetryTokens.size >= MAX_ACCEPTANCE_RETRY_TOKENS) {
+          throw new Error('dsh-runtime-kit: finish-line overloaded')
+        }
+        attemptToken = `finish-line-acceptance:${randomUUID()}`
+        acceptanceRetryTokens.set(retryKey, attemptToken)
+      }
+      const { envelope, outcome } = await invoke('admit', {
+        schema_version: 'agent-hook.finish-line.admit.v1',
+        ...identityPayload(request),
+        runner_capability: request.runnerCapability,
+        contract_digest: request.contractDigest,
+        operation_id: request.operationId,
+        attempt_token: attemptToken,
+        operation,
+      }, signal)
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      const data = envelopeData(envelope, 'cli.agent-hook.finish-line-admit.v1')
+      if (data.schema_version !== 'agent-hook.finish-line.admit-result.v1'
+        || !['admitted', 'duplicate'].includes(/** @type {string} */ (data.status))
+        || data.operation_id !== request.operationId
+        || !['mutation', 'validator'].includes(/** @type {string} */ (data.operation_kind))
+        || data.operation_kind !== operation.kind
+        || typeof data.generation !== 'number'
+        || !Number.isSafeInteger(data.generation) || data.generation < 0
+        || data.contract_digest !== request.contractDigest
+        || !identifier(data.correlation_id)) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      acceptanceRetryTokens.delete(retryKey)
+      return {
+        status: /** @type {'admitted' | 'duplicate'} */ (data.status),
+        operationId: /** @type {string} */ (data.operation_id),
+        operationKind: /** @type {'mutation' | 'validator'} */ (data.operation_kind),
+        generation: /** @type {number} */ (data.generation),
+        contractDigest: /** @type {string} */ (data.contract_digest),
+        correlationId: /** @type {string} */ (data.correlation_id),
+      }
+    },
+
+    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, operationId: string, observation: unknown}} request @param {AbortSignal} [signal] */
+    async observeAcceptance(request, signal) {
+      if (!identifier(request.runnerCapability) || !identifier(request.operationId)) {
+        throw new Error('dsh-runtime-kit: finish-line request invalid')
+      }
+      const observation = acceptanceObservation(request.observation)
+      const { envelope, outcome } = await invoke('observe', {
+        schema_version: 'agent-hook.finish-line.observe.v1',
+        ...identityPayload(request),
+        runner_capability: request.runnerCapability,
+        operation_id: request.operationId,
+        observation,
+      }, signal)
+      if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      const data = envelopeData(envelope, 'cli.agent-hook.finish-line-observe.v1')
+      const statuses = ['applied', 'stale', 'superseded']
+      const observations = [
+        'succeeded', 'failed', 'cancelled', 'timed-out', 'signalled', 'uncertain',
+        'infrastructure-blocked',
+      ]
+      if (data.schema_version !== 'agent-hook.finish-line.observe-result.v1'
+        || !statuses.includes(/** @type {string} */ (data.status))
+        || data.operation_id !== request.operationId
+        || typeof data.generation !== 'number'
+        || !Number.isSafeInteger(data.generation) || data.generation < 0
+        || !observations.includes(/** @type {string} */ (data.observation))
+        || !identifier(data.correlation_id)) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      return {
+        status: /** @type {'applied' | 'stale' | 'superseded'} */ (data.status),
+        operationId: /** @type {string} */ (data.operation_id),
+        generation: /** @type {number} */ (data.generation),
+        observation: /** @type {string} */ (data.observation),
+        correlationId: /** @type {string} */ (data.correlation_id),
+      }
+    },
+
+    /** @param {import('./index.js').FinishLineIdentity & {runnerCapability: string, contractDigest: string}} request @param {AbortSignal} [signal] */
+    async acceptanceVerdict(request, signal) {
+      if (!identifier(request.runnerCapability) || !digestIdentifier(request.contractDigest)) {
+        throw new Error('dsh-runtime-kit: finish-line request invalid')
+      }
+      const { envelope, outcome } = await invoke('verdict', {
+        schema_version: 'agent-hook.finish-line.verdict.v1',
+        ...identityPayload(request),
+        runner_capability: request.runnerCapability,
+        contract_digest: request.contractDigest,
+      }, signal)
+      const data = envelopeData(envelope, 'cli.agent-hook.finish-line-verdict.v1')
+      const statuses = [
+        'satisfied', 'missing', 'failed', 'active', 'uncertain', 'infrastructure-blocked',
+      ]
+      if (data.schema_version !== 'agent-hook.finish-line.verdict-result.v1'
+        || !['allow', 'block'].includes(/** @type {string} */ (data.action))
+        || !statuses.includes(/** @type {string} */ (data.aggregate))
+        || typeof data.generation !== 'number'
+        || !Number.isSafeInteger(data.generation) || data.generation < 0
+        || data.contract_digest !== request.contractDigest
+        || !identifier(data.correlation_id)
+        || !Array.isArray(data.reason_codes)
+        || !data.reason_codes.every(reason => statuses.includes(reason))
+        || !Array.isArray(data.requirements)) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      const requirements = data.requirements.map(raw => {
+        const entry = record(raw)
+        const attemptGeneration = entry?.attempt_generation
+        if (entry === undefined || !identifier(entry.name)
+          || !statuses.includes(/** @type {string} */ (entry.status))
+          || !(attemptGeneration === null
+            || (typeof attemptGeneration === 'number'
+              && Number.isSafeInteger(attemptGeneration) && attemptGeneration >= 0))) {
+          throw new Error('dsh-runtime-kit: finish-line response invalid')
+        }
+        return {
+          name: /** @type {string} */ (entry.name),
+          status: /** @type {string} */ (entry.status),
+          attemptGeneration: attemptGeneration === null
+            ? undefined
+            : attemptGeneration,
+        }
+      })
+      const expectedExit = data.action === 'allow' ? 0 : 1
+      if (outcome.exitCode !== expectedExit || outcome.signal !== null
+        || (data.action === 'allow') !== (data.aggregate === 'satisfied')) {
+        throw new Error('dsh-runtime-kit: finish-line response invalid')
+      }
+      return {
+        action: /** @type {'allow' | 'block'} */ (data.action),
+        aggregate: /** @type {string} */ (data.aggregate),
+        generation: /** @type {number} */ (data.generation),
+        contractDigest: /** @type {string} */ (data.contract_digest),
+        correlationId: /** @type {string} */ (data.correlation_id),
+        reasonCodes: /** @type {string[]} */ (data.reason_codes),
+        requirements,
+      }
     },
 
     /** @param {import('./index.js').FinishLineIdentity & {operationId: string, runnerCapability: string, intent: string, command: string, timeoutMs: number, execution?: unknown, environment?: Record<string, string>}} request @param {AbortSignal} [signal] */

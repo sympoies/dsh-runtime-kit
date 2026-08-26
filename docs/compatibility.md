@@ -47,6 +47,12 @@ platform may activate native health only when its exact archive, `agent-hook`,
 and `agent-docs` digests are recorded. A local nils checkout or ambient
 prototype binary is not release compatibility evidence.
 
+The same manifest may carry a separate exact-head candidate validation record.
+That record does not change `status`, `validated_release`, release archive
+identity, or operator compatibility. It exists only to bind pre-merge
+cross-repository integration to one reviewed nils source tree; promotion still
+requires merge, release, artifact authentication, and a new released row.
+
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
 the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
 and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential

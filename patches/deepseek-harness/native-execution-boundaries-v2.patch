@@ -2786,3 +2786,81 @@ index 15810d09d5752896c81f00e9de1c891ea86792fe..6073180efcedd5917e261bd1c163e572
  describe('the model-facing markers', () => {
    it('the denial marker names the mode', () => {
      expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
+diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
+index baf8c921a9..9052ff25d8 100644
+--- a/packages/goal/goal/src/index.ts
++++ b/packages/goal/goal/src/index.ts
+@@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     goals: GoalService
++    /** Optional deployment-owned synchronous completion evaluator. */
++    dshAcceptance?: DshAcceptanceService
+   }
+ }
+ 
++/** Optional service seam consulted before GoalService mutates completion state. */
++export interface DshAcceptanceService {
++  assertGoalCompletion(agent: Agent, ref: GoalRef): void
++}
++
+ /** Wire payload schema of the `goal` projection (whole current goal or pre-create/cleared null). */
+ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
+   zod.object({
+@@ -335,6 +342,7 @@ export class GoalService extends TypertRemoteService {
+    */
+   @Remote('complete')
+   complete(agent: Agent, ref: GoalRef): GoalView {
++    this.ctx.get('dshAcceptance')?.assertGoalCompletion(agent, ref)
+     return this.transition(
+       agent,
+       ref,
+diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
+index e94e0754a0..fdd267bb9a 100644
+--- a/packages/goal/goal/tests/goal.spec.ts
++++ b/packages/goal/goal/tests/goal.spec.ts
+@@ -297,6 +297,44 @@ describe('GoalService mutations', () => {
+     expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
+   })
+ 
++  it('does not mutate goal state when acceptance denies', async () => {
++    const { ctx, agent, session } = await harness()
++    const goal = ctx.goals.create(agent, { objective: 'require authoritative acceptance' })
++    const eventsBefore = session.events.length
++    let assertions = 0
++    ctx.provide('dshAcceptance', {
++      assertGoalCompletion(candidate, ref) {
++        assertions += 1
++        expect(candidate).toBe(agent)
++        expect(ref).toBe(goal)
++        throw new Error('acceptance denied')
++      },
++    })
++
++    expect(() => ctx.goals.complete(agent, goal)).toThrow('acceptance denied')
++    expect(assertions).toBe(1)
++    expect(session.events).toHaveLength(eventsBefore)
++    expect(ctx.goals.get(agent)).toMatchObject({
++      id: goal.id,
++      revision: goal.revision,
++      phase: 'active',
++      activation: 'armed',
++    })
++  })
++
++  it('preserves completion when no acceptance provider is installed', async () => {
++    const { ctx, agent } = await harness()
++    const goal = ctx.goals.create(agent, { objective: 'remain ungoverned' })
++
++    expect(ctx.get('dshAcceptance')).toBeUndefined()
++    expect(ctx.goals.complete(agent, goal)).toMatchObject({
++      id: goal.id,
++      revision: goal.revision + 1,
++      phase: 'complete',
++      activation: 'disarmed',
++    })
++  })
++
+   it('allows completion from every stopped phase and replacement only after completion', async () => {
+     const phases = ['paused', 'blocked'] as const
+     for (const phase of phases) {

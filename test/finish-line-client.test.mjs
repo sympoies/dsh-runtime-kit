@@ -68,6 +68,42 @@ function responseFor(action, request, overrides = {}) {
       status: 'released',
       correlation_id: correlationId,
     },
+    register: {
+      schema_version: 'agent-hook.finish-line.register-result.v1',
+      status: 'registered',
+      contract_digest: digest,
+      requirement_count: request.requirements?.length ?? 1,
+      correlation_id: correlationId,
+    },
+    admit: {
+      schema_version: 'agent-hook.finish-line.admit-result.v1',
+      status: 'admitted',
+      operation_id: request.operation_id,
+      operation_kind: request.operation?.kind ?? 'mutation',
+      generation: 5,
+      contract_digest: request.contract_digest,
+      correlation_id: correlationId,
+    },
+    observe: {
+      schema_version: 'agent-hook.finish-line.observe-result.v1',
+      status: 'applied',
+      operation_id: request.operation_id,
+      generation: 5,
+      observation: request.observation?.status ?? 'succeeded',
+      correlation_id: correlationId,
+    },
+    verdict: {
+      schema_version: 'agent-hook.finish-line.verdict-result.v1',
+      action: 'block',
+      aggregate: 'missing',
+      generation: 5,
+      contract_digest: request.contract_digest,
+      correlation_id: correlationId,
+      reason_codes: ['missing'],
+      requirements: [
+        { name: 'unit', status: 'missing', attempt_generation: null },
+      ],
+    },
     quiesce: {
       schema_version: 'agent-hook.finish-line.quiesce-result.v1',
       status: 'quiescent',
@@ -121,7 +157,8 @@ function fixture({
         spawns.push({ spec, request })
         let settle
         const response = () => responder(action, request)
-        const exitCode = action === 'stop' && response().data.action === 'block' ? 1 : 0
+        const exitCode = ['stop', 'verdict'].includes(action)
+          && response().data.action === 'block' ? 1 : 0
         const shouldPend = (pending && action !== 'quiesce')
           || (pendingQuiesce && action === 'quiesce')
         const done = shouldPend
@@ -194,6 +231,64 @@ const dangerFullAccessExecution = {
   outputMaxBytes: 64 * 1024,
   runner: { kind: 'danger-full-access' },
 }
+
+test('acceptance RPCs preserve strict wire shapes and private admission retries', async () => {
+  const subject = fixture()
+  const common = { ...identity, runnerCapability: 'finish-line-runner:opaque' }
+  const registered = await subject.client.registerAcceptance({
+    ...common,
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'plus-one',
+        toolName: 'runtime_kit_plus_one',
+        definitionDigest: digest,
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [{ toolName: 'edit', definitionDigest: digest }],
+  })
+  assert.equal(registered.contractDigest, digest)
+
+  const admitted = await subject.client.admitAcceptance({
+    ...common,
+    contractDigest: digest,
+    operationId: 'acceptance:unit:1',
+    operation: {
+      kind: 'validator',
+      requirement: 'unit',
+      validatorId: 'plus-one',
+      toolName: 'runtime_kit_plus_one',
+      definitionDigest: digest,
+    },
+  })
+  assert.equal(admitted.operationKind, 'validator')
+  assert.match(subject.spawns[1].request.attempt_token, /^finish-line-acceptance:/u)
+  assert.doesNotMatch(JSON.stringify(admitted), /attempt_token|runner_capability/u)
+
+  const observed = await subject.client.observeAcceptance({
+    ...common,
+    operationId: 'acceptance:unit:1',
+    observation: { kind: 'host-observed', status: 'succeeded' },
+  })
+  assert.equal(observed.observation, 'succeeded')
+
+  const selected = await subject.client.acceptanceVerdict({
+    ...common,
+    contractDigest: digest,
+  })
+  assert.deepEqual(selected.requirements, [{
+    name: 'unit',
+    status: 'missing',
+    attemptGeneration: undefined,
+  }])
+  assert.deepEqual(
+    subject.spawns.map(spawn => spawn.spec.argv),
+    ['register', 'admit', 'observe', 'verdict'].map(action => (
+      agentHookArgs('finish-line', action, '--format', 'json')
+    )),
+  )
+})
 
 test('finish-line resolves a bare agent-hook command before spawning', async () => {
   const subject = fixture({ agentHook: 'agent-hook' })

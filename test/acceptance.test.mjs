@@ -66,6 +66,11 @@ function runtimeReceipt() {
       }),
       scenario('resume', 'packed-runtime'),
       scenario('subagent', 'packed-runtime'),
+      scenario('authoritative-acceptance', 'packed-runtime', [
+        'acceptance:goal-completion-blocked-pre-mutation',
+        'acceptance:exact-provider-verdict-satisfied',
+        'acceptance:goal-completion-allowed-post-evidence',
+      ]),
       scenario('finish-line', 'packed-runtime'),
       scenario('failure-paths', 'packed-runtime'),
     ],
@@ -98,7 +103,7 @@ function dshIdentity() {
     version: '0.1.0-rc.7',
     patch: {
       schema_version: 'dsh-runtime-kit.dsh-patch-receipt.v1',
-      patch_id: 'tool-execution-prerequisite-v1',
+      patch_id: 'native-execution-boundaries-v2',
       version: '0.1.0-rc.7',
       revision: DSH_REVISION,
       action: 'check',
@@ -269,7 +274,7 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-summary.v2')
   assert.equal(summary.status, 'incomplete')
   assert.equal(summary.mode, 'source-rehearsal')
-  assert.deepEqual(summary.counts, { passed: 11, pending: 2, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 12, pending: 2, failed: 0 })
   assert.deepEqual(
     summary.scenarios.filter(item => item.status === 'pending-authorization').map(item => item.id),
     ['semantic-commit', 'pr-delivery'],
@@ -346,6 +351,27 @@ test('automatic prerequisite acceptance requires every native gating marker', ()
   }
 })
 
+test('authoritative acceptance requires both synchronous goal decisions and the exact verdict', () => {
+  const required = [
+    'acceptance:goal-completion-blocked-pre-mutation',
+    'acceptance:exact-provider-verdict-satisfied',
+    'acceptance:goal-completion-allowed-post-evidence',
+  ]
+  for (const missing of required) {
+    const input = baseInput()
+    const acceptance = input.runtime.scenarios.find(
+      item => item.id === 'authoritative-acceptance',
+    )
+    acceptance.evidence = acceptance.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+})
+
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
@@ -359,7 +385,7 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 
   assert.equal(summary.status, 'pass')
   assert.equal(summary.mode, 'released')
-  assert.deepEqual(summary.counts, { passed: 13, pending: 0, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 14, pending: 0, failed: 0 })
 })
 
 test('a newer exact release may retain an older supported minimum', () => {
