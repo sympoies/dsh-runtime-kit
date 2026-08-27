@@ -13,6 +13,11 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  NILS_COMPATIBILITY_CANDIDATE_ENV,
+  nilsCompatibilityCandidateEnvironment,
+  sanitizeAcceptanceScenarioEnvironment,
+} from '../src/acceptance/scenario-environment.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = requiredAbsolute('DSH_SOURCE_ROOT')
@@ -119,7 +124,8 @@ const validationCommand = `node -e ${JSON.stringify(
 const cancellationCommand = `node -e ${JSON.stringify(
   `const fs=require('node:fs');let beat=0;fs.writeFileSync(${JSON.stringify(cancellationPid)},String(process.pid));fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(beat));fs.writeFileSync(${JSON.stringify(cancellationMarker)},'started\\n');setInterval(()=>fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(++beat)),25)`,
 )}`
-const baseEnvironment = { ...process.env }
+const candidateFeature = process.env[NILS_COMPATIBILITY_CANDIDATE_ENV]
+const baseEnvironment = sanitizeAcceptanceScenarioEnvironment(process.env)
 for (const name of Object.keys(baseEnvironment)) {
   if (name.startsWith('AGENT_SESSION_')
     || /(?:^|_)(?:API_KEY|CREDENTIAL|CREDENTIALS|PASSWORD|SECRET|TOKEN)$/iu.test(name)) {
@@ -163,9 +169,7 @@ function nilsEnvironment(kind) {
     DSH_RUNTIME_KIT_AGENT_DOCS_BIN: join(binDir, 'agent-docs'),
     DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: join(binDir, 'semantic-commit'),
     PATH: binDir + ':' + dirname(pnpmBin) + ':' + dirname(process.execPath) + ':/usr/bin:/bin',
-    ...(kind === 'candidate'
-      ? { DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance' }
-      : {}),
+    ...nilsCompatibilityCandidateEnvironment(candidateFeature, kind === 'candidate'),
   }
 }
 
@@ -387,7 +391,7 @@ digest = ${JSON.stringify(policyDigest)}
       env: {
         ...baseEnvironment,
         ...nilsEnvironment('baseline'),
-        DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
+        ...nilsCompatibilityCandidateEnvironment(candidateFeature, true),
         DSH_ACCEPTANCE_PHASE: 'provider-mismatch-probe',
         DSH_ACCEPTANCE_SESSION_ID: 'acceptance-mismatch',
         DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: mismatchProcess,

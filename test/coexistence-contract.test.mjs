@@ -10,84 +10,39 @@ test('the published nils release is pinned by exact source, archive, and binary 
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.14')
-  assert.equal(manifest.validated_release, '1.27.14')
+  assert.equal(manifest.minimum_supported_release, '1.27.15')
+  assert.equal(manifest.validated_release, '1.27.15')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.14',
-    source_commit: 'f3c372a2424096f81de05b4f6b96c179023174f7',
+    source_revision: 'v1.27.15',
+    source_commit: '037aea988e44b85008019504cec6e71b626dbedb',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.14-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: '349941aa80aa224294f02d531d8865b2a810249b35f37e2963a84d31b75004d4',
+      name: 'nils-cli-v1.27.15-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: '31565502290668882a2ea5604d5fff22248d687aef8987ad19b5db7ced465cab',
     },
     artifacts: {
-      'agent-hook': { sha256: '0dd0fc857035498bdbf40c9a826050738203df8634b9088da544945534a672ea' },
-      'agent-docs': { sha256: '1c5c36e45694c3180e5a2a0a4c6ddf4bd3c78327b169918e796446e5481770a1' },
-      'forge-cli': { sha256: 'ae32e2f1bb0297f4583ddc26ad162c6c0cb8b3b741e57222bf0c65a6611cc9a2' },
-      'git-cli': { sha256: 'abc1423f1c45465d2a2a67324c1cfbbad0ef729ce028e0b16582ff331f9cfcc2' },
-      'review-specialists': { sha256: '508dc3d88bf94b64404e811b1376275ad5d660dad2ae484eb0fb4acdcd81c435' },
-      'semantic-commit': { sha256: '7dabad72e07fd3cd23d5738fc3f01ae5cc1f0787928dc9493458d9775d70ed4a' },
+      'agent-hook': { sha256: '49d6024dc0bceae4cb07b2493714badad508bf0f21322a735a88cdd632451603' },
+      'agent-docs': { sha256: '4ccb576cec98f5168d963083594090a7b7dd11052736a04952ca3e341b8d12aa' },
+      'forge-cli': { sha256: '015bebb8054f0382759cd1082e51091dc7ecc5f8b1322dc76c873189c46ff804' },
+      'git-cli': { sha256: '4cdadea3e6e670a332d192e9aa5345e54b7ece1be3dce1e10f70c4a8d0a7db0a' },
+      'review-specialists': { sha256: 'fbbc266da8c0142ffd93feeeac9d4baa40e54670937a45a27b1baaa3441ff279' },
+      'semantic-commit': { sha256: 'ba773ca51ff0208ec0246873e10e9a4d53095cb3d1ccaaf86eaa14a163c486de' },
     },
     platforms: {
       'aarch64-apple-darwin': {
         archive: {
-          name: 'nils-cli-v1.27.14-aarch64-apple-darwin.tar.gz',
-          sha256: '157f38e6b4b655867ea17ef503df0ce138366ff26afce0274435a4b975efaa65',
+          name: 'nils-cli-v1.27.15-aarch64-apple-darwin.tar.gz',
+          sha256: '5ac5d7d43b8a4e9fb9f5758b5d371bf14e3658f86292294ca22c62e99a81bc9a',
         },
         artifacts: {
-          'agent-hook': { sha256: '3d2202efe45241fff2d3306b647a8b550b78f85ef8933012ddcae458062aefcc' },
-          'agent-docs': { sha256: '6486a83da0bc8a1286d175f7be8a2514d041fb12ddd08f552ccb34b9d6a5f19b' },
+          'agent-hook': { sha256: '44515343b9aa46f137f02a068ec4fd7d7f7234eb5393f64cd5cb3e723b84ad79' },
+          'agent-docs': { sha256: '7076fafb750a6b3b076224af3dcbdc6a86420fee531c32a6c728d526f381b8cb' },
         },
       },
     },
   })
   assert.ok(manifest.commands.every(command => command.status === 'released'))
-  assert.deepEqual(manifest.candidate_validation, {
-    feature: 'authoritative-finish-line-acceptance',
-    status: 'reviewed-source-candidate',
-    pull_request: 'https://github.com/sympoies/nils-cli/pull/1507',
-    source_commit: '844d64657030c53131b252f12199f830264ec93a',
-    source_parent: 'c1ea1b6a047152d6331f864a98d31d0c5ee74558',
-    source_tree: '605bb9edd78b90361408aaff8dee013f490e17cd',
-    merge_base: 'd3a80a13cd6d66d51104e4d1a26cc152e6ec064e',
-    version: '1.27.12',
-    platform: 'x86_64-unknown-linux-gnu',
-    artifacts: {
-      'agent-hook': {
-        sha256: 'e0a2a26e69728ad55ac6238ce3ba143e98aed9563c1d1d3798cc2964a03dfa10',
-      },
-      'agent-docs': {
-        sha256: '6d532155ee295683966e6461498f9aa4a062825f3ea6d5007b8eb0c0d6240e68',
-      },
-      'forge-cli': {
-        sha256: '28325f7c1e7915550e858017ccbe25a971a02e83fb8e3033b76e90e30fa72af6',
-      },
-      'git-cli': {
-        sha256: 'f8a4a720684e6334c1c194467a1b874d66d69405518af975de53a31cb8c3d14b',
-      },
-      'review-specialists': {
-        sha256: '449b793f1b57649add64694e03cd63b9eaaeef295ccef1f2f964473d66b94612',
-      },
-      'semantic-commit': {
-        sha256: '067cd24102045ee9594fa88f084f49814d4bff10b26f29fd598d7618b806a9b1',
-      },
-    },
-    validation: 'exact-reviewed-source',
-    contracts: [
-      'agent-hook.finish-line.register.v1',
-      'cli.agent-hook.finish-line-register.v1',
-      'agent-hook.finish-line.register-result.v1',
-      'agent-hook.finish-line.admit.v1',
-      'cli.agent-hook.finish-line-admit.v1',
-      'agent-hook.finish-line.admit-result.v1',
-      'agent-hook.finish-line.observe.v1',
-      'cli.agent-hook.finish-line-observe.v1',
-      'agent-hook.finish-line.observe-result.v1',
-      'agent-hook.finish-line.verdict.v1',
-      'cli.agent-hook.finish-line-verdict.v1',
-      'agent-hook.finish-line.verdict-result.v1',
-    ],
-  })
+  assert.equal(manifest.candidate_validation, undefined)
   assert.deepEqual(manifest.rollback_validation, {
     runtime_package_sha256: '1cdb239378d5113bcf0634392d63bcefd4bb11be33bb04bd30049b299f858f7a',
     version: '1.27.9',

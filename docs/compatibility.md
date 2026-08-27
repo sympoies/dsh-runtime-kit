@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.2` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | exactly `1.27.14` |
+| nils-cli | exactly `1.27.15` |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
@@ -40,9 +40,10 @@ receipt for check, apply, or reverse.
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and six acceptance binary
 hashes, plus the macOS ARM64 archive and runtime-health companion hashes. The
-v1.27.14 floor is intentional: managed DSH startup requires the atomic
-`agent-session work-context set --if-absent` contract, so earlier releases are
-not runtime-compatible. A
+v1.27.15 floor is intentional: managed DSH startup requires both the atomic
+`agent-session work-context set --if-absent` contract and the durable
+finish-line acceptance provider, so earlier releases are not
+runtime-compatible. A
 platform may activate native health only when its exact archive, `agent-hook`,
 and `agent-docs` digests are recorded. A local nils checkout or ambient
 prototype binary is not release compatibility evidence.
@@ -51,7 +52,9 @@ The same manifest may carry a separate exact-head candidate validation record.
 That record does not change `status`, `validated_release`, release archive
 identity, or operator compatibility. It exists only to bind pre-merge
 cross-repository integration to one reviewed nils source tree; promotion still
-requires merge, release, artifact authentication, and a new released row.
+requires merge, release, artifact authentication, and a new released row. The
+v1.27.15 promotion removes the completed source-candidate record so normal
+runtime and smoke paths authenticate only the released artifacts.
 
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
 the exact non-headless Agent Console profile: ordered bundles, interaction/TUI

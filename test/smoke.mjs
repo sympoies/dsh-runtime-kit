@@ -64,8 +64,8 @@ const nilsCompatibility = JSON.parse(
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
-assert.equal(nilsCompatibility.minimum_supported_release, '1.27.14')
-assert.equal(nilsCompatibility.validated_release, '1.27.14')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.27.15')
+assert.equal(nilsCompatibility.validated_release, '1.27.15')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -132,10 +132,6 @@ const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL =
 const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
 const authoritativeAcceptance = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
 const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
-  ?? (authoritativeAcceptance
-    && nilsCompatibility.candidate_validation?.status === 'reviewed-source-candidate'
-    ? nilsCompatibility.candidate_validation.feature
-    : undefined)
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -2540,12 +2536,8 @@ ${agentConsoleTuiOverlay}
         && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol'
         && receipt.agentConsoleInspection.worker_route.reasoningEffort === 'high',
     externalProviderMutationAttempted: false,
-    nilsCompatibilityStatus: authoritativeAcceptance
-      ? nilsCompatibility.candidate_validation.status
-      : nilsCompatibility.status,
-    nilsCompatibilityCandidateFeature: authoritativeAcceptance
-      ? nilsCompatibility.candidate_validation.feature
-      : undefined,
+    nilsCompatibilityStatus: nilsCompatibility.status,
+    nilsCompatibilityCandidateFeature: nilsCandidateFeature,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
     }) + '\n')

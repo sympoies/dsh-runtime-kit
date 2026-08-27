@@ -147,12 +147,12 @@ sidecar but sees the advanced finish-line generation and therefore remains
 fail closed. A source reverse receipt is not sufficient rollback evidence:
 rebuild the pristine DSH host libraries and smoke the unpatched process.
 
-## Candidate dependency
+## Released dependency
 
-The implementation currently integrates the exact reviewed nils-cli PR #1507
-head recorded in `compatibility/nils-cli.json`. The released compatibility row
-remains nils-cli 1.27.14; it does not include the candidate acceptance provider
-until that change is merged, released, and independently authenticated.
-Registering an acceptance contract against a
-nils build without these RPCs fails closed; leaving the service unregistered
-preserves the released deployment.
+The implementation requires the independently authenticated nils-cli v1.27.15
+release, which contains the provider first reviewed in PR #1507. The exact tag
+commit, Linux archive, six acceptance binaries, and macOS runtime-health
+companions are recorded in `compatibility/nils-cli.json`; the completed
+source-candidate record is no longer an activation path. Registering an
+acceptance contract against a nils build without these RPCs fails closed;
+leaving the service unregistered preserves ungoverned DSH behavior.

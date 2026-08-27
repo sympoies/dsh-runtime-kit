@@ -208,8 +208,8 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.14')
-  assert.equal(manifest.validated_release, '1.27.14')
+  assert.equal(manifest.minimum_supported_release, '1.27.15')
+  assert.equal(manifest.validated_release, '1.27.15')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -317,8 +317,20 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
         'agent-hook.finish-line.release.v1',
         'cli.agent-hook.finish-line-release.v1',
         'agent-hook.finish-line.release-result.v1',
+        'agent-hook.finish-line.register.v1',
+        'cli.agent-hook.finish-line-register.v1',
+        'agent-hook.finish-line.register-result.v1',
+        'agent-hook.finish-line.admit.v1',
+        'cli.agent-hook.finish-line-admit.v1',
+        'agent-hook.finish-line.admit-result.v1',
+        'agent-hook.finish-line.observe.v1',
+        'cli.agent-hook.finish-line-observe.v1',
+        'agent-hook.finish-line.observe-result.v1',
+        'agent-hook.finish-line.verdict.v1',
+        'cli.agent-hook.finish-line-verdict.v1',
+        'agent-hook.finish-line.verdict-result.v1',
       ],
-      source_task: 'sympoies/nils-cli task 2.3',
+      source_tasks: ['sympoies/nils-cli task 2.3', 'sympoies/nils-cli#1503'],
     },
   )
 })
