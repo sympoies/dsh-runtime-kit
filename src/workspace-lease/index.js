@@ -13,6 +13,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDispatchExecution} ToolDispatchExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecution} ToolExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecutionResult} ToolExecutionResult */
+/** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 
 /** Protocol version stamped on every trusted provider request. */
 export const WORKSPACE_LEASE_PROTOCOL_VERSION = 1
@@ -208,6 +209,17 @@ export const WORKSPACE_LEASE_PROTOCOL_VERSION = 1
 /** @typedef {ExecutionIdentity & {binding: BoundWorkspace}} ExecutionAuthorization */
 
 /**
+ * A dirty-workspace bind owns no lease authority. This marker permits only an
+ * exact host-registered quarantine capability to cross the final native guard
+ * for the same live Agent/session/execution identity.
+ * @typedef QuarantineAuthorization
+ * @property {ExecutionIdentity} identity
+ * @property {AgentSlot} owner
+ * @property {number} epoch
+ * @property {ToolDefinition} capability
+ */
+
+/**
  * @typedef WorkspaceRefMeta
  * @property {Agent} agent
  * @property {BoundWorkspace} binding
@@ -362,7 +374,7 @@ function executionIdentity(exec, agent) {
   }
 }
 
-/** @param {ExecutionAuthorization} authorization @param {Readonly<ToolExecution>} exec */
+/** @param {ExecutionIdentity} authorization @param {Readonly<ToolExecution>} exec */
 function matchesExecution(authorization, exec) {
   return authorization.token === exec.token
     && authorization.callId === exec.callId
@@ -428,6 +440,10 @@ export class WorkspaceLease extends Service {
   #executions = new WeakMap()
   /** @type {WeakMap<ToolExecution, ExecutionAuthorization>} */
   #authorizations = new WeakMap()
+  /** @type {WeakSet<ToolDefinition>} */
+  #quarantineCapabilities = new WeakSet()
+  /** @type {WeakMap<ToolExecution, QuarantineAuthorization>} */
+  #quarantineAuthorizations = new WeakMap()
 
   /** @param {Context} ctx */
   constructor(ctx) {
@@ -437,6 +453,8 @@ export class WorkspaceLease extends Service {
     // to the concrete instance so native private state stays inaccessible while
     // calls through ctx.workspaceLease still carry the correct receiver.
     this.registerProvider = this.registerProvider.bind(this)
+    this.registerQuarantineCapability = this.registerQuarantineCapability.bind(this)
+    this.denialState = this.denialState.bind(this)
     this.ref = this.ref.bind(this)
     this.state = this.state.bind(this)
 
@@ -453,7 +471,30 @@ export class WorkspaceLease extends Service {
     ctx.tools.guard(exec => this.#guard(exec))
     ctx.on('tools/result', exec => {
       this.#authorizations.delete(exec)
+      this.#quarantineAuthorizations.delete(exec)
     })
+  }
+
+  /**
+   * Register one exact capability definition for dirty-workspace bootstrap.
+   * Names alone never grant this exception: the definition must be the
+   * currently registered global ToolRuntime object, and the final guard
+   * rechecks the same identity immediately before dispatch.
+   * @param {ToolDefinition} definition
+   * @returns {() => void}
+   */
+  registerQuarantineCapability(definition) {
+    if (definition === null
+      || typeof definition !== 'object'
+      || typeof definition.name !== 'string'
+      || typeof definition.execute !== 'function'
+      || this.ctx.tools.get(definition.name) !== definition) {
+      throw unavailable('workspace quarantine capability is not a registered global tool')
+    }
+    return this.ctx.effect(() => {
+      this.#quarantineCapabilities.add(definition)
+      return () => { this.#quarantineCapabilities.delete(definition) }
+    }, `workspaceLease.quarantineCapability(${definition.name})`)
   }
 
   /**
@@ -538,6 +579,35 @@ export class WorkspaceLease extends Service {
     }
     if (slot.ref === undefined) throw new WorkspaceLeaseInvalidRefError()
     return slot.ref
+  }
+
+  /**
+   * Project only the stable denial state for one exact live Agent. This grants
+   * no reference or authority and never exposes provider reason text, owner
+   * identity, lease IDs, generations, or durable record contents.
+   * @param {Agent} agent
+   * @returns {Promise<{state: Exclude<WorkspaceLeaseState, 'owned' | 'unmanaged'>, code: string} | null>}
+   */
+  async denialState(agent) {
+    this.#assertLive(agent)
+    const slot = this.#agentSlots.get(agent)
+    if (slot?.attempt === undefined) {
+      return { state: 'unavailable', code: WORKSPACE_LEASE_UNBOUND }
+    }
+    try {
+      await slot.attempt
+      return null
+    } catch (error) {
+      if (error instanceof WorkspaceLeaseError
+        && deniedStates.has(error.state)
+        && providerCodePattern.test(error.code)) {
+        return {
+          state: /** @type {Exclude<WorkspaceLeaseState, 'owned' | 'unmanaged'>} */ (error.state),
+          code: error.code,
+        }
+      }
+      return { state: 'unavailable', code: WORKSPACE_LEASE_UNAVAILABLE }
+    }
   }
 
   /**
@@ -836,7 +906,27 @@ export class WorkspaceLease extends Service {
         'unavailable',
       )
     }
-    const binding = await slot.attempt
+    /** @type {BoundWorkspace} */
+    let binding
+    try {
+      binding = await slot.attempt
+    } catch (error) {
+      const capability = this.ctx.tools.get(identity.toolName, agent)
+      if (error instanceof WorkspaceLeaseError
+        && error.code === 'WORKSPACE_DIRTY'
+        && error.state === 'dirty'
+        && capability !== undefined
+        && this.#quarantineCapabilities.has(capability)) {
+        this.#quarantineAuthorizations.set(exec, {
+          identity,
+          owner: slot,
+          epoch: slot.epoch,
+          capability,
+        })
+        return downstream
+      }
+      throw error
+    }
     const authorization = { ...identity, binding }
     if (slot.bound !== binding
       || !binding.owners.has(slot)
@@ -938,6 +1028,23 @@ export class WorkspaceLease extends Service {
    * @returns {string | undefined}
    */
   #guard(exec) {
+    const quarantined = this.#quarantineAuthorizations.get(exec)
+    this.#quarantineAuthorizations.delete(exec)
+    if (quarantined !== undefined) {
+      const { identity, owner, epoch, capability } = quarantined
+      const slot = this.#agentSlots.get(identity.agent)
+      if (!matchesExecution(identity, exec)
+        || slot !== owner
+        || slot.disposed
+        || slot.epoch !== epoch
+        || slot.session !== identity.session
+        || identity.agent.session !== identity.session
+        || !this.#quarantineCapabilities.has(capability)
+        || this.ctx.tools.get(identity.toolName, identity.agent) !== capability) {
+        return changedAuthorizationReason
+      }
+      return undefined
+    }
     if (exec.agent === undefined) return undefined
     const authorization = this.#authorizations.get(exec)
     this.#authorizations.delete(exec)

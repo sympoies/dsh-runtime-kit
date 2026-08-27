@@ -12,6 +12,8 @@ const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CONTROLLER_TOOLS = [
   'runtime_kit_plus_one',
   'runtime_context',
+  'workspace_recovery',
+  'workspace_recovery_handoff',
   'review_specialists',
   'main_agent_run_initialize',
   'main_agent_worker_launch',

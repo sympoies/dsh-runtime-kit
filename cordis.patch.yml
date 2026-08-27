@@ -31,6 +31,9 @@
         workspaceLeaseTimeoutMs: 5000
         workspaceLeaseTeardownTimeoutMs: 2000
         maxActiveWorkspaceLeaseRequests: 8
+        workspaceRecoveryTimeoutMs: 5000
+        workspaceRecoveryTeardownTimeoutMs: 2000
+        maxActiveWorkspaceRecoveryRequests: 2
         governedCommitTimeoutMs: 30000
         governedCommitTeardownTimeoutMs: 2000
         maxActiveReviewers: 4
