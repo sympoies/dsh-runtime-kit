@@ -1334,4 +1334,56 @@ export class WorkspaceLease extends Service {
   }
 }
 
+/**
+ * Track exact global tool definitions that may cross a dirty-workspace
+ * quarantine. DSH profile entries start concurrently, so sibling tools may
+ * register after runtime-kit applies. A removed or replaced definition loses
+ * its exception before the new current definition can receive one.
+ * @param {Context} ctx
+ * @param {Pick<WorkspaceLease, 'registerQuarantineCapability'>} workspaceLease
+ * @param {readonly string[]} names
+ * @returns {() => void}
+ */
+export function trackQuarantineCapabilities(ctx, workspaceLease, names) {
+  if (workspaceLease === null
+    || typeof workspaceLease !== 'object'
+    || typeof workspaceLease.registerQuarantineCapability !== 'function') {
+    throw unavailable('workspace quarantine registration is unavailable')
+  }
+  const requiredNames = [...new Set(names)]
+  if (requiredNames.length === 0
+    || requiredNames.some(name => typeof name !== 'string' || name.length === 0)) {
+    throw new TypeError('workspace quarantine capability names must be nonempty strings')
+  }
+
+  return ctx.effect(() => {
+    /** @type {Map<string, {definition: ToolDefinition, dispose: () => void}>} */
+    const registrations = new Map()
+    let open = true
+    const refresh = () => {
+      if (!open) return
+      for (const name of requiredNames) {
+        const definition = ctx.tools.get(name)
+        const previous = registrations.get(name)
+        if (previous?.definition === definition) continue
+        previous?.dispose()
+        registrations.delete(name)
+        if (definition === undefined) continue
+        registrations.set(name, {
+          definition,
+          dispose: workspaceLease.registerQuarantineCapability(definition),
+        })
+      }
+    }
+    const stopObserving = ctx.on('tools/change', refresh)
+    refresh()
+    return () => {
+      open = false
+      stopObserving()
+      for (const registration of registrations.values()) registration.dispose()
+      registrations.clear()
+    }
+  }, 'workspaceLease.quarantineCapabilities')
+}
+
 export default WorkspaceLease

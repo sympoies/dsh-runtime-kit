@@ -543,7 +543,8 @@ export async function apply(ctx, config = {}) {
       || typeof workspaceLease.registerQuarantineCapability !== 'function') {
       throw new Error('dsh-runtime-kit: workspace quarantine registration is unavailable')
     }
-    for (const name of [
+    const { trackQuarantineCapabilities } = await import('./src/workspace-lease/index.js')
+    trackQuarantineCapabilities(ctx, workspaceLease, [
       'skill',
       'get_goal',
       'create_goal',
@@ -551,13 +552,7 @@ export async function apply(ctx, config = {}) {
       'runtime_context',
       'workspace_recovery',
       'workspace_recovery_handoff',
-    ]) {
-      const definition = ctx.tools.get(name)
-      if (definition === undefined) {
-        throw new Error(`dsh-runtime-kit: required quarantine capability ${name} is unavailable`)
-      }
-      workspaceLease.registerQuarantineCapability(definition)
-    }
+    ])
     observeChildPluginActivation(
       childPlugins,
       'review_specialists',

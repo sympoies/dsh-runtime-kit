@@ -13,6 +13,7 @@ import {
   WorkspaceLease,
   WorkspaceLeaseError,
   WorkspaceLeaseInvalidRefError,
+  trackQuarantineCapabilities,
 } from '@sympoies/dsh-runtime-kit/workspace-lease'
 
 const testSignal = new AbortController().signal
@@ -1352,6 +1353,80 @@ test('a dirty top-level bind admits only registered quarantine capabilities', as
   assert.equal(ordinaryResult.isError, true)
   assert.equal(ordinaryResult.error.info.code, 'WORKSPACE_DIRTY')
   assert.deepEqual(executions, ['recovery'])
+})
+
+test('quarantine capability tracking follows late tool registration and exact replacement identity', async () => {
+  const dirty = provider({
+    async bind() {
+      return {
+        kind: 'denied',
+        state: 'dirty',
+        code: 'WORKSPACE_DIRTY',
+        reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+      }
+    },
+  })
+  const ctx = await harness(dirty.selected)
+  const agent = stubAgent('dirty-late-tool', '/workspace/dirty-project')
+  publish(ctx, agent)
+
+  const executions = []
+  const stopTracking = trackQuarantineCapabilities(
+    ctx,
+    ctx.workspaceLease,
+    ['workspace_recovery'],
+  )
+  const recovery = label => defineTool({
+    name: 'workspace_recovery',
+    description: 'bounded dirty-workspace recovery diagnostics',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    async execute() {
+      executions.push(label)
+      return label
+    },
+  })
+
+  const disposeFirst = ctx.tools.register(recovery('first'))
+  const first = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-first'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(first.isError, false, JSON.stringify(first))
+  assert.equal(first.value, 'first')
+
+  disposeFirst()
+  const disposeSecond = ctx.tools.register(recovery('second'))
+  const second = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-second'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(second.isError, false, JSON.stringify(second))
+  assert.equal(second.value, 'second')
+
+  stopTracking()
+  disposeSecond()
+  ctx.tools.register(recovery('untracked'))
+  const untracked = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-untracked'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(untracked.isError, true)
+  assert.equal(untracked.error.info.code, 'WORKSPACE_DIRTY')
+  assert.deepEqual(executions, ['first', 'second'])
+  assert.equal(dirty.calls.begin.length, 0)
 })
 
 test('dirty bootstrap preserves downstream owner and malformed-policy denials without retrying the lease', async () => {
