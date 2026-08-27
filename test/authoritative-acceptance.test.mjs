@@ -1126,6 +1126,49 @@ test('ordinary Bash invalidates a held completion reservation before provider ex
   assert.equal(value.coordinator.activeOperations, 0)
 })
 
+test('distinct same-repository mutations share one completion cancellation preparation', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const observationStarted = deferred()
+  const finishObservation = deferred()
+  const providerObserve = value.client.observeAcceptance
+  let cancellationCalls = 0
+  value.client.observeAcceptance = async (request, signal) => {
+    if (request.observation.status === 'cancelled') {
+      cancellationCalls += 1
+      observationStarted.resolve()
+      await finishObservation.promise
+    }
+    return providerObserve(request, signal)
+  }
+  const first = execution(value.owner, value.bash, 'ordinary-bash-first')
+  const second = execution(value.owner, value.bash, 'ordinary-bash-second')
+  const firstPreparation = value.coordinator.repositoryMutationStarting(first, call(first))
+  const secondPreparation = value.coordinator.repositoryMutationStarting(second, call(second))
+
+  await observationStarted.promise
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(cancellationCalls, 1)
+  finishObservation.resolve()
+  await Promise.all([firstPreparation, secondPreparation])
+  assert.equal(value.coordinator.activeOperations, 2)
+
+  value.coordinator.reject(first)
+  value.coordinator.reject(second)
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
 test('repository preparation is joined when disposal starts before cancellation is tracked', async () => {
   for (const mode of ['agent', 'coordinator']) {
     const value = fixture()

@@ -423,8 +423,9 @@ capability, operation identity, generation, or provider diagnostics.
 Completion cancellation shares the same joined lifecycle task accounting, so
 policy, validator, mutation, agent disposal, and coordinator disposal cannot
 race past a still-active provider observation. Repository preparation enters
-that accounting before its first await and removes provisional mutation state
-when preparation fails.
+that accounting before its first await, is shared by canonical repository
+across distinct executions, and removes each affected provisional mutation
+state when preparation or its caller-specific lifecycle fence fails.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

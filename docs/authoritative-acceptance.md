@@ -118,8 +118,10 @@ resource-visible as `cancelling`, terminalizes as `cancelled`, and preserves a
 provider rejection to the awaiting lifecycle caller. Agent and coordinator
 disposal cannot pass that task or allow a validator admission to resume after
 the runtime closes. Repository mutation preparation is joined from entry,
-before its first asynchronous refresh barrier; concurrent callers share that
-preparation, and failure removes its provisional repository marker.
+before its first asynchronous refresh barrier; distinct concurrent executions
+in the same canonical repository share one preparation and provider
+cancellation, while each retains its own mutation marker and caller lifecycle
+fence. Failure removes the affected provisional repository marker.
 
 The authenticated DSH patch adds one optional synchronous call immediately
 before `GoalService.complete()` mutates goal state. Runtime-kit consumes the

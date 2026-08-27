@@ -528,7 +528,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   const operations = new Map()
   /** @type {Map<Readonly<ToolExecution>, string>} */
   const repositoryMutations = new Map()
-  /** @type {Map<Readonly<ToolExecution>, Promise<void>>} */
+  /** @type {Map<string, Promise<void>>} */
   const repositoryPreparations = new Map()
   /** @type {Set<Promise<void>>} */
   const readinessWaits = new Set()
@@ -1102,9 +1102,6 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
    */
   async function prepareRepositoryMutation(exec, call) {
     if (contract === undefined) return
-    const existing = repositoryPreparations.get(exec)
-    if (existing !== undefined) return existing
-    if (repositoryMutations.has(exec)) return
     if (exec.agent === undefined || typeof exec.agent.session?.header?.cwd !== 'string') {
       throw new Error('dsh-runtime-kit: acceptance repository identity unavailable')
     }
@@ -1114,49 +1111,64 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: acceptance session unavailable')
     }
     const states = [...liveStates].filter(state => state.repositoryKey === repositoryKey)
-    repositoryMutations.set(exec, repositoryKey)
-    const preparation = (async () => {
-      for (const state of states) invalidate(state)
-      const refreshing = states.flatMap(state => [...state.refreshes])
-      const settled = await Promise.allSettled(refreshing)
-      if (settled.some(result => result.status === 'rejected')) {
-        throw new Error('dsh-runtime-kit: acceptance refresh did not quiesce')
-      }
-      for (const state of states) {
-        if (!state.completionReservationActive || state.completionReservationId === undefined) {
-          if (state.completionTasks.size === 0) state.completionReservationId = undefined
-          continue
+    const alreadyPrepared = repositoryMutations.has(exec)
+    if (!alreadyPrepared) repositoryMutations.set(exec, repositoryKey)
+    let preparation = repositoryPreparations.get(repositoryKey)
+    if (preparation === undefined && !alreadyPrepared) {
+      const task = (async () => {
+        for (const state of states) invalidate(state)
+        const refreshing = states.flatMap(state => [...state.refreshes])
+        const settled = await Promise.allSettled(refreshing)
+        if (settled.some(result => result.status === 'rejected')) {
+          throw new Error('dsh-runtime-kit: acceptance refresh did not quiesce')
         }
-        state.completionSettlement = 'cancelling'
-        await trackCompletion(
-          state,
-          releaseCompletion(
+        for (const state of states) {
+          if (!state.completionReservationActive || state.completionReservationId === undefined) {
+            if (state.completionTasks.size === 0) state.completionReservationId = undefined
+            continue
+          }
+          state.completionSettlement = 'cancelling'
+          await trackCompletion(
             state,
-            String(call.turn),
-            new AbortController().signal,
-            state.completionReservationId,
+            releaseCompletion(
+              state,
+              String(call.turn),
+              new AbortController().signal,
+              state.completionReservationId,
+              'cancelled',
+            ),
             'cancelled',
-          ),
-          'cancelled',
-          true,
-        )
-      }
+            true,
+          )
+        }
+      })()
+      const sharedPreparation = task.finally(() => {
+        if (repositoryPreparations.get(repositoryKey) === sharedPreparation) {
+          repositoryPreparations.delete(repositoryKey)
+        }
+        for (const state of states) state.pending.delete(sharedPreparation)
+      })
+      preparation = sharedPreparation
+      repositoryPreparations.set(repositoryKey, sharedPreparation)
+      for (const state of states) state.pending.add(sharedPreparation)
+    }
+    const callerPreparation = (async () => {
+      if (preparation !== undefined) await preparation
       if (!open || ownerState.disposed) {
         throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
       }
       if (exec.signal.aborted) {
         throw exec.signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled')
       }
-    })().finally(() => { repositoryPreparations.delete(exec) })
-    repositoryPreparations.set(exec, preparation)
-    for (const state of states) state.pending.add(preparation)
+    })()
+    ownerState.pending.add(callerPreparation)
     try {
-      await preparation
+      await callerPreparation
     } catch (error) {
       repositoryMutations.delete(exec)
       throw error
     } finally {
-      for (const state of states) state.pending.delete(preparation)
+      ownerState.pending.delete(callerPreparation)
     }
   }
 
