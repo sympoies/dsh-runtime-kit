@@ -36,6 +36,13 @@ package does not fork, vendor, or propose this integration upstream. The patch
 manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
 
+[`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
+owns the temporary installed-package repair for the exact 0.9.3 TUI artifact.
+It binds the package manifest bytes, patch digest, and target before/after
+hashes. The manager accepts only pristine or exactly patched bytes and emits a
+typed check/apply/reverse receipt. The upstream repair is tracked separately;
+its merge or next release does not block this authenticated downstream path.
+
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and six acceptance binary
@@ -67,7 +74,8 @@ source revision, npm tarball URL, SRI, and shasum. The promoted 0.9.3 artifact
 contains the release's resume-argument forwarding, suggestion-viewport
 re-anchoring, macOS Terminal input repair, settings auto-save, and manifest-read
 version display; these remain upstream TUI behaviors rather than runtime-kit
-patches.
+patches. The history-lock repair is the explicit exception recorded in
+`compatibility/dsh-tui-patches.json`.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.

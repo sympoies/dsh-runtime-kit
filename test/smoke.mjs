@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../src/compat/dsh-patch.js'
+import { manageDshTuiPatch } from '../src/compat/dsh-tui-patch.js'
 import { fetchAuthenticatedAgentConsoleArtifact } from '../src/compat/agent-console-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -108,6 +109,9 @@ assert.ok(selectedDshRelease, `unsupported DSH release ${dshManifest.version}`)
 const dshRevision = selectedDshRelease.revision
 const dshPatchManifest = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+)
+const dshTuiPatchManifest = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh-tui-patches.json'), 'utf8'),
 )
 const initialDshCheckout = await manageDshPatch({
   action: 'check',
@@ -504,6 +508,34 @@ process.exit(result.status ?? 125)
   return true
 }
 
+function runAgentConsoleTuiHistoryLockSmoke(packageRoot) {
+  const historyHome = join(temporaryRoot, 'tui-history-home')
+  mkdirSync(join(historyHome, '.dsh-tui', 'history.jsonl.lock'), { recursive: true })
+  const historyModule = pathToFileURL(join(packageRoot, 'lib/types/history.js')).href
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+const { appendHistory } = await import(${JSON.stringify(historyModule)})
+const started = performance.now()
+appendHistory('dsh-runtime-kit nonblocking history lock smoke')
+const elapsed = performance.now() - started
+if (elapsed > 100) throw new Error('history append blocked input dispatch')
+process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '\\n')
+`], {
+    cwd: packageRoot,
+    env: { ...environment, HOME: historyHome },
+    encoding: 'utf8',
+    timeout: 2_000,
+  })
+  assert.equal(
+    result.status,
+    0,
+    `patched dsh-tui history append did not return promptly (signal=${result.signal ?? 'none'})`,
+  )
+  const receipt = JSON.parse(result.stdout)
+  assert.equal(receipt.accepted, true)
+  assert.ok(receipt.elapsed_ms <= 100)
+  return true
+}
+
 function collectFiles(directory, prefix = '') {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
@@ -692,19 +724,23 @@ try {
     'cordis.patch.yml',
     'compatibility/dsh.json',
     'compatibility/dsh-patches.json',
+    'compatibility/dsh-tui-patches.json',
     'compatibility/agent-console.json',
     'compatibility/nils-cli.json',
     'scripts/benchmark-policy.mjs',
     'scripts/check-dsh-compatibility.mjs',
     'scripts/manage-dsh-patch.mjs',
+    'scripts/manage-dsh-tui-patch.mjs',
     'scripts/pack-dsh-compatibility-peers.mjs',
     'scripts/stage-dsh-compatibility-peers.mjs',
     'src/compat/contract.js',
     'src/compat/dsh-patch.js',
+    'src/compat/dsh-tui-patch.js',
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
     'patches/deepseek-harness/native-execution-boundaries-v2.patch',
+    'patches/dsh-tui/nonblocking-history-lock.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -761,7 +797,15 @@ try {
     assert.doesNotMatch(extracted.stdout, privateIdentityPattern)
   }
   const profileDirectory = join(dshHome, 'profiles', profile)
+  const agentConsoleTuiPackageRoot = join(
+    profileDirectory,
+    'node_modules',
+    '@deepseek-harness-tui',
+    'dsh-tui',
+  )
   let agentConsoleTuiArtifactVerified = false
+  let agentConsoleTuiPatchVerified = false
+  let agentConsoleTuiHistoryNonblockingVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -783,6 +827,19 @@ try {
       && authenticated.shasum === agentConsoleCompatibility.tui.artifact.shasum
     assert.equal(agentConsoleTuiArtifactVerified, true)
     runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])
+    const appliedTuiPatch = await manageDshTuiPatch({
+      action: 'apply',
+      packageRoot: agentConsoleTuiPackageRoot,
+      patchRoot: projectRoot,
+      manifest: dshTuiPatchManifest,
+      gitBin: '/usr/bin/git',
+    })
+    assert.equal(appliedTuiPatch.before, 'pristine')
+    assert.equal(appliedTuiPatch.after, 'patched')
+    agentConsoleTuiPatchVerified = true
+    agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
+      agentConsoleTuiPackageRoot,
+    )
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
 
@@ -815,13 +872,10 @@ try {
       '@deepseek-harness-tui/dsh-tui',
       '@sympoies/dsh-runtime-kit',
     ])
-    const installedTuiManifest = JSON.parse(readFileSync(join(
-      profileDirectory,
-      'node_modules',
-      '@deepseek-harness-tui',
-      'dsh-tui',
-      'package.json',
-    ), 'utf8'))
+    const installedTuiManifest = JSON.parse(readFileSync(
+      join(agentConsoleTuiPackageRoot, 'package.json'),
+      'utf8',
+    ))
     installedTuiVersion = installedTuiManifest.version
     assert.equal(installedTuiVersion, agentConsoleCompatibility.tui.version)
     assert.match(dump, /# == @deepseek-harness-tui\/dsh-tui/)
@@ -2551,6 +2605,8 @@ ${agentConsoleTuiOverlay}
       ? false
       : receipt.agentConsoleInspection.compatible,
     agentConsoleTuiArtifactVerified,
+    agentConsoleTuiPatchVerified,
+    agentConsoleTuiHistoryNonblockingVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

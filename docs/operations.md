@@ -32,6 +32,18 @@ These transitive install scripts are not required at runtime. This deployment
 setting prevents pnpm from rejecting the install and does not create a host
 CLI, `PATH`, or agent-execution allowlist.
 
+After the authenticated TUI archive is installed, apply the exact
+package-level repair before the first launch:
+
+```sh
+dsh-runtime-kit-manage-dsh-tui-patch --action apply \
+  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+```
+
+The required receipt state is `after: "patched"`. Check it before service
+start. Reverse the same patch before replacing the package; never edit the
+installed history module by hand.
+
 Runtime-kit also requires one authenticated source patch in the selected DSH
 checkout. This is an operator/deployment action, never an agent-authored shell
 workaround. Before activating or updating the bundle, stop the affected DSH

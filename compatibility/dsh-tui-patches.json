@@ -1,0 +1,22 @@
+{
+  "schema_version": "dsh-runtime-kit.dsh-tui-patches.v1",
+  "package_name": "@deepseek-harness-tui/dsh-tui",
+  "patches": [
+    {
+      "id": "nonblocking-history-lock-v1",
+      "path": "patches/dsh-tui/nonblocking-history-lock.patch",
+      "sha256": "94cb8d86318d6a10c1db5048537974a11f8db762372accf20b9139a864cec9aa",
+      "targets": {
+        "lib/types/history.js": {
+          "before_sha256": "3b572fd2934cd5652b1dde063950161a97837f2fe2ba435001a83c8dc020107a",
+          "after_sha256": "6fc5a753ddd6fc2999edbaa28b02a55265eda9edf84e2332c8d1eb0adcd0ec45"
+        }
+      },
+      "validated_releases": {
+        "0.9.3": {
+          "package_json_sha256": "bcca8f91bd52d8e6f4c8ece59d4dd3f5c8795696442b4cf185124beb7862e582"
+        }
+      }
+    }
+  ]
+}

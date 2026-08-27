@@ -16,6 +16,9 @@ provider read-back into one promotion result.
   libraries for source compatibility evidence;
 - applies the authenticated execution-boundary patch, rebuilds DSH, and binds
   its typed patch receipt into the acceptance summary;
+- authenticates the exact Agent Console TUI artifact, applies its
+  package-level history-lock patch, and proves contended history persistence
+  cannot delay input dispatch;
 - runs operations and runtime scenarios from separate fresh package
   extractions;
 - executes each scenario in a bounded transient user-systemd control group;
@@ -41,6 +44,8 @@ Final `pass` additionally requires:
 - the exact pinned DSH source and dependency closure;
 - the exact reviewed DSH patch artifact, revision, target hashes, and patched
   state throughout every runtime scenario;
+- the exact reviewed TUI artifact and package-patch receipt for Agent Console
+  promotion;
 - a clean repository head bound to the tested package digest;
 - explicitly authorized semantic-commit and no-merge PR delivery; and
 - direct provider read-back correlated to the same run, repository, head,

@@ -1080,6 +1080,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       .map(match => match[1]),
     [
       '../src/compat/dsh-patch.js',
+      '../src/compat/dsh-tui-patch.js',
       '../src/compat/agent-console-artifact.js',
     ],
     'the trusted runtime scenario controller may load only reviewed compatibility owners',

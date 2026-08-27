@@ -179,6 +179,18 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
+test('the Agent Console release and installed-package patch select the same TUI', () => {
+  const patchManifest = JSON.parse(readFileSync(
+    join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
+    'utf8',
+  ))
+  assert.equal(patchManifest.package_name, EXPECTED_CONTRACT.tui.package)
+  assert.deepEqual(
+    Object.keys(patchManifest.patches[0].validated_releases),
+    [EXPECTED_CONTRACT.tui.version],
+  )
+})
+
 test('the Agent Console install contract preserves DSH profile settings and disables unneeded TUI builds', () => {
   const workspace = parseYaml(readFileSync(join(
     projectRoot,
@@ -219,10 +231,14 @@ test('public Agent Console smoke authenticates the contract tarball before local
   const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
   const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
   const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")
+  const patched = source.indexOf("action: 'apply',", installed)
+  const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', patched)
 
   assert.ok(fetched >= 0, 'the smoke must fetch through the authenticated artifact owner')
   assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
   assert.ok(installed > written, 'the smoke must install the verified local archive')
+  assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
+  assert.ok(startup > patched, 'the smoke must exercise the patched TUI runtime')
   assert.equal(
     source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])"),
     false,

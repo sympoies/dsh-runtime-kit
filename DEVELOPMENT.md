@@ -4,7 +4,9 @@ This guide is the routine contributor entrypoint for `dsh-runtime-kit`. The
 repository is the public, out-of-tree Sympoies runtime layer for DeepSeek
 Harness. Changes use public Cordis and DSH interfaces by default. The sole
 source-level exception is the reviewed, version-scoped patch owned by
-`compatibility/dsh-patches.json`; it is neither a fork nor vendored DSH source.
+`compatibility/dsh-patches.json`. Agent Console additionally applies the exact
+installed-package repair owned by `compatibility/dsh-tui-patches.json`. Neither
+boundary is a fork or vendored upstream source.
 
 ## Prerequisites
 
@@ -37,10 +39,10 @@ owner of this repository's contributor documentation.
 
 - `package.json` owns package entrypoints, supported Node versions, scripts,
   bundled files, and the closed DSH/Cordis peer ranges.
-- `compatibility/dsh.json`, `compatibility/dsh-patches.json`, and
-  `compatibility/nils-cli.json` own the validated
-  upstream revisions, released nils artifacts, public export surface, and
-  promotion budgets.
+- `compatibility/dsh.json`, `compatibility/dsh-patches.json`,
+  `compatibility/dsh-tui-patches.json`, and `compatibility/nils-cli.json` own
+  the validated upstream revisions, released nils artifacts, public export
+  surface, and promotion budgets.
 - `policy/rule-parity.yaml` owns the frozen public source inventory.
 - `policy/runtime-rule-parity.yaml` owns the current migration projection. It
   does not create a JavaScript policy engine or make a capability executable.
@@ -51,8 +53,8 @@ owner of this repository's contributor documentation.
 - `docs/test-first-evidence.md` and `docs/devlog/` retain evidence and history;
   they do not override current code, manifests, or normative documentation.
 
-Keep DSH-version-specific adaptation isolated under `src/compat/` and
-`patches/deepseek-harness/`. Rules that
+Keep DSH/TUI-version-specific adaptation isolated under `src/compat/`,
+`patches/deepseek-harness/`, and `patches/dsh-tui/`. Rules that
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
@@ -150,15 +152,16 @@ npm run test:workspace-lease-native-smoke
 
 Exercise the exact Agent Console layer on the same smoke by selecting the only
 authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
-inspects the unmodified TUI tree, disables only the interactive front door in
-its test overlay, and boots the real rc.7 runtime to prove `userQuestions`,
+applies and verifies the authenticated package-level history-lock patch,
+disables only the interactive front door in its test overlay, and boots the
+real selected runtime to prove `userQuestions`,
 runtime-kit tools/skills, and Main Agent service together:
 
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
-DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.8.1' \
+DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.9.3' \
 npm run test:smoke
 ```
 

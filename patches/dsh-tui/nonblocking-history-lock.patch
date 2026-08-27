@@ -1,0 +1,110 @@
+diff --git a/lib/types/history.js b/lib/types/history.js
+index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc32e2f606a 100644
+--- a/lib/types/history.js
++++ b/lib/types/history.js
+@@ -1,5 +1,6 @@
+ import { createHash } from 'node:crypto';
+-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
++import { existsSync, readFileSync, writeFileSync } from 'node:fs';
++import { mkdir, rm, stat } from 'node:fs/promises';
+ import { join } from 'node:path';
+ import { DATA_DIR } from './utils/paths.js';
+ const HISTORY_DIR = DATA_DIR;
+@@ -9,15 +10,18 @@ const HISTORY_LIMIT = 200;
+ const LOCK_RETRY_LIMIT = 500;
+ const LOCK_RETRY_DELAY_MS = 5;
+ const STALE_LOCK_MS = 30_000;
+-function sleepSync(ms) {
+-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
++function sleep(ms) {
++    return new Promise(resolve => {
++        const timer = setTimeout(resolve, ms);
++        timer.unref?.();
++    });
+ }
+-function removeStaleHistoryLock() {
++async function removeStaleHistoryLock() {
+     try {
+-        const ageMs = Date.now() - statSync(HISTORY_LOCK).mtimeMs;
++        const ageMs = Date.now() - (await stat(HISTORY_LOCK)).mtimeMs;
+         if (ageMs < STALE_LOCK_MS)
+             return false;
+-        rmSync(HISTORY_LOCK, { recursive: true, force: true });
++        await rm(HISTORY_LOCK, { recursive: true, force: true });
+         return true;
+     }
+     catch (error) {
+@@ -27,16 +31,16 @@ function removeStaleHistoryLock() {
+         throw error;
+     }
+ }
+-function withHistoryLock(write) {
+-    mkdirSync(HISTORY_DIR, { recursive: true });
++async function withHistoryLock(write) {
++    await mkdir(HISTORY_DIR, { recursive: true });
+     for (let attempt = 0; attempt < LOCK_RETRY_LIMIT; attempt += 1) {
+         try {
+-            mkdirSync(HISTORY_LOCK);
++            await mkdir(HISTORY_LOCK);
+             try {
+                 write();
+             }
+             finally {
+-                rmSync(HISTORY_LOCK, { recursive: true, force: true });
++                await rm(HISTORY_LOCK, { recursive: true, force: true });
+             }
+             return;
+         }
+@@ -44,9 +48,9 @@ function withHistoryLock(write) {
+             const code = error.code;
+             if (code !== 'EEXIST')
+                 throw error;
+-            if (removeStaleHistoryLock())
++            if (await removeStaleHistoryLock())
+                 continue;
+-            sleepSync(LOCK_RETRY_DELAY_MS + Math.floor(Math.random() * 5));
++            await sleep(LOCK_RETRY_DELAY_MS + Math.floor(Math.random() * 5));
+         }
+     }
+     throw new Error('history lock busy');
+@@ -85,25 +89,22 @@ export function appendHistory(text) {
+     const trimmed = text.trim();
+     if (!trimmed)
+         return;
+-    try {
+-        withHistoryLock(() => {
+-            const entries = loadRaw();
+-            // Skip consecutive duplicates (CC behavior: repeated submits of the same
+-            // command only advance the existing entry's timestamp).
+-            const last = entries[entries.length - 1];
+-            if (last && last.text === trimmed) {
+-                last.ts = Date.now();
+-            }
+-            else {
+-                entries.push({ text: trimmed, ts: Date.now() });
+-            }
+-            const sliced = entries.slice(-HISTORY_LIMIT);
+-            writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+-        });
+-    }
+-    catch {
++    void withHistoryLock(() => {
++        const entries = loadRaw();
++        // Skip consecutive duplicates (CC behavior: repeated submits of the same
++        // command only advance the existing entry's timestamp).
++        const last = entries[entries.length - 1];
++        if (last && last.text === trimmed) {
++            last.ts = Date.now();
++        }
++        else {
++            entries.push({ text: trimmed, ts: Date.now() });
++        }
++        const sliced = entries.slice(-HISTORY_LIMIT);
++        writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
++    }).catch(() => {
+         // Best-effort persistence; history still works for the session.
+-    }
++    });
+ }
+ /**
+  * Read the persisted history, newest first.
