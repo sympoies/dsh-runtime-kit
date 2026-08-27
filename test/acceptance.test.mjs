@@ -979,16 +979,12 @@ test('scenario failure diagnostics expose only a bounded producer, step, and cau
   })), {})
 })
 
-test('acceptance Git isolation ignores ambient wildcard trust', async () => {
+test('acceptance Git isolation persists exact clone trust without ambient wildcard trust', async () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-git-isolation-'))
   const systemConfig = join(fixtureRoot, 'system.gitconfig')
   const globalConfig = join(fixtureRoot, 'global.gitconfig')
   const sourceRoot = join(fixtureRoot, 'authenticated-source')
-  const args = [
-    '-c', 'safe.directory=' + sourceRoot,
-    '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
-    'config', '--get-all', 'safe.directory',
-  ]
+  const args = ['config', '--get-all', 'safe.directory']
   const gitEnvironment = {
     HOME: fixtureRoot,
     XDG_CONFIG_HOME: fixtureRoot,
@@ -1001,6 +997,11 @@ test('acceptance Git isolation ignores ambient wildcard trust', async () => {
   writeFileSync(systemConfig, '[safe]\n\tdirectory = *\n')
   writeFileSync(globalConfig, '')
   try {
+    for (const trustedPath of [sourceRoot, resolve(sourceRoot, '.git')]) {
+      await run('/usr/bin/git', [
+        'config', '--file', globalConfig, '--add', 'safe.directory', trustedPath,
+      ], { encoding: 'utf8', env: gitEnvironment })
+    }
     const ambient = await run('/usr/bin/git', args, {
       encoding: 'utf8',
       env: gitEnvironment,
@@ -1081,11 +1082,17 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'run-id'/u)
   assert.match(runner, /'package-tarball'/u)
   assert.match(runner, /packageSha256/u)
+  assert.match(runner, /'config', '--file', gitConfig, '--add', 'safe\.directory', sourceRoot/u)
   assert.match(
     runner,
-    /'-c', 'safe\.directory=' \+ sourceRoot,\s*'-c', 'safe\.directory=' \+ resolve\(sourceRoot, '\.git'\)/u,
-    'the fresh local clone must trust both authenticated Git repository identities',
+    /'config', '--file', gitConfig, '--add', 'safe\.directory', resolve\(sourceRoot, '\.git'\)/u,
+    'the private Git config must carry both authenticated identities into local upload-pack',
   )
+  const dshPreparation = runner.slice(
+    runner.indexOf('async function prepareDsh('),
+    runner.indexOf('async function preparePackageArtifact('),
+  )
+  assert.doesNotMatch(dshPreparation, /'-c', 'safe\.directory='/u)
   assert.match(runner, /GIT_CONFIG_GLOBAL: gitConfig/u)
   assert.match(runner, /GIT_CONFIG_NOSYSTEM: '1'/u)
   const authoritativeSmoke = readFileSync(

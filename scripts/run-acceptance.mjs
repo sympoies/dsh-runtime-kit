@@ -403,12 +403,17 @@ async function snapshotBinary(root, source, name) {
  * @param {string} revision
  * @param {Record<string,{path:string,sha256:string}>} tools
  * @param {Record<string,string>} env
+ * @param {string} gitConfig
  */
-async function prepareDsh(root, sourceRoot, revision, tools, env) {
+async function prepareDsh(root, sourceRoot, revision, tools, env, gitConfig) {
   const destination = resolve(root, 'dsh')
   runChecked(tools.git.path, [
-    '-c', 'safe.directory=' + sourceRoot,
-    '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
+    'config', '--file', gitConfig, '--add', 'safe.directory', sourceRoot,
+  ], { env, label: 'authenticated DSH worktree trust configuration' })
+  runChecked(tools.git.path, [
+    'config', '--file', gitConfig, '--add', 'safe.directory', resolve(sourceRoot, '.git'),
+  ], { env, label: 'authenticated DSH repository trust configuration' })
+  runChecked(tools.git.path, [
     'clone',
     '--no-hardlinks',
     '--no-checkout',
@@ -775,6 +780,7 @@ async function main() {
       selected.revision,
       tools,
       env,
+      gitConfig,
     )
     const dshReport = await inspectSelectedDshCheckout({
       sourceRoot: dshSourceRoot,
