@@ -10,7 +10,7 @@ description: >
 
 Prereqs:
 
-- `agent-runtime`, `forge-cli >=1.25.13`, `git-cli >=1.25.13`,
+- `agent-runtime`, `forge-cli >=1.27.16`, `git-cli >=1.25.13`,
   `plan-issue >=1.1.0`, and `review-specialists` are installed from the released
   nils-cli package and available on `PATH`. `git-cli` 1.25.13 is the floor for
   the `push` and `sync-default` surfaces this workflow publishes and syncs
@@ -45,7 +45,10 @@ Inputs:
 - Delivery kind: `feature`, `bug`, `chore`, `docs`, `ci`, or `refactor`;
   it must match the branch prefix.
 - PR/MR title and body section files for `agent-runtime pr-body render`.
-- Optional head branch, base branch, merge method, reviewers, and timeout.
+- Optional head branch, merge method, reviewers, and timeout. Resolve the
+  intended base branch explicitly and pass it through `--base`; the delivery
+  macro binds lookup, adoption, create readback, readiness, and merge to that
+  exact base instead of falling back to the provider default.
 - Requested lifecycle outcome: create only, deliver to readiness, repair review
   findings, merge, or close an unmerged record.
 - Required labels selected from the shared taxonomy.
@@ -123,7 +126,8 @@ Outputs:
 Failure modes:
 
 - Provider auth fails, the branch has no published upstream (publish it with
-  `git-cli push`), or the base branch is not the intended target.
+  `git-cli push`), or the provider record's base differs from the exact
+  requested target. Do not adopt or merge a same-head PR against another base.
 - Required checks / pipeline checks fail, time out, remain pending, or are
   missing without an explicit no-checks decision.
 - Selected labels fail catalog validation or the provider rejects label

@@ -253,8 +253,10 @@
       "validation": "skill-declared",
       "contracts": [
         "pr delivery lifecycle",
-        "head-bound evidence and review convergence"
-      ]
+        "head-bound evidence and review convergence",
+        "exact requested-base binding across lookup, adoption, create readback, readiness, and merge"
+      ],
+      "source_task": "sympoies/nils-cli#1533"
     },
     {
       "id": "git-cli.worktree",
@@ -265,6 +267,18 @@
         "managed worktree lifecycle",
         "checkout lease guard"
       ]
+    },
+    {
+      "id": "git-cli.sync-branch",
+      "binary": "git-cli",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "git-cli sync-branch",
+        "same-name tracked non-default branch synchronization",
+        "exact single-branch fetch followed by clean fast-forward-only merge"
+      ],
+      "source_task": "sympoies/nils-cli#1533"
     },
     {
       "id": "semantic-commit.create",

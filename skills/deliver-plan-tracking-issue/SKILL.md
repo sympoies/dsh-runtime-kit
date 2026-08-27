@@ -13,7 +13,7 @@ Prereqs:
 
 - Profile: `tracking`.
 - CLI floors: `plan-issue >=1.0.13`, `plan-tooling >=1.0.1`,
-  `forge-cli >=1.25.13`, `git-cli >=1.25.13`, `review-specialists`.
+  `forge-cli >=1.27.16`, `git-cli >=1.25.13`, `review-specialists`.
 - The tracking issue is absent and ready to open, or open, visible, and
   reconcilable with `run-state.json`; FSM is not blocked or stale.
 - PR delivery runs the generic code-review outcome in pre-merge context with the
@@ -200,7 +200,7 @@ plan-issue --format json tracking checkpoint \
 # verify LINKED_PR through pr deliver existing-PR adoption when it already exists).
 forge-cli pr deliver --repo "$OWNER_REPO" \
   --kind feature --title "$PR_TITLE" \
-  --head "$BRANCH" --base main \
+  --head "$BRANCH" --base "$BASE_REF" \
   --body-file "$PR_BODY_FILE" \
   --test-first-evidence "$EVIDENCE_DIR" \
   --no-merge --format json
