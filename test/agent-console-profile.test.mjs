@@ -198,6 +198,22 @@ test('the Agent Console install contract preserves DSH profile settings and disa
   })
 })
 
+test('public Agent Console smoke consumes the contract-pinned TUI specifier', () => {
+  const workflow = parseYaml(readFileSync(join(
+    projectRoot,
+    '.github',
+    'workflows',
+    'compatibility.yml',
+  ), 'utf8'))
+  const step = workflow.jobs.upstream.steps.find(
+    candidate => candidate.name === 'Run exact Agent Console TUI composition smoke',
+  )
+  assert.equal(
+    step?.env?.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE,
+    EXPECTED_CONTRACT.tui.specifier,
+  )
+})
+
 test('unknown and headless profiles cannot masquerade as Agent Console', () => {
   for (const profile of ['work', 'headless']) {
     const observation = copyObservation()
