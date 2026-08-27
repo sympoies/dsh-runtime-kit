@@ -67,6 +67,52 @@ contends on the canonical worktree. Parent rebind carries still-live children
 onto the new generation only after the prior generation releases; the gap
 remains fail-closed.
 
+## Dirty-workspace quarantine
+
+A top-level bind rejected as `WORKSPACE_DIRTY` receives no binding, generation,
+operation receipt, or mutation authority. The default bundle instead admits
+seven exact process-local definitions through the final native guard:
+
+- DSH's existing `skill` loader, so the session can read its applicable
+  recovery instructions;
+- DSH's existing `get_goal`, `create_goal`, and `update_goal` controls, so
+  same-session task continuity remains available under their own direct-human
+  and completion-authority checks;
+- `runtime_context`, so required project policy remains available; and
+- `workspace_recovery`, a bounded read-only diagnostic surface; and
+- `workspace_recovery_handoff`, an exact clean-candidate verification surface.
+
+This exception is keyed to definition object identity and the exact live
+Agent, Session, epoch, tool execution token, frozen arguments, call lineage,
+parent, and signal. Same-name tool replacement, another lease denial state, a
+later rebind, or a replay still fails before the tool body. Normal DSH tools,
+including host CLI and Git mutation, remain subject to the unchanged lease and
+policy pipeline.
+
+`workspace_recovery({})` returns only the canonical checkout path,
+branch/head identity, bounded dirty path names and typed status states, the
+current stable lease denial state/code, plus a bounded linked-worktree
+inventory. It never returns file contents, command output, environment values,
+tool payloads, owner identities, or lease authority. The client calls only the
+versioned, authenticated `agent-hook workspace-recovery inspect` primitive
+with bounded input/output, deadlines, concurrency, cancellation, and
+process-tree quiescence. The primitive performs a fresh in-process libgit2
+inspection without registered repository command filters, keeps dirty
+submodules visible through a bounded recursive `SubmoduleIgnore::None` walk,
+disables index refresh, and never launches Git or `git-cli`. Nils result data
+is capped at 192 KiB inside the 256 KiB transport; shortened dirty/worktree
+arrays carry typed omitted counts and never turn a dirty decision clean. The
+client accepts additive service metadata but projects only the versioned
+allowlisted fields into DSH tool output.
+
+`workspace_recovery_handoff({ path })` calls the matching authenticated
+`verify-handoff` primitive and proves that the exact listed target is a
+different clean, non-bare, non-detached, non-prunable managed worktree. It does
+not create, clean, stash, switch, adopt, commit, or transfer authority. The
+operator must start a fresh Agent Console session at the returned exact cwd;
+that new session performs the normal lease and dirty-worktree checks again.
+Unmanaged, stale, or still-dirty work is never silently adopted.
+
 ## Lifecycle contract
 
 Binding starts from public `agent/session-start`. Rebinding first releases the
@@ -139,6 +185,9 @@ transport coverage in
 [`test/workspace-lease-provider.test.mjs`](../test/workspace-lease-provider.test.mjs).
 Packed native contention and linked-worktree concurrency coverage lives in
 [`test/workspace-lease-native-smoke.mjs`](../test/workspace-lease-native-smoke.mjs).
+That smoke also runs the real DSH `skill` tool, the production
+`runtime_context` definition, dirty quarantine diagnostics, and clean managed
+handoff while proving an ordinary mutation never reaches its body.
 Promotion also requires the packed compatibility matrix and real two-session,
 restart/recovery, upgrade, and rollback acceptance described by issue #56; a
 focused green test alone does not promote this capability.

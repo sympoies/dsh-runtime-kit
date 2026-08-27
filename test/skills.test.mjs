@@ -208,8 +208,8 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.15')
-  assert.equal(manifest.validated_release, '1.27.15')
+  assert.equal(manifest.minimum_supported_release, '1.27.17')
+  assert.equal(manifest.validated_release, '1.27.17')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -331,6 +331,23 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
         'agent-hook.finish-line.verdict-result.v1',
       ],
       source_tasks: ['sympoies/nils-cli task 2.3', 'sympoies/nils-cli#1503'],
+    },
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-hook.workspace-recovery.dsh'),
+    {
+      id: 'agent-hook.workspace-recovery.dsh',
+      binary: 'agent-hook',
+      status: 'released',
+      validation: 'release-artifact-validated',
+      contracts: [
+        'agent-hook.workspace-recovery.inspect.v1',
+        'cli.agent-hook.workspace-recovery-inspect.v1',
+        'agent-hook.workspace-recovery.verify-handoff.v1',
+        'cli.agent-hook.workspace-recovery-verify-handoff.v1',
+        'agent-hook.workspace-recovery.result.v1',
+      ],
+      source_task: 'sympoies/nils-cli#1535',
     },
   )
 })

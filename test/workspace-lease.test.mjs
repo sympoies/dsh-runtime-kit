@@ -13,6 +13,7 @@ import {
   WorkspaceLease,
   WorkspaceLeaseError,
   WorkspaceLeaseInvalidRefError,
+  trackQuarantineCapabilities,
 } from '@sympoies/dsh-runtime-kit/workspace-lease'
 
 const testSignal = new AbortController().signal
@@ -1289,4 +1290,239 @@ test('malformed provider denial cannot expose untrusted reason text', async () =
   assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
   assert.equal(result.error.message, 'workspace lease provider returned an invalid denial')
   assert.equal(JSON.stringify(result).includes('protected-value'), false)
+})
+
+test('a dirty top-level bind admits only registered quarantine capabilities', async () => {
+  const dirty = provider({
+    async bind() {
+      return {
+        kind: 'denied',
+        state: 'dirty',
+        code: 'WORKSPACE_DIRTY',
+        reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+      }
+    },
+  })
+  const ctx = await harness(dirty.selected)
+  const agent = stubAgent('dirty-owner', '/workspace/dirty-project')
+  publish(ctx, agent)
+
+  const executions = []
+  const recovery = defineTool({
+    name: 'workspace_recovery',
+    description: 'bounded dirty-workspace recovery diagnostics',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    async execute() {
+      executions.push('recovery')
+      return 'recovery-ready'
+    },
+  })
+  const ordinary = echoTool(executions)
+  ctx.tools.register(recovery)
+  ctx.tools.register(ordinary)
+  ctx.workspaceLease.registerQuarantineCapability(recovery)
+
+  assert.deepEqual(await ctx.workspaceLease.denialState(agent), {
+    state: 'dirty',
+    code: 'WORKSPACE_DIRTY',
+  })
+
+  const recoveryResult = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-recovery'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(recoveryResult.isError, false, JSON.stringify(recoveryResult))
+  assert.equal(recoveryResult.value, 'recovery-ready')
+  assert.deepEqual(executions, ['recovery'])
+  assert.equal(dirty.calls.begin.length, 0, 'quarantine never mints mutation authority')
+
+  const ordinaryResult = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-ordinary'),
+    name: 'echo',
+    arguments: { text: 'must-not-run' },
+    agent,
+  })
+  assert.equal(ordinaryResult.isError, true)
+  assert.equal(ordinaryResult.error.info.code, 'WORKSPACE_DIRTY')
+  assert.deepEqual(executions, ['recovery'])
+})
+
+test('quarantine capability tracking follows late tool registration and exact replacement identity', async () => {
+  const dirty = provider({
+    async bind() {
+      return {
+        kind: 'denied',
+        state: 'dirty',
+        code: 'WORKSPACE_DIRTY',
+        reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+      }
+    },
+  })
+  const ctx = await harness(dirty.selected)
+  const agent = stubAgent('dirty-late-tool', '/workspace/dirty-project')
+  publish(ctx, agent)
+
+  const executions = []
+  const stopTracking = trackQuarantineCapabilities(
+    ctx,
+    ctx.workspaceLease,
+    ['workspace_recovery'],
+  )
+  const recovery = label => defineTool({
+    name: 'workspace_recovery',
+    description: 'bounded dirty-workspace recovery diagnostics',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    async execute() {
+      executions.push(label)
+      return label
+    },
+  })
+
+  const disposeFirst = ctx.tools.register(recovery('first'))
+  const first = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-first'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(first.isError, false, JSON.stringify(first))
+  assert.equal(first.value, 'first')
+
+  disposeFirst()
+  const disposeSecond = ctx.tools.register(recovery('second'))
+  const second = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-second'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(second.isError, false, JSON.stringify(second))
+  assert.equal(second.value, 'second')
+
+  stopTracking()
+  disposeSecond()
+  ctx.tools.register(recovery('untracked'))
+  const untracked = await ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId('call:dirty-late-untracked'),
+    name: 'workspace_recovery',
+    arguments: {},
+    agent,
+  })
+  assert.equal(untracked.isError, true)
+  assert.equal(untracked.error.info.code, 'WORKSPACE_DIRTY')
+  assert.deepEqual(executions, ['first', 'second'])
+  assert.equal(dirty.calls.begin.length, 0)
+})
+
+test('dirty bootstrap preserves downstream owner and malformed-policy denials without retrying the lease', async () => {
+  for (const reason of ['agent-hook:owner-unclaimed', 'dsh-runtime-kit:policy-output-invalid']) {
+    const dirty = provider({
+      async bind() {
+        return {
+          kind: 'denied',
+          state: 'dirty',
+          code: 'WORKSPACE_DIRTY',
+          reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+        }
+      },
+    })
+    const ctx = await harness(dirty.selected)
+    const agent = stubAgent(`dirty-policy-${reason}`, '/workspace/dirty-project')
+    publish(ctx, agent)
+    let runs = 0
+    const recovery = defineTool({
+      name: 'workspace_recovery',
+      description: 'bounded dirty-workspace recovery diagnostics',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      async execute() { runs += 1; return 'unexpected' },
+    })
+    ctx.tools.register(recovery)
+    ctx.workspaceLease.registerQuarantineCapability(recovery)
+    ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason }))
+
+    const result = await ctx.tools.execute({
+      signal: testSignal,
+      callId: CallId(`call:${reason}`),
+      name: 'workspace_recovery',
+      arguments: {},
+      agent,
+    })
+
+    assert.equal(result.isError, true)
+    assert.match(result.content[0].text, new RegExp(reason.replaceAll('-', '\\-')))
+    assert.doesNotMatch(result.content[0].text, /WORKSPACE_DIRTY/)
+    assert.equal(runs, 0)
+    assert.equal(dirty.calls.begin.length, 0)
+  }
+})
+
+test('quarantine capability identity cannot be replayed by a same-name replacement or another denial state', async () => {
+  for (const denial of [
+    {
+      state: 'dirty',
+      code: 'WORKSPACE_DIRTY',
+      reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+    },
+    {
+      state: 'foreign-active',
+      code: 'WORKSPACE_FOREIGN_ACTIVE',
+      reason: 'another live session owns this workspace',
+    },
+  ]) {
+    const denied = provider({ async bind() { return { kind: 'denied', ...denial } } })
+    const ctx = await harness(denied.selected)
+    const agent = stubAgent(`denied-${denial.state}`, '/workspace/project')
+    publish(ctx, agent)
+    let runs = 0
+    const trusted = defineTool({
+      name: 'workspace_recovery',
+      description: 'trusted recovery',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      async execute() { runs += 1; return 'trusted' },
+    })
+    const disposeTrusted = ctx.tools.register(trusted)
+    ctx.workspaceLease.registerQuarantineCapability(trusted)
+    if (denial.state === 'dirty') {
+      disposeTrusted()
+      ctx.tools.register({
+        ...trusted,
+        async execute() { runs += 1; return 'replacement' },
+      })
+    }
+
+    const result = await ctx.tools.execute({
+      signal: testSignal,
+      callId: CallId(`call:${denial.state}`),
+      name: 'workspace_recovery',
+      arguments: {},
+      agent,
+    })
+    assert.equal(result.isError, true)
+    assert.equal(result.error.info.code, denial.code)
+    assert.equal(runs, 0)
+    assert.equal(denied.calls.begin.length, 0)
+  }
 })
