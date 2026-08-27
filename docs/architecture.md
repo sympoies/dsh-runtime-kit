@@ -420,6 +420,9 @@ release or canary success. The public service exposes only the bounded
 completion settlement status, and packed evidence requires `succeeded` plus a
 non-degraded finish-line transport after resources drain; it never exposes the
 capability, operation identity, generation, or provider diagnostics.
+Completion cancellation shares the same joined lifecycle task accounting, so
+policy, validator, mutation, agent disposal, and coordinator disposal cannot
+race past a still-active provider observation.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

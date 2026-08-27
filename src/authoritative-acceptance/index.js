@@ -767,13 +767,21 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     return task
   }
 
-  /** @param {SessionState} state @param {Promise<unknown>} promise */
-  function trackCompletion(state, promise) {
+  /**
+   * @param {SessionState} state
+   * @param {Promise<unknown>} promise
+   * @param {'succeeded' | 'cancelled' | undefined} successStatus
+   * @param {boolean} [preserveRejection]
+   */
+  function trackCompletion(state, promise, successStatus, preserveRejection = false) {
     const task = promise.then(
-      () => { state.completionSettlement = 'succeeded' },
+      () => {
+        if (successStatus !== undefined) state.completionSettlement = successStatus
+      },
       error => {
         state.completionSettlement = 'failed'
         poison(state, error)
+        if (preserveRejection) throw error
       },
     ).finally(() => {
       state.pending.delete(task)
@@ -836,12 +844,17 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       || (state.verdict !== undefined && selected.generation < state.verdict.generation)
     if (stale) {
       if (selected.completionReservation !== undefined) {
-        await releaseCompletion(
+        await trackCompletion(
           state,
-          turnId,
-          new AbortController().signal,
-          selected.completionReservation.operationId,
-          'cancelled',
+          releaseCompletion(
+            state,
+            turnId,
+            new AbortController().signal,
+            selected.completionReservation.operationId,
+            'cancelled',
+          ),
+          undefined,
+          true,
         )
       }
       return state.verdict ?? selected
@@ -1104,19 +1117,26 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         if (state.completionTasks.size === 0) state.completionReservationId = undefined
         continue
       }
-      try {
-        await releaseCompletion(
+      state.completionSettlement = 'cancelling'
+      await trackCompletion(
+        state,
+        releaseCompletion(
           state,
           String(call.turn),
           new AbortController().signal,
           state.completionReservationId,
           'cancelled',
-        )
-        state.completionSettlement = 'cancelled'
-      } catch (error) {
-        poison(state, error)
-        throw error
-      }
+        ),
+        'cancelled',
+        true,
+      )
+    }
+    const ownerState = sessions.get(exec.agent.session)
+    if (!open || ownerState?.disposed) {
+      throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
+    }
+    if (exec.signal.aborted) {
+      throw exec.signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled')
     }
   }
 
@@ -1243,7 +1263,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           'succeeded',
         )
         await options.authority.releaseAfterAcceptance(agent)
-      })())
+      })(), 'succeeded')
     },
   })
   ctx.provide('dshAcceptance', service)
@@ -1302,14 +1322,25 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         await prepareRepositoryMutation(exec, call)
       } else if (state.completionReservationActive
         && state.completionReservationId !== undefined) {
-        await releaseCompletion(
+        state.completionSettlement = 'cancelling'
+        await trackCompletion(
           state,
-          String(call.turn),
-          exec.signal,
-          state.completionReservationId,
+          releaseCompletion(
+            state,
+            String(call.turn),
+            exec.signal,
+            state.completionReservationId,
+            'cancelled',
+          ),
           'cancelled',
+          true,
         )
-        state.completionSettlement = 'cancelled'
+        if (!open || state.disposed) {
+          throw new Error('dsh-runtime-kit: acceptance coordinator disposed')
+        }
+        if (exec.signal.aborted) {
+          throw exec.signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled')
+        }
       }
       invalidate(state)
       const operationId = createOperationId(binding.kind, binding)
@@ -1519,19 +1550,19 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         || state.completionReservationId === undefined) return
       const operationId = state.completionReservationId
       invalidate(state)
-      try {
-        await releaseCompletion(
+      state.completionSettlement = 'cancelling'
+      await trackCompletion(
+        state,
+        releaseCompletion(
           state,
           turnId,
           new AbortController().signal,
           operationId,
           'cancelled',
-        )
-        state.completionSettlement = 'cancelled'
-      } catch (error) {
-        poison(state, error)
-        throw error
-      }
+        ),
+        'cancelled',
+        true,
+      )
     },
 
     /** @param {Agent} agent */
@@ -1624,7 +1655,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
  * @property {number} activeOperations
  * @property {string | undefined} completionReservationId
  * @property {boolean} completionReservationActive
- * @property {'idle' | 'reserved' | 'pending' | 'succeeded' | 'failed' | 'cancelled'} completionSettlement
+ * @property {'idle' | 'reserved' | 'pending' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled'} completionSettlement
  * @property {boolean} disposed
  */
 

@@ -113,6 +113,11 @@ and poisons the verdict `infrastructure-blocked`. Operation IDs, capabilities,
 generations, and diagnostics remain private. Resource counters reaching zero
 is not proof of success: the packed canary accepts completion only when this
 status is `succeeded` and the finish-line transport is not degraded.
+Reservation cancellation uses the same joined task owner: it remains
+resource-visible as `cancelling`, terminalizes as `cancelled`, and preserves a
+provider rejection to the awaiting lifecycle caller. Agent and coordinator
+disposal cannot pass that task or allow a validator admission to resume after
+the runtime closes.
 
 The authenticated DSH patch adds one optional synchronous call immediately
 before `GoalService.complete()` mutates goal state. Runtime-kit consumes the

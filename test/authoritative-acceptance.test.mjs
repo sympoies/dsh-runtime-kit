@@ -857,6 +857,123 @@ test('a later lifecycle denial cancels the reservation without releasing retry a
   )
 })
 
+test('completion cancellation preserves provider rejection and poisons the verdict', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+  value.client.observeAcceptance = async request => {
+    if (request.observation.status === 'cancelled') {
+      throw new Error('completion cancellation observation rejected')
+    }
+    throw new Error('unexpected observation')
+  }
+
+  await assert.rejects(
+    value.coordinator.cancelCompletion(value.owner, '1'),
+    /completion cancellation observation rejected/u,
+  )
+
+  assert.deepEqual(value.service.completionSettlement(value.owner), { status: 'failed' })
+  assert.equal(value.service.verdict(value.owner).aggregate, 'infrastructure-blocked')
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('policy cancellation stays resource-visible and joined during agent disposal', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const observationStarted = deferred()
+  const finishObservation = deferred()
+  const providerObserve = value.client.observeAcceptance
+  value.client.observeAcceptance = async (request, signal) => {
+    if (request.observation.status === 'cancelled') {
+      observationStarted.resolve()
+      await finishObservation.promise
+    }
+    return providerObserve(request, signal)
+  }
+  const cancellation = value.coordinator.cancelCompletion(value.owner, '1')
+  await observationStarted.promise
+  let disposalSettled = false
+  const disposal = value.coordinator.agentDisposed(value.owner)
+    .then(() => { disposalSettled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  const activeDuringCancellation = value.coordinator.activeOperations
+  const settledBeforeCancellation = disposalSettled
+
+  finishObservation.resolve()
+  await Promise.all([cancellation, disposal])
+
+  assert.equal(activeDuringCancellation, 1)
+  assert.equal(settledBeforeCancellation, false)
+  assert.deepEqual(value.service.completionSettlement(value.owner), { status: 'cancelled' })
+  assert.deepEqual(value.calls.authorityRelease, [])
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('validator cancellation stays joined and cannot admit after coordinator disposal', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const observationStarted = deferred()
+  const finishObservation = deferred()
+  const providerObserve = value.client.observeAcceptance
+  value.client.observeAcceptance = async (request, signal) => {
+    if (request.observation.status === 'cancelled') {
+      observationStarted.resolve()
+      await finishObservation.promise
+    }
+    return providerObserve(request, signal)
+  }
+  const exec = execution(value.owner, value.unit, 'validator-after-completion-reservation')
+  const admission = value.coordinator.admit(exec, call(exec))
+  await observationStarted.promise
+  let disposalSettled = false
+  const disposal = value.coordinator.dispose().then(() => { disposalSettled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  const activeDuringCancellation = value.coordinator.activeOperations
+  const settledBeforeCancellation = disposalSettled
+
+  finishObservation.resolve()
+  const [admissionResult] = await Promise.allSettled([admission, disposal])
+
+  assert.equal(activeDuringCancellation, 1)
+  assert.equal(settledBeforeCancellation, false)
+  assert.equal(admissionResult.status, 'rejected')
+  assert.match(admissionResult.reason?.message, /coordinator disposed/u)
+  assert.equal(value.calls.admit.length, 0)
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
 test('goal completion blocks while provider admission is in flight', async () => {
   const value = fixture()
   value.service.register(registration(value))
