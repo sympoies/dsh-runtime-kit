@@ -90,8 +90,12 @@ function policyReason(decision) {
   const summary = codes.length > 0 ? `agent-hook:${codes.join(',')}` : 'agent-hook:blocked'
   const opaqueShellFanOut = [...OPAQUE_SHELL_FAN_OUT_CODES]
     .every(code => codes.includes(code))
+  const unsafeDefaultDelivery = codes.length === 1
+    && codes[0] === 'block-unsafe-default-delivery'
   const guidance = opaqueShellFanOut
     ? 'The shell invocation was opaque to multiple policy classifiers and was blocked before command dispatch. Run executable repository scripts directly (for example, ./scripts/check.sh), without a bash/sh wrapper, and split compound operations into separate tool calls.'
+    : unsafeDefaultDelivery
+      ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Split read-only inspection from delivery into separate tool calls. For delivery, use semantic-commit, managed worktrees, and the repository PR workflow instead of direct default-branch mutation.'
     : undefined
   const context = typeof decision.context === 'string' ? decision.context.trim() : ''
   return [summary, guidance, context].filter(Boolean).join('\n')

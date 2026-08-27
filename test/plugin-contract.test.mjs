@@ -2925,6 +2925,27 @@ test('opaque shell fan-out denials explain the direct executable recovery path',
   assert.equal(partial.delegated, false)
 })
 
+test('a lone unsafe default delivery denial explains inspection and delivery recovery', async () => {
+  const subject = harness({
+    envelope: decision('block', {
+      reasons: [{
+        rule_id: 'dsh.block-unsafe-default-delivery',
+        code: 'block-unsafe-default-delivery',
+        disposition: 'block',
+      }],
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+
+  assert.equal(result.kind, 'deny')
+  assert.match(result.reason, /agent-hook:block-unsafe-default-delivery/)
+  assert.match(result.reason, /blocked before command dispatch/i)
+  assert.match(result.reason, /split read-only inspection from delivery/i)
+  assert.match(result.reason, /semantic-commit, managed worktrees, and the repository PR workflow/i)
+  assert.equal(delegated, false)
+})
+
 test('downstream pre-execute exceptions preserve their exact rc.7 failure', async () => {
   const subject = harness()
   const distinctive = new Error('distinctive downstream pre-execute failure')
