@@ -979,6 +979,54 @@ test('scenario failure diagnostics expose only a bounded producer, step, and cau
   })), {})
 })
 
+test('acceptance Git isolation ignores ambient wildcard trust', async () => {
+  const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-git-isolation-'))
+  const systemConfig = join(fixtureRoot, 'system.gitconfig')
+  const globalConfig = join(fixtureRoot, 'global.gitconfig')
+  const sourceRoot = join(fixtureRoot, 'authenticated-source')
+  const args = [
+    '-c', 'safe.directory=' + sourceRoot,
+    '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
+    'config', '--get-all', 'safe.directory',
+  ]
+  const gitEnvironment = {
+    HOME: fixtureRoot,
+    XDG_CONFIG_HOME: fixtureRoot,
+    PATH: '/usr/bin:/bin',
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8',
+    GIT_CONFIG_SYSTEM: systemConfig,
+    GIT_CONFIG_GLOBAL: globalConfig,
+  }
+  writeFileSync(systemConfig, '[safe]\n\tdirectory = *\n')
+  writeFileSync(globalConfig, '')
+  try {
+    const ambient = await run('/usr/bin/git', args, {
+      encoding: 'utf8',
+      env: gitEnvironment,
+    })
+    assert.deepEqual(ambient.stdout.trim().split('\n'), [
+      '*',
+      sourceRoot,
+      resolve(sourceRoot, '.git'),
+    ])
+
+    const isolated = await run('/usr/bin/git', args, {
+      encoding: 'utf8',
+      env: {
+        ...gitEnvironment,
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+    })
+    assert.deepEqual(isolated.stdout.trim().split('\n'), [
+      sourceRoot,
+      resolve(sourceRoot, '.git'),
+    ])
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true })
+  }
+})
+
 test('acceptance runner is packaged with its scenario programs and rejects old receipt injection flags', async () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   assert.equal(manifest.scripts.acceptance, 'node scripts/run-acceptance.mjs')
@@ -1033,7 +1081,13 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'run-id'/u)
   assert.match(runner, /'package-tarball'/u)
   assert.match(runner, /packageSha256/u)
-  assert.match(runner, /safe\.directory=/u)
+  assert.match(
+    runner,
+    /'-c', 'safe\.directory=' \+ sourceRoot,\s*'-c', 'safe\.directory=' \+ resolve\(sourceRoot, '\.git'\)/u,
+    'the fresh local clone must trust both authenticated Git repository identities',
+  )
+  assert.match(runner, /GIT_CONFIG_GLOBAL: gitConfig/u)
+  assert.match(runner, /GIT_CONFIG_NOSYSTEM: '1'/u)
   const authoritativeSmoke = readFileSync(
     join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs'),
     'utf8',

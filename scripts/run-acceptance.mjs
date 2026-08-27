@@ -408,6 +408,7 @@ async function prepareDsh(root, sourceRoot, revision, tools, env) {
   const destination = resolve(root, 'dsh')
   runChecked(tools.git.path, [
     '-c', 'safe.directory=' + sourceRoot,
+    '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
     'clone',
     '--no-hardlinks',
     '--no-checkout',
@@ -724,11 +725,13 @@ async function main() {
     const config = resolve(runRoot, 'config')
     const state = resolve(runRoot, 'state')
     const cache = resolve(runRoot, 'cache')
+    const gitConfig = resolve(runRoot, 'gitconfig')
     await Promise.all([
       mkdir(home, { mode: 0o700 }),
       mkdir(config, { mode: 0o700 }),
       mkdir(state, { mode: 0o700 }),
       mkdir(cache, { mode: 0o700 }),
+      writeFile(gitConfig, '', { encoding: 'utf8', flag: 'wx', mode: 0o600 }),
     ])
     const env = {
       CI: 'true',
@@ -736,6 +739,8 @@ async function main() {
       XDG_CONFIG_HOME: config,
       XDG_STATE_HOME: state,
       XDG_CACHE_HOME: cache,
+      GIT_CONFIG_GLOBAL: gitConfig,
+      GIT_CONFIG_NOSYSTEM: '1',
       PATH: toolPath + ':/usr/bin:/bin',
       LANG: 'C.UTF-8',
       LC_ALL: 'C.UTF-8',
