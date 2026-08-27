@@ -15,6 +15,11 @@ import {
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
+import {
+  NILS_COMPATIBILITY_CANDIDATE_ENV,
+  nilsCompatibilityCandidateEnvironment,
+  sanitizeAcceptanceScenarioEnvironment,
+} from '../src/acceptance/scenario-environment.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const run = promisify(execFile)
@@ -510,6 +515,41 @@ function baseInput() {
     allow_source_nils: true,
   }
 }
+
+test('authoritative scenario scopes explicit candidate selection to intended processes', () => {
+  const candidateFeature = 'future-reviewed-source-candidate'
+  const ambient = {
+    PATH: '/usr/bin:/bin',
+    [NILS_COMPATIBILITY_CANDIDATE_ENV]: candidateFeature,
+  }
+  const baseEnvironment = sanitizeAcceptanceScenarioEnvironment(ambient)
+
+  assert.equal(baseEnvironment[NILS_COMPATIBILITY_CANDIDATE_ENV], undefined)
+  assert.equal(
+    {
+      ...baseEnvironment,
+      ...nilsCompatibilityCandidateEnvironment(candidateFeature, true),
+    }[NILS_COMPATIBILITY_CANDIDATE_ENV],
+    candidateFeature,
+    'the source candidate and intentional mismatch probe receive the explicit selector',
+  )
+  assert.equal(
+    {
+      ...baseEnvironment,
+      ...nilsCompatibilityCandidateEnvironment(candidateFeature, false),
+    }[NILS_COMPATIBILITY_CANDIDATE_ENV],
+    undefined,
+    'baseline seed and rollback processes omit the source candidate selector',
+  )
+  assert.equal(
+    {
+      ...baseEnvironment,
+      ...nilsCompatibilityCandidateEnvironment(undefined, true),
+    }[NILS_COMPATIBILITY_CANDIDATE_ENV],
+    undefined,
+    'released acceptance omits candidate selection from every process',
+  )
+})
 
 test('source rehearsal keeps delivery pending and makes only a scoped functional claim', () => {
   const summary = buildAcceptanceSummary(baseInput())
