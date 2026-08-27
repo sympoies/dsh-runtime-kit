@@ -17,6 +17,7 @@ import { spawnSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../src/compat/dsh-patch.js'
+import { fetchAuthenticatedAgentConsoleArtifact } from '../src/compat/agent-console-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -119,6 +120,7 @@ assert.equal(initialDshCheckout.revision, dshRevision)
 assert.equal(initialDshCheckout.after, 'patched')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
+const agentConsoleTuiArchive = join(temporaryRoot, 'authenticated-agent-console-tui.tgz')
 const userHome = join(temporaryRoot, 'home')
 const dshHome = join(temporaryRoot, 'dsh-home')
 const codexHome = join(userHome, '.codex')
@@ -666,6 +668,7 @@ try {
     'bin/dsh-runtime-kit-launch.js',
     'src/compat/dsh-rc7.js',
     'src/compat/agent-console.js',
+    'src/compat/agent-console-artifact.js',
     'src/context/index.js',
     'src/context/nils-context.js',
     'src/finish-line/index.js',
@@ -758,6 +761,7 @@ try {
     assert.doesNotMatch(extracted.stdout, privateIdentityPattern)
   }
   const profileDirectory = join(dshHome, 'profiles', profile)
+  let agentConsoleTuiArtifactVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -770,7 +774,15 @@ try {
       readFileSync(agentConsoleProfileWorkspace, 'utf8'),
       { mode: 0o600 },
     )
-    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])
+    const authenticated = await fetchAuthenticatedAgentConsoleArtifact(
+      agentConsoleCompatibility.tui.artifact,
+    )
+    writeFileSync(agentConsoleTuiArchive, authenticated.bytes, { mode: 0o600 })
+    agentConsoleTuiArtifactVerified = authenticated.integrity
+      === agentConsoleCompatibility.tui.artifact.integrity
+      && authenticated.shasum === agentConsoleCompatibility.tui.artifact.shasum
+    assert.equal(agentConsoleTuiArtifactVerified, true)
+    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
 
@@ -2538,6 +2550,7 @@ ${agentConsoleTuiOverlay}
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined
       ? false
       : receipt.agentConsoleInspection.compatible,
+    agentConsoleTuiArtifactVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

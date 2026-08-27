@@ -214,6 +214,22 @@ test('public Agent Console smoke consumes the contract-pinned TUI specifier', ()
   )
 })
 
+test('public Agent Console smoke authenticates the contract tarball before local install', () => {
+  const source = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
+  const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
+  const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")
+
+  assert.ok(fetched >= 0, 'the smoke must fetch through the authenticated artifact owner')
+  assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
+  assert.ok(installed > written, 'the smoke must install the verified local archive')
+  assert.equal(
+    source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])"),
+    false,
+    'the smoke must not install the unauthenticated registry specifier',
+  )
+})
+
 test('unknown and headless profiles cannot masquerade as Agent Console', () => {
   for (const profile of ['work', 'headless']) {
     const observation = copyObservation()

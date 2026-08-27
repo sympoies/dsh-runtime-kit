@@ -1078,8 +1078,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.deepEqual(
     [...runtimeSmoke.matchAll(/(?:from\s+|import\s*\()\s*['"](\.\.\/[^'"]+)['"]/gu)]
       .map(match => match[1]),
-    ['../src/compat/dsh-patch.js'],
-    'the trusted runtime scenario controller may load only the reviewed patch-state inspector',
+    [
+      '../src/compat/dsh-patch.js',
+      '../src/compat/agent-console-artifact.js',
+    ],
+    'the trusted runtime scenario controller may load only reviewed compatibility owners',
   )
 
   await assert.rejects(
