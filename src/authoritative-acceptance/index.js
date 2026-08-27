@@ -767,6 +767,17 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     return task
   }
 
+  /** @param {SessionState} state @param {Promise<unknown>} promise */
+  function trackCompletion(state, promise) {
+    const task = promise.catch(error => { poison(state, error) }).finally(() => {
+      state.pending.delete(task)
+      state.completionTasks.delete(task)
+    })
+    state.pending.add(task)
+    state.completionTasks.add(task)
+    return task
+  }
+
   /**
    * @param {SessionState} state
    * @param {string} turnId
@@ -906,6 +917,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: acceptance registration response invalid')
     }
     state.contractDigest = response.contractDigest
+    if (state.disposed || !open) return
     await runRefresh(state, 'acceptance-register', signal)
   }
 
@@ -933,7 +945,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       verdict: undefined,
       poison: undefined,
       registration: undefined,
+      registrationPending: false,
       pending: new Set(),
+      completionTasks: new Set(),
       admissions: new Set(),
       refreshes: new Set(),
       revision: 0,
@@ -966,11 +980,15 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     if (contract === undefined) return undefined
     const state = stateFor(agent)
     if (state.registration === undefined) {
-      state.registration = registerState(state, signal).catch(error => {
-        poison(state, error)
-      })
+      state.registrationPending = true
+      state.registration = registerState(state, signal)
+        .catch(error => { poison(state, error) })
+        .finally(() => { state.registrationPending = false })
     }
     await state.registration
+    if (state.disposed || !open) {
+      throw new Error('dsh-runtime-kit: acceptance session disposed')
+    }
     if (state.poison !== undefined || state.contractDigest === undefined) {
       throw new Error('dsh-runtime-kit: acceptance provider unavailable')
     }
@@ -1071,7 +1089,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     }
     for (const state of states) {
       if (!state.completionReservationActive || state.completionReservationId === undefined) {
-        state.completionReservationId = undefined
+        if (state.completionTasks.size === 0) state.completionReservationId = undefined
         continue
       }
       try {
@@ -1180,8 +1198,13 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         )
       }
       const operationId = selected.completionReservation.operationId
+      // Claim the reservation synchronously with GoalService's pre-mutation
+      // assertion. Repository preparation may now rely on the provider-held
+      // reservation for contention, but it can no longer cancel this runtime's
+      // already-consumed completion operation.
+      state.completionReservationActive = false
       invalidate(state)
-      track(state, (async () => {
+      trackCompletion(state, (async () => {
         await releaseCompletion(
           state,
           'goal-completion',
@@ -1384,7 +1407,14 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       const state = sessions.get(agent.session)
       if (state === undefined) return
       for (;;) {
-        const pending = [...state.pending, ...state.admissions, ...state.refreshes]
+        const pending = [
+          ...state.pending,
+          ...state.admissions,
+          ...state.refreshes,
+          ...state.registrationPending && state.registration !== undefined
+            ? [state.registration]
+            : [],
+        ]
         if (pending.length === 0) return
         await Promise.allSettled(pending)
       }
@@ -1513,6 +1543,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         ...state.pending,
         ...state.admissions,
         ...state.refreshes,
+        ...state.registrationPending && state.registration !== undefined
+          ? [state.registration]
+          : [],
       ]))
       await Promise.allSettled([...readinessWaits])
       repositoryMutations.clear()
@@ -1525,7 +1558,13 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       for (const exec of repositoryMutations.keys()) {
         if (!operations.has(exec)) untrackedRepositoryMutations += 1
       }
+      let sessionControlOperations = 0
+      for (const state of liveStates) {
+        sessionControlOperations += state.completionTasks.size
+        if (state.registrationPending) sessionControlOperations += 1
+      }
       return operations.size + untrackedRepositoryMutations + readinessWaits.size
+        + sessionControlOperations
     },
   })
 
@@ -1542,7 +1581,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
  * @property {ReturnType<typeof sanitizeVerdict> | undefined} verdict
  * @property {string | undefined} poison
  * @property {Promise<void> | undefined} registration
+ * @property {boolean} registrationPending
  * @property {Set<Promise<unknown>>} pending
+ * @property {Set<Promise<unknown>>} completionTasks
  * @property {Set<Promise<unknown>>} admissions
  * @property {Set<Promise<unknown>>} refreshes
  * @property {number} revision

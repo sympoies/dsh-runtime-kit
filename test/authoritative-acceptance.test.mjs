@@ -215,6 +215,7 @@ function fixture({ useDefaultOperationId = false, ...coordinatorOverrides } = {}
     sources,
     calls,
     client,
+    authority,
     addAgent(selected) { currentAgents.set(selected.id, selected) },
     removeAgent(selected) { currentAgents.delete(selected.id) },
     setVerdict(value) { currentVerdict = value },
@@ -731,6 +732,68 @@ test('goal completion consumes the exact reservation before releasing its author
   )
 })
 
+test('goal consumption is claimed before same-repository mutation and remains resource-visible', async () => {
+  const value = fixture()
+  const other = agent('session-2')
+  value.addAgent(other)
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const observeStarted = deferred()
+  const finishObserve = deferred()
+  const releaseStarted = deferred()
+  const finishRelease = deferred()
+  const completionObservations = []
+  const providerObserve = value.client.observeAcceptance
+  value.client.observeAcceptance = async (request, signal) => {
+    if (request.observation.status === 'succeeded') {
+      completionObservations.push(request.observation.status)
+      observeStarted.resolve()
+      await finishObserve.promise
+    } else if (request.observation.status === 'cancelled') {
+      completionObservations.push(request.observation.status)
+    }
+    return providerObserve(request, signal)
+  }
+  const releaseAuthority = value.authority.releaseAfterAcceptance
+  value.authority.releaseAfterAcceptance = async owner => {
+    releaseStarted.resolve()
+    await finishRelease.promise
+    return releaseAuthority(owner)
+  }
+
+  value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 })
+  await observeStarted.promise
+  const activeDuringObservation = value.coordinator.activeOperations
+  const ordinary = execution(other, value.bash, 'mutation-during-goal-consumption')
+  await value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+  const observationsDuringMutation = [...completionObservations]
+
+  finishObserve.resolve()
+  await releaseStarted.promise
+  const activeDuringRelease = value.coordinator.activeOperations
+  finishRelease.resolve()
+  await value.coordinator.settle(value.owner)
+  const activeAfterConsumption = value.coordinator.activeOperations
+  value.coordinator.reject(ordinary)
+
+  assert.equal(activeDuringObservation, 1)
+  assert.deepEqual(observationsDuringMutation, ['succeeded'])
+  assert.equal(activeDuringRelease, 2)
+  assert.equal(activeAfterConsumption, 1)
+  assert.equal(value.coordinator.activeOperations, 0)
+  assert.deepEqual(value.calls.authorityRelease, [value.owner.id])
+})
+
 test('a later lifecycle denial cancels the reservation without releasing retry authority', async () => {
   const value = fixture()
   value.service.register(registration(value))
@@ -964,6 +1027,46 @@ test('acceptance control timeout bounds disposal and prevents a second long obse
   assert.equal(settledWithinControlBound, true)
   assert.equal(attempts, 1)
   assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('agent and coordinator disposal join in-flight registration before quiescing', async () => {
+  for (const mode of ['agent', 'coordinator']) {
+    const value = fixture()
+    const started = deferred()
+    const finishRegister = deferred()
+    const registered = deferred()
+    const providerRegister = value.client.registerAcceptance
+    value.client.registerAcceptance = async request => {
+      started.resolve()
+      await finishRegister.promise
+      try {
+        return await providerRegister(request)
+      } finally {
+        registered.resolve()
+      }
+    }
+    value.service.register(registration(value))
+    await started.promise
+    const activeDuringRegistration = value.coordinator.activeOperations
+    let disposalSettled = false
+    const disposal = (mode === 'agent'
+      ? value.coordinator.agentDisposed(value.owner)
+      : value.coordinator.dispose())
+      .then(() => { disposalSettled = true })
+    await new Promise(resolve => setImmediate(resolve))
+    const settledBeforeRegistration = disposalSettled
+    const verdictCallsBeforeRelease = value.calls.verdict.length
+
+    finishRegister.resolve()
+    await registered.promise
+    await disposal
+    await new Promise(resolve => setImmediate(resolve))
+
+    assert.equal(activeDuringRegistration, 1, mode)
+    assert.equal(settledBeforeRegistration, false, mode)
+    assert.equal(value.calls.verdict.length, verdictCallsBeforeRelease, mode)
+    assert.equal(value.coordinator.activeOperations, 0, mode)
+  }
 })
 
 test('coordinator disposal joins and terminalizes an admission already in flight', async () => {

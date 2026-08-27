@@ -77,12 +77,18 @@ malformed correlation, cancellation, crash, or unproven quiescence poisons the
 session closed. Registration, admission, terminal observation, and verdict are
 control-plane RPCs: one bounded finish-line teardown deadline spans the initial
 attempt and its idempotent retry, and coordinator disposal aborts that shared
-deadline instead of starting another validation-length wait.
+deadline instead of starting another validation-length wait. In-flight
+registration is joined before agent capability release, and registration plus
+completion-consumption tasks remain visible in the exported active-resource
+count until they quiesce.
 
 `agent/turn-stopping` refreshes this verdict and atomically reserves completion
 under nils' repository lock before the older lifecycle policy. The
 reservation blocks structured mutations and ordinary Bash in every session
 and process until the synchronous goal assertion consumes it. Runtime-kit
+claims that consumption synchronously before starting its provider observation;
+a same-repository mutation can therefore contend at nils but cannot cancel the
+already-claimed completion operation. Runtime-kit
 partitions local mutation state by the exact canonical Git-root `cwd` already
 authenticated by nils, invalidates every cache for that repository before
 mutation admission, rejects out-of-order provider responses, and joins
@@ -102,7 +108,8 @@ remediation and remains active.
 
 The authenticated DSH patch adds one optional synchronous call immediately
 before `GoalService.complete()` mutates goal state. Runtime-kit consumes the
-exact cached provider reservation in that synchronous call, then terminalizes
+exact cached provider reservation in that synchronous call, marks it
+non-cancellable locally, then terminalizes
 the reservation asynchronously with the same still-live capability after the
 DSH mutation stack returns. Missing, active, stale, unreserved, or poisoned
 state throws `DshAcceptanceBlockedError` with code `DSH_ACCEPTANCE_BLOCKED`;

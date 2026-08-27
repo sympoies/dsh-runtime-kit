@@ -411,7 +411,12 @@ provider accepts the successful completion observation, cancels the reservation
 when later lifecycle policy rejects stop, and partitions local mutation
 invalidation by nils-authenticated canonical repository `cwd`. Acceptance
 control RPCs share one bounded teardown deadline across their idempotent retry,
-so disposal cannot inherit a validation-length wait.
+so disposal cannot inherit a validation-length wait. Goal consumption claims
+the reservation locally before its asynchronous provider observation, which
+prevents a same-repository mutation from cancelling the same operation while
+nils retains cross-process contention authority. Registration and completion
+terminalization remain resource-visible and are joined before capability
+release or canary success.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,
