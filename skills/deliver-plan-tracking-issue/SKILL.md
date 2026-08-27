@@ -200,7 +200,7 @@ plan-issue --format json tracking checkpoint \
 # verify LINKED_PR through pr deliver existing-PR adoption when it already exists).
 forge-cli pr deliver --repo "$OWNER_REPO" \
   --kind feature --title "$PR_TITLE" \
-  --head "$BRANCH" --base main \
+  --head "$BRANCH" --base "$BASE_REF" \
   --body-file "$PR_BODY_FILE" \
   --test-first-evidence "$EVIDENCE_DIR" \
   --no-merge --format json

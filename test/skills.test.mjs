@@ -363,6 +363,11 @@ test('greenfield evidence labels the initial module-absence run as setup failure
 test('integration branch delivery surfaces declare protection and exact-base ownership', () => {
   const triage = readFileSync(join(skillsRoot, 'worktree-triage', 'SKILL.md'), 'utf8')
   const delivery = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
+  const dispatch = readFileSync(join(skillsRoot, 'deliver-dispatch-plan', 'SKILL.md'), 'utf8')
+  const tracking = readFileSync(
+    join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
+    'utf8',
+  )
   const policy = readFileSync(join(projectRoot, 'docs', 'policies', 'git-delivery.md'), 'utf8')
   const manifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'nils-cli.json'),
@@ -373,6 +378,10 @@ test('integration branch delivery surfaces declare protection and exact-base own
   assert.match(triage, /git-cli sync-branch/)
   assert.match(delivery, /forge-cli >=1\.27\.16/)
   assert.match(delivery, /exact base instead of falling back to the provider default/)
+  assert.match(dispatch, /forge-cli >=1\.27\.16/)
+  assert.match(tracking, /forge-cli >=1\.27\.16/)
+  assert.match(tracking, /--head "\$BRANCH" --base "\$BASE_REF"/)
+  assert.doesNotMatch(tracking, /--head "\$BRANCH" --base main/)
   assert.match(policy, /same-head PR targeting another base\s+is not an adoptable substitute/)
 
   assert.deepEqual(
