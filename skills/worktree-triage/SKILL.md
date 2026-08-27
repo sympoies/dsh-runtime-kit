@@ -17,7 +17,7 @@ Prereqs:
 - For machine-wide cleanup, pass `--all-managed` to scan every repository
   represented under the managed worktree root
   (`${DSH_RUNTIME_KIT_STATE_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/dsh-runtime-kit}/worktrees`).
-- `git` and `git-cli` are on `PATH`; Python 3.11+ is available (the bundled
+- `git` and `git-cli >=1.27.16` are on `PATH`; Python 3.11+ is available (the bundled
   `worktree_triage.py` scanner is stdlib-only). `semantic-commit` is required
   for any commit the rescue path makes; `forge-cli >=1.11.2` is required only
   for the PR-mode rescue path. The scan itself needs no provider access.
@@ -43,6 +43,8 @@ Inputs:
   - `--repo <path>` for one repo, or no scope flag to scan the current repo.
 - The base ref each branch is classified against (`--base`, defaults to
   `origin/main`).
+- Persistent branch names to retain (`--protect-branch <branch>`, repeatable).
+  Use exact names such as `mainline`; protection never changes the scan base.
 
 Outputs:
 
@@ -55,6 +57,9 @@ Outputs:
   `likely_superseded` flag. Each repo record also carries `base_freshness`
   (`{base, upstream, behind_upstream}`) when the base has an upstream, so the
   caller can spot a **stale local base** before landing onto it.
+- The envelope carries the sorted `protected_branches` input. Every worktree
+  record carries `protected`; clean matching branches use the `protected`
+  disposition and never enter the safe-removal set.
 - `likely_superseded` is **advisory** — a cheap patch-id hint. The **PROBE**
   (step 3), not this flag, is what confirms supersession.
 
@@ -64,6 +69,8 @@ Dispositions (the SCAN's cheap first pass):
 - `dirty` — uncommitted changes present. Never *discarded*; the rescue path
   commits the work onto the branch first (zero-loss), then treats it normally.
 - `locked` — a git-locked worktree. Surfaced, never auto-removed.
+- `protected` — an explicitly retained persistent branch. Leave it in place;
+  when checked out and clean, refresh it with `git-cli sync-branch`.
 - `safe-merged` — branch tip is an ancestor of the base (nothing ahead).
   Safe to prune.
 - `safe-superseded` — branch is ahead by commit SHA, but **every** commit is
@@ -105,7 +112,7 @@ For one repo, fetch first so the base ref is current, then scan:
 
 ```bash
 git fetch origin
-"$worktree_triage_script" --repo . --base origin/main
+"$worktree_triage_script" --repo . --base origin/main --protect-branch mainline
 ```
 
 Machine-readable envelope for selection logic:
@@ -121,9 +128,9 @@ Machine-readable envelope for selection logic:
 Choose scope, fetch each represented repo (`git fetch origin --prune`; the
 scanner never fetches), then run the scanner and treat its output as evidence.
 Present the triage grouped into: safe-to-prune (`safe-merged` +
-`safe-superseded`), rescue-candidates, and blocked (`dirty` / `locked` /
-`primary`). Surface each repo's `base_freshness`; flag any repo whose local
-base is far behind its upstream.
+`safe-superseded`), rescue-candidates, retained (`protected`), and blocked
+(`dirty` / `locked` / `primary`). Surface each repo's `base_freshness`; flag
+any repo whose local base is far behind its upstream.
 
 ### 2. Prune the mechanically safe set
 
@@ -139,7 +146,7 @@ git branch -d <branch>   # use -D if it is merged only to the LOCAL default
 ```
 
 Delete a remote branch only when it has no open PR, or its PR is
-superseded/closed. Never prune a `primary`, `dirty`, or `locked` worktree, and
+superseded/closed. Never prune a `primary`, `dirty`, `locked`, or `protected` worktree, and
 never prune anything from a repo listed in `errors`.
 
 ### 3. PROBE each rescue-candidate (the definitive supersession / landing test)
@@ -211,7 +218,7 @@ delete it once its work is in the base.
 
 ### 5. Stop at the human gate
 
-Never remove a `primary`, never *discard* a `dirty` worktree (commit-to-branch
+Never remove a `primary` or `protected` worktree, never *discard* a `dirty` worktree (commit-to-branch
 first), never remove rows from repos with scan `errors`. Land on the default
 branch only with the applicable authorization (PR confirmation for PR mode;
 current-request maintainer approval for default-branch completion). Ask the user
@@ -256,12 +263,13 @@ supersession — the PROBE is the proof.
 
 `worktree_triage.py` owns read-only enumeration, the ahead/behind and ancestor
 checks, the patch-equivalence (`git cherry`) call, the two-dot net-diff
-evidence, `base_freshness`, and the SCAN disposition verdict — it never
+evidence, `base_freshness`, explicit branch protection, and the SCAN
+disposition verdict — it never
 mutates. The skill body owns SCAN orchestration, the **PROBE** (the rebase-based
 supersession / landing test), the zero-loss commit-to-branch, and mode-aware
 landing through governed tools (`semantic-commit` / `deliver-pr`). It never
 re-implements the scanner's classification in prose, never auto-removes a
-`dirty`/`locked`/`primary` worktree, never removes a branch from a repo with
+`dirty`/`locked`/`protected`/`primary` worktree, never removes a branch from a repo with
 scan errors, never lands on the default branch outside the governed path, and
 never guesses a semantic conflict.
 

@@ -13,7 +13,7 @@ Prereqs:
 
 - Profile: `dispatch`.
 - CLI floors: `plan-issue >=1.0.13`, `plan-tooling >=1.0.1`,
-  `forge-cli >=1.25.13`, `git-cli >=1.25.13`.
+  `forge-cli >=1.27.16`, `git-cli >=1.25.13`.
 - The dispatch issue is either not opened yet, or the existing issue is
   the same shared plan being resumed by the orchestrator.
 - Dispatch `run-state.json` is either uninitialized or reconciled.

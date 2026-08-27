@@ -14,6 +14,8 @@ Dispositions
 - ``dirty``           uncommitted changes present; blocked from removal so the
                       caller cannot lose in-progress work.
 - ``locked``          worktree is git-locked; surfaced, never auto-removed.
+- ``protected``       branch was explicitly named by ``--protect-branch``;
+                      retained even when its history is fully in the base.
 - ``safe-merged``     branch tip is an ancestor of the base (nothing ahead);
                       its history is fully in the base. Safe to prune.
 - ``safe-superseded`` branch is ahead by commit SHA, but every commit is
@@ -243,7 +245,13 @@ def repo_key_for_path(worktree_root: str | None, path: str) -> str | None:
     return parts[0] if parts and parts[0] != "." else None
 
 
-def classify(repo: str, base: str, wt: dict, primary_path: str) -> dict:
+def classify(
+    repo: str,
+    base: str,
+    wt: dict,
+    primary_path: str,
+    protected_branches: set[str],
+) -> dict:
     path = wt["path"]
     branch = wt.get("branch")
     tip = wt.get("head", branch or "HEAD")
@@ -254,6 +262,7 @@ def classify(repo: str, base: str, wt: dict, primary_path: str) -> dict:
         "detached": wt.get("detached", False),
         "is_primary": os.path.realpath(path) == os.path.realpath(primary_path),
         "locked": wt.get("locked", False),
+        "protected": branch in protected_branches,
     }
 
     # Primary worktree and locked worktrees are surfaced but never removal
@@ -275,6 +284,12 @@ def classify(repo: str, base: str, wt: dict, primary_path: str) -> dict:
     if record["locked"]:
         record["disposition"] = "locked"
         record["suggested_action"] = "git worktree unlock first if intentional"
+        return record
+    if record["protected"]:
+        record["disposition"] = "protected"
+        record["suggested_action"] = (
+            "leave in place (persistent branch); synchronize with git-cli sync-branch"
+        )
         return record
 
     ahead = rev_count(repo, f"{base}..{tip}")
@@ -326,8 +341,12 @@ def ref_exists(repo: str, ref: str) -> bool:
 
 
 def scan_repo(
-    repo: str, base: str, worktree_root: str | None = None
+    repo: str,
+    base: str,
+    worktree_root: str | None = None,
+    protected_branches: set[str] | None = None,
 ) -> tuple[dict, list[dict]]:
+    protected_branches = protected_branches or set()
     worktrees = parse_worktrees(repo)
     primary_path = worktrees[0]["path"] if worktrees else repo
     common_dir = git_common_dir(repo)
@@ -337,7 +356,7 @@ def scan_repo(
         is_primary = os.path.realpath(wt["path"]) == os.path.realpath(primary_path)
         if worktree_root and not is_primary and not repo_key:
             continue
-        rec = classify(repo, base, wt, primary_path)
+        rec = classify(repo, base, wt, primary_path, protected_branches)
         rec["repo_root"] = primary_path
         rec["repo_common_dir"] = common_dir
         if repo_key:
@@ -367,7 +386,8 @@ def render_text(envelope: dict) -> str:
             f"  safe-merged={s.get('safe-merged', 0)} "
             f"safe-superseded={s.get('safe-superseded', 0)} "
             f"rescue-candidate={s.get('rescue-candidate', 0)} "
-            f"dirty={s.get('dirty', 0)} locked={s.get('locked', 0)} "
+            f"protected={s.get('protected', 0)} dirty={s.get('dirty', 0)} "
+            f"locked={s.get('locked', 0)} "
             f"primary={s.get('primary', 0)}"
         ),
         "",
@@ -415,9 +435,20 @@ def main(argv: list[str]) -> int:
         help="base ref to classify against (default: origin/main)",
     )
     parser.add_argument(
+        "--protect-branch",
+        action="append",
+        default=[],
+        metavar="BRANCH",
+        help=(
+            "retain this exact branch even when merged into the base "
+            "(repeatable)"
+        ),
+    )
+    parser.add_argument(
         "--format", choices=["text", "json"], default="text", help="output format"
     )
     args = parser.parse_args(argv)
+    protected_branches = set(args.protect_branch)
 
     if args.all_managed and args.repo:
         parser.error("--all-managed cannot be combined with --repo")
@@ -443,7 +474,12 @@ def main(argv: list[str]) -> int:
                         }
                     )
                     continue
-                info, repo_records = scan_repo(rep, args.base, args.worktree_root)
+                info, repo_records = scan_repo(
+                    rep,
+                    args.base,
+                    args.worktree_root,
+                    protected_branches,
+                )
             except GitError as exc:
                 errors.append({"repo": rep, "error": str(exc)})
                 continue
@@ -464,7 +500,11 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        info, records = scan_repo(repo, args.base)
+        info, records = scan_repo(
+            repo,
+            args.base,
+            protected_branches=protected_branches,
+        )
         repo_infos.append(info)
 
     if args.all_managed and not repo_infos and errors:
@@ -482,6 +522,7 @@ def main(argv: list[str]) -> int:
         "schema_version": SCHEMA,
         "scope": scope,
         "base": args.base,
+        "protected_branches": sorted(protected_branches),
         "summary": summary,
         "repos": repo_infos,
         "worktrees": records,

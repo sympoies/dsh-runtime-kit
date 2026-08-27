@@ -359,3 +359,41 @@ test('greenfield evidence labels the initial module-absence run as setup failure
   assert.match(evidence, /packed DSH smoke/i)
   assert.match(evidence, /final contract suite/i)
 })
+
+test('integration branch delivery surfaces declare protection and exact-base ownership', () => {
+  const triage = readFileSync(join(skillsRoot, 'worktree-triage', 'SKILL.md'), 'utf8')
+  const delivery = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
+  const policy = readFileSync(join(projectRoot, 'docs', 'policies', 'git-delivery.md'), 'utf8')
+  const manifest = JSON.parse(readFileSync(
+    join(projectRoot, 'compatibility', 'nils-cli.json'),
+    'utf8',
+  ))
+
+  assert.match(triage, /--protect-branch <branch>/)
+  assert.match(triage, /git-cli sync-branch/)
+  assert.match(delivery, /forge-cli >=1\.27\.16/)
+  assert.match(delivery, /exact base instead of falling back to the provider default/)
+  assert.match(policy, /same-head PR targeting another base\s+is not an adoptable substitute/)
+
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'git-cli.sync-branch'),
+    {
+      id: 'git-cli.sync-branch',
+      binary: 'git-cli',
+      status: 'released',
+      validation: 'release-artifact-validated',
+      contracts: [
+        'git-cli sync-branch',
+        'same-name tracked non-default branch synchronization',
+        'exact single-branch fetch followed by clean fast-forward-only merge',
+      ],
+      source_task: 'sympoies/nils-cli#1533',
+    },
+  )
+  assert.ok(
+    manifest.commands
+      .find(command => command.id === 'forge-cli.pr-deliver')
+      .contracts
+      .includes('exact requested-base binding across lookup, adoption, create readback, readiness, and merge'),
+  )
+})
