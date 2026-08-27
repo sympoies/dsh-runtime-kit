@@ -769,7 +769,13 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
 
   /** @param {SessionState} state @param {Promise<unknown>} promise */
   function trackCompletion(state, promise) {
-    const task = promise.catch(error => { poison(state, error) }).finally(() => {
+    const task = promise.then(
+      () => { state.completionSettlement = 'succeeded' },
+      error => {
+        state.completionSettlement = 'failed'
+        poison(state, error)
+      },
+    ).finally(() => {
       state.pending.delete(task)
       state.completionTasks.delete(task)
     })
@@ -843,6 +849,11 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     state.appliedRefreshSequence = sequence
     state.verdict = selected
     state.completionReservationActive = selected.completionReservation !== undefined
+    if (reserveCompletion) {
+      state.completionSettlement = selected.completionReservation === undefined
+        ? 'idle'
+        : 'reserved'
+    }
     state.poison = undefined
     return selected
   }
@@ -956,6 +967,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       activeOperations: 0,
       completionReservationId: undefined,
       completionReservationActive: false,
+      completionSettlement: 'idle',
       disposed: false,
     }
     sessions.set(agent.session, created)
@@ -1100,6 +1112,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           state.completionReservationId,
           'cancelled',
         )
+        state.completionSettlement = 'cancelled'
       } catch (error) {
         poison(state, error)
         throw error
@@ -1174,6 +1187,22 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       return state.verdict
     },
 
+    /**
+     * Return only the lifecycle result needed to authenticate canary drain.
+     * Capability, operation, generation, and provider diagnostics remain
+     * private to the coordinator and nils sidecar.
+     * @param {Agent} agent
+     */
+    completionSettlement(agent) {
+      if (contract === undefined) return Object.freeze({ status: 'not-governed' })
+      assertLive(agent)
+      const state = sessions.get(agent.session)
+      if (state === undefined) {
+        throw new Error('dsh-runtime-kit: acceptance session unavailable')
+      }
+      return Object.freeze({ status: state.completionSettlement })
+    },
+
     /** @param {Agent} agent @param {unknown} _ref */
     assertGoalCompletion(agent, _ref) {
       if (contract === undefined) return
@@ -1203,6 +1232,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       // reservation for contention, but it can no longer cancel this runtime's
       // already-consumed completion operation.
       state.completionReservationActive = false
+      state.completionSettlement = 'pending'
       invalidate(state)
       trackCompletion(state, (async () => {
         await releaseCompletion(
@@ -1279,6 +1309,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           state.completionReservationId,
           'cancelled',
         )
+        state.completionSettlement = 'cancelled'
       }
       invalidate(state)
       const operationId = createOperationId(binding.kind, binding)
@@ -1496,6 +1527,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           operationId,
           'cancelled',
         )
+        state.completionSettlement = 'cancelled'
       } catch (error) {
         poison(state, error)
         throw error
@@ -1592,6 +1624,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
  * @property {number} activeOperations
  * @property {string | undefined} completionReservationId
  * @property {boolean} completionReservationActive
+ * @property {'idle' | 'reserved' | 'pending' | 'succeeded' | 'failed' | 'cancelled'} completionSettlement
  * @property {boolean} disposed
  */
 

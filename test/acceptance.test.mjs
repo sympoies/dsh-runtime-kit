@@ -140,6 +140,7 @@ function authoritativeMatrix() {
         tool_outcomes: ['succeeded', 'succeeded'],
         body_executions: 2,
         verdict: { action: 'allow', aggregate: 'satisfied' },
+        completion_settlement: { status: 'succeeded', finish_line_degraded: false },
       },
       {
         ...common('post-admission-denial'),
@@ -679,6 +680,8 @@ test('authoritative acceptance rejects fabricated matrix identities and observat
     matrix => {
       matrix.legs[0].goal.after_completion.event_count = matrix.legs[0].goal.before.event_count
     },
+    matrix => { matrix.legs[0].completion_settlement.status = 'failed' },
+    matrix => { matrix.legs[0].completion_settlement.finish_line_degraded = true },
     matrix => { matrix.legs[1].body_executions = 1 },
     matrix => { matrix.legs[1].verdict.aggregate = 'infrastructure-blocked' },
     matrix => { matrix.legs[2].max_concurrent_bodies = 2 },
@@ -1006,6 +1009,9 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     'utf8',
   )
   assert.match(canary, /if \(phase === 'unpatched-smoke'\) return run\(undefined\)/u)
+  assert.match(canary, /acceptance\.completionSettlement\(handle\.agent\)/u)
+  assert.match(canary, /completion settlement failed closed/u)
+  assert.match(authoritativeSmoke, /completion_settlement: positive\.completion_settlement/u)
   const checkoutInspector = readFileSync(
     join(projectRoot, 'src', 'compat', 'git-checkout.js'),
     'utf8',

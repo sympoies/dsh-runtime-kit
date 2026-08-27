@@ -460,6 +460,7 @@ digest = ${JSON.stringify(policyDigest)}
           tool_outcomes: positiveToolOutcomes,
           body_executions: positive.body_executions,
           verdict: positive.final_verdict,
+          completion_settlement: positive.completion_settlement,
         },
         {
           ...common(downstream, 'post-admission-denial'),

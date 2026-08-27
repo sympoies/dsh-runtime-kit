@@ -106,6 +106,14 @@ policy denial first cancels the reservation and keeps the session capability
 available for retry. When acceptance blocks, the agent receives bounded
 remediation and remains active.
 
+After the synchronous assertion, `completionSettlement(agent)` exposes only a
+bounded lifecycle status. `succeeded` means both the provider observation and
+capability release completed; a failed observation or release reports `failed`
+and poisons the verdict `infrastructure-blocked`. Operation IDs, capabilities,
+generations, and diagnostics remain private. Resource counters reaching zero
+is not proof of success: the packed canary accepts completion only when this
+status is `succeeded` and the finish-line transport is not degraded.
+
 The authenticated DSH patch adds one optional synchronous call immediately
 before `GoalService.complete()` mutates goal state. Runtime-kit consumes the
 exact cached provider reservation in that synchronous call, marks it

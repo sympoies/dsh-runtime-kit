@@ -287,6 +287,7 @@ export function apply(ctx) {
     let denial
     let firstVerdict
     let finalVerdict
+    let completionSettlement
     let resumedVerdict
     let disposalPromise
     let acceptanceContract
@@ -830,6 +831,17 @@ export function apply(ctx) {
       }
 
       await waitUntil(() => Object.values(resources(ctx)).every(value => value === 0), 'resource drain')
+      if (goalAfterCompletion !== undefined) {
+        const settlement = acceptance.completionSettlement(handle.agent)
+        const finishLineDegraded = ctx.get('dshRuntimeKit')?.finishLineDegraded
+        completionSettlement = {
+          status: settlement?.status,
+          finish_line_degraded: finishLineDegraded,
+        }
+        if (settlement?.status !== 'succeeded' || finishLineDegraded !== false) {
+          throw new Error('completion settlement failed closed')
+        }
+      }
       process.stdout.write(marker + JSON.stringify({
         schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
         phase,
@@ -850,6 +862,7 @@ export function apply(ctx) {
         denial,
         first_verdict: firstVerdict,
         final_verdict: finalVerdict,
+        completion_settlement: completionSettlement,
         resumed_verdict: resumedVerdict,
         turn_verdicts: turnVerdicts,
         listener_entries: listenerEntries,

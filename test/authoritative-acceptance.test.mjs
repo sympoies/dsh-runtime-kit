@@ -726,10 +726,49 @@ test('goal completion consumes the exact reservation before releasing its author
 
   assert.equal(value.calls.observe.at(-1).observation.status, 'succeeded')
   assert.deepEqual(value.calls.authorityRelease, [value.owner.id])
+  assert.deepEqual(value.service.completionSettlement(value.owner), { status: 'succeeded' })
   assert.throws(
     () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 2 }),
     error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
   )
+})
+
+test('goal settlement reports failure after observation or authority release rejects', async () => {
+  for (const failure of ['observation', 'release']) {
+    const value = fixture()
+    value.service.register(registration(value))
+    await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+    value.setVerdict(verdict([
+      ['package', 'satisfied', 0],
+      ['unit', 'satisfied', 0],
+    ], 'satisfied', 0))
+    assert.equal(await value.coordinator.turnStopping({
+      agent: value.owner,
+      turn: 1,
+      signal: new AbortController().signal,
+    }), true)
+    if (failure === 'observation') {
+      const observe = value.client.observeAcceptance
+      value.client.observeAcceptance = async (request, signal) => {
+        if (request.observation.status === 'succeeded') {
+          throw new Error('completion observation rejected')
+        }
+        return observe(request, signal)
+      }
+    } else {
+      value.authority.releaseAfterAcceptance = async () => {
+        throw new Error('completion authority release rejected')
+      }
+    }
+
+    value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 })
+    assert.deepEqual(value.service.completionSettlement(value.owner), { status: 'pending' })
+    await value.coordinator.settle(value.owner)
+
+    assert.deepEqual(value.service.completionSettlement(value.owner), { status: 'failed' }, failure)
+    assert.equal(value.coordinator.activeOperations, 0, failure)
+    assert.equal(value.service.verdict(value.owner).aggregate, 'infrastructure-blocked', failure)
+  }
 })
 
 test('goal consumption is claimed before same-repository mutation and remains resource-visible', async () => {

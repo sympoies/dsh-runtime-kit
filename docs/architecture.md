@@ -416,7 +416,10 @@ the reservation locally before its asynchronous provider observation, which
 prevents a same-repository mutation from cancelling the same operation while
 nils retains cross-process contention authority. Registration and completion
 terminalization remain resource-visible and are joined before capability
-release or canary success.
+release or canary success. The public service exposes only the bounded
+completion settlement status, and packed evidence requires `succeeded` plus a
+non-degraded finish-line transport after resources drain; it never exposes the
+capability, operation identity, generation, or provider diagnostics.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

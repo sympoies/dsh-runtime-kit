@@ -213,12 +213,17 @@ function authoritativeMatrix(value) {
         exactRecord(leg, [
           'id', 'process_instance_sha256', 'workspace_sha256', 'resources_after',
           'goal', 'denial', 'tool_outcomes', 'body_executions', 'verdict',
+          'completion_settlement',
         ])
         const goal = exactRecord(leg.goal, ['before', 'after_denial', 'after_completion'])
         const before = exactRecord(goal.before, ['phase', 'revision', 'event_count'])
         const denied = exactRecord(goal.after_denial, ['phase', 'revision', 'event_count'])
         const complete = exactRecord(goal.after_completion, ['phase', 'revision', 'event_count'])
         const denial = exactRecord(leg.denial, ['code', 'aggregate'])
+        const settlement = exactRecord(
+          leg.completion_settlement,
+          ['status', 'finish_line_degraded'],
+        )
         if (![before.event_count, denied.event_count, complete.event_count]
           .every(count => Number.isSafeInteger(count) && count >= 0)
           || before.phase !== 'active' || before.revision !== 1
@@ -227,6 +232,8 @@ function authoritativeMatrix(value) {
           || complete.phase !== 'complete' || complete.revision !== 2
           || complete.event_count <= before.event_count
           || denial.code !== 'DSH_ACCEPTANCE_BLOCKED' || denial.aggregate !== 'missing'
+          || settlement.status !== 'succeeded'
+          || settlement.finish_line_degraded !== false
           || JSON.stringify(leg.tool_outcomes) !== '["succeeded","succeeded"]'
           || leg.body_executions !== 2) invalidAuthoritativeMatrix()
         exactVerdict(leg.verdict, 'allow', 'satisfied')
