@@ -444,6 +444,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   const acceptance = createAuthoritativeAcceptanceCoordinator(ctx, {
     client: finishLineClient,
     authority: finishLine,
+    controlTimeoutMs: finishLineClient.teardownTimeoutMs,
     abortedCode: TOOL_ABORTED,
     workspaceReadiness: workspaceDisposals,
     createSteeringMessage: text => createUserMessage({
@@ -629,13 +630,39 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (isReviewer(payload.agent)) return
     const correlated = compatibility.turnStopping(payload)
     const acceptanceAllowed = await acceptance.turnStopping(payload)
-    if (!acceptanceAllowed || closing || payload.signal.aborted) return
-    const finishAllowed = acceptance.governs(payload.agent)
-      ? await finishLine.releaseAfterAcceptance(payload.agent)
+    if (!acceptanceAllowed) return
+    const governed = acceptance.governs(payload.agent)
+    const cancelReservedStop = async () => {
+      if (!governed) return true
+      try {
+        await acceptance.cancelCompletion(payload.agent, String(payload.turn))
+        return true
+      } catch {
+        if (!closing && !payload.signal.aborted) {
+          payload.agent.steer(policyContextMessage(createUserMessage,
+            'The acceptance reservation could not be terminalized. Restore the runtime boundary and retry.',
+          ))
+        }
+        return false
+      }
+    }
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
+    const finishAllowed = governed
+      ? true
       : await finishLine.turnStopping(payload, correlated)
-    if (!finishAllowed || closing || payload.signal.aborted) return
+    if (!finishAllowed) return
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
     const stop = compatibility.stopContext(payload)
-    if (!stop.ok) return
+    if (!stop.ok) {
+      await cancelReservedStop()
+      return
+    }
     if (evaluatedStops.get(payload.agent.session) === payload.turn) return
     let policyDecision
     try {
@@ -645,6 +672,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         context: stop.context,
       })
     } catch {
+      await cancelReservedStop()
       if (!closing && !payload.signal.aborted) {
         payload.agent.steer(policyContextMessage(createUserMessage,
           'The lifecycle policy could not verify the stop boundary. Retry after policy availability is restored.',
@@ -652,13 +680,18 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       }
       return
     }
-    if (closing || payload.signal.aborted) return
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
     if (policyDecision?.kind === 'context') {
+      if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage, policyDecision.context))
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else if (policyDecision === undefined) {
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else {
+      if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage,
         explicitPolicyDenial(policyDecision)
           ? 'The lifecycle policy blocked this stop boundary. Resolve the reported policy state and retry.'

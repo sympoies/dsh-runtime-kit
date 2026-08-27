@@ -961,6 +961,12 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /verifyControlPlane/u)
   assert.match(runner, /CI: 'true'/u)
   assert.match(runner, /digestDshBuildClosure/u)
+  assert.match(
+    runner,
+    /\[\s*'exec',\s*'vitest',\s*'run',\s*'packages\/goal\/goal\/tests\/goal\.spec\.ts',?\s*\]/u,
+    'the patched DSH GoalService denial and no-provider cases must execute',
+  )
+  assert.match(runner, /patched DSH GoalService boundary tests/u)
   const controlPlane = runner.slice(
     runner.indexOf('async function verifyControlPlane()'),
     runner.indexOf("enterPhase('operations-scenario')"),

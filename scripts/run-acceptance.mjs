@@ -788,6 +788,17 @@ async function main() {
       manifest: dshPatchManifest,
       gitBin: git.path,
     })
+    runChecked(tools.pnpm.path, [
+      'exec',
+      'vitest',
+      'run',
+      'packages/goal/goal/tests/goal.spec.ts',
+    ], {
+      cwd: dshSourceRoot,
+      env,
+      timeout: SCENARIO_TIMEOUT_MS,
+      label: 'patched DSH GoalService boundary tests',
+    })
     runChecked(tools.pnpm.path, ['run', 'build:lib:host'], {
       cwd: dshSourceRoot,
       env,

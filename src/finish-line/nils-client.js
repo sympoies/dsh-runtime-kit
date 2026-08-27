@@ -281,11 +281,18 @@ function throwTemporaryProviderError(envelope, outcome, schema) {
   const result = record(outcome)
   const value = record(envelope)
   const error = record(value?.error)
+  const providerCode = typeof error?.code === 'string'
+    && [
+      'finish-line-completion-reserved',
+      'finish-line-acceptance-mutation-active',
+    ].includes(error.code)
+    ? error.code
+    : undefined
   if (result?.exitCode === 75 && result.signal === null
     && value?.schema_version === schema && value.ok === false
-    && error?.code === 'finish-line-completion-reserved'
-    && typeof error.message === 'string' && error.message.length > 0) {
-    throw new DshFinishLineTemporaryError('finish-line-completion-reserved')
+    && providerCode !== undefined
+    && typeof error?.message === 'string' && error.message.length > 0) {
+    throw new DshFinishLineTemporaryError(providerCode)
   }
 }
 
@@ -945,7 +952,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         ...identityPayload(request),
         runner_capability: request.runnerCapability,
         ...registration,
-      }, signal)
+      }, signal, undefined, teardownTimeoutMs)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
@@ -992,7 +999,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         operation_id: request.operationId,
         attempt_token: attemptToken,
         operation,
-      }, signal)
+      }, signal, undefined, teardownTimeoutMs)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         throwTemporaryProviderError(envelope, outcome, 'cli.agent-hook.finish-line-admit.v1')
         throw new Error('dsh-runtime-kit: finish-line response invalid')
@@ -1041,7 +1048,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         runner_capability: request.runnerCapability,
         operation_id: request.operationId,
         observation,
-      }, signal)
+      }, signal, undefined, teardownTimeoutMs)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
@@ -1084,7 +1091,7 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         ...request.completionReservation === undefined
           ? {}
           : { completion_reservation: { operation_id: request.completionReservation } },
-      }, signal)
+      }, signal, undefined, teardownTimeoutMs)
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-verdict.v1')
       const statuses = [
         'satisfied', 'missing', 'failed', 'active', 'uncertain', 'infrastructure-blocked',

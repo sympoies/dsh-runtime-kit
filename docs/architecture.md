@@ -406,7 +406,12 @@ DSH result. Turn stop asks nils to reserve an all-satisfied verdict under the
 repository lock. The authenticated `native-execution-boundaries-v2` patch
 consumes that exact cached reservation synchronously before GoalService
 completion state changes; a detached verdict without a live reservation is
-diagnostic only.
+diagnostic only. Runtime-kit retains the exact runner capability until the
+provider accepts the successful completion observation, cancels the reservation
+when later lifecycle policy rejects stop, and partitions local mutation
+invalidation by nils-authenticated canonical repository `cwd`. Acceptance
+control RPCs share one bounded teardown deadline across their idempotent retry,
+so disposal cannot inherit a validation-length wait.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

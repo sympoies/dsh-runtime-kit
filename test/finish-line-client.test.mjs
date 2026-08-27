@@ -403,6 +403,53 @@ test('an authenticated completion reservation is a typed temporary admission den
   subject.client.abandonAcceptance(request)
 })
 
+test('repository contention is a typed temporary denial for mutation and validator admission', async () => {
+  for (const operation of [
+    { kind: 'mutation', toolName: 'edit', definitionDigest: digest },
+    {
+      kind: 'validator',
+      requirement: 'unit',
+      validatorId: 'plus-one',
+      toolName: 'runtime_kit_plus_one',
+      definitionDigest: digest,
+    },
+  ]) {
+    let contended = true
+    const subject = fixture({
+      responder(action, request) {
+        if (action !== 'admit' || !contended) return responseFor(action, request)
+        return {
+          schema_version: 'cli.agent-hook.finish-line-admit.v1',
+          ok: false,
+          error: {
+            code: 'finish-line-acceptance-mutation-active',
+            message: 'a repository mutation has not terminalized',
+          },
+        }
+      },
+      exitCodeFor(action) { return action === 'admit' && contended ? 75 : 0 },
+    })
+    const request = {
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+      contractDigest: digest,
+      operationId: `acceptance:contention:${operation.kind}`,
+      operation,
+    }
+
+    await assert.rejects(subject.client.admitAcceptance(request), error => (
+      error instanceof DshFinishLineTemporaryError
+        && error.code === 'DSH_FINISH_LINE_TEMPORARY'
+        && error.providerCode === 'finish-line-acceptance-mutation-active'
+    ))
+    assert.equal(subject.spawns.length, 1, 'a complete temporary response is not retried')
+
+    subject.client.abandonAcceptance(request)
+    contended = false
+    assert.equal((await subject.client.admitAcceptance(request)).status, 'admitted')
+  }
+})
+
 test('finish-line resolves a bare agent-hook command before spawning', async () => {
   const subject = fixture({ agentHook: 'agent-hook' })
 

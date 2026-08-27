@@ -74,7 +74,14 @@ function fixture({ useDefaultOperationId = false, ...coordinatorOverrides } = {}
   ])
   const currentAgents = new Map()
   const effects = []
-  const calls = { register: [], admit: [], observe: [], verdict: [], abandon: [] }
+  const calls = {
+    register: [],
+    admit: [],
+    observe: [],
+    verdict: [],
+    abandon: [],
+    authorityRelease: [],
+  }
   const sources = new Map()
   let currentVerdict = verdict([
     ['package', 'missing', undefined],
@@ -174,6 +181,11 @@ function fixture({ useDefaultOperationId = false, ...coordinatorOverrides } = {}
         acceptCorrelation(value) { assert.equal(value, correlationId) },
       })
     },
+    async releaseAfterAcceptance(owner) {
+      assert.equal(currentAgents.get(owner.id), owner)
+      assert.equal(calls.observe.at(-1)?.observation?.status, 'succeeded')
+      calls.authorityRelease.push(owner.id)
+    },
     sourceOperation(exec) { return sources.get(exec) },
   }
   let operationSequence = 0
@@ -271,8 +283,12 @@ function execution(owner, definition, callId) {
 
 function deferred() {
   let resolve
-  const promise = new Promise(settle => { resolve = settle })
-  return { promise, resolve }
+  let reject
+  const promise = new Promise((settle, fail) => {
+    resolve = settle
+    reject = fail
+  })
+  return { promise, resolve, reject }
 }
 
 function controlledReadiness() {
@@ -688,6 +704,57 @@ test('a stale refresh cannot restore completion after a newer admission', async 
   )
 })
 
+test('goal completion consumes the exact reservation before releasing its authority', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+  assert.deepEqual(value.calls.authorityRelease, [])
+
+  value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 })
+  await value.coordinator.settle(value.owner)
+
+  assert.equal(value.calls.observe.at(-1).observation.status, 'succeeded')
+  assert.deepEqual(value.calls.authorityRelease, [value.owner.id])
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 2 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+})
+
+test('a later lifecycle denial cancels the reservation without releasing retry authority', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  await value.coordinator.cancelCompletion(value.owner, '1')
+
+  assert.equal(value.calls.observe.at(-1).observation.status, 'cancelled')
+  assert.deepEqual(value.calls.authorityRelease, [])
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+})
+
 test('goal completion blocks while provider admission is in flight', async () => {
   const value = fixture()
   value.service.register(registration(value))
@@ -783,6 +850,40 @@ test('a repository mutation invalidates completion reservations in every live se
   )), true)
 })
 
+test('a repository mutation does not revoke another workspace completion reservation', async () => {
+  const value = fixture()
+  const other = agent('session-2')
+  other.session.header.cwd = '/workspace/other-project'
+  value.addAgent(other)
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  await value.coordinator.sessionStarted({ agent: other, source: 'startup' })
+  value.setVerdict(verdict([
+    ['package', 'satisfied', 0],
+    ['unit', 'satisfied', 0],
+  ], 'satisfied', 0))
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+
+  const mutation = execution(other, value.mutation, 'other-workspace-mutation')
+  await value.coordinator.admit(mutation, {
+    ...call(mutation),
+    sessionId: other.id,
+  })
+
+  assert.doesNotThrow(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+  )
+  value.coordinator.reject(mutation)
+  await Promise.all([
+    value.coordinator.settle(value.owner),
+    value.coordinator.settle(other),
+  ])
+})
+
 test('ordinary Bash invalidates a held completion reservation before provider execution', async () => {
   const value = fixture()
   value.service.register(registration(value))
@@ -803,6 +904,65 @@ test('ordinary Bash invalidates a held completion reservation before provider ex
     error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
   )
   value.coordinator.reject(ordinary)
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('turn stop fails active before requesting a completion reservation', async () => {
+  const value = fixture()
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  const ordinary = execution(value.owner, value.bash, 'active-ordinary-bash')
+  await value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+  const verdictCalls = value.calls.verdict.length
+
+  assert.equal(await value.coordinator.turnStopping({
+    agent: value.owner,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), false)
+  assert.equal(value.calls.verdict.length, verdictCalls)
+  assert.match(value.owner.steers.at(-1), /repository mutations/u)
+  assert.throws(
+    () => value.service.assertGoalCompletion(value.owner, { id: 'goal', revision: 1 }),
+    error => error instanceof DshAcceptanceBlockedError && error.aggregate === 'active',
+  )
+
+  value.coordinator.reject(ordinary)
+  assert.equal(value.coordinator.activeOperations, 0)
+})
+
+test('acceptance control timeout bounds disposal and prevents a second long observe attempt', async () => {
+  const value = fixture({ controlTimeoutMs: 10 })
+  value.service.register(registration(value))
+  await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+  const blocked = deferred()
+  let attempts = 0
+  value.client.observeAcceptance = async (_request, signal) => {
+    attempts += 1
+    return Promise.race([
+      blocked.promise,
+      new Promise((_, reject) => {
+        if (signal?.aborted) reject(signal.reason)
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+      }),
+    ])
+  }
+  const exec = execution(value.owner, value.unit, 'wedged-observation')
+  await value.coordinator.admit(exec, call(exec))
+  value.coordinator.result(exec, { isError: false, content: [], value: 2 })
+
+  const disposal = value.coordinator.agentDisposed(value.owner)
+  const settledWithinControlBound = await Promise.race([
+    disposal.then(() => true),
+    new Promise(resolve => setTimeout(() => resolve(false), 80)),
+  ])
+  if (!settledWithinControlBound) {
+    blocked.reject(new Error('release pre-fix wedged observation'))
+    await disposal
+  }
+
+  assert.equal(settledWithinControlBound, true)
+  assert.equal(attempts, 1)
   assert.equal(value.coordinator.activeOperations, 0)
 })
 

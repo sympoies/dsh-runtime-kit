@@ -486,9 +486,11 @@ function observedStatus(result, abortedCode) {
  *   },
  *   authority: {
  *     withAuthority(agent: Agent, turnId: string, signal: AbortSignal, invoke: (authority: any) => Promise<any>): Promise<any>,
+ *     releaseAfterAcceptance(agent: Agent): Promise<any>,
  *     sourceOperation(exec: ToolExecution): {operationId: string, intent: string, command: string} | undefined
  *   },
  *   createOperationId?: (kind: string, binding: any) => string,
+ *   controlTimeoutMs?: number,
  *   workspaceReadiness?: {
  *     wait(agent: Agent): Promise<void>,
  *     ready(agent: Agent): boolean
@@ -511,6 +513,11 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   })
   const createSteeringMessage = options.createSteeringMessage ?? (text => text)
   const abortedCode = options.abortedCode ?? 'ABORTED'
+  const controlTimeoutMs = typeof options.controlTimeoutMs === 'number'
+    && Number.isInteger(options.controlTimeoutMs)
+    && options.controlTimeoutMs > 0
+    ? Math.min(options.controlTimeoutMs, 10_000)
+    : 2_000
   /** @type {ReturnType<typeof normalizeRegistration> | undefined} */
   let contract
   /** @type {WeakMap<Agent['session'], SessionState>} */
@@ -519,12 +526,64 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   const liveStates = new Set()
   /** @type {Map<Readonly<ToolExecution>, OperationState>} */
   const operations = new Map()
-  /** @type {Set<Readonly<ToolExecution>>} */
-  const repositoryMutations = new Set()
+  /** @type {Map<Readonly<ToolExecution>, string>} */
+  const repositoryMutations = new Map()
   /** @type {Set<Promise<void>>} */
   const readinessWaits = new Set()
   const lifecycleAbort = new AbortController()
   let open = true
+
+  /** @param {string} repositoryKey */
+  function hasRepositoryMutation(repositoryKey) {
+    for (const selected of repositoryMutations.values()) {
+      if (selected === repositoryKey) return true
+    }
+    return false
+  }
+
+  /**
+   * Bound every acceptance control RPC to caller, coordinator, and teardown
+   * lifecycle authority. One deadline spans both idempotent transport
+   * attempts, so a locally timed-out request cannot restart with a fresh
+   * validation-length timeout while disposal is waiting.
+   * @template T
+   * @param {AbortSignal} callerSignal
+   * @param {(signal: AbortSignal) => Promise<T>} invoke
+   * @param {boolean} [includeLifecycle]
+   * @returns {Promise<T>}
+   */
+  async function withControlSignal(callerSignal, invoke, includeLifecycle = true) {
+    const controller = new AbortController()
+    const signals = includeLifecycle
+      ? [callerSignal, lifecycleAbort.signal]
+      : [callerSignal]
+    /** @type {Map<AbortSignal, () => void>} */
+    const listeners = new Map()
+    /** @param {AbortSignal} signal */
+    const abortFrom = signal => controller.abort(
+      signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled'),
+    )
+    for (const signal of signals) {
+      if (signal.aborted) {
+        abortFrom(signal)
+        break
+      }
+      const listener = () => abortFrom(signal)
+      listeners.set(signal, listener)
+      signal.addEventListener('abort', listener, { once: true })
+    }
+    const timer = setTimeout(() => controller.abort(
+      new Error('dsh-runtime-kit: acceptance control deadline exceeded'),
+    ), controlTimeoutMs)
+    try {
+      return await invoke(controller.signal)
+    } finally {
+      clearTimeout(timer)
+      for (const [signal, listener] of listeners) {
+        signal.removeEventListener('abort', listener)
+      }
+    }
+  }
 
   /**
    * Join prior workspace disposal without letting that provider-owned cleanup
@@ -623,22 +682,27 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
    * Caller cancellation is never retried.
    * @template T
    * @param {AbortSignal} signal
-   * @param {() => Promise<T>} invoke
+   * @param {(signal: AbortSignal) => Promise<T>} invoke
+   * @param {boolean} [includeLifecycle]
    * @returns {Promise<T>}
    */
-  async function retryProvider(signal, invoke) {
-    let lastError
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (signal.aborted) throw signal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled')
-      try {
-        return await invoke()
-      } catch (error) {
-        lastError = error
-        if (signal.aborted) throw error
-        if (temporaryProviderError(error)) throw error
+  async function retryProvider(signal, invoke, includeLifecycle = true) {
+    return withControlSignal(signal, async controlSignal => {
+      let lastError
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (controlSignal.aborted) {
+          throw controlSignal.reason ?? new Error('dsh-runtime-kit: acceptance request cancelled')
+        }
+        try {
+          return await invoke(controlSignal)
+        } catch (error) {
+          lastError = error
+          if (controlSignal.aborted) throw error
+          if (temporaryProviderError(error)) throw error
+        }
       }
-    }
-    throw lastError
+      throw lastError
+    }, includeLifecycle)
   }
 
   /** @param {Agent} agent */
@@ -721,17 +785,17 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           id: 'goal-completion',
         }))
       : undefined
-    const response = await retryProvider(signal, () => options.authority.withAuthority(
+    const response = await retryProvider(signal, controlSignal => options.authority.withAuthority(
       state.agent,
       turnId,
-      signal,
+      controlSignal,
       async authority => {
         const result = await options.client.acceptanceVerdict({
           ...authority.identity,
           runnerCapability: authority.runnerCapability,
           contractDigest: state.contractDigest,
           ...completionReservation === undefined ? {} : { completionReservation },
-        }, signal)
+        }, controlSignal)
         authority.acceptCorrelation(result.correlationId)
         return result
       },
@@ -780,24 +844,24 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
    * @param {string} status
    */
   async function releaseCompletion(state, turnId, signal, operationId, status) {
-    await retryProvider(signal, () => options.authority.withAuthority(
+    await retryProvider(signal, controlSignal => options.authority.withAuthority(
       state.agent,
       turnId,
-      signal,
+      controlSignal,
       async authority => {
         const response = await options.client.observeAcceptance({
           ...authority.identity,
           runnerCapability: authority.runnerCapability,
           operationId,
           observation: { kind: 'host-observed', status },
-        }, signal)
+        }, controlSignal)
         authority.acceptCorrelation(response.correlationId)
         if (!['applied', 'stale', 'superseded', 'duplicate'].includes(response.status)
           || response.operationId !== operationId || response.observation !== status) {
           throw new Error('dsh-runtime-kit: acceptance completion release invalid')
         }
       },
-    ))
+    ), !(state.disposed || !open))
     if (state.completionReservationId === operationId) {
       state.completionReservationId = undefined
       state.completionReservationActive = false
@@ -822,16 +886,16 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   async function registerState(state, signal) {
     if (contract === undefined) return
     const wire = wireRegistration(contract)
-    const response = await retryProvider(signal, () => options.authority.withAuthority(
+    const response = await retryProvider(signal, controlSignal => options.authority.withAuthority(
       state.agent,
       'acceptance-register',
-      signal,
+      controlSignal,
       async authority => {
         const result = await options.client.registerAcceptance({
           ...authority.identity,
           runnerCapability: authority.runnerCapability,
           ...wire,
-        }, signal)
+        }, controlSignal)
         authority.acceptCorrelation(result.correlationId)
         return result
       },
@@ -860,9 +924,11 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (state.disposed) throw new Error('dsh-runtime-kit: acceptance session disposed')
       return state
     }
-    state = {
+    /** @type {SessionState} */
+    const created = {
       agent,
       session: agent.session,
+      repositoryKey: /** @type {string} */ (agent.session.header.cwd),
       contractDigest: undefined,
       verdict: undefined,
       poison: undefined,
@@ -878,9 +944,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       completionReservationActive: false,
       disposed: false,
     }
-    sessions.set(agent.session, state)
-    liveStates.add(state)
-    return state
+    sessions.set(agent.session, created)
+    liveStates.add(created)
+    return created
   }
 
   /** @param {Agent} agent */
@@ -956,17 +1022,17 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: acceptance session disposed')
     }
     const signal = new AbortController().signal
-    await retryProvider(signal, () => options.authority.withAuthority(
+    await retryProvider(signal, controlSignal => options.authority.withAuthority(
       state.agent,
       String(operation.call.turn),
-      signal,
+      controlSignal,
       async authority => {
         const response = await options.client.observeAcceptance({
           ...authority.identity,
           runnerCapability: authority.runnerCapability,
           operationId: operation.operationId,
           observation,
-        }, signal)
+        }, controlSignal)
         authority.acceptCorrelation(response.correlationId)
         if (!['applied', 'stale', 'superseded', 'duplicate'].includes(response.status)
           || response.operationId !== operation.operationId
@@ -975,22 +1041,28 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
           throw new Error('dsh-runtime-kit: acceptance observation response invalid')
         }
       },
-    ))
+    ), !(state.disposed || !open))
+    if (state.disposed || !open) return
     await runRefresh(state, String(operation.call.turn), signal)
   }
 
   /**
-   * Invalidate every local detached cache before a repository-changing tool
-   * can await provider admission. Any completion reservation already held by
-   * this runtime is terminalized first; reservations held by another process
-   * remain provider-owned blockers.
+   * Invalidate detached caches bound to the same canonical repository before
+   * a repository-changing tool can await provider admission. Any completion
+   * reservation already held by this runtime for that repository is
+   * terminalized first; reservations held by another process remain
+   * provider-owned blockers.
    * @param {Readonly<ToolExecution>} exec
    * @param {{turn: number}} call
    */
   async function prepareRepositoryMutation(exec, call) {
     if (contract === undefined || repositoryMutations.has(exec)) return
-    repositoryMutations.add(exec)
-    const states = [...liveStates]
+    if (exec.agent === undefined || typeof exec.agent.session?.header?.cwd !== 'string') {
+      throw new Error('dsh-runtime-kit: acceptance repository identity unavailable')
+    }
+    const repositoryKey = exec.agent.session.header.cwd
+    repositoryMutations.set(exec, repositoryKey)
+    const states = [...liveStates].filter(state => state.repositoryKey === repositoryKey)
     for (const state of states) invalidate(state)
     const refreshing = states.flatMap(state => [...state.refreshes])
     const settled = await Promise.allSettled(refreshing)
@@ -1098,7 +1170,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       if (!isWorkspaceReady(agent)
         || state === undefined || state.disposed || state.poison !== undefined
         || state.admissions.size > 0 || state.activeOperations > 0
-        || state.pending.size > 0 || repositoryMutations.size > 0
+        || state.pending.size > 0 || hasRepositoryMutation(state.repositoryKey)
         || selected?.action !== 'allow'
         || selected.completionReservation === undefined
         || !state.completionReservationActive) {
@@ -1109,15 +1181,16 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       }
       const operationId = selected.completionReservation.operationId
       invalidate(state)
-      queueMicrotask(() => {
-        track(state, releaseCompletion(
+      track(state, (async () => {
+        await releaseCompletion(
           state,
           'goal-completion',
           new AbortController().signal,
           operationId,
           'succeeded',
-        ))
-      })
+        )
+        await options.authority.releaseAfterAcceptance(agent)
+      })())
     },
   })
   ctx.provide('dshAcceptance', service)
@@ -1208,10 +1281,10 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       const admission = (async () => {
         let response
         try {
-          response = await retryProvider(exec.signal, () => options.authority.withAuthority(
+          response = await retryProvider(exec.signal, controlSignal => options.authority.withAuthority(
             agent,
             String(call.turn),
-            exec.signal,
+            controlSignal,
             async authority => {
               const result = await options.client.admitAcceptance({
                 ...authority.identity,
@@ -1219,7 +1292,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
                 contractDigest,
                 operationId,
                 operation,
-              }, exec.signal)
+              }, controlSignal)
               authority.acceptCorrelation(result.correlationId)
               return result
             },
@@ -1339,7 +1412,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       }
       if (state === undefined) return true
       await coordinator.settle(payload.agent)
-      if (repositoryMutations.size > 0) {
+      if (hasRepositoryMutation(state.repositoryKey)) {
         if (!payload.signal.aborted) {
           payload.agent.steer(createSteeringMessage(
             'Authoritative acceptance blocked completion: active. Wait for repository mutations to terminalize and retry.',
@@ -1367,6 +1440,36 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         ))
       }
       return false
+    },
+
+    /**
+     * Terminalize a reserved stop that a later lifecycle policy boundary did
+     * not accept. The shared runner capability remains live for the retrying
+     * session; only successful GoalService consumption releases it.
+     * @param {Agent} agent
+     * @param {string} turnId
+     */
+    async cancelCompletion(agent, turnId) {
+      if (contract === undefined) return
+      assertLive(agent)
+      const state = sessions.get(agent.session)
+      if (state === undefined || state.disposed
+        || !state.completionReservationActive
+        || state.completionReservationId === undefined) return
+      const operationId = state.completionReservationId
+      invalidate(state)
+      try {
+        await releaseCompletion(
+          state,
+          turnId,
+          new AbortController().signal,
+          operationId,
+          'cancelled',
+        )
+      } catch (error) {
+        poison(state, error)
+        throw error
+      }
     },
 
     /** @param {Agent} agent */
@@ -1419,7 +1522,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
 
     get activeOperations() {
       let untrackedRepositoryMutations = 0
-      for (const exec of repositoryMutations) {
+      for (const exec of repositoryMutations.keys()) {
         if (!operations.has(exec)) untrackedRepositoryMutations += 1
       }
       return operations.size + untrackedRepositoryMutations + readinessWaits.size
@@ -1434,6 +1537,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
  * @typedef SessionState
  * @property {Agent} agent
  * @property {Agent['session']} session
+ * @property {string} repositoryKey
  * @property {string | undefined} contractDigest
  * @property {ReturnType<typeof sanitizeVerdict> | undefined} verdict
  * @property {string | undefined} poison

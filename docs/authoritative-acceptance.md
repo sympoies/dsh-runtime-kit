@@ -74,27 +74,37 @@ The provider verdict has deterministic `satisfied`, `missing`, `failed`,
 all-`satisfied` verdict allows completion. Runtime-kit retries one ambiguous
 provider transport failure with the exact semantic request; continued failure,
 malformed correlation, cancellation, crash, or unproven quiescence poisons the
-session closed.
+session closed. Registration, admission, terminal observation, and verdict are
+control-plane RPCs: one bounded finish-line teardown deadline spans the initial
+attempt and its idempotent retry, and coordinator disposal aborts that shared
+deadline instead of starting another validation-length wait.
 
 `agent/turn-stopping` refreshes this verdict and atomically reserves completion
 under nils' repository lock before the older lifecycle policy. The
 reservation blocks structured mutations and ordinary Bash in every session
 and process until the synchronous goal assertion consumes it. Runtime-kit
-invalidates every local session cache before mutation admission, rejects
-out-of-order provider responses, and joins in-flight admissions during
-disposal. A detached all-satisfied read without the exact live reservation is
-never sufficient for goal completion.
+partitions local mutation state by the exact canonical Git-root `cwd` already
+authenticated by nils, invalidates every cache for that repository before
+mutation admission, rejects out-of-order provider responses, and joins
+in-flight admissions during disposal. Unrelated canonical repositories in one
+DSH process do not revoke each other's cached authority. A detached
+all-satisfied read without the exact live reservation is never sufficient for
+goal completion.
 
-When acceptance allows, runtime-kit releases the shared finish-line capability
-without asking the superseded legacy stop evaluator for a contradictory second
-verdict. When it blocks, the agent receives bounded remediation and remains
-active.
+When acceptance allows, runtime-kit does not ask the superseded legacy stop
+evaluator for a contradictory second verdict. It keeps the exact shared
+finish-line capability alive through the synchronous GoalService assertion,
+records successful reservation consumption with that capability, and releases
+only after the provider accepts that terminal observation. A later lifecycle
+policy denial first cancels the reservation and keeps the session capability
+available for retry. When acceptance blocks, the agent receives bounded
+remediation and remains active.
 
 The authenticated DSH patch adds one optional synchronous call immediately
 before `GoalService.complete()` mutates goal state. Runtime-kit consumes the
 exact cached provider reservation in that synchronous call, then terminalizes
-the reservation asynchronously after the DSH mutation stack returns. Missing,
-active, stale, unreserved, or poisoned
+the reservation asynchronously with the same still-live capability after the
+DSH mutation stack returns. Missing, active, stale, unreserved, or poisoned
 state throws `DshAcceptanceBlockedError` with code `DSH_ACCEPTANCE_BLOCKED`;
 the goal revision and session events remain unchanged.
 
