@@ -10,6 +10,7 @@ import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
 import {
   boundedUtf8Segments,
+  createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
 } from '../src/policy/index.js'
 import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
@@ -61,6 +62,27 @@ async function waitForAbort(signal, timeoutMs = 1_000) {
     signal.addEventListener('abort', onAbort, { once: true })
   })
 }
+
+test('workspace disposal cleanup completes before a replacement session starts', async () => {
+  const barrier = createWorkspaceDisposalBarrier()
+  const first = { session: { header: { cwd: '/workspace/one' } } }
+  const replacement = { session: { header: { cwd: '/workspace/one' } } }
+  let releaseCleanup
+  const cleanupGate = new Promise(resolve => { releaseCleanup = resolve })
+  const cleanup = barrier.track(first, async () => cleanupGate)
+  assert.equal(barrier.ready(replacement), false)
+  let replacementStarted = false
+  const start = barrier.wait(replacement).then(() => { replacementStarted = true })
+
+  await Promise.resolve()
+  assert.equal(replacementStarted, false)
+  releaseCleanup()
+  await Promise.all([cleanup, start])
+  assert.equal(replacementStarted, true)
+  assert.equal(barrier.ready(replacement), true)
+
+  await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
+})
 
 test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
   const principal = mode => ({
@@ -236,6 +258,78 @@ function decision(action = 'allow', overrides = {}) {
   }
 }
 
+function acceptanceStopEnvelope(actions, selectStopDecision) {
+  return spec => {
+    const finishLineIndex = spec.argv.indexOf('finish-line')
+    if (finishLineIndex >= 0) {
+      const action = spec.argv[finishLineIndex + 1]
+      const request = JSON.parse(spec.stdio.stdin.data)
+      actions.push(action === 'observe'
+        ? `observe:${request.observation.status}`
+        : action)
+      const data = {
+        open: {
+          schema_version: 'agent-hook.finish-line.open-result.v1',
+          status: 'opened',
+          runner_capability: 'runner:opaque',
+          correlation_id: 'correlation:opaque',
+        },
+        register: {
+          schema_version: 'agent-hook.finish-line.register-result.v1',
+          status: 'registered',
+          contract_digest: sha256,
+          requirement_count: request.requirements?.length ?? 1,
+          correlation_id: 'correlation:opaque',
+        },
+        verdict: {
+          schema_version: 'agent-hook.finish-line.verdict-result.v1',
+          action: 'allow',
+          aggregate: 'satisfied',
+          generation: 1,
+          contract_digest: request.contract_digest,
+          correlation_id: 'correlation:opaque',
+          reason_codes: [],
+          requirements: [{
+            name: 'unit',
+            status: 'satisfied',
+            attempt_generation: 1,
+          }],
+          completion_reservation: request.completion_reservation === undefined
+            ? null
+            : {
+                operation_id: request.completion_reservation.operation_id,
+                status: 'reserved',
+              },
+        },
+        observe: {
+          schema_version: 'agent-hook.finish-line.observe-result.v1',
+          status: 'applied',
+          operation_id: request.operation_id,
+          generation: 1,
+          observation: request.observation?.status ?? 'succeeded',
+          correlation_id: 'correlation:opaque',
+        },
+        release: {
+          schema_version: 'agent-hook.finish-line.release-result.v1',
+          status: 'released',
+          correlation_id: 'correlation:opaque',
+        },
+      }[action]
+      if (data === undefined) throw new Error(`unexpected finish-line action: ${action}`)
+      return {
+        schema_version: `cli.agent-hook.finish-line-${action}.v1`,
+        ok: true,
+        data,
+      }
+    }
+    const ingress = JSON.parse(spec.stdio.stdin.data)
+    if (ingress.event === 'agent/turn-stopping') return selectStopDecision()
+    return decision('allow', {
+      event: ingress.event === 'agent/pre-step' ? 'UserPromptSubmit' : 'PostToolUse',
+    })
+  }
+}
+
 function harness({
   envelope = decision(),
   pending = false,
@@ -263,6 +357,7 @@ function harness({
   let peakActiveHandles = 0
   let signal
   let service
+  let acceptanceService
   let prerequisiteCommitted = false
   let prerequisiteCommitCount = 0
   const prerequisiteBindings = new WeakMap()
@@ -290,6 +385,7 @@ function harness({
     },
     agents: {
       list: () => [agent],
+      get: id => id === agent.id ? agent : undefined,
     },
     sessions: {
       async flush(candidate) { return candidate === session },
@@ -378,6 +474,7 @@ function harness({
     },
     provide(name, value) {
       if (name === 'dshRuntimeKit') service = value
+      if (name === 'dshAcceptance') acceptanceService = value
     },
     subprocess: {
       async resolveExecutable(command, env, candidateSignal) {
@@ -814,6 +911,7 @@ function harness({
     get terminateCount() { return terminateCount },
     get signal() { return signal },
     get service() { return service },
+    get acceptanceService() { return acceptanceService },
     get spawnSpecs() { return spawnSpecs },
     get resolutions() { return resolutions },
     get warnings() { return warnings },
@@ -2502,6 +2600,112 @@ test('stop policy transport denial steers closed and remains retryable in the sa
   assert.equal(subject.steered.length, 2)
   assert.match(subject.steered[0].content[0].text, /could not verify the stop boundary/)
   assert.equal(subject.steered[1].content[0].text, 'retry reached authoritative policy')
+})
+
+test('governed stop cancellation terminalizes policy denials and preserves retry authority', async () => {
+  for (const scenario of ['context', 'block', 'transport', 'abort']) {
+    const actions = []
+    let policyCalls = 0
+    let transportFailed = false
+    let pendingStops = 0
+    const subject = harness({
+      envelope: acceptanceStopEnvelope(actions, () => {
+        policyCalls += 1
+        if (scenario === 'context' && policyCalls === 1) {
+          return decision('context', { event: 'Stop', context: 'run the governed check' })
+        }
+        if (scenario === 'block' && policyCalls === 1) {
+          return decision('block', { event: 'Stop' })
+        }
+        return decision('allow', { event: 'Stop' })
+      }),
+      throwOnSpawn: spec => {
+        if (scenario !== 'transport' || transportFailed || !spec.argv.includes('dispatch')) {
+          return false
+        }
+        const ingress = JSON.parse(spec.stdio.stdin.data)
+        if (ingress.event !== 'agent/turn-stopping') return false
+        transportFailed = true
+        return true
+      },
+      pending: spec => {
+        if (scenario !== 'abort' || !spec.argv.includes('dispatch')) return false
+        const ingress = JSON.parse(spec.stdio.stdin.data)
+        if (ingress.event !== 'agent/turn-stopping') return false
+        pendingStops += 1
+        return pendingStops === 1
+      },
+    })
+    const plusOne = subject.tool('runtime_kit_plus_one')
+    subject.acceptanceService.register({
+      requirements: [{
+        name: 'unit',
+        validators: [{
+          id: 'runtime-plus-one',
+          definition: plusOne,
+          execution: { kind: 'host-observed' },
+        }],
+      }],
+      invalidators: [],
+    })
+    subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+    await subject.waterfall(
+      'agent/pre-step',
+      [{
+        agent: subject.agent,
+        messages: [],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      }],
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    subject.agent.session.events.push(
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'step/start', data: { turn: 1, step: 1 } },
+      { type: 'step/end', data: { turn: 1, step: 1 } },
+    )
+    const firstController = new AbortController()
+    const firstStop = subject.waterfall('agent/turn-stopping', [{
+      agent: subject.agent,
+      turn: 1,
+      signal: firstController.signal,
+    }], async () => undefined)
+    if (scenario === 'abort') {
+      await new Promise(resolve => setImmediate(resolve))
+      firstController.abort(new Error('caller stopped'))
+    }
+    await firstStop
+    const actionsAfterDenial = [...actions]
+
+    await subject.waterfall('agent/turn-stopping', [{
+      agent: subject.agent,
+      turn: 1,
+      signal: new AbortController().signal,
+    }], async () => undefined)
+    try {
+      subject.acceptanceService.assertGoalCompletion(
+        subject.agent,
+        { id: 'goal', revision: 1 },
+      )
+    } catch (error) {
+      throw new Error(`${scenario}: goal completion unavailable after retry (${actions.join(',')})`, {
+        cause: error,
+      })
+    }
+    for (let attempt = 0;
+      attempt < 100 && subject.service.activeAcceptanceOperations > 0;
+      attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+    }
+
+    assert.equal(actionsAfterDenial.includes('observe:cancelled'), true, scenario)
+    assert.equal(actionsAfterDenial.includes('release'), false, scenario)
+    assert.equal(actions.filter(action => action === 'observe:cancelled').length, 1, scenario)
+    assert.equal(actions.filter(action => action === 'observe:succeeded').length, 1, scenario)
+    assert.equal(actions.filter(action => action === 'release').length, 1, scenario)
+    assert.equal(subject.service.activeAcceptanceOperations, 0, scenario)
+  }
 })
 
 test('malformed normalized decisions fail closed without delegating', async () => {

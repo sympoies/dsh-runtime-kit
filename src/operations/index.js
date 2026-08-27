@@ -3206,6 +3206,40 @@ function supportedStableRelease(value, minimum, validated) {
     && compareReleaseTuples(candidate, upper) <= 0
 }
 
+function agentDocsSupportedRange() {
+  const feature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+  if (feature === undefined) {
+    return {
+      minimum: AGENT_DOCS_MINIMUM_RELEASE,
+      validated: AGENT_DOCS_VALIDATED_RELEASE,
+    }
+  }
+  const candidate = NILS_COMPATIBILITY.candidate_validation
+  if (!plainRecord(candidate)
+    || candidate.feature !== feature
+    || candidate.status !== 'reviewed-source-candidate'
+    || candidate.validation !== 'exact-reviewed-source'
+    || typeof candidate.version !== 'string'
+    || stableReleaseTuple(candidate.version) === null
+    || typeof candidate.source_commit !== 'string'
+    || !/^[a-f0-9]{40}$/u.test(candidate.source_commit)
+    || typeof candidate.platform !== 'string'
+    || candidate.platform.length === 0) {
+    throw new Error('agent-docs compatibility candidate is invalid')
+  }
+  const artifacts = candidate.artifacts
+  if (!plainRecord(artifacts)) {
+    throw new Error('agent-docs compatibility candidate is invalid')
+  }
+  const agentDocs = artifacts['agent-docs']
+  if (!plainRecord(agentDocs)
+    || typeof agentDocs.sha256 !== 'string'
+    || !DIGEST_PATTERN.test(agentDocs.sha256)) {
+    throw new Error('agent-docs compatibility candidate is invalid')
+  }
+  return { minimum: candidate.version, validated: candidate.version }
+}
+
 /**
  * @param {{agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}} config
  * @param {string} home
@@ -3231,15 +3265,15 @@ function agentDocsDoctor(config, home, _dshRelease) {
       return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
     }
     const match = /^agent-docs ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
-    const minimumRelease = AGENT_DOCS_MINIMUM_RELEASE
+    const supported = agentDocsSupportedRange()
     if (match === null || !supportedStableRelease(
       match[1],
-      minimumRelease,
-      AGENT_DOCS_VALIDATED_RELEASE,
+      supported.minimum,
+      supported.validated,
     )) {
       return {
         ok: false,
-        error: `agent-docs version is outside the supported range ${minimumRelease} through ${AGENT_DOCS_VALIDATED_RELEASE}`,
+        error: `agent-docs version is outside the supported range ${supported.minimum} through ${supported.validated}`,
       }
     }
     return { ok: true, version: match[1], catalog, state_home: stateHome }

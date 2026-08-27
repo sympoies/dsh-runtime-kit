@@ -154,7 +154,7 @@ function remainingAuthenticationMs(deadlineAt) {
  *   cliTeardownTimeoutMs?: number,
  *   maxActiveCliCalls?: number,
  * }} config
- * @param {{bind?: (id:string, principal:unknown) => (() => void)}} bridge
+ * @param {{bind?: (id:string, principal:unknown) => (() => void), registerAuthenticator?: (candidate:(id:string, execution:unknown) => Promise<unknown>) => (() => void)}} bridge
  * @param {Readonly<NodeJS.ProcessEnv>} [environment]
  */
 export function applyManagedSessionAuthentication(
@@ -323,8 +323,15 @@ export function applyManagedSessionAuthentication(
     binding.dispose()
   }
 
+  const disposeAuthenticator = bridge.registerAuthenticator?.(async (providerSessionId, execution) => {
+    if (!hasManagedSessionCandidate(environment)) return undefined
+    const binding = await authenticate(providerSessionId, execution)
+    return binding.principal
+  })
+
   ctx.effect(() => () => {
     closing = true
+    disposeAuthenticator?.()
     for (const pending of authenticating.values()) {
       pending.controller.abort(new Error('dsh-runtime-kit managed session authentication disposed'))
     }

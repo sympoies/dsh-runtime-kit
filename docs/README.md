@@ -23,6 +23,9 @@ routine contributor entrypoint.
   finish-line, activation, compatibility, and trust boundaries.
 - [Workspace identity and leases](workspace-leases.md) — the runtime-owned
   Cordis contract, nils-cli provider boundary, and fail-closed lifecycle.
+- [Authoritative completion acceptance](authoritative-acceptance.md) — exact
+  mutation generations, validator observations, stop and GoalService gates,
+  and rollback behavior.
 - [Acceptance boundary](acceptance.md) — what local rehearsal proves and what
   independent promotion must add.
 - [Historical migration snapshot](migration.md) — the pre-closeout source

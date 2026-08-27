@@ -205,6 +205,28 @@ test('always-on managed-session authentication binds before an optional child pl
   })
 })
 
+test('managed-session authentication is available to startup lifecycle owners before pre-step', async () => {
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+  const agent = topLevelAgent()
+
+  const principal = await bridge.authenticate(
+    'dsh-controller-one',
+    { agent, signal: new AbortController().signal },
+  )
+
+  assert.deepEqual(principal, {
+    sessionId: 'console-session-one',
+    environment: principalEnvironment,
+  })
+  assert.deepEqual(bridge.resolve('dsh-controller-one'), principal)
+  assert.equal(subject.spawned.length, 2)
+})
+
 test('managed-session authentication fails before bridge binding on an invalid baseline claim result', async () => {
   const subject = harness({
     response(spec) {

@@ -55,13 +55,14 @@ candidates after rc.2 or the eventual stable `0.1.x` line. See the
 contract and promotion checks.
 
 Every supported DSH checkout must carry the authenticated
-`tool-execution-prerequisite-v1` patch before runtime-kit is activated. It adds
-the exact tool-prerequisite transaction boundary and the native pre-waterfall
-model guard, plus fail-closed descriptor-bound subprocess execution for
-authenticated companion snapshots. It also normalizes only a concretized
-blank, non-widening sandbox schema echo before native Bash or filesystem
-dispatch; real escalation requests retain DSH's strict validation and approval
-path. The patch does not copy or fork DSH. The
+`native-execution-boundaries-v2` patch before runtime-kit is activated. It adds
+the exact tool-prerequisite transaction boundary, the native pre-waterfall
+model guard, fail-closed descriptor-bound subprocess execution for
+authenticated companion snapshots, one optional synchronous GoalService
+acceptance call, and normalization only for a concretized blank, non-widening
+sandbox schema echo before native Bash or filesystem dispatch. Real escalation
+requests retain DSH's strict validation and approval path. The patch does not
+copy or fork DSH. The
 packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 
@@ -190,6 +191,7 @@ for its ownership model and current limitations.
 - [Architecture and runtime contract](docs/architecture.md)
 - [Native runtime health](docs/runtime-health.md)
 - [Workspace identity and leases](docs/workspace-leases.md)
+- [Authoritative completion acceptance](docs/authoritative-acceptance.md)
 - [Compatibility](docs/compatibility.md)
 - [Private and project skills](docs/private-skills.md)
 - [Acceptance boundary](docs/acceptance.md)

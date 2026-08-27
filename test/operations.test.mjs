@@ -2095,6 +2095,38 @@ process.stdout.write('agent-docs 1.27.14 (v1.27.14, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
+    const reviewedCandidate = run(subject, ['doctor', '--profile', 'work'], {
+      DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
+    })
+    assert.equal(reviewedCandidate.status, 0, reviewedCandidate.stderr)
+    assert.equal(reviewedCandidate.value.data.agent_docs.version, '1.27.12')
+
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
+process.stdout.write('agent-docs 1.27.11 (v1.27.11, test)\\n')
+`)
+    chmodSync(subject.agentDocs, 0o755)
+    const substitutedCandidate = run(subject, ['doctor', '--profile', 'work'], {
+      DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
+    })
+    assert.equal(substitutedCandidate.status, 65)
+    assert.match(
+      substitutedCandidate.value.data.agent_docs.error,
+      /supported range 1\.27\.12 through 1\.27\.12/,
+    )
+
+    const unknownCandidate = run(subject, ['doctor', '--profile', 'work'], {
+      DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'unknown-candidate',
+    })
+    assert.equal(unknownCandidate.status, 65)
+    assert.equal(unknownCandidate.value.data.agent_docs.ok, false)
+    assert.match(unknownCandidate.value.data.agent_docs.error, /compatibility candidate is invalid/)
+
+    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
+if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
 process.stdout.write('agent-docs 1.27.14 (v1.27.14, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)

@@ -345,6 +345,52 @@ test('runtime health selects platform-specific authenticated companion artifacts
   )
 })
 
+test('runtime health can select one manifest-authenticated reviewed source candidate', () => {
+  const compatibility = {
+    schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
+    release: {
+      source_revision: 'v1.27.10',
+      platform: 'x86_64-unknown-linux-gnu',
+      artifacts: {
+        'agent-hook': { sha256: '1'.repeat(64) },
+        'agent-docs': { sha256: '2'.repeat(64) },
+      },
+    },
+    candidate_validation: {
+      feature: 'authoritative-finish-line-acceptance',
+      status: 'reviewed-source-candidate',
+      version: '1.27.10',
+      source_commit: 'a'.repeat(40),
+      platform: 'x86_64-unknown-linux-gnu',
+      artifacts: {
+        'agent-hook': { sha256: '3'.repeat(64) },
+        'agent-docs': { sha256: '4'.repeat(64) },
+      },
+    },
+  }
+  assert.deepEqual(
+    resolveNilsHealthCompatibility(
+      compatibility,
+      'x86_64-unknown-linux-gnu',
+      'authoritative-finish-line-acceptance',
+    ),
+    {
+      version: '1.27.10',
+      platform: 'x86_64-unknown-linux-gnu',
+      hookSha256: '3'.repeat(64),
+      docsSha256: '4'.repeat(64),
+    },
+  )
+  assert.throws(
+    () => resolveNilsHealthCompatibility(
+      compatibility,
+      'x86_64-unknown-linux-gnu',
+      'unknown-candidate',
+    ),
+    error => error?.code === 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID',
+  )
+})
+
 test('project audit failures stay typed and recover on the same hashed scope', async () => {
   const subject = await fixture()
   try {

@@ -2,6 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { createAuthoritativeAcceptanceCoordinator } from '../authoritative-acceptance/index.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
@@ -54,6 +55,58 @@ export function requiresAuthoritativeFinishLine(platform, principal) {
   if (platform === 'linux') return true
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
   return mode !== 'advisory' && mode !== 'off'
+}
+
+/**
+ * Serialize asynchronous Agent cleanup against the next acceptance startup in
+ * the same workspace. DSH disposal events deliberately do not await returned
+ * promises, so the barrier must be recorded synchronously by the listener and
+ * joined by the later session-start path.
+ */
+export function createWorkspaceDisposalBarrier() {
+  /** @type {Map<string, Promise<void>>} */
+  const pending = new Map()
+  /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+  const workspace = (agent) => {
+    const cwd = agent.session?.header?.cwd
+    if (typeof cwd !== 'string' || cwd.length === 0) {
+      throw new Error('dsh-runtime-kit: agent workspace unavailable')
+    }
+    return cwd
+  }
+  return Object.freeze({
+    /**
+     * @param {{session?: {header?: {cwd?: unknown}}}} agent
+     * @param {() => Promise<unknown>} cleanup
+     */
+    track(agent, cleanup) {
+      const key = workspace(agent)
+      const previous = pending.get(key) ?? Promise.resolve()
+      const current = previous.catch(() => {}).then(cleanup).then(() => {})
+      pending.set(key, current)
+      void current.finally(() => {
+        if (pending.get(key) === current) pending.delete(key)
+      }).catch(() => {})
+      return current
+    },
+    /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+    async wait(agent) {
+      const key = workspace(agent)
+      for (;;) {
+        const current = pending.get(key)
+        if (current === undefined) return
+        await current
+        if (pending.get(key) === current) {
+          pending.delete(key)
+          return
+        }
+      }
+    },
+    /** @param {{session?: {header?: {cwd?: unknown}}}} agent */
+    ready(agent) {
+      return !pending.has(workspace(agent))
+    },
+  })
 }
 
 /**
@@ -232,7 +285,7 @@ export function normalizeSandboxEscalationRequest({
  * every ingress listener and guard before process-tree draining begins.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} }} config
+ * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} }} config
  * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
  * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
  * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
@@ -262,6 +315,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     HarnessError,
     TOOL_ABORTED,
     maxSameTurnSteers: config.maxSameTurnFinishLineSteers,
+    authenticatePrincipal: async (agent, signal) => {
+      await config.managedSessionBridge?.authenticate?.(String(agent.id), { agent, signal })
+    },
     requiresFinishLine: identity => requiresAuthoritativeFinishLine(
       process.platform,
       resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
@@ -384,6 +440,18 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
     }),
   })
+  const workspaceDisposals = createWorkspaceDisposalBarrier()
+  const acceptance = createAuthoritativeAcceptanceCoordinator(ctx, {
+    client: finishLineClient,
+    authority: finishLine,
+    controlTimeoutMs: finishLineClient.teardownTimeoutMs,
+    abortedCode: TOOL_ABORTED,
+    workspaceReadiness: workspaceDisposals,
+    createSteeringMessage: text => createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
+    }),
+  })
   const compatibility = createDshRc7Compatibility(ctx)
   /** @type {Map<Readonly<ToolExecution>, Authorization>} */
   const authorizations = new Map()
@@ -465,11 +533,20 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.on('agent/session-start', payload => {
     if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
+    if (!isReviewer(payload.agent)) {
+      void acceptance.sessionStarted(payload).catch(() => {})
+    }
   })
   ctx.on('agent/disposed', ({ agent }) => {
     if (isReviewer(agent)) return
     prerequisites.detachAgent(agent)
-    void finishLine.agentDisposed(agent)
+    void workspaceDisposals.track(agent, async () => {
+      try {
+        await acceptance.agentDisposed(agent)
+      } finally {
+        await finishLine.agentDisposed(agent)
+      }
+    }).catch(() => {})
   })
   ctx.on('agent/pre-step', async (payload, next) => {
     if (isReviewer(payload.agent)) return next()
@@ -552,10 +629,40 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.on('agent/turn-stopping', async payload => {
     if (isReviewer(payload.agent)) return
     const correlated = compatibility.turnStopping(payload)
-    const finishAllowed = await finishLine.turnStopping(payload, correlated)
-    if (!finishAllowed || closing || payload.signal.aborted) return
+    const acceptanceAllowed = await acceptance.turnStopping(payload)
+    if (!acceptanceAllowed) return
+    const governed = acceptance.governs(payload.agent)
+    const cancelReservedStop = async () => {
+      if (!governed) return true
+      try {
+        await acceptance.cancelCompletion(payload.agent, String(payload.turn))
+        return true
+      } catch {
+        if (!closing && !payload.signal.aborted) {
+          payload.agent.steer(policyContextMessage(createUserMessage,
+            'The acceptance reservation could not be terminalized. Restore the runtime boundary and retry.',
+          ))
+        }
+        return false
+      }
+    }
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
+    const finishAllowed = governed
+      ? true
+      : await finishLine.turnStopping(payload, correlated)
+    if (!finishAllowed) return
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
     const stop = compatibility.stopContext(payload)
-    if (!stop.ok) return
+    if (!stop.ok) {
+      await cancelReservedStop()
+      return
+    }
     if (evaluatedStops.get(payload.agent.session) === payload.turn) return
     let policyDecision
     try {
@@ -565,6 +672,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         context: stop.context,
       })
     } catch {
+      await cancelReservedStop()
       if (!closing && !payload.signal.aborted) {
         payload.agent.steer(policyContextMessage(createUserMessage,
           'The lifecycle policy could not verify the stop boundary. Retry after policy availability is restored.',
@@ -572,13 +680,18 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       }
       return
     }
-    if (closing || payload.signal.aborted) return
+    if (closing || payload.signal.aborted) {
+      await cancelReservedStop()
+      return
+    }
     if (policyDecision?.kind === 'context') {
+      if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage, policyDecision.context))
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else if (policyDecision === undefined) {
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else {
+      if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage,
         explicitPolicyDenial(policyDecision)
           ? 'The lifecycle policy blocked this stop boundary. Resolve the reported policy state and retry.'
@@ -601,6 +714,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     /** @param {string} reason */
     const rememberDenial = (reason) => {
       finishLine.reject(exec)
+      acceptance.reject(exec)
       prerequisites.reject(exec)
       toolContexts.delete(exec)
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
@@ -653,9 +767,25 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     }
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
 
-    const finishReservation = await finishLine.begin(exec, correlation.context)
-    if (!finishReservation.ok) {
-      return rememberDenial(denial(finishReservation.reason ?? 'finish-line-unavailable').reason)
+    let acceptanceReservation
+    try {
+      acceptanceReservation = await acceptance.admit(exec, correlation.context)
+    } catch {
+      return rememberDenial(denial('acceptance-unavailable').reason)
+    }
+    if (finishProbe.kind === 'ordinary' && exec.agent !== undefined
+      && acceptance.governs(exec.agent)) {
+      try {
+        await acceptance.repositoryMutationStarting(exec, correlation.context)
+      } catch {
+        return rememberDenial(denial('acceptance-unavailable').reason)
+      }
+    }
+    if (acceptanceReservation.kind !== 'mutation') {
+      const finishReservation = await finishLine.begin(exec, correlation.context)
+      if (!finishReservation.ok) {
+        return rememberDenial(denial(finishReservation.reason ?? 'finish-line-unavailable').reason)
+      }
     }
     if (closing) return rememberDenial(denial('policy-disposed').reason)
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
@@ -666,6 +796,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       downstream = await next()
     } catch (error) {
       finishLine.reject(exec)
+      acceptance.reject(exec)
       prerequisites.reject(exec)
       compatibility.result(exec)
       authorizations.delete(exec)
@@ -674,6 +805,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     }
     if (downstream.kind !== 'allow' && downstream.kind !== 'ask') {
       finishLine.reject(exec)
+      acceptance.reject(exec)
       prerequisites.reject(exec)
       compatibility.result(exec)
       authorizations.delete(exec)
@@ -765,6 +897,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     authorizations.delete(exec)
     toolContexts.delete(exec)
     finishLine.result(exec, result)
+    acceptance.result(exec, result)
     prerequisites.result(exec)
     compatibility.result(exec)
   })
@@ -783,6 +916,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     get finishLineDegraded() { return finishLine.degraded },
     get pendingPolicyMarkers() { return authorizations.size },
     get pendingPrerequisites() { return prerequisites.pending },
+    get activeAcceptanceOperations() { return acceptance.activeOperations },
     prerequisites: prerequisites.service,
     get pendingCorrelations() { return compatibility.pendingCorrelations },
     policyTimeoutMs: transport.timeoutMs,

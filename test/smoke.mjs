@@ -130,6 +130,12 @@ const projectWorkspace = join(temporaryRoot, 'project')
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
 const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
 const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
+const authoritativeAcceptance = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
+const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+  ?? (authoritativeAcceptance
+    && nilsCompatibility.candidate_validation?.status === 'reviewed-source-candidate'
+    ? nilsCompatibility.candidate_validation.feature
+    : undefined)
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -256,6 +262,9 @@ const environment = {
   // tests; an unauthenticated shell wrapper must not become the live binary.
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
   DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
+  ...nilsCandidateFeature === undefined
+    ? {}
+    : { DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: nilsCandidateFeature },
   DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: smokeSemanticCommit,
   DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '0',
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
@@ -650,6 +659,7 @@ try {
     'src/context/nils-context.js',
     'src/finish-line/index.js',
     'src/finish-line/nils-client.js',
+    'src/authoritative-acceptance/index.js',
     'src/policy/index.js',
     'src/policy/nils-transport.js',
     'src/prerequisite/index.js',
@@ -680,7 +690,7 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
-    'patches/deepseek-harness/tool-execution-prerequisite.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v2.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -843,6 +853,8 @@ export const name = 'dsh-runtime-kit-smoke-driver'
 // skipping the lane assertions below.
 export const inject = [
   'agents',
+  'dshAcceptance',
+  'goals',
   'llm',
   'skills',
   'tools',
@@ -1163,6 +1175,10 @@ export function apply(ctx) {
       let reviewResult
       let reviewerChild
       let reviewerMutationResult
+      let acceptanceGoal
+      let acceptanceGoalBlocked
+      let acceptanceGoalCompletion
+      let acceptanceVerdict
       let modelMiddlewareCalls = 0
       const validationResults = []
       const deliveryValidationResults = []
@@ -1284,6 +1300,40 @@ export function apply(ctx) {
         throw new Error('runtime_kit_plus_one definition missing before prerequisite registration')
       }
       ctx.dshRuntimeKit.prerequisites.require(plusOneDefinition, 'project-dev-context')
+      const acceptanceEnabled = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
+        && process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID === 'dsh-runtime-kit-smoke-primary'
+      if (acceptanceEnabled) {
+        const bashDefinition = ctx.tools.get('bash')
+        const writeDefinition = ctx.tools.get('write')
+        if (bashDefinition === undefined || writeDefinition === undefined) {
+          throw new Error('acceptance smoke definitions are unavailable')
+        }
+        ctx.dshAcceptance.register({
+          requirements: [
+            {
+              name: 'package',
+              validators: [{
+                id: 'declared-bash',
+                definition: bashDefinition,
+                execution: {
+                  kind: 'contained-bash',
+                  intent: 'project-dev',
+                  command: ${JSON.stringify(validationCommand)},
+                },
+              }],
+            },
+            {
+              name: 'unit',
+              validators: [{
+                id: 'runtime-plus-one',
+                definition: plusOneDefinition,
+                execution: { kind: 'host-observed' },
+              }],
+            },
+          ],
+          invalidators: [writeDefinition],
+        })
+      }
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/.dsh-validation-count', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/finish-line-native-mutation.txt', { force: true })
       rmSync(process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/reviewer-mutation-must-not-exist.txt', { force: true })
@@ -1307,6 +1357,17 @@ export function apply(ctx) {
             : "async agentCtx => void await ctx.agentPresets.mount(agentCtx, 'standard')"},
         })
       const agent = handle.agent
+      if (acceptanceEnabled) {
+        acceptanceGoal = ctx.goals.create(agent, { objective: 'prove authoritative acceptance' })
+        try {
+          ctx.goals.complete(agent, acceptanceGoal)
+        } catch (error) {
+          acceptanceGoalBlocked = {
+            code: error?.code,
+            aggregate: error?.aggregate,
+          }
+        }
+      }
       // Web/TUI profiles keep filesystem-backed skill discovery on the
       // official agent preset. Read through the composed agent scope so this
       // receipt proves the same catalog the model sees, while headless keeps
@@ -1340,6 +1401,10 @@ export function apply(ctx) {
         source: { kind: 'user' },
       }))
       await agent.whenIdle()
+      if (acceptanceEnabled) {
+        acceptanceVerdict = ctx.dshAcceptance.verdict(agent)
+        acceptanceGoalCompletion = ctx.goals.complete(agent, acceptanceGoal)
+      }
 
       if (process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
         && process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1') {
@@ -1486,6 +1551,11 @@ export function apply(ctx) {
         activePolicyChecks: ctx.dshRuntimeKit.activePolicyChecks,
         activeFinishLineRequests: ctx.dshRuntimeKit.activeFinishLineRequests,
         activeFinishLineReservations: ctx.dshRuntimeKit.activeFinishLineReservations,
+        activeAcceptanceOperations: ctx.dshRuntimeKit.activeAcceptanceOperations,
+        acceptanceEnabled,
+        acceptanceGoalBlocked,
+        acceptanceGoalCompletion,
+        acceptanceVerdict,
         finishLineDegraded: ctx.dshRuntimeKit.finishLineDegraded,
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
         pendingPrerequisites: ctx.dshRuntimeKit.pendingPrerequisites,
@@ -1537,6 +1607,11 @@ export function apply(ctx) {
         && process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
         && foreignGovernedCommitResult?.isError !== true) process.exitCode = 1
       if (expectation === 'block' && !result?.isError) process.exitCode = 1
+      if (acceptanceEnabled
+        && (acceptanceGoalBlocked?.code !== 'DSH_ACCEPTANCE_BLOCKED'
+          || acceptanceVerdict?.action !== 'allow'
+          || acceptanceVerdict?.aggregate !== 'satisfied'
+          || acceptanceGoalCompletion?.phase !== 'complete')) process.exitCode = 1
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
@@ -1942,11 +2017,26 @@ ${agentConsoleTuiOverlay}
   assert.equal(receipt.activePolicyChecks, 0)
   assert.equal(receipt.activeFinishLineRequests, 0)
   assert.equal(receipt.activeFinishLineReservations, 0)
+  assert.equal(receipt.activeAcceptanceOperations, 0)
   assert.equal(receipt.finishLineDegraded, false)
   assert.equal(receipt.pendingPolicyMarkers, 0)
   assert.equal(receipt.pendingPrerequisites, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
+  if (authoritativeAcceptance) {
+    assert.equal(receipt.acceptanceEnabled, true)
+    assert.equal(receipt.acceptanceGoalBlocked.code, 'DSH_ACCEPTANCE_BLOCKED')
+    assert.ok(
+      ['infrastructure-blocked', 'missing'].includes(receipt.acceptanceGoalBlocked.aggregate),
+    )
+    assert.equal(receipt.acceptanceVerdict.action, 'allow')
+    assert.equal(receipt.acceptanceVerdict.aggregate, 'satisfied')
+    assert.deepEqual(receipt.acceptanceVerdict.requirements.map(entry => [entry.name, entry.status]), [
+      ['package', 'satisfied'],
+      ['unit', 'satisfied'],
+    ])
+    assert.equal(receipt.acceptanceGoalCompletion.phase, 'complete')
+  }
   if (agentConsoleTuiPackage !== undefined) assert.equal(receipt.userQuestions, true)
   for (const laneTool of [
     'main_agent_run_initialize',
@@ -2066,6 +2156,10 @@ ${agentConsoleTuiOverlay}
       'pre-step:1:20',
     ] : []),
     'turn-stop:1',
+    ...(authoritativeAcceptance ? [
+      'pre-step:2:1',
+      'turn-stop:2',
+    ] : []),
   ])
 
   const skillLine = boot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
@@ -2345,6 +2439,16 @@ ${agentConsoleTuiOverlay}
       },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
+      ...(authoritativeAcceptance ? [{
+        id: 'authoritative-acceptance',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'acceptance:goal-completion-blocked-pre-mutation',
+          'acceptance:exact-provider-verdict-satisfied',
+          'acceptance:goal-completion-allowed-post-evidence',
+        ],
+      }] : []),
       {
         id: 'automatic-prerequisite',
         status: 'passed',
@@ -2399,6 +2503,16 @@ ${agentConsoleTuiOverlay}
     cancellationAndDisposalVerified: true,
     rejectedLifecycleAttemptsVerified: true,
     providerRetirementVerified: true,
+    authoritativeAcceptanceVerified: authoritativeAcceptance,
+    authoritativeAcceptanceAggregate: authoritativeAcceptance
+      ? receipt.acceptanceVerdict.aggregate
+      : undefined,
+    authoritativeAcceptanceRequirements: authoritativeAcceptance
+      ? receipt.acceptanceVerdict.requirements.map(entry => ({
+          name: entry.name,
+          status: entry.status,
+        }))
+      : undefined,
     resultDrivenFinishLineVerified: true,
     resumeFinishLineVerified: true,
     managedWorktreeRehearsalVerified: deliveryRehearsal,
@@ -2426,7 +2540,12 @@ ${agentConsoleTuiOverlay}
         && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol'
         && receipt.agentConsoleInspection.worker_route.reasoningEffort === 'high',
     externalProviderMutationAttempted: false,
-    nilsCompatibilityStatus: nilsCompatibility.status,
+    nilsCompatibilityStatus: authoritativeAcceptance
+      ? nilsCompatibility.candidate_validation.status
+      : nilsCompatibility.status,
+    nilsCompatibilityCandidateFeature: authoritativeAcceptance
+      ? nilsCompatibility.candidate_validation.feature
+      : undefined,
     skillCount: skillReceipt.count,
     skillPrecedenceVerified: true,
     }) + '\n')

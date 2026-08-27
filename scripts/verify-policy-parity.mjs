@@ -100,13 +100,31 @@ if (nilsRootArgument !== undefined && nilsRootArgument !== '') {
     'crates/agent-hook/tests/fixtures/dsh-policy-capability-groups.v1.json',
   ), 'utf8'))
   assert.equal(nilsFixture.schema_version, 'agent-hook.dsh-policy-capability-groups.v1')
-  assert.deepEqual(
-    nilsFixture.capabilities,
-    parity.capability_groups
-      .filter((group) => group.disposition === 'nils-capability')
-      .map((group) => ({ id: group.id, migration_task: group.migration_task })),
-    'nils capability-group schema or task ownership drifted from the DSH parity inventory',
+  const parityGroups = new Map(parity.capability_groups.map(group => [group.id, group]))
+  const nilsGroups = new Map(nilsFixture.capabilities.map(group => [group.id, group]))
+  assert.equal(
+    nilsGroups.size,
+    nilsFixture.capabilities.length,
+    'nils capability-group schema contains duplicate ids',
   )
+  for (const group of nilsFixture.capabilities) {
+    const parityGroup = parityGroups.get(group.id)
+    assert.notEqual(parityGroup, undefined, `nils capability group ${group.id} is unknown`)
+    assert.equal(
+      group.migration_task,
+      parityGroup.migration_task,
+      `nils capability group ${group.id} changed migration task`,
+    )
+  }
+  for (const group of parity.capability_groups.filter(
+    candidate => candidate.disposition === 'nils-capability',
+  )) {
+    assert.notEqual(
+      nilsGroups.get(group.id),
+      undefined,
+      `active nils capability group ${group.id} is missing from the nils schema`,
+    )
+  }
 }
 
 process.stdout.write(`policy parity verified: ${parity.rules.length} rules from ${parity.source.commit}\n`)

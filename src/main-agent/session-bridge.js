@@ -9,6 +9,8 @@
 export function createManagedSessionBridge() {
   /** @type {((sessionId:string) => unknown) | undefined} */
   let resolver
+  /** @type {((sessionId:string, execution:unknown) => Promise<unknown>) | undefined} */
+  let authenticator
   /** @type {Map<string, unknown>} */
   const bindings = new Map()
   return Object.freeze({
@@ -35,6 +37,22 @@ export function createManagedSessionBridge() {
       return () => {
         if (resolver === candidate) resolver = undefined
       }
+    },
+    /** @param {(sessionId:string, execution:unknown) => Promise<unknown>} candidate */
+    registerAuthenticator(candidate) {
+      if (authenticator !== undefined) {
+        throw new Error('dsh-runtime-kit: session authenticator already registered')
+      }
+      authenticator = candidate
+      return () => {
+        if (authenticator === candidate) authenticator = undefined
+      }
+    },
+    /** @param {string} sessionId @param {unknown} execution */
+    async authenticate(sessionId, execution) {
+      const existing = bindings.has(sessionId) ? bindings.get(sessionId) : resolver?.(sessionId)
+      if (existing !== undefined) return existing
+      return authenticator?.(sessionId, execution)
     },
     /** @param {string} sessionId */
     resolve(sessionId) {

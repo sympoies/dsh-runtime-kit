@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-authoritative-acceptance-canary
+      name: '@sympoies/dsh-authoritative-acceptance-canary'

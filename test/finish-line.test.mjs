@@ -18,6 +18,7 @@ function fixture({
   },
   now = Date.now,
   requiresFinishLine,
+  authenticatePrincipal,
 } = {}) {
   const effects = []
   const opens = []
@@ -106,13 +107,20 @@ function fixture({
     get active() { return 0 },
     get degraded() { return false },
   }
-  const ctx = { effect(execute) { effects.push(execute()) } }
+  let agent
+  const ctx = {
+    effect(execute) { effects.push(execute()) },
+    agents: {
+      get(id) { return agent?.id === id ? agent : undefined },
+    },
+  }
   let operation = 0
   const coordinator = createFinishLineCoordinator(ctx, {
     client,
     maxSameTurnSteers,
     now,
     requiresFinishLine,
+    authenticatePrincipal,
     createOperationId: () => `operation:${++operation}`,
     prepareValidationRuntime: async (_exec, operation) => {
       runtimePreparations.push(structuredClone(operation))
@@ -122,7 +130,7 @@ function fixture({
   })
   const session = { header: { id: 'session-1', cwd: '/workspace/project' }, events: [] }
   const steered = []
-  const agent = {
+  agent = {
     id: 'session-1',
     session,
     steer(message) { steered.push(message) },
@@ -147,6 +155,35 @@ function fixture({
     },
   }
 }
+
+test('acceptance authority authenticates the managed principal before opening its ledger', async () => {
+  const order = []
+  const subject = fixture({
+    async authenticatePrincipal(agent, signal) {
+      assert.equal(agent.id, 'session-1')
+      assert.equal(signal.aborted, false)
+      order.push('authenticated')
+    },
+    requiresFinishLine() {
+      order.push('classified')
+      return true
+    },
+  })
+  subject.client.open = async request => {
+    order.push('opened')
+    subject.opens.push(structuredClone(request))
+    return { runnerCapability: 'finish-line-runner:opaque', correlationId }
+  }
+
+  await subject.coordinator.withAuthority(
+    subject.agent,
+    '1',
+    new AbortController().signal,
+    async () => {},
+  )
+
+  assert.deepEqual(order, ['authenticated', 'classified', 'opened'])
+})
 
 test('an authenticated advisory session bypasses Linux-only finish-line without opening state', async () => {
   const subject = fixture({ requiresFinishLine: () => false })

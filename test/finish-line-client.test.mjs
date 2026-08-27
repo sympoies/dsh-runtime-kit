@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createNilsFinishLineClient } from '../src/finish-line/nils-client.js'
+import {
+  DshFinishLineTemporaryError,
+  createNilsFinishLineClient,
+} from '../src/finish-line/nils-client.js'
 import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
+import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
 import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`
@@ -68,6 +72,48 @@ function responseFor(action, request, overrides = {}) {
       status: 'released',
       correlation_id: correlationId,
     },
+    register: {
+      schema_version: 'agent-hook.finish-line.register-result.v1',
+      status: 'registered',
+      contract_digest: digest,
+      requirement_count: request.requirements?.length ?? 1,
+      correlation_id: correlationId,
+    },
+    admit: {
+      schema_version: 'agent-hook.finish-line.admit-result.v1',
+      status: 'admitted',
+      operation_id: request.operation_id,
+      operation_kind: request.operation?.kind ?? 'mutation',
+      generation: 5,
+      contract_digest: request.contract_digest,
+      correlation_id: correlationId,
+    },
+    observe: {
+      schema_version: 'agent-hook.finish-line.observe-result.v1',
+      status: 'applied',
+      operation_id: request.operation_id,
+      generation: 5,
+      observation: request.observation?.status ?? 'succeeded',
+      correlation_id: correlationId,
+    },
+    verdict: {
+      schema_version: 'agent-hook.finish-line.verdict-result.v1',
+      action: 'block',
+      aggregate: 'missing',
+      generation: 5,
+      contract_digest: request.contract_digest,
+      correlation_id: correlationId,
+      reason_codes: ['missing'],
+      requirements: [
+        { name: 'unit', status: 'missing', attempt_generation: null },
+      ],
+      completion_reservation: request.completion_reservation === undefined
+        ? null
+        : {
+            operation_id: request.completion_reservation.operation_id,
+            status: 'reserved',
+          },
+    },
     quiesce: {
       schema_version: 'agent-hook.finish-line.quiesce-result.v1',
       status: 'quiescent',
@@ -93,7 +139,9 @@ function fixture({
   teardownTimeoutMs = 20,
   onTerminate = () => {},
   authenticatedNilsExecution,
+  managedSessionBridge,
   resolutionPendingAt,
+  exitCodeFor,
 } = {}) {
   const effects = []
   const spawns = []
@@ -121,7 +169,10 @@ function fixture({
         spawns.push({ spec, request })
         let settle
         const response = () => responder(action, request)
-        const exitCode = action === 'stop' && response().data.action === 'block' ? 1 : 0
+        const exitCode = exitCodeFor === undefined
+          ? ['stop', 'verdict'].includes(action)
+            && response().data.action === 'block' ? 1 : 0
+          : exitCodeFor(action, response())
         const shouldPend = (pending && action !== 'quiesce')
           || (pendingQuiesce && action === 'quiesce')
         const done = shouldPend
@@ -167,6 +218,7 @@ function fixture({
     finishLineTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveFinishLineRequests: 4,
     authenticatedNilsExecution,
+    managedSessionBridge,
   })
   return {
     client,
@@ -194,6 +246,209 @@ const dangerFullAccessExecution = {
   outputMaxBytes: 64 * 1024,
   runner: { kind: 'danger-full-access' },
 }
+
+test('acceptance RPCs preserve strict wire shapes and private admission retries', async () => {
+  const subject = fixture()
+  const common = { ...identity, runnerCapability: 'finish-line-runner:opaque' }
+  const registered = await subject.client.registerAcceptance({
+    ...common,
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'plus-one',
+        toolName: 'runtime_kit_plus_one',
+        definitionDigest: digest,
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [{ toolName: 'edit', definitionDigest: digest }],
+  })
+  assert.equal(registered.contractDigest, digest)
+
+  const admitted = await subject.client.admitAcceptance({
+    ...common,
+    contractDigest: digest,
+    operationId: 'acceptance:unit:1',
+    operation: {
+      kind: 'validator',
+      requirement: 'unit',
+      validatorId: 'plus-one',
+      toolName: 'runtime_kit_plus_one',
+      definitionDigest: digest,
+    },
+  })
+  assert.equal(admitted.operationKind, 'validator')
+  assert.match(subject.spawns[1].request.attempt_token, /^finish-line-acceptance:/u)
+  assert.doesNotMatch(JSON.stringify(admitted), /attempt_token|runner_capability/u)
+
+  const observed = await subject.client.observeAcceptance({
+    ...common,
+    operationId: 'acceptance:unit:1',
+    observation: { kind: 'host-observed', status: 'succeeded' },
+  })
+  assert.equal(observed.observation, 'succeeded')
+
+  const containedTerminal = await subject.client.observeAcceptance({
+    ...common,
+    operationId: 'acceptance:unit:2',
+    observation: {
+      kind: 'contained-bash',
+      operationId: 'finish-line-source:unit',
+      status: 'infrastructure-blocked',
+    },
+  })
+  assert.equal(containedTerminal.observation, 'infrastructure-blocked')
+  assert.deepEqual(subject.spawns.at(-1).request.observation, {
+    kind: 'contained-bash',
+    operation_id: 'finish-line-source:unit',
+    status: 'infrastructure-blocked',
+  })
+
+  const selected = await subject.client.acceptanceVerdict({
+    ...common,
+    contractDigest: digest,
+  })
+  assert.deepEqual(selected.requirements, [{
+    name: 'unit',
+    status: 'missing',
+    attemptGeneration: undefined,
+  }])
+  assert.deepEqual(
+    subject.spawns.map(spawn => spawn.spec.argv),
+    ['register', 'admit', 'observe', 'observe', 'verdict'].map(action => (
+      agentHookArgs('finish-line', action, '--format', 'json')
+    )),
+  )
+})
+
+test('acceptance verdict binds an optional provider-owned completion reservation', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      return responseFor(action, request, action === 'verdict'
+        ? { action: 'allow', aggregate: 'satisfied', reason_codes: [], requirements: [{
+            name: 'unit',
+            status: 'satisfied',
+            attempt_generation: 5,
+          }] }
+        : {})
+    },
+  })
+  const selected = await subject.client.acceptanceVerdict({
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+    contractDigest: digest,
+    completionReservation: 'goal-completion:1',
+  })
+  assert.deepEqual(selected.completionReservation, {
+    operationId: 'goal-completion:1',
+    status: 'reserved',
+  })
+  assert.deepEqual(subject.spawns[0].request.completion_reservation, {
+    operation_id: 'goal-completion:1',
+  })
+})
+
+test('abandoned acceptance admissions do not permanently consume the retry-token bound', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      return responseFor(action, request, action === 'admit'
+        ? { operation_id: 'ambiguous-lost-response' }
+        : {})
+    },
+  })
+  for (let index = 0; index < 257; index += 1) {
+    const request = {
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+      contractDigest: digest,
+      operationId: `acceptance:abandoned-${index}`,
+      operation: {
+        kind: 'mutation',
+        toolName: 'edit',
+        definitionDigest: digest,
+      },
+    }
+    await assert.rejects(subject.client.admitAcceptance(request), /finish-line response invalid/u)
+    subject.client.abandonAcceptance(request)
+  }
+  assert.equal(subject.spawns.length, 257)
+})
+
+test('an authenticated completion reservation is a typed temporary admission denial', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      if (action !== 'admit') return responseFor(action, request)
+      return {
+        schema_version: 'cli.agent-hook.finish-line-admit.v1',
+        ok: false,
+        error: {
+          code: 'finish-line-completion-reserved',
+          message: 'repository completion is reserved',
+        },
+      }
+    },
+    exitCodeFor(action) { return action === 'admit' ? 75 : 0 },
+  })
+  const request = {
+    ...identity,
+    runnerCapability: 'finish-line-runner:opaque',
+    contractDigest: digest,
+    operationId: 'acceptance:temporarily-blocked',
+    operation: { kind: 'mutation', toolName: 'edit', definitionDigest: digest },
+  }
+  await assert.rejects(subject.client.admitAcceptance(request), error => (
+    error instanceof DshFinishLineTemporaryError
+      && error.code === 'DSH_FINISH_LINE_TEMPORARY'
+  ))
+  subject.client.abandonAcceptance(request)
+})
+
+test('repository contention is a typed temporary denial for mutation and validator admission', async () => {
+  for (const operation of [
+    { kind: 'mutation', toolName: 'edit', definitionDigest: digest },
+    {
+      kind: 'validator',
+      requirement: 'unit',
+      validatorId: 'plus-one',
+      toolName: 'runtime_kit_plus_one',
+      definitionDigest: digest,
+    },
+  ]) {
+    let contended = true
+    const subject = fixture({
+      responder(action, request) {
+        if (action !== 'admit' || !contended) return responseFor(action, request)
+        return {
+          schema_version: 'cli.agent-hook.finish-line-admit.v1',
+          ok: false,
+          error: {
+            code: 'finish-line-acceptance-mutation-active',
+            message: 'a repository mutation has not terminalized',
+          },
+        }
+      },
+      exitCodeFor(action) { return action === 'admit' && contended ? 75 : 0 },
+    })
+    const request = {
+      ...identity,
+      runnerCapability: 'finish-line-runner:opaque',
+      contractDigest: digest,
+      operationId: `acceptance:contention:${operation.kind}`,
+      operation,
+    }
+
+    await assert.rejects(subject.client.admitAcceptance(request), error => (
+      error instanceof DshFinishLineTemporaryError
+        && error.code === 'DSH_FINISH_LINE_TEMPORARY'
+        && error.providerCode === 'finish-line-acceptance-mutation-active'
+    ))
+    assert.equal(subject.spawns.length, 1, 'a complete temporary response is not retried')
+
+    subject.client.abandonAcceptance(request)
+    contended = false
+    assert.equal((await subject.client.admitAcceptance(request)).status, 'admitted')
+  }
+})
 
 test('finish-line resolves a bare agent-hook command before spawning', async () => {
   const subject = fixture({ agentHook: 'agent-hook' })
@@ -346,6 +601,50 @@ test('release authenticates and retires one exact session capability', async () 
     cwd: '/workspace/project',
     runner_capability: 'finish-line-runner:opaque',
   })
+})
+
+test('managed finish-line identity remains pinned through bridge disposal and release', async () => {
+  const managedSessionBridge = createManagedSessionBridge()
+  const principal = {
+    sessionId: 'managed-session-one',
+    environment: {
+      AGENT_SESSION_ID: 'managed-session-one',
+      AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
+    },
+  }
+  const disposeBinding = managedSessionBridge.bind(identity.sessionId, principal)
+  const subject = fixture({ managedSessionBridge })
+  const opened = await subject.client.open(identity)
+  disposeBinding()
+  await subject.client.registerAcceptance({
+    ...identity,
+    runnerCapability: opened.runnerCapability,
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'plus-one',
+        toolName: 'runtime_kit_plus_one',
+        definitionDigest: digest,
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [],
+  })
+  await subject.client.release({
+    ...identity,
+    runnerCapability: opened.runnerCapability,
+  })
+
+  assert.deepEqual(subject.spawns.map(spawn => spawn.request.session_id), [
+    'managed-session-one',
+    'managed-session-one',
+    'managed-session-one',
+  ])
+  assert.deepEqual(subject.spawns.map(spawn => spawn.spec.env.AGENT_SESSION_ID), [
+    'managed-session-one',
+    'managed-session-one',
+    'managed-session-one',
+  ])
 })
 
 test('drain closes ordinary admission but leaves authenticated release available', async () => {

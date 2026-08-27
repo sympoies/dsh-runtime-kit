@@ -1,0 +1,22 @@
+{
+  "name": "@sympoies/dsh-authoritative-acceptance-canary",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "body-execution-counter.js",
+    "observable-child-pid.js",
+    "cordis.patch.yml"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
