@@ -422,7 +422,9 @@ non-degraded finish-line transport after resources drain; it never exposes the
 capability, operation identity, generation, or provider diagnostics.
 Completion cancellation shares the same joined lifecycle task accounting, so
 policy, validator, mutation, agent disposal, and coordinator disposal cannot
-race past a still-active provider observation.
+race past a still-active provider observation. Repository preparation enters
+that accounting before its first await and removes provisional mutation state
+when preparation fails.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,

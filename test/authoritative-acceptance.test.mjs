@@ -1126,6 +1126,61 @@ test('ordinary Bash invalidates a held completion reservation before provider ex
   assert.equal(value.coordinator.activeOperations, 0)
 })
 
+test('repository preparation is joined when disposal starts before cancellation is tracked', async () => {
+  for (const mode of ['agent', 'coordinator']) {
+    const value = fixture()
+    value.service.register(registration(value))
+    await value.coordinator.sessionStarted({ agent: value.owner, source: 'startup' })
+    value.setVerdict(verdict([
+      ['package', 'satisfied', 0],
+      ['unit', 'satisfied', 0],
+    ], 'satisfied', 0))
+    assert.equal(await value.coordinator.turnStopping({
+      agent: value.owner,
+      turn: 1,
+      signal: new AbortController().signal,
+    }), true)
+
+    const observationStarted = deferred()
+    const finishObservation = deferred()
+    const providerObserve = value.client.observeAcceptance
+    value.client.observeAcceptance = async (request, signal) => {
+      if (request.observation.status === 'cancelled') {
+        observationStarted.resolve()
+        await finishObservation.promise
+      }
+      return providerObserve(request, signal)
+    }
+    const ordinary = execution(value.owner, value.bash, `ordinary-bash-${mode}-disposal`)
+    const preparation = value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+    const joinedPreparation = value.coordinator.repositoryMutationStarting(ordinary, call(ordinary))
+    let disposalSettled = false
+    const disposal = (mode === 'agent'
+      ? value.coordinator.agentDisposed(value.owner)
+      : value.coordinator.dispose())
+      .then(() => { disposalSettled = true })
+    await observationStarted.promise
+    await new Promise(resolve => setImmediate(resolve))
+    const activeDuringCancellation = value.coordinator.activeOperations
+    const settledBeforeCancellation = disposalSettled
+
+    finishObservation.resolve()
+    const [preparationResult, joinedResult] = await Promise.allSettled([
+      preparation,
+      joinedPreparation,
+      disposal,
+    ])
+
+    assert.equal(activeDuringCancellation > 0, true, mode)
+    assert.equal(settledBeforeCancellation, false, mode)
+    assert.equal(preparationResult.status, 'rejected', mode)
+    assert.match(preparationResult.reason?.message, /coordinator disposed/u, mode)
+    assert.equal(joinedResult.status, 'rejected', mode)
+    assert.match(joinedResult.reason?.message, /coordinator disposed/u, mode)
+    assert.equal(value.coordinator.activeOperations, 0, mode)
+  }
+})
+
 test('turn stop fails active before requesting a completion reservation', async () => {
   const value = fixture()
   value.service.register(registration(value))
