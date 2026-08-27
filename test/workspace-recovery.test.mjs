@@ -4,6 +4,25 @@ import { test } from 'node:test'
 import { createWorkspaceRecoveryTools } from '../src/workspace-recovery/index.js'
 import { createNilsWorkspaceRecoveryClient } from '../src/workspace-recovery/nils-client.js'
 
+const DSH_SCHEMA_KEYWORDS = new Set([
+  'type', 'oneOf', 'properties', 'required', 'additionalProperties',
+  'items', 'enum', 'const', 'title', 'description', 'default', 'examples',
+])
+
+function assertDshSchemaSubset(schema, path = 'schema') {
+  assert.equal(schema !== null && typeof schema === 'object' && !Array.isArray(schema), true)
+  for (const key of Object.keys(schema)) {
+    assert.equal(DSH_SCHEMA_KEYWORDS.has(key), true, `${path}.${key} is unsupported by DSH`)
+  }
+  for (const [name, child] of Object.entries(schema.properties ?? {})) {
+    assertDshSchemaSubset(child, `${path}.properties.${name}`)
+  }
+  for (const [index, child] of (schema.oneOf ?? []).entries()) {
+    assertDshSchemaSubset(child, `${path}.oneOf[${index}]`)
+  }
+  if (schema.items !== undefined) assertDshSchemaSubset(schema.items, `${path}.items`)
+}
+
 class HarnessError extends Error {
   constructor(message, code) {
     super(message)
@@ -180,6 +199,8 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
     },
   }
   const [inspect, handoff] = createWorkspaceRecoveryTools(client, HarnessError)
+  assertDshSchemaSubset(inspect.output.schema)
+  assertDshSchemaSubset(handoff.output.schema)
   assert.deepEqual(inspect.parameters, {
     type: 'object', properties: {}, additionalProperties: false,
   })

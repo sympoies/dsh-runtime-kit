@@ -140,7 +140,7 @@ function resultSchema() {
           branch: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           head: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           managed: { type: 'boolean' },
-          dirty_entries_omitted: { type: 'integer', minimum: 0 },
+          dirty_entries_omitted: { type: 'integer' },
           dirty_entries: {
             type: 'array',
             items: {
@@ -175,7 +175,7 @@ function resultSchema() {
           additionalProperties: false,
         },
       },
-      worktrees_omitted: { type: 'integer', minimum: 0 },
+      worktrees_omitted: { type: 'integer' },
       handoff: {
         oneOf: [
           { type: 'null' },
