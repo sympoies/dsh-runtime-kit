@@ -2872,6 +2872,37 @@ test('policy denials report only blocking reasons from the normalized decision',
   assert.equal(delegated, false)
 })
 
+test('opaque shell fan-out denials explain the direct executable recovery path', async () => {
+  const blockingCodes = [
+    'block-direct-git-commit',
+    'block-direct-git-worktree',
+    'block-direct-pr-create',
+    'block-direct-python',
+    'block-unsafe-default-delivery',
+    'checkout-lease-guard',
+    'semantic-commit-body-gate',
+  ]
+  const subject = harness({
+    envelope: decision('block', {
+      reasons: blockingCodes.map(code => ({
+        rule_id: `dsh.${code}`,
+        code,
+        disposition: 'block',
+      })),
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+
+  assert.equal(result.kind, 'deny')
+  assert.match(result.reason, /blocked before command dispatch/i)
+  assert.match(result.reason, /run executable repository scripts directly/i)
+  assert.match(result.reason, /without a bash\/sh wrapper/i)
+  assert.match(result.reason, /split compound operations into separate tool calls/i)
+  for (const code of blockingCodes) assert.match(result.reason, new RegExp(code))
+  assert.equal(delegated, false)
+})
+
 test('downstream pre-execute exceptions preserve their exact rc.7 failure', async () => {
   const subject = harness()
   const distinctive = new Error('distinctive downstream pre-execute failure')

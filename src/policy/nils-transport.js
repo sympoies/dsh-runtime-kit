@@ -30,6 +30,14 @@ const MAX_POLICY_INPUT_DEPTH = 64
 const MAX_POLICY_INPUT_ENTRIES = 10_000
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/
 const DSH_V1_REASON_DISPOSITIONS = new Set(['allow', 'warn', 'context', 'block'])
+const OPAQUE_SHELL_FAN_OUT_CODES = new Set([
+  'block-direct-git-commit',
+  'block-direct-git-worktree',
+  'block-direct-pr-create',
+  'block-direct-python',
+  'block-unsafe-default-delivery',
+  'semantic-commit-body-gate',
+])
 
 /** @typedef {'caller-aborted' | 'timeout' | 'disposed' | 'degraded'} CancellationCause */
 
@@ -79,7 +87,14 @@ function policyReason(decision) {
       .map(reason => reason?.code)
       .filter(code => typeof code === 'string' && code.length > 0)
     : []
-  return codes.length > 0 ? `agent-hook:${codes.join(',')}` : 'agent-hook:blocked'
+  const summary = codes.length > 0 ? `agent-hook:${codes.join(',')}` : 'agent-hook:blocked'
+  const opaqueShellFanOut = [...OPAQUE_SHELL_FAN_OUT_CODES]
+    .every(code => codes.includes(code))
+  const guidance = opaqueShellFanOut
+    ? 'The shell invocation was opaque to multiple policy classifiers and was blocked before command dispatch. Run executable repository scripts directly (for example, ./scripts/check.sh), without a bash/sh wrapper, and split compound operations into separate tool calls.'
+    : undefined
+  const context = typeof decision.context === 'string' ? decision.context.trim() : ''
+  return [summary, guidance, context].filter(Boolean).join('\n')
 }
 
 /**
