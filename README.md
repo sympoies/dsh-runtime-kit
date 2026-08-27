@@ -4,10 +4,11 @@
 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness). It
 adds governed development workflows, selective project context, specialist
 review, and safe lifecycle operations through Cordis and DSH extension
-interfaces plus one reviewed execution-boundary patch.
+interfaces plus reviewed, version-scoped downstream patches.
 
-The package is a DSH bundle plus a version-scoped downstream patch, not a fork
-or copied preset. The patch is maintained here and is not proposed upstream.
+The package is a DSH bundle plus exact DSH source and installed-TUI package
+patches, not a fork or copied preset. The DSH patch is maintained here; the TUI
+patch remains only until its separately tracked upstream repair is released.
 DSH uses
 dsh-runtime-kit plus [nils-cli](https://github.com/sympoies/nils-cli), while
 Codex and Claude Code continue to use agent-runtime-kit plus nils-cli and are
@@ -91,7 +92,7 @@ Two exact DSH `0.1.1-rc.2` compositions are supported:
 
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
-  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.2`, then
+  `@deepseek-ai/dsh-base`, `@deepseek-harness-tui/dsh-tui@0.9.3`, then
   `@sympoies/dsh-runtime-kit` in that order.
 
 Unknown profile names contain only the base bundle. They are neither equivalent
@@ -104,6 +105,21 @@ installation contract before installing the TUI. It preserves DSH's native
 profile linker and peer settings while recording the TUI release's explicit
 `false` lifecycle decisions. Those package-install decisions do not restrict
 the agent's host CLI or `PATH`.
+
+After installing the authenticated 0.9.3 archive and before starting the TUI,
+apply the package-level history-lock repair:
+
+```sh
+dsh-runtime-kit-manage-dsh-tui-patch --action apply \
+  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+```
+
+The command accepts only the exact package name, version, `package.json` bytes,
+patch digest, and target before/after hashes in
+[`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
+Unknown or partially patched packages fail closed. This repair moves lock
+retries off the prompt submission stack, so history persistence remains
+best-effort without delaying command dispatch.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

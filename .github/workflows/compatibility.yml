@@ -195,7 +195,7 @@ jobs:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.17-x86_64-unknown-linux-gnu/bin/agent-hook
           AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.17-x86_64-unknown-linux-gnu/bin/agent-docs
-          DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.9.2'
+          DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.9.3'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
         if: always()

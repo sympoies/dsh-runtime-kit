@@ -45,7 +45,19 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.9.2',
+    version: '0.9.3',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.9.3',
+    source: {
+      repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
+      tag: 'v0.9.3',
+      tag_object: '8c4e68461ef688528dbb22da566515044d2cf0ef',
+      revision: 'a3439a3c7d7e7b3c9cfc505e833525376e8558d0',
+    },
+    artifact: {
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.9.3.tgz',
+      integrity: 'sha512-8AR+/EO+5iBlS9a8OWFqPHtmRXa1EFM8L/0rlTvgLn1YVa2sKIqECfOpuBLxWRQ1ABUb+iSkoyJ1p0bsCC0FTA==',
+      shasum: '6a2925a4a3bfee39db897efe0ed6c04cab4d3931',
+    },
   },
   bundles: [
     '@deepseek-ai/dsh-base',
@@ -87,7 +99,10 @@ const EXPECTED_CONTRACT = Object.freeze({
 const VALID_OBSERVATION = Object.freeze({
   profile: 'dsh-tui',
   dsh: EXPECTED_CONTRACT.dsh,
-  tui: EXPECTED_CONTRACT.tui,
+  tui: {
+    package: EXPECTED_CONTRACT.tui.package,
+    version: EXPECTED_CONTRACT.tui.version,
+  },
   bundles: EXPECTED_CONTRACT.bundles,
   composition: {
     rowIds: EXPECTED_CONTRACT.required_rows,
@@ -144,7 +159,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.1-rc.2',
-    tui_version: '0.9.2',
+    tui_version: '0.9.3',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -164,6 +179,18 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
+test('the Agent Console release and installed-package patch select the same TUI', () => {
+  const patchManifest = JSON.parse(readFileSync(
+    join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
+    'utf8',
+  ))
+  assert.equal(patchManifest.package_name, EXPECTED_CONTRACT.tui.package)
+  assert.deepEqual(
+    Object.keys(patchManifest.patches[0].validated_releases),
+    [EXPECTED_CONTRACT.tui.version],
+  )
+})
+
 test('the Agent Console install contract preserves DSH profile settings and disables unneeded TUI builds', () => {
   const workspace = parseYaml(readFileSync(join(
     projectRoot,
@@ -181,6 +208,42 @@ test('the Agent Console install contract preserves DSH profile settings and disa
       protobufjs: false,
     },
   })
+})
+
+test('public Agent Console smoke consumes the contract-pinned TUI specifier', () => {
+  const workflow = parseYaml(readFileSync(join(
+    projectRoot,
+    '.github',
+    'workflows',
+    'compatibility.yml',
+  ), 'utf8'))
+  const step = workflow.jobs.upstream.steps.find(
+    candidate => candidate.name === 'Run exact Agent Console TUI composition smoke',
+  )
+  assert.equal(
+    step?.env?.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE,
+    EXPECTED_CONTRACT.tui.specifier,
+  )
+})
+
+test('public Agent Console smoke authenticates the contract tarball before local install', () => {
+  const source = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
+  const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
+  const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")
+  const patched = source.indexOf("action: 'apply',", installed)
+  const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', patched)
+
+  assert.ok(fetched >= 0, 'the smoke must fetch through the authenticated artifact owner')
+  assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
+  assert.ok(installed > written, 'the smoke must install the verified local archive')
+  assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
+  assert.ok(startup > patched, 'the smoke must exercise the patched TUI runtime')
+  assert.equal(
+    source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])"),
+    false,
+    'the smoke must not install the unauthenticated registry specifier',
+  )
 })
 
 test('unknown and headless profiles cannot masquerade as Agent Console', () => {

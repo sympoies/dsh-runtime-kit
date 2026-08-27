@@ -11,7 +11,7 @@ Use DSH's native `headless` profile, or the exact Agent Console `dsh-tui`
 profile. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
-created the ordered base + `@deepseek-harness-tui/dsh-tui@0.9.2` profile before
+created the ordered base + `@deepseek-harness-tui/dsh-tui@0.9.3` profile before
 runtime-kit is added as its final bundle. Save the complete pre-activation
 profile and the owner-only runtime root as the rollback point.
 
@@ -31,6 +31,18 @@ allowBuilds:
 These transitive install scripts are not required at runtime. This deployment
 setting prevents pnpm from rejecting the install and does not create a host
 CLI, `PATH`, or agent-execution allowlist.
+
+After the authenticated TUI archive is installed, apply the exact
+package-level repair before the first launch:
+
+```sh
+dsh-runtime-kit-manage-dsh-tui-patch --action apply \
+  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+```
+
+The required receipt state is `after: "patched"`. Check it before service
+start. Reverse the same patch before replacing the package; never edit the
+installed history module by hand.
 
 Runtime-kit also requires one authenticated source patch in the selected DSH
 checkout. This is an operator/deployment action, never an agent-authored shell
@@ -160,7 +172,7 @@ pairs are `workspace-write` + `ask`, or the currently required
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
-The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui `0.9.2`, and the
+The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui `0.9.3`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
 contract.
