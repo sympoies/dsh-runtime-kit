@@ -3,6 +3,24 @@ export const SCENARIO_CANARY_DEADLINE_ENV = 'DSH_ACCEPTANCE_CANARY_DEADLINE_EPOC
 export const SCENARIO_CANARY_EXECUTION_TIMEOUT_MS = 120_000
 export const SCENARIO_CANARY_PROCESS_TIMEOUT_MS = 180_000
 
+function parseScenarioCanaryDeadlineEpoch(deadlineEpoch) {
+  if (typeof deadlineEpoch !== 'string' || !/^[1-9][0-9]{12}$/u.test(deadlineEpoch)) {
+    throw new Error('scenario canary execution deadline is invalid')
+  }
+  const deadline = Number(deadlineEpoch)
+  if (!Number.isSafeInteger(deadline)) {
+    throw new Error('scenario canary execution deadline is invalid')
+  }
+  return deadline
+}
+
+function scenarioCanaryDeadlineDelayFromEpoch(deadlineEpoch, now) {
+  if (!Number.isSafeInteger(now) || now < 0) {
+    throw new Error('scenario canary execution deadline is invalid')
+  }
+  return Math.max(0, deadlineEpoch - now)
+}
+
 /**
  * Derive the remaining canary execution budget from the parent-authenticated
  * process-start deadline. A canary loaded late receives only the remaining
@@ -12,15 +30,10 @@ export const SCENARIO_CANARY_PROCESS_TIMEOUT_MS = 180_000
  * @param {number} [now]
  */
 export function scenarioCanaryDeadlineDelay(deadlineEpoch, now = Date.now()) {
-  if (typeof deadlineEpoch !== 'string' || !/^[1-9][0-9]{12}$/u.test(deadlineEpoch)
-    || !Number.isSafeInteger(now) || now < 0) {
-    throw new Error('scenario canary execution deadline is invalid')
-  }
-  const deadline = Number(deadlineEpoch)
-  if (!Number.isSafeInteger(deadline)) {
-    throw new Error('scenario canary execution deadline is invalid')
-  }
-  return Math.max(0, deadline - now)
+  return scenarioCanaryDeadlineDelayFromEpoch(
+    parseScenarioCanaryDeadlineEpoch(deadlineEpoch),
+    now,
+  )
 }
 
 /**
@@ -61,6 +74,8 @@ export function scheduleScenarioCanaryDeadline(deadlineEpoch, onDeadline, option
 export function createScenarioCanaryDeadlineController(options) {
   let finalization
   let postDeadlineCleanup
+  const deadlineEpoch = parseScenarioCanaryDeadlineEpoch(options.deadlineEpoch)
+  const now = options.now ?? Date.now
   const finalizeOnce = (receipt, failure) => {
     if (finalization !== undefined) return finalization
     finalization = finalizeScenarioCanary({
@@ -75,20 +90,25 @@ export function createScenarioCanaryDeadlineController(options) {
     })
     return finalization
   }
+  const finalizeDeadline = () => finalizeOnce(undefined, {
+    error: new Error('scenario execution deadline exceeded'),
+  })
   const deadlineTimer = scheduleScenarioCanaryDeadline(
-    options.deadlineEpoch,
+    String(deadlineEpoch),
     () => {
-      const failure = { error: new Error('scenario execution deadline exceeded') }
-      void finalizeOnce(undefined, failure).catch(error => options.onUnhandledFailure?.(error))
+      void finalizeDeadline().catch(error => options.onUnhandledFailure?.(error))
     },
-    { now: options.now, setTimer: options.setTimer },
+    { now, setTimer: options.setTimer },
   )
   const clearTimer = options.clearTimer ?? clearTimeout
   return Object.freeze({
     isFinalizing() { return finalization !== undefined },
     wait() { return finalization ?? Promise.resolve() },
     finish(receipt, failure) {
+      const deadlineElapsed = finalization === undefined
+        && scenarioCanaryDeadlineDelayFromEpoch(deadlineEpoch, now()) === 0
       clearTimer(deadlineTimer)
+      if (deadlineElapsed) return finalizeDeadline()
       if (finalization === undefined) return finalizeOnce(receipt, failure)
       postDeadlineCleanup ??= finalization.finally(options.dispose)
       return postDeadlineCleanup

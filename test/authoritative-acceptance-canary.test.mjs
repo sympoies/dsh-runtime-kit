@@ -133,6 +133,57 @@ test('deadline finalization fails closed once before service readiness', async (
   ])
 })
 
+test('an elapsed deadline cannot be cleared into a success receipt', async () => {
+  const { createScenarioCanaryDeadlineController } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const events = []
+  const writes = []
+  let currentTime = 2_000_000_075_000
+  let deadlineCallback
+  const expectedTimer = /** @type {ReturnType<typeof setTimeout>} */ ({})
+  const controller = createScenarioCanaryDeadlineController({
+    deadlineEpoch: '2000000120000',
+    stream: {
+      write(chunk, callback) {
+        writes.push(chunk)
+        callback()
+        return true
+      },
+    },
+    reportFailure(error) { events.push('failure:' + error.message) },
+    async dispose() { events.push('dispose') },
+    successStatus: () => 0,
+    setExitCode(status) { events.push('status:' + status) },
+    exit(status) { events.push('exit:' + status) },
+    now: () => currentTime,
+    setTimer(callback, delay) {
+      assert.equal(delay, 45_000)
+      deadlineCallback = callback
+      return expectedTimer
+    },
+    clearTimer(timer) {
+      assert.equal(timer, expectedTimer)
+      events.push('clear')
+    },
+  })
+  assert.equal(typeof deadlineCallback, 'function')
+
+  currentTime = 2_000_000_120_000
+  await controller.finish({ phase: 'positive' }, undefined)
+  deadlineCallback()
+  await controller.wait()
+
+  assert.deepEqual(writes, [])
+  assert.deepEqual(events, [
+    'clear',
+    'failure:scenario execution deadline exceeded',
+    'dispose',
+    'status:1',
+    'exit:1',
+  ])
+})
+
 test('an acceptance canary waits for both runtime services across staggered activation', () => {
   const runtime = Object.freeze({})
   const acceptance = Object.freeze({})
