@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.3` |
 | Cordis | `4.0.1` |
 | Node.js | `22.19` or `24` |
-| nils-cli | exactly `1.27.17` |
+| nils-cli | `1.27.17` minimum; exactly validated through `1.27.19` |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
@@ -40,8 +40,10 @@ receipt for check, apply, or reverse.
 owns the temporary installed-package repair for the exact 0.9.3 TUI artifact.
 It binds the package manifest bytes, patch digest, and target before/after
 hashes. The manager accepts only pristine or exactly patched bytes and emits a
-typed check/apply/reverse receipt. The upstream repair is tracked separately;
-its merge or next release does not block this authenticated downstream path.
+typed check/apply/reverse receipt. The
+[upstream repair](https://github.com/ccch1mneyyy/dsh-TUI/pull/593) is tracked
+separately; its merge or next release does not block this authenticated
+downstream path.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
