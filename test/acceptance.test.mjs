@@ -1056,6 +1056,30 @@ test('scenario diagnostics distrust accessors and allow only public cause codes'
   })
 })
 
+test('scenario diagnostics preserve every declared public operations cause code', () => {
+  const operationsSource = readFileSync(join(projectRoot, 'src/operations/index.js'), 'utf8')
+  const constructors = [...operationsSource.matchAll(/new OperationsError\(/gu)]
+  const declaredCodes = [...operationsSource.matchAll(
+    /new OperationsError\(\s*['"]([a-z][a-z0-9-]*)['"]/gu,
+  )].map(match => match[1])
+  assert.equal(declaredCodes.length, constructors.length)
+
+  for (const code of new Set([...declaredCodes, 'command-failed'])) {
+    const causeCode = `DSH_OPERATIONS_${code.replaceAll('-', '_').toUpperCase()}`
+    assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+      ok: false,
+      producer: 'operations',
+      step: 'profile-setup',
+      cause_code: causeCode,
+    })), {
+      scenario_producer: 'operations',
+      scenario_step: 'profile-setup',
+      scenario_cause_code: causeCode,
+    })
+  }
+})
+
 test('scenario diagnostic tracker binds a later leg and clears stale operation status', () => {
   const failedOperation = createScenarioFailureDiagnosticTracker('packed-runtime')
   failedOperation.enterStep('candidate-install')
