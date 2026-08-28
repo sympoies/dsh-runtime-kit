@@ -13,6 +13,14 @@ flow, duplicated logic, or changes that may be hard to maintain after merge.
 - Naming, ownership boundaries, and local pattern fit.
 - Tests that document intended behavior rather than implementation trivia.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue that is reachable
+in a supported scenario and material to the requested outcome or an established
+invariant. Exclude architecture or style preferences, unrelated defects,
+hypothetical hardening, cleanup, and future flexibility. Low and informational
+observations never block. Recommend the smallest sufficient local repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

@@ -18,6 +18,15 @@ DeepSeek Harness (DSH).
 - Do not duplicate a policy engine in JavaScript when the rule belongs in the
   shared `nils-cli` policy boundary.
 
+## Delivery discipline
+
+- Inspect affected targets, callers, tests, and rules; distinguish facts,
+  assumptions, and inference. Deliver the smallest correct solution for the
+  accepted observable outcome.
+- Exclude hypothetical hardening, unsupported edge cases, architecture
+  preference, and future flexibility from the current task.
+  Possible improvement is not incompleteness.
+
 ## Validation
 
 Apply the reviewed patch to a pristine selected checkout, rebuild DSH, and run

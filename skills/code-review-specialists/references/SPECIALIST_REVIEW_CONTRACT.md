@@ -79,10 +79,26 @@ Use a number from `0.0` to `1.0`.
 
 - `0.80` to `1.00`: high-confidence verified issue.
 - `0.60` to `0.79`: plausible issue with concrete supporting evidence.
-- Below `0.60`: residual-risk appendix by default, not a main finding.
+- Below `0.60`: omit by default; include as residual risk only when concrete and
+  decision-relevant, never as a main finding.
 
 The default display threshold is `0.60`. A reviewer may tune the threshold for
 a specific review, but must not promote unsupported speculation to a finding.
+
+## Finding Admission
+
+Evidence alone does not make a concern blocking. A main finding must be
+introduced or materially worsened by the reviewed change, reachable in a
+supported scenario, and material to the requested outcome, an established
+invariant, or a mandatory correctness, security, data, migration, or public
+contract boundary.
+
+Do not admit unrelated pre-existing defects, hypothetical hardening,
+architecture or style preferences, optional cleanup, future flexibility, or
+test expansion without a distinct material changed risk. Low and informational
+observations are non-blocking and should appear only when decision-relevant.
+Recommendations name the smallest sufficient local repair. A material
+architecture or scope change is a user decision, not the default fix.
 
 ## Forced Specialists
 
@@ -104,8 +120,14 @@ Forced flags bypass the small-diff skip rule only for the named specialists.
 Run `red-team` after the other selected specialists when either condition is
 true:
 
-- `diff_lines > 200`
 - any selected specialist produced a `critical` finding
+- `diff_lines > 200` and the change crosses a material security, data,
+  migration, public-contract, concurrency, or other safety boundary
+
+Raw diff size alone does not activate red-team.
+If a released scope helper reports `red_team.required` solely from
+`diff_lines > 200`, the caller normalizes that legacy size-only result to not
+selected unless a material boundary condition above is independently present.
 
 The red-team pass receives the merged findings from selected specialists and
 looks for missed cross-cutting failure modes, invalid assumptions, exploit

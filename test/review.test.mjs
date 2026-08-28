@@ -216,6 +216,10 @@ test('review_specialists exposes exactly eight server-owned personas', () => {
     const persona = reviewerPersona(role)
     assert.match(persona, /read-only/i, role)
     assert.match(persona, new RegExp(role.replace('reviewer-', ''), 'i'), role)
+    assert.match(persona, /introduced or materially worsened/i, role)
+    assert.match(persona, /reachable|plausible supported attack path/i, role)
+    assert.match(persona, /Low and informational observations never block\./i, role)
+    assert.match(persona, /smallest sufficient local repair/i, role)
   }
   assert.throws(() => reviewerPersona('reviewer-injected'), /unknown reviewer role/)
   assert.match(reviewerPersona('reviewer-quick'), /clean, findings, or escalate/)
