@@ -13,6 +13,7 @@ import { observableChildPid } from './observable-child-pid.js'
 import {
   finalizeScenarioCanary,
   SCENARIO_CANARY_MARKER,
+  startScenarioCanaryWhenReady,
 } from './receipt-output.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
@@ -913,18 +914,5 @@ export function apply(ctx) {
     })
   }
   if (phase === 'unpatched-smoke') return run(undefined)
-  const currentRuntime = ctx.get('dshRuntimeKit')
-  const currentAcceptance = ctx.get('dshAcceptance')
-  if (currentRuntime !== undefined) {
-    if (acceptanceRequired && currentAcceptance === undefined) return
-    return run(acceptanceRequired ? currentAcceptance : undefined)
-  }
-  let started = false
-  ctx.inject(['dshRuntimeKit'], runtimeCtx => {
-    if (started) return
-    const service = runtimeCtx.get('dshAcceptance')
-    if (acceptanceRequired && service === undefined) return
-    started = true
-    void run(acceptanceRequired ? service : undefined)
-  })
+  startScenarioCanaryWhenReady(ctx, acceptanceRequired, run)
 }

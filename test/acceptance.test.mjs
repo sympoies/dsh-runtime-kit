@@ -24,6 +24,7 @@ import {
   createScenarioFailureDiagnosticTracker,
   parseScenarioCanaryReceipt,
   recordScenarioOperationResult,
+  scenarioOperationSucceeded,
   waitForScenarioOperationMarker,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
@@ -1316,6 +1317,24 @@ test('real subprocess timeout and signal results use the production outcome reco
     cause_code: 'PROCESS_SIGNALED',
     operation_signal: 'SIGKILL',
   })
+})
+
+test('a zero exit cannot mask a synchronous subprocess timeout or signal', () => {
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: undefined,
+    signal: null,
+  }), true)
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
+    signal: null,
+  }), false)
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: undefined,
+    signal: 'SIGTERM',
+  }), false)
 })
 
 test('production outcome recorder ignores inherited fields and accessors', () => {

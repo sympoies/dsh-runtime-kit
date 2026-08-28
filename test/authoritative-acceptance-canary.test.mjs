@@ -9,7 +9,10 @@ import {
   validationBodyExecutions,
 } from './fixtures/authoritative-acceptance-canary/body-execution-counter.js'
 import { observableChildPid } from './fixtures/authoritative-acceptance-canary/observable-child-pid.js'
-import { finalizeScenarioCanary } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
+import {
+  finalizeScenarioCanary,
+  startScenarioCanaryWhenReady,
+} from './fixtures/authoritative-acceptance-canary/receipt-output.js'
 
 const fixtureManifest = new URL('./fixtures/authoritative-acceptance-canary/package.json', import.meta.url)
 
@@ -18,6 +21,45 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   assert.equal(manifest.files.includes('observable-child-pid.js'), true)
   assert.equal(manifest.files.includes('body-execution-counter.js'), true)
   assert.equal(manifest.files.includes('receipt-output.js'), true)
+})
+
+test('an acceptance canary waits for both runtime services across staggered activation', () => {
+  const runtime = Object.freeze({})
+  const acceptance = Object.freeze({})
+  const services = new Map([['dshRuntimeKit', runtime]])
+  const starts = []
+  let dependencies
+  let injected
+  const ctx = {
+    get(name) { return services.get(name) },
+    inject(names, callback) {
+      dependencies = names
+      injected = callback
+    },
+  }
+
+  startScenarioCanaryWhenReady(ctx, true, service => { starts.push(service) })
+  assert.deepEqual(starts, [])
+  assert.deepEqual(dependencies, ['dshRuntimeKit', 'dshAcceptance'])
+
+  services.set('dshAcceptance', acceptance)
+  injected(ctx)
+  injected(ctx)
+  assert.deepEqual(starts, [acceptance])
+})
+
+test('an acceptance canary starts immediately when both runtime services already exist', () => {
+  const acceptance = Object.freeze({})
+  const starts = []
+  const ctx = {
+    get(name) {
+      if (name === 'dshRuntimeKit') return Object.freeze({})
+      if (name === 'dshAcceptance') return acceptance
+    },
+    inject() { assert.fail('an already-ready canary must not register a late injection') },
+  }
+  startScenarioCanaryWhenReady(ctx, true, service => { starts.push(service) })
+  assert.deepEqual(starts, [acceptance])
 })
 
 test('the canary waits for its receipt line to flush before allowing host exit', async () => {
