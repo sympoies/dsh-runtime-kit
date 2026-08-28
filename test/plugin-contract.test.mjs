@@ -2979,7 +2979,9 @@ test('a lone unsafe default delivery denial explains inspection and delivery rec
   assert.match(result.reason, /agent-hook:block-unsafe-default-delivery/)
   assert.match(result.reason, /blocked before command dispatch/i)
   assert.match(result.reason, /split read-only inspection from delivery/i)
-  assert.match(result.reason, /semantic-commit, managed worktrees, and the repository PR workflow/i)
+  assert.match(result.reason, /Bash tool workdir/i)
+  assert.match(result.reason, /semantic-commit commit --repo <absolute managed-worktree path>/i)
+  assert.match(result.reason, /repository PR workflow/i)
   assert.equal(delegated, false)
 })
 
