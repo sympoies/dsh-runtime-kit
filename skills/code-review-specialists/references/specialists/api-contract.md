@@ -16,6 +16,14 @@ request, or response changes that can affect callers across a boundary.
   backend plans with downstream consumers.
 - Missing contract tests or migration notes for consumers.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue that is reachable
+in a supported scenario and material to the requested outcome or an established
+contract. Exclude unrelated defects, hypothetical hardening, preferences,
+cleanup, and future flexibility. Low and informational observations never
+block. Recommend the smallest sufficient local repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

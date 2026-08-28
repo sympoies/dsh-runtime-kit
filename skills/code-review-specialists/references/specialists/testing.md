@@ -24,6 +24,15 @@ confidence.
   residual gaps, and coverage additions that protect distinct risk rather than
   merely raising a percentage.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened test or validation gap
+that leaves a reachable material behavior or established invariant unprotected.
+Do not require test expansion without a distinct material changed risk. Exclude
+unrelated gaps, preferences, cleanup, and future flexibility. Low and
+informational observations never block. Recommend the smallest sufficient local
+repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

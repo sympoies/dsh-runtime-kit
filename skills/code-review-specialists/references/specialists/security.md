@@ -15,6 +15,14 @@ changes with meaningful attack surface.
 - Missing negative tests for permission or input validation boundaries.
 - Security-sensitive rollout and backwards-compatibility gaps.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue with a plausible
+supported attack path that is material to an established trust boundary.
+Exclude hypothetical hardening without such a path, unrelated defects,
+preferences, cleanup, and future flexibility. Low and informational
+observations never block. Recommend the smallest sufficient local repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

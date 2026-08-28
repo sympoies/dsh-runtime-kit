@@ -2,9 +2,11 @@
 
 ## Activation Scope
 
-Run after the other selected specialists when `diff_lines > 200`, when any
-selected specialist produced a `critical` finding, or when explicitly forced.
-This specialist receives the merged findings from the selected specialists.
+Run after the other selected specialists when any selected specialist produced
+a `critical` finding, when explicitly forced, or when a broad diff crosses a
+material security, data, migration, public-contract, concurrency, or other
+safety boundary. Raw diff size alone is insufficient. This specialist receives
+the merged findings from the selected specialists.
 
 ## Review Focus
 
@@ -13,6 +15,14 @@ This specialist receives the merged findings from the selected specialists.
 - Incorrect assumptions in prior specialist findings.
 - Unverified high-confidence claims.
 - Residual risks that need explicit handoff rather than merge blocking.
+
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue that is reachable
+in a supported scenario and material to the requested outcome or a safety
+boundary. Exclude hypothetical hardening, unrelated defects, preferences,
+cleanup, and future flexibility. Low and informational observations never
+block. Recommend the smallest sufficient local repair.
 
 ## Required Output Shape
 
