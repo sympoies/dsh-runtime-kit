@@ -862,6 +862,21 @@ export function scenarioOperationSucceeded(result) {
 }
 
 /**
+ * Build a bounded public message for a failed scenario subprocess. Detailed
+ * classification belongs to the scenario diagnostic tracker; child output,
+ * arguments, error messages, and stacks must never enter this message.
+ *
+ * @param {unknown} commandLabel
+ */
+export function scenarioOperationFailureMessage(commandLabel) {
+  const label = typeof commandLabel === 'string'
+    && /^[0-9A-Za-z][0-9A-Za-z._-]{0,254}$/u.test(commandLabel)
+    ? commandLabel
+    : 'subprocess'
+  return `${label} failed; see bounded scenario diagnostic`
+}
+
+/**
  * Wait for a scenario marker while retaining bounded early child termination.
  * A deliberate termination after the marker is never recorded as a failure.
  *
