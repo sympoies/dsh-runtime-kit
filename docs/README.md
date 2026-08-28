@@ -18,6 +18,8 @@ routine contributor entrypoint.
   admission states, cleanup, and operator recovery.
 - [Composition contracts](composition-contracts.md) — strict public plugin and
   bot schemas, canonical resolution, lock receipts, and trust boundaries.
+- [Governed workload manager](workload-manager.md) — admission, verifier-owned
+  trust, per-instance lifecycle/reconcile, control frames, and mediated effects.
 
 ## Understand the runtime
 

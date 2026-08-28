@@ -30,6 +30,9 @@ tools, sandbox, approvals, skills, and subagents.
   rejected at DSH admission boundaries instead of becoming prompt context.
 - Strict public plugin and bot composition contracts with canonical
   dependency resolution and secret-free sibling lock receipts.
+- A governed per-instance workload manager with verifier-owned trust reads,
+  signed admission, lifecycle/reconcile state, authenticated control frames,
+  and broker-only mediated GitHub effects.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
@@ -209,6 +212,7 @@ for its ownership model and current limitations.
 - [Architecture and runtime contract](docs/architecture.md)
 - [Native runtime health](docs/runtime-health.md)
 - [Composition contracts](docs/composition-contracts.md)
+- [Governed workload manager](docs/workload-manager.md)
 - [Workspace identity and leases](docs/workspace-leases.md)
 - [Authoritative completion acceptance](docs/authoritative-acceptance.md)
 - [Compatibility](docs/compatibility.md)

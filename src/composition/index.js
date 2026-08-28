@@ -1935,6 +1935,51 @@ function freezeProtocolDocument(document) {
   return deepFreeze(document)
 }
 
+/**
+ * Validate and detach one strict public composition protocol request without
+ * executing policy resolution or mutating a composition service.
+ * @param {unknown} value
+ */
+export function validateCompositionProtocolRequest(value) {
+  const detached = /** @type {Record<string, any>} */ (detachedJson(value, 'composition protocol request'))
+  assertNoSecretShape(detached, 'composition protocol request', 0, { count: 0 }, false)
+  if (detached.kind === 'ValidateCompositionRequest') {
+    exactKeys(detached, [
+      'apiVersion', 'kind', 'requestId', 'descriptors', 'profile', 'readerSchemas', 'runtime',
+    ], 'ValidateCompositionRequest')
+    if (detached.apiVersion !== COMPOSITION_API_VERSION) fail('unsupported-api-version', 'ValidateCompositionRequest apiVersion is unsupported')
+    requestId(detached.requestId, 'ValidateCompositionRequest.requestId')
+    readerSchemas(detached.readerSchemas, 'ValidateCompositionRequest.readerSchemas')
+    const runtime = runtimeIdentity(detached.runtime, 'ValidateCompositionRequest.runtime')
+    const descriptors = array(detached.descriptors, 'ValidateCompositionRequest.descriptors', item => {
+      validatePluginDescriptor(item)
+      return /** @type {Record<string, any>} */ (item)
+    })
+    if (descriptors.length === 0) fail('schema-invalid', 'ValidateCompositionRequest requires a descriptor')
+    unique(descriptors.map(item => `${item.metadata.id}\0${item.metadata.version}`), 'ValidateCompositionRequest.descriptors')
+    validateBotProfile(detached.profile)
+    for (const descriptor of descriptors) assertRuntimeCompatibility(runtime, descriptor)
+    return detached
+  }
+  if (detached.kind === 'ResolveCompositionRequest') {
+    exactKeys(detached, [
+      'apiVersion', 'kind', 'requestId', 'validatedDocumentDigests',
+      'catalogSnapshotDigest', 'runtime', 'publicPolicyCeilingDigest',
+    ], 'ResolveCompositionRequest')
+    if (detached.apiVersion !== COMPOSITION_API_VERSION) fail('invalid-request', 'ResolveCompositionRequest apiVersion is unsupported')
+    requestId(detached.requestId, 'ResolveCompositionRequest.requestId')
+    runtimeIdentity(detached.runtime, 'ResolveCompositionRequest.runtime')
+    const validatedDigests = record(detached.validatedDocumentDigests, 'ResolveCompositionRequest.validatedDocumentDigests')
+    exactKeys(validatedDigests, ['profile', 'descriptors'], 'ResolveCompositionRequest.validatedDocumentDigests')
+    digest(validatedDigests.profile, 'ResolveCompositionRequest.validatedDocumentDigests.profile')
+    digestArray(validatedDigests.descriptors, 'ResolveCompositionRequest.validatedDocumentDigests.descriptors')
+    digest(detached.catalogSnapshotDigest, 'ResolveCompositionRequest.catalogSnapshotDigest')
+    digest(detached.publicPolicyCeilingDigest, 'ResolveCompositionRequest.publicPolicyCeilingDigest')
+    return detached
+  }
+  fail('unsupported-kind', 'composition protocol request kind is unsupported')
+}
+
 /** @param {unknown} request */
 function failureCorrelationId(request) {
   try {
@@ -2108,30 +2153,14 @@ export function createCompositionService(options) {
   /** @param {unknown} request */
   const validate = request => {
     try {
-      const detached = /** @type {Record<string, any>} */ (detachedJson(request, 'ValidateCompositionRequest'))
-      assertNoSecretShape(detached, 'ValidateCompositionRequest', 0, { count: 0 }, false)
-      exactKeys(detached, [
-        'apiVersion', 'kind', 'requestId', 'descriptors', 'profile', 'readerSchemas', 'runtime',
-      ], 'ValidateCompositionRequest')
-      if (detached.apiVersion !== COMPOSITION_API_VERSION) {
-        fail('unsupported-api-version', 'ValidateCompositionRequest apiVersion is unsupported')
-      }
+      const detached = validateCompositionProtocolRequest(request)
       if (detached.kind !== 'ValidateCompositionRequest') {
         fail('unsupported-kind', 'ValidateCompositionRequest kind is unsupported')
       }
-      const correlation = requestId(detached.requestId, 'ValidateCompositionRequest.requestId')
-      readerSchemas(detached.readerSchemas, 'ValidateCompositionRequest.readerSchemas')
-      const runtime = runtimeIdentity(detached.runtime, 'ValidateCompositionRequest.runtime')
-      const descriptors = array(detached.descriptors, 'ValidateCompositionRequest.descriptors', (item) => {
-        validatePluginDescriptor(item)
-        return /** @type {Record<string, any>} */ (item)
-      })
-      if (descriptors.length === 0) fail('schema-invalid', 'ValidateCompositionRequest requires a descriptor')
-      const identities = descriptors.map(item => `${item.metadata.id}\0${item.metadata.version}`)
-      unique(identities, 'ValidateCompositionRequest.descriptors')
-      validateBotProfile(detached.profile)
+      const correlation = detached.requestId
+      const runtime = detached.runtime
+      const descriptors = /** @type {Record<string, any>[]} */ (detached.descriptors)
       const profile = /** @type {Record<string, any>} */ (detached.profile)
-      for (const descriptor of descriptors) assertRuntimeCompatibility(runtime, descriptor)
       const descriptorDigests = descriptors.map(item => item.metadata.digest).sort()
       const key = validationKey(runtime, descriptorDigests, profile.metadata.digest)
       validations.set(key, { profile, descriptors, runtime })
@@ -2154,32 +2183,23 @@ export function createCompositionService(options) {
   /** @param {unknown} request */
   const resolve = request => {
     try {
-      const detached = /** @type {Record<string, any>} */ (detachedJson(request, 'ResolveCompositionRequest'))
-      assertNoSecretShape(detached, 'ResolveCompositionRequest', 0, { count: 0 }, false)
-      exactKeys(detached, [
-        'apiVersion', 'kind', 'requestId', 'validatedDocumentDigests',
-        'catalogSnapshotDigest', 'runtime', 'publicPolicyCeilingDigest',
-      ], 'ResolveCompositionRequest')
-      if (detached.apiVersion !== COMPOSITION_API_VERSION) {
-        fail('invalid-request', 'ResolveCompositionRequest apiVersion is unsupported')
-      }
+      const detached = validateCompositionProtocolRequest(request)
       if (detached.kind !== 'ResolveCompositionRequest') {
         fail('invalid-request', 'ResolveCompositionRequest kind is unsupported')
       }
-      const correlation = requestId(detached.requestId, 'ResolveCompositionRequest.requestId')
-      const runtime = runtimeIdentity(detached.runtime, 'ResolveCompositionRequest.runtime')
-      const validatedDigests = record(detached.validatedDocumentDigests, 'ResolveCompositionRequest.validatedDocumentDigests')
-      exactKeys(validatedDigests, ['profile', 'descriptors'], 'ResolveCompositionRequest.validatedDocumentDigests')
-      const profileDigest = digest(validatedDigests.profile, 'ResolveCompositionRequest.validatedDocumentDigests.profile')
-      const descriptorDigests = digestArray(validatedDigests.descriptors, 'ResolveCompositionRequest.validatedDocumentDigests.descriptors').sort()
+      const correlation = detached.requestId
+      const runtime = detached.runtime
+      const validatedDigests = detached.validatedDocumentDigests
+      const profileDigest = validatedDigests.profile
+      const descriptorDigests = [...validatedDigests.descriptors].sort()
       const key = validationKey(runtime, descriptorDigests, profileDigest)
       const validation = validations.get(key)
       if (validation === undefined) fail('input-not-validated', 'resolve inputs have not passed composition.validate')
-      const catalogSnapshotDigest = digest(detached.catalogSnapshotDigest, 'ResolveCompositionRequest.catalogSnapshotDigest')
+      const catalogSnapshotDigest = detached.catalogSnapshotDigest
       if (computeCatalogSnapshotDigest(validation.descriptors) !== catalogSnapshotDigest) {
         fail('catalog-digest-mismatch', 'catalog snapshot does not match the validated descriptors')
       }
-      const policyDigest = digest(detached.publicPolicyCeilingDigest, 'ResolveCompositionRequest.publicPolicyCeilingDigest')
+      const policyDigest = detached.publicPolicyCeilingDigest
       let policy
       try { policy = resolvePublicPolicy(policyDigest) } catch { fail('policy-denied', 'public policy could not be resolved') }
       if (policy === undefined || policy === null || typeof /** @type {any} */ (policy)?.then === 'function') {
