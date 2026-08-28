@@ -219,7 +219,7 @@ test('same-key same-digest replays exactly and changed semantic bytes conflict',
   assert.equal(effects, 1)
 })
 
-test('start and resume cannot report Running without one retained DSH session identity', async () => {
+test('start with missing post-effect session evidence is indeterminate and resume requires retained identity', async () => {
   let startEffects = 0
   const startInput = setup({ start: async () => {
     startEffects += 1
@@ -230,10 +230,14 @@ test('start and resume cannot report Running without one retained DSH session id
     priorReceiptDigest: locked.receipt.digest,
   })
   const missingStartIdentity = await startInput.manager.start(start)
-  assert.equal(missingStartIdentity.kind, 'StartInstanceFailed')
-  assert.equal(missingStartIdentity.code, 'runtime-unavailable')
-  assert.equal(startInput.store.instances.get(startInput.identity.namespace).state, 'Locked')
+  assert.equal(missingStartIdentity.kind, 'StartInstanceIndeterminate')
+  assert.equal(missingStartIdentity.code, 'effect-unknown')
+  assert.equal(startInput.store.instances.get(startInput.identity.namespace).state, 'Starting')
   assert.equal(startInput.store.instances.get(startInput.identity.namespace).sessionIdentity, null)
+  assert.deepEqual(
+    await startInput.manager.start({ ...start, requestId: 'missing-session-replay' }),
+    missingStartIdentity,
+  )
   assert.equal(startEffects, 1)
 
   let resumeEffects = 0
@@ -250,6 +254,164 @@ test('start and resume cannot report Running without one retained DSH session id
   assert.equal(missingRetainedIdentity.kind, 'ResumeInstanceFailed')
   assert.equal(missingRetainedIdentity.code, 'retained-state-missing')
   assert.equal(resumeEffects, 0)
+})
+
+test('resume preserves one retained session identity from Interrupted and Stopped', async () => {
+  for (const source of ['Interrupted', 'Stopped']) {
+    let resumeEffects = 0
+    const input = setup({
+      start: async () => ({ status: 'succeeded', sessionIdentity: 'session-1' }),
+      interrupt: async () => ({ status: 'succeeded', retainedStateDigest: inputDigest(20) }),
+      drain: async () => ({ status: 'succeeded', effectSummaryDigest: inputDigest(21) }),
+      stop: async () => ({ status: 'succeeded', retainedStateDisposition: 'retained' }),
+      resume: async () => { resumeEffects += 1; return { status: 'succeeded', sessionIdentity: 'session-1' } },
+    })
+    const locked = await input.manager.lock(input.request)
+    const started = await input.manager.start(mutation('StartInstanceRequest', 'start', 'Locked', input, {
+      priorReceiptDigest: locked.receipt.digest,
+    }))
+    let prior = started.receipt.digest
+    if (source === 'Interrupted') {
+      const interrupted = await input.manager.interrupt(mutation('InterruptInstanceRequest', 'interrupt', 'Running', input, {
+        runIdentity: 'session-1',
+      }))
+      prior = interrupted.receipt.digest
+    } else {
+      const drained = await input.manager.drain(mutation('DrainInstanceRequest', 'drain', 'Running', input, {
+        triggerFenceDigest: inputDigest(22), publisherEpoch: '1', deadlinePolicyDigest: inputDigest(23),
+      }))
+      const stopped = await input.manager.stop(mutation('StopInstanceRequest', 'stop', 'Drained', input, {
+        receiptChainHead: drained.receipt.digest,
+      }))
+      prior = stopped.receipt.digest
+    }
+    const resumed = await input.manager.resume(mutation('ResumeInstanceRequest', 'resume', source, input, {
+      priorReceiptDigest: prior,
+    }))
+    assert.equal(resumed.kind, 'ResumeInstanceSucceeded')
+    assert.equal(resumed.sessionIdentity, 'session-1')
+    assert.equal(resumed.receipt.sessionIdentity, 'session-1')
+    assert.equal(input.store.instances.get(input.identity.namespace).sessionIdentity, 'session-1')
+    assert.equal(resumeEffects, 1)
+  }
+})
+
+test('resume with substituted post-effect session evidence is indeterminate without a success receipt', async () => {
+  let resumeEffects = 0
+  const input = setup({
+    start: async () => ({ status: 'succeeded', sessionIdentity: 'session-1' }),
+    interrupt: async () => ({ status: 'succeeded', retainedStateDigest: inputDigest(24) }),
+    resume: async () => { resumeEffects += 1; return { status: 'succeeded', sessionIdentity: 'session-2' } },
+  })
+  const locked = await input.manager.lock(input.request)
+  const started = await input.manager.start(mutation('StartInstanceRequest', 'start', 'Locked', input, {
+    priorReceiptDigest: locked.receipt.digest,
+  }))
+  const interrupted = await input.manager.interrupt(mutation('InterruptInstanceRequest', 'interrupt', 'Running', input, {
+    runIdentity: 'session-1',
+  }))
+  const receiptCount = input.store.receipts.size
+  const result = await input.manager.resume(mutation('ResumeInstanceRequest', 'resume', 'Interrupted', input, {
+    priorReceiptDigest: interrupted.receipt.digest,
+  }))
+  assert.equal(result.kind, 'ResumeInstanceIndeterminate')
+  assert.equal(result.code, 'effect-unknown')
+  assert.equal(input.store.instances.get(input.identity.namespace).state, 'Starting')
+  assert.equal(input.store.instances.get(input.identity.namespace).sessionIdentity, 'session-1')
+  assert.equal(input.store.instances.get(input.identity.namespace).receiptHead, interrupted.receipt.digest)
+  assert.equal(input.store.receipts.size, receiptCount)
+  assert.deepEqual(
+    await input.manager.resume({
+      ...mutation('ResumeInstanceRequest', 'resume', 'Interrupted', input, {
+        priorReceiptDigest: interrupted.receipt.digest,
+      }),
+      requestId: 'substituted-session-replay',
+    }),
+    result,
+  )
+  assert.equal(resumeEffects, 1)
+  assert.notEqual(started.receipt.digest, interrupted.receipt.digest)
+})
+
+test('health exceptions and malformed successful effect evidence converge to stable typed journal results', async () => {
+  let rejectHealth = false
+  let effectCalls = 0
+  const fixture = setup()
+  const healthManager = createWorkloadManager({
+    store: fixture.store,
+    trustVerifier: fixture.trustVerifier,
+    health: async () => {
+      if (rejectHealth) throw new Error('probe transport unavailable')
+      return { state: 'ready', code: 'READY' }
+    },
+    effects: { start: async () => { effectCalls += 1; return { status: 'succeeded', sessionIdentity: 'session-1' } } },
+  })
+  const locked = await healthManager.lock(fixture.request)
+  rejectHealth = true
+  const healthRequest = mutation('StartInstanceRequest', 'start', 'Locked', fixture, {
+    priorReceiptDigest: locked.receipt.digest,
+  })
+  const unavailable = await healthManager.start(healthRequest)
+  assert.equal(unavailable.kind, 'StartInstanceFailed')
+  assert.equal(unavailable.code, 'required-health-failed')
+  assert.deepEqual(await healthManager.start({ ...healthRequest, requestId: 'health-replay' }), unavailable)
+  assert.equal(fixture.store.instances.get(fixture.identity.namespace).state, 'Locked')
+  assert.equal(effectCalls, 0)
+
+  let malformedEffects = 0
+  const malformed = setup({ start: async () => {
+    malformedEffects += 1
+    return { status: 'succeeded', sessionIdentity: 'session-1', effectSummaryDigest: 'not-a-digest' }
+  } })
+  const malformedLock = await malformed.manager.lock(malformed.request)
+  const malformedRequest = mutation('StartInstanceRequest', 'start', 'Locked', malformed, {
+    priorReceiptDigest: malformedLock.receipt.digest,
+  })
+  const unknown = await malformed.manager.start(malformedRequest)
+  assert.equal(unknown.kind, 'StartInstanceIndeterminate')
+  assert.equal(unknown.lastObservedState, 'Starting')
+  assert.deepEqual(await malformed.manager.start({ ...malformedRequest, requestId: 'malformed-replay' }), unknown)
+  assert.equal(malformed.store.instances.get(malformed.identity.namespace).state, 'Starting')
+  assert.equal(malformed.store.receipts.size, 1)
+  assert.equal(malformedEffects, 1)
+})
+
+test('successful start refreshes optional health and terminal replay retains bounded acceptance evidence', async () => {
+  const base = setup()
+  let degraded = false
+  const manager = createWorkloadManager({
+    store: base.store,
+    trustVerifier: base.trustVerifier,
+    health: async probe => probe.endsWith('.metrics') && degraded
+      ? { state: 'degraded', code: 'LATE' }
+      : { state: 'ready', code: 'READY' },
+    effects: { start: async () => ({ status: 'succeeded', sessionIdentity: 'session-1' }) },
+  })
+  const locked = await manager.lock(base.request)
+  degraded = true
+  const request = mutation('StartInstanceRequest', 'start', 'Locked', base, {
+    priorReceiptDigest: locked.receipt.digest,
+  })
+  const started = await manager.start(request)
+  for (let index = 0; index < 32; index += 1) {
+    const replay = structuredClone(request)
+    replay.requestId = `bounded-replay-${index}`
+    replay.runtimeAssertion = runtimeAssertion(
+      base.seal, base.identity, base.signing, base.bundle, 'start', request.requestDigest,
+      { nonce: Buffer.alloc(16, index + 1).toString('base64url'), revocationId: `bounded-replay-${index}` },
+    )
+    replay.runtimeAssertionDigest = replay.runtimeAssertion.metadata.digest
+    assert.deepEqual(await manager.start(replay), started)
+  }
+  const journal = base.store.journals.get(`StartInstanceRequest\0${base.identity.namespace}\0${request.idempotencyKey}`)
+  assert.equal(Object.hasOwn(journal, 'replayAssertionAcceptanceDigests'), false)
+  assert.equal(typeof journal.replayAssertionAcceptanceDigest, 'string')
+  const status = await manager.status({
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'StatusInstanceRequest',
+    requestId: 'refreshed-optional-health', identity: base.identity,
+    receiptChainHead: started.receipt.digest,
+  })
+  assert.deepEqual(status.health.optional, ['github-review.metrics'])
 })
 
 test('indeterminate effects require runtime-kit reconcile and stable conflict quarantines once', async () => {
@@ -422,6 +584,75 @@ test('receipt-chain corruption is diagnosed and blocks stop', async () => {
   })
   assert.equal(doctor.receiptChainVerified, false)
   assert.equal(doctor.recoveryRecommendation, 'reconcile')
+})
+
+test('status and doctor reject a valid receipt prefix grafted onto newer instance truth', async () => {
+  const input = setup({ start: async () => ({ status: 'succeeded', sessionIdentity: 'session-1' }) })
+  const locked = await input.manager.lock(input.request)
+  const started = await input.manager.start(mutation('StartInstanceRequest', 'start', 'Locked', input, {
+    priorReceiptDigest: locked.receipt.digest,
+  }))
+  const instance = input.store.instances.get(input.identity.namespace)
+  instance.receiptHead = locked.receipt.digest
+  const status = await input.manager.status({
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'StatusInstanceRequest',
+    requestId: 'prefix-graft-status', identity: input.identity, receiptChainHead: null,
+  })
+  assert.equal(status.kind, 'StatusInstanceFailed')
+  assert.equal(status.code, 'receipt-chain-invalid')
+  const doctor = await input.manager.doctor({
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'DoctorInstanceRequest',
+    requestId: 'prefix-graft-doctor', identity: input.identity,
+    expectedCompositionLockReceiptDigest: input.lock.digest,
+    expectedAdmissionSealDigest: input.seal.metadata.digest,
+    expectedReceiptChainHead: locked.receipt.digest,
+  })
+  assert.equal(doctor.kind, 'DoctorInstanceSucceeded')
+  assert.equal(doctor.receiptChainVerified, false)
+  assert.equal(doctor.recoveryRecommendation, 'reconcile')
+  assert.notEqual(started.receipt.digest, locked.receipt.digest)
+})
+
+test('doctor and reconcile fail closed on stored identity substitution before disclosure or mutation', async () => {
+  const doctorInput = setup()
+  await doctorInput.manager.lock(doctorInput.request)
+  const doctorInstance = doctorInput.store.instances.get(doctorInput.identity.namespace)
+  doctorInstance.identity = identity({ instanceId: 'stored-substitute' })
+  const doctor = await doctorInput.manager.doctor({
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'DoctorInstanceRequest',
+    requestId: 'stored-identity-doctor', identity: doctorInput.identity,
+    expectedCompositionLockReceiptDigest: doctorInput.lock.digest,
+    expectedAdmissionSealDigest: doctorInput.seal.metadata.digest,
+    expectedReceiptChainHead: doctorInstance.receiptHead,
+  })
+  assert.equal(doctor.kind, 'DoctorInstanceFailed')
+  assert.equal(doctor.code, 'not-found')
+  assert.equal(doctor.identity.namespace, doctorInput.identity.namespace)
+
+  const reconcileInput = setup({ start: async () => ({ status: 'indeterminate' }) })
+  const locked = await reconcileInput.manager.lock(reconcileInput.request)
+  const start = mutation('StartInstanceRequest', 'start', 'Locked', reconcileInput, {
+    priorReceiptDigest: locked.receipt.digest,
+  })
+  await reconcileInput.manager.start(start)
+  const journalKey = `StartInstanceRequest\0${reconcileInput.identity.namespace}\0${start.idempotencyKey}`
+  const journal = reconcileInput.store.journals.get(journalKey)
+  journal.request.identity = identity({ instanceId: 'journal-substitute' })
+  const stateBefore = reconcileInput.store.instances.get(reconcileInput.identity.namespace).state
+  const receiptsBefore = reconcileInput.store.receipts.size
+  const result = await reconcileInput.manager.reconcile({
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'ReconcileInstanceRequest',
+    requestId: 'stored-identity-reconcile', originalOperation: 'start',
+    originalIdempotencyKey: start.idempotencyKey, originalRequestDigest: start.requestDigest,
+    identity: reconcileInput.identity, journalEvidenceDigest: inputDigest(64),
+    dshEvidenceDigest: inputDigest(65), expectedSourceStates: ['Locked'],
+    expectedTerminalState: 'Running',
+  }, { authorized: true, evidence: { status: 'committed', sessionIdentity: 'session-1' } })
+  assert.equal(result.kind, 'ReconcileInstanceFailed')
+  assert.equal(result.code, 'state-conflict')
+  assert.equal(reconcileInput.store.instances.get(reconcileInput.identity.namespace).state, stateBefore)
+  assert.equal(reconcileInput.store.receipts.size, receiptsBefore)
+  assert.equal(reconcileInput.store.reconciliations.size, 0)
 })
 
 test('authenticated trust denial keeps its exact failure digest and executes no effect', async () => {

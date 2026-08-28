@@ -224,6 +224,18 @@ function safeFailureIdentity(value) {
   }
 }
 
+/** @param {unknown} left @param {unknown} right */
+function sameIdentity(left, right) {
+  try {
+    const leftIdentity = validateIdentity(left, 'stored instance identity')
+    const rightIdentity = validateIdentity(right, 'requested instance identity')
+    return ['deploymentId', 'profileId', 'generationId', 'instanceId', 'namespace']
+      .every(field => leftIdentity[field] === rightIdentity[field])
+  } catch {
+    return false
+  }
+}
+
 /** @param {unknown} value */
 function safeFailureEpoch(value) {
   if (value === null || value === undefined) return null
@@ -284,6 +296,25 @@ function failed(request, code, state, acceptance = null, acceptanceFailure = nul
   return deepFreeze(result)
 }
 
+/** @param {Record<string, any>} request @param {string} state @param {string} acceptance @param {string} externalIdempotencyToken */
+function indeterminateEffect(request, state, acceptance, externalIdempotencyToken) {
+  const result = {
+    apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'MediatedHostActionIndeterminate',
+    digest: `sha256:${'0'.repeat(64)}`, requestId: request.requestId,
+    requestDigest: request.requestDigest, identity: structuredClone(request.identity),
+    pluginDescriptorDigest: request.pluginDescriptorDigest, pluginId: request.pluginId,
+    actionId: request.actionId, idempotencyKey: request.idempotencyKey,
+    trustAcceptanceReceiptDigest: acceptance, trustAcceptanceFailureDigest: null,
+    observedState: state, publisherEpoch: request.publisherEpoch,
+    budgetDecision: 'reserved', code: 'external-effect-unknown',
+    externalIdempotencyToken,
+    mandatoryRecovery: { reconcileSameToken: true, retryBeforeReconcile: false },
+  }
+  result.digest = computeManagerDocumentDigest(result)
+  validateMediatedHostActionResult(result)
+  return deepFreeze(result)
+}
+
 /**
  * Strict mediated host service. The authorize callback resolves descriptor and
  * seal ceilings without handing private binding state to the plugin.
@@ -310,6 +341,7 @@ export function createMediatedHostService(options) {
     }
     const instance = options.store.instances.get(request.identity.namespace)
     if (instance === undefined) return failed(request, 'state-conflict', null)
+    if (!sameIdentity(instance.identity, request.identity)) return failed(request, 'state-conflict', null)
     if (instance.state !== request.expectedState) return failed(request, 'state-conflict', instance.state)
     const key = `${request.identity.namespace}\0${request.pluginId}\0${request.actionId}\0${request.idempotencyKey}`
     const existing = journal.get(key)
@@ -379,21 +411,7 @@ export function createMediatedHostService(options) {
       effect = { status: 'indeterminate' }
     }
     if (effect?.status === 'indeterminate' && EFFECTFUL_ACTIONS.has(request.actionClass)) {
-      const result = {
-        apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'MediatedHostActionIndeterminate',
-        digest: `sha256:${'0'.repeat(64)}`, requestId: request.requestId,
-        requestDigest: request.requestDigest, identity: structuredClone(request.identity),
-        pluginDescriptorDigest: request.pluginDescriptorDigest, pluginId: request.pluginId,
-        actionId: request.actionId, idempotencyKey: request.idempotencyKey,
-        trustAcceptanceReceiptDigest: acceptance.digest, trustAcceptanceFailureDigest: null,
-        observedState: instance.state, publisherEpoch: request.publisherEpoch,
-        budgetDecision: 'reserved', code: 'external-effect-unknown',
-        externalIdempotencyToken,
-        mandatoryRecovery: { reconcileSameToken: true, retryBeforeReconcile: false },
-      }
-      result.digest = computeManagerDocumentDigest(result)
-      validateMediatedHostActionResult(result)
-      row.result = deepFreeze(result)
+      row.result = indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
       return row.result
     }
     if (effect?.status !== 'succeeded') {
@@ -407,30 +425,40 @@ export function createMediatedHostService(options) {
       try {
         validateExternalEffectReceipt(brokerReceipt)
       } catch {
-        const result = failed(request, 'broker-state-conflict', instance.state, acceptance.digest)
-        row.result = result
-        return result
+        row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+          ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+          : failed(request, 'broker-state-conflict', instance.state, acceptance.digest)
+        return row.result
       }
       if (brokerReceipt.idempotencyToken !== externalIdempotencyToken) {
-        const result = failed(request, 'broker-state-conflict', instance.state, acceptance.digest)
-        row.result = result
-        return result
+        row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+          ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+          : failed(request, 'broker-state-conflict', instance.state, acceptance.digest)
+        return row.result
       }
     } else if (effect.externalEffectReceipt !== undefined && effect.externalEffectReceipt !== null) {
       try {
         validateExternalEffectReceipt(effect.externalEffectReceipt)
       } catch {
-        const result = failed(request, 'resource-denied', instance.state, acceptance.digest)
-        row.result = result
-        return result
+        row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+          ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+          : failed(request, 'resource-denied', instance.state, acceptance.digest)
+        return row.result
+      }
+      if (effect.externalEffectReceipt.idempotencyToken !== externalIdempotencyToken) {
+        row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+          ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+          : failed(request, 'resource-denied', instance.state, acceptance.digest)
+        return row.result
       }
     }
     try {
       assertCanonicalByteBound(effect.outputPayload ?? null, 'mediated host effect output payload')
     } catch {
-      const result = failed(request, 'resource-denied', instance.state, acceptance.digest)
-      row.result = result
-      return result
+      row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+        ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+        : failed(request, 'resource-denied', instance.state, acceptance.digest)
+      return row.result
     }
     const result = {
       apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'MediatedHostActionSucceeded',
@@ -448,9 +476,10 @@ export function createMediatedHostService(options) {
       result.digest = computeManagerDocumentDigest(result)
       validateMediatedHostActionResult(result)
     } catch {
-      const denied = failed(request, 'resource-denied', instance.state, acceptance.digest)
-      row.result = denied
-      return denied
+      row.result = EFFECTFUL_ACTIONS.has(request.actionClass)
+        ? indeterminateEffect(request, instance.state, acceptance.digest, externalIdempotencyToken)
+        : failed(request, 'resource-denied', instance.state, acceptance.digest)
+      return row.result
     }
     row.result = deepFreeze(result)
     return row.result

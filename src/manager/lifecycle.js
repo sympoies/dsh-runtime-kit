@@ -52,6 +52,12 @@ const RECEIPT_KINDS = Object.freeze({
   lock: 'InstanceLockReceipt', start: 'InstanceStartReceipt', resume: 'InstanceResumeReceipt',
   interrupt: 'InstanceInterruptReceipt', drain: 'InstanceDrainReceipt', stop: 'InstanceStopReceipt',
 })
+const TRANSIENT_RECEIPT_SOURCES = Object.freeze({
+  Starting: Object.freeze(['Locked', 'Interrupted', 'Stopped']),
+  Interrupting: Object.freeze(['Running']),
+  Draining: Object.freeze(['Running', 'Interrupted']),
+  Stopping: Object.freeze(['Drained']),
+})
 
 /** @template T @param {T} value @returns {T} */
 function deepFreeze(value) {
@@ -344,12 +350,20 @@ export function createWorkloadManager(options) {
     const degraded = []
     let blocked = null
     for (const probe of composition.health.required) {
-      const result = await options.health(probe, { namespace })
-      if (result?.state !== 'ready' && blocked === null) blocked = probe
+      try {
+        const result = await options.health(probe, { namespace })
+        if (result?.state !== 'ready' && blocked === null) blocked = probe
+      } catch {
+        if (blocked === null) blocked = probe
+      }
     }
     for (const probe of composition.health.optional) {
-      const result = await options.health(probe, { namespace })
-      if (result?.state !== 'ready') degraded.push(probe)
+      try {
+        const result = await options.health(probe, { namespace })
+        if (result?.state !== 'ready') degraded.push(probe)
+      } catch {
+        degraded.push(probe)
+      }
     }
     return { blocked, degraded }
   }
@@ -380,8 +394,7 @@ export function createWorkloadManager(options) {
     try {
       const acceptance = await acceptAssertion(request.runtimeAssertion, instance, request, operation, journal.revision)
       journal.revision = String(BigInt(journal.revision) + 1n)
-      journal.replayAssertionAcceptanceDigests ??= []
-      journal.replayAssertionAcceptanceDigests.push(acceptance.digest)
+      journal.replayAssertionAcceptanceDigest = acceptance.digest
       return replay
     } catch (error) {
       const kind = `${operation[0].toUpperCase()}${operation.slice(1)}InstanceFailed`
@@ -412,6 +425,32 @@ export function createWorkloadManager(options) {
       next = document.priorReceiptDigest
     }
     return seen.size > 0 && requiredObservedState === 'Absent'
+  }
+
+  /** @param {Record<string, any>} instance */
+  const receiptHeadValid = instance => {
+    if (instance.receiptHead === null) return false
+    const document = store.receipts.get(instance.receiptHead)
+    if (document === undefined) return false
+    try {
+      validateRuntimeReceipt(document)
+    } catch {
+      return false
+    }
+    if (document.digest !== instance.receiptHead
+      || canonicalIdentity(document.identity) !== canonicalIdentity(instance.identity)) return false
+    if (document.kind === 'InstanceQuarantineReceipt') {
+      return instance.state === 'Quarantined' && document.observedState === 'Quarantined'
+    }
+    const transientSources = /** @type {Record<string, readonly string[]>} */ (TRANSIENT_RECEIPT_SOURCES)[instance.state]
+    const stateMatches = document.observedState === instance.state
+      || (instance.pendingSourceReceiptHead === instance.receiptHead
+        && transientSources?.includes(document.observedState) === true)
+    return stateMatches
+      && document.sessionIdentity === instance.sessionIdentity
+      && document.compositionLockReceiptDigest === instance.compositionLockReceiptDigest
+      && document.resolvedCompositionDigest === instance.resolvedCompositionDigest
+      && document.admissionSealDigest === instance.admissionSealDigest
   }
 
   /** @param {unknown} value */
@@ -528,6 +567,7 @@ export function createWorkloadManager(options) {
     }
     store.journals.set(journalIdentity(request), journal)
     let assertionAcceptance = null
+    let refreshedDegradedHealth = null
     if (['start', 'resume'].includes(operation)) {
       try {
         assertionAcceptance = await acceptAssertion(request.runtimeAssertion, instance, request, operation, journal.revision)
@@ -548,8 +588,12 @@ export function createWorkloadManager(options) {
         journal.status = 'failed'; journal.result = result
         return result
       }
+      if (operation === 'start') refreshedDegradedHealth = health.degraded
     }
-    if (transition.transient !== null) instance.state = transition.transient
+    if (transition.transient !== null) {
+      instance.pendingSourceReceiptHead = instance.receiptHead
+      instance.state = transition.transient
+    }
     let effect
     try {
       effect = typeof effects[operation] === 'function'
@@ -560,6 +604,7 @@ export function createWorkloadManager(options) {
     }
     if (effect?.status === 'failed') {
       instance.state = sourceState
+      delete instance.pendingSourceReceiptHead
       const result = failure(operation, request, effect.code ?? 'runtime-unavailable', sourceState)
       journal.status = 'failed'; journal.result = result
       return result
@@ -570,35 +615,55 @@ export function createWorkloadManager(options) {
       return result
     }
     if (operation === 'start' && safeSessionIdentity(effect.sessionIdentity) === null) {
-      instance.state = sourceState
-      const result = failure(operation, request, 'runtime-unavailable', sourceState)
-      journal.status = 'failed'; journal.result = result
-      return result
+      const unknown = indeterminate(operation, request, instance.state, instance.receiptHead)
+      journal.status = 'indeterminate'; journal.indeterminate = unknown
+      return unknown
     }
     if (operation === 'resume' && effect.sessionIdentity !== undefined
       && (safeSessionIdentity(effect.sessionIdentity) === null
         || effect.sessionIdentity !== instance.sessionIdentity)) {
-      instance.state = sourceState
-      const result = failure(operation, request, 'identity-mismatch', sourceState)
-      journal.status = 'failed'; journal.result = result
-      return result
+      const unknown = indeterminate(operation, request, instance.state, instance.receiptHead)
+      journal.status = 'indeterminate'; journal.indeterminate = unknown
+      return unknown
     }
-    instance.state = transition.terminal
-    if (operation === 'start') instance.sessionIdentity = effect.sessionIdentity
-    const operationReceipt = receipt(operation, request, instance, sourceState, transition.terminal, effect, null, assertionAcceptance?.digest ?? null, now)
+    const prospectiveInstance = {
+      ...instance,
+      state: transition.terminal,
+      sessionIdentity: operation === 'start' ? effect.sessionIdentity : instance.sessionIdentity,
+      degradedHealth: operation === 'start' && refreshedDegradedHealth !== null
+        ? [...refreshedDegradedHealth] : [...instance.degradedHealth],
+    }
+    let operationReceipt
+    let result
+    try {
+      operationReceipt = receipt(
+        operation, request, prospectiveInstance, sourceState, transition.terminal,
+        effect, null, assertionAcceptance?.digest ?? null, now,
+      )
+      result = {
+        apiVersion: RUNTIME_MANAGER_API_VERSION,
+        kind: `${operation[0].toUpperCase()}${operation.slice(1)}InstanceSucceeded`,
+        requestId: request.requestId, idempotencyKey: request.idempotencyKey,
+        identity: structuredClone(request.identity), observedState: transition.terminal,
+        receipt: operationReceipt,
+        ...(['start', 'resume'].includes(operation) ? { sessionIdentity: prospectiveInstance.sessionIdentity } : {}),
+        ...(operation === 'interrupt' ? { retainedStateDigest: effect.retainedStateDigest ?? null } : {}),
+        ...(operation === 'drain' ? { reconciledEffectSummaryDigest: effect.effectSummaryDigest ?? null } : {}),
+        ...(operation === 'stop' ? { retainedStateDisposition: effect.retainedStateDisposition ?? 'retained' } : {}),
+      }
+      validateManagerPayload(result)
+      result = deepFreeze(result)
+    } catch {
+      const unknown = indeterminate(operation, request, instance.state, instance.receiptHead)
+      journal.status = 'indeterminate'; journal.indeterminate = unknown
+      return unknown
+    }
+    instance.state = prospectiveInstance.state
+    instance.sessionIdentity = prospectiveInstance.sessionIdentity
+    instance.degradedHealth = prospectiveInstance.degradedHealth
+    delete instance.pendingSourceReceiptHead
     instance.receiptHead = operationReceipt.digest
     store.receipts.set(operationReceipt.digest, operationReceipt)
-    const result = deepFreeze({
-      apiVersion: RUNTIME_MANAGER_API_VERSION,
-      kind: `${operation[0].toUpperCase()}${operation.slice(1)}InstanceSucceeded`,
-      requestId: request.requestId, idempotencyKey: request.idempotencyKey,
-      identity: structuredClone(request.identity), observedState: transition.terminal,
-      receipt: operationReceipt,
-      ...(['start', 'resume'].includes(operation) ? { sessionIdentity: instance.sessionIdentity } : {}),
-      ...(operation === 'interrupt' ? { retainedStateDigest: effect.retainedStateDigest ?? null } : {}),
-      ...(operation === 'drain' ? { reconciledEffectSummaryDigest: effect.effectSummaryDigest ?? null } : {}),
-      ...(operation === 'stop' ? { retainedStateDisposition: effect.retainedStateDisposition ?? 'retained' } : {}),
-    })
     journal.status = 'succeeded'; journal.result = result
     return result
   }
@@ -618,7 +683,7 @@ export function createWorkloadManager(options) {
     }
     const instance = store.instances.get(request.identity.namespace)
     if (instance === undefined || canonicalIdentity(instance.identity) !== canonicalIdentity(request.identity)) return failure('status', request, 'not-found', null)
-    if (!receiptChainValid(instance)) return failure('status', request, 'receipt-chain-invalid', instance.state)
+    if (!receiptHeadValid(instance)) return failure('status', request, 'receipt-chain-invalid', instance.state)
     if (request.receiptChainHead !== null && request.receiptChainHead !== instance.receiptHead) return failure('status', request, 'receipt-chain-invalid', instance.state)
     return deepFreeze({
       apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'StatusInstanceSucceeded',
@@ -646,11 +711,15 @@ export function createWorkloadManager(options) {
       return failure('doctor', value && typeof value === 'object' ? /** @type {Record<string, any>} */ (value) : {}, 'invalid-request', null)
     }
     const instance = store.instances.get(request.identity?.namespace)
-    if (instance === undefined) return failure('doctor', request, 'not-found', null)
+    if (instance === undefined
+      || canonicalIdentity(instance.identity) !== canonicalIdentity(request.identity)) {
+      return failure('doctor', request, 'not-found', null)
+    }
     const checks = [
       ['composition-lock', request.expectedCompositionLockReceiptDigest === instance.compositionLockReceiptDigest],
       ['admission-seal', request.expectedAdmissionSealDigest === instance.admissionSealDigest],
-      ['receipt-chain', request.expectedReceiptChainHead === instance.receiptHead && receiptChainValid(instance)],
+      ['receipt-chain', request.expectedReceiptChainHead === instance.receiptHead
+        && receiptHeadValid(instance) && receiptChainValid(instance)],
     ].map(([id, passed]) => ({ id, state: passed ? 'pass' : 'fail' }))
     return deepFreeze({
       apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'DoctorInstanceSucceeded',
@@ -691,6 +760,11 @@ export function createWorkloadManager(options) {
     const journal = store.journals.get(originalKey)
     let instance = store.instances.get(request.identity.namespace)
     if (journal === undefined) return reconcileFailure(request, 'not-found')
+    if (canonicalIdentity(journal.request.identity) !== canonicalIdentity(request.identity)
+      || (instance !== undefined
+        && canonicalIdentity(instance.identity) !== canonicalIdentity(request.identity))) {
+      return reconcileFailure(request, 'state-conflict')
+    }
     if (journal.requestDigest !== request.originalRequestDigest) return reconcileFailure(request, 'idempotency-conflict')
     const matrix = RECONCILIATION_MATRIX[originalOperation]
     const reconciliationKey = `${originalKey}\0${request.journalEvidenceDigest}\0${request.dshEvidenceDigest}`
@@ -749,6 +823,7 @@ export function createWorkloadManager(options) {
       }
       instance.state = matrix.terminal
       if (reconciledSessionIdentity !== null) instance.sessionIdentity = reconciledSessionIdentity
+      delete instance.pendingSourceReceiptHead
       const retainedReceipt = [...store.receipts.values()].find(candidate => candidate.operation === originalOperation
         && candidate.requestDigest === originalRequest.requestDigest
         && canonicalIdentity(candidate.identity) === canonicalIdentity(request.identity))
@@ -795,7 +870,10 @@ export function createWorkloadManager(options) {
         store.instances.delete(request.identity.namespace)
         store.namespaces.delete(request.identity.namespace)
         instance = undefined
-      } else if (instance !== undefined) instance.state = journal.sourceState
+      } else if (instance !== undefined) {
+        instance.state = journal.sourceState
+        delete instance.pendingSourceReceiptHead
+      }
       const result = deepFreeze({
         apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'ReconcileInstanceProvedSource',
         requestId: request.requestId, identity: structuredClone(request.identity),
@@ -838,6 +916,7 @@ export function createWorkloadManager(options) {
       store.namespaces.set(request.identity.namespace, canonicalIdentity(request.identity))
     }
     instance.state = 'Quarantined'; instance.receiptHead = quarantineReceipt.digest
+    delete instance.pendingSourceReceiptHead
     store.receipts.set(quarantineReceipt.digest, deepFreeze(quarantineReceipt))
     const result = deepFreeze({
       apiVersion: RUNTIME_MANAGER_API_VERSION, kind: 'ReconcileInstanceQuarantined',

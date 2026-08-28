@@ -249,6 +249,100 @@ test('control service returns real stale receipt status with its observed state'
   assert.equal(validateManagerControlResponseFrame(response, request), response)
 })
 
+test('authenticated control reconciliation resolves and validates external evidence for the real manager', async () => {
+  const cases = [
+    ['committed', 'ReconcileInstanceProvedTerminal'],
+    ['not-committed', 'ReconcileInstanceProvedSource'],
+    ['temporary-unavailable', 'ReconcileInstanceIndeterminate'],
+    ['resolver-throws', 'ReconcileInstanceIndeterminate'],
+    ['conflict', 'ReconcileInstanceQuarantined'],
+  ]
+  let nonce = 0
+  for (const [evidenceStatus, expectedKind] of cases) {
+    const resolved = composition()
+    const lockReceipt = compositionLock(resolved)
+    const instanceIdentity = identity({ instanceId: `control-reconcile-${evidenceStatus}` })
+    const signing = signingFixture()
+    const bundle = trustBundle(signing)
+    const seal = admissionSeal(resolved, lockReceipt, instanceIdentity, signing, bundle)
+    const lockRequest = baseLockRequest(resolved, lockReceipt, instanceIdentity, seal)
+    lockRequest.requestId = `control-lock-${evidenceStatus}`
+    lockRequest.idempotencyKey = `control-lock-${evidenceStatus}`
+    lockRequest.requestDigest = computeSemanticRequestDigest(lockRequest)
+    lockRequest.runtimeAssertion = runtimeAssertion(
+      seal, instanceIdentity, signing, bundle, 'lock', lockRequest.requestDigest,
+      { nonce: Buffer.alloc(16, ++nonce).toString('base64url'), revocationId: `control-lock-${evidenceStatus}` },
+    )
+    lockRequest.runtimeAssertionDigest = lockRequest.runtimeAssertion.metadata.digest
+    const store = createMemoryRuntimeStore()
+    const manager = createWorkloadManager({
+      store, trustVerifier: acceptingTrustVerifier(),
+      health: async () => ({ state: 'ready', code: 'READY' }),
+      effects: { start: async () => ({ status: 'indeterminate' }) },
+    })
+    const locked = await manager.lock(lockRequest)
+    const start = {
+      apiVersion: 'runtime.sympoies.dev/v1', kind: 'StartInstanceRequest',
+      requestId: `control-start-${evidenceStatus}`, idempotencyKey: `control-start-${evidenceStatus}`,
+      requestDigest: ZERO_DIGEST, identity: structuredClone(instanceIdentity),
+      priorReceiptDigest: locked.receipt.digest, admissionSealDigest: seal.metadata.digest,
+      runtimeAssertion: null, runtimeAssertionDigest: null, expectedState: 'Locked',
+    }
+    start.requestDigest = computeSemanticRequestDigest(start)
+    start.runtimeAssertion = runtimeAssertion(
+      seal, instanceIdentity, signing, bundle, 'start', start.requestDigest,
+      { nonce: Buffer.alloc(16, ++nonce).toString('base64url'), revocationId: `control-start-${evidenceStatus}` },
+    )
+    start.runtimeAssertionDigest = start.runtimeAssertion.metadata.digest
+    assert.equal((await manager.start(start)).kind, 'StartInstanceIndeterminate')
+    const reconcile = {
+      apiVersion: 'runtime.sympoies.dev/v1', kind: 'ReconcileInstanceRequest',
+      requestId: `control-reconcile-${evidenceStatus}`,
+      originalOperation: 'start', originalIdempotencyKey: start.idempotencyKey,
+      originalRequestDigest: start.requestDigest, identity: structuredClone(instanceIdentity),
+      journalEvidenceDigest: TWO_DIGEST,
+      dshEvidenceDigest: THREE_DIGEST,
+      expectedSourceStates: ['Locked'], expectedTerminalState: 'Running',
+    }
+    const frame = createManagerControlRequestFrame({ connectionNonce: String(++nonce), payload: reconcile })
+    const service = createManagerControlService({
+      manager,
+      peers: { controller: { operations: ['reconcile'], namespacePrefixes: ['review-service'] } },
+      reconcileEvidence: async request => {
+        assert.equal(request.journalEvidenceDigest, reconcile.journalEvidenceDigest)
+        if (evidenceStatus === 'resolver-throws') throw new Error('evidence transport unavailable')
+        return evidenceStatus === 'committed'
+          ? { status: evidenceStatus, sessionIdentity: 'session-1' }
+          : { status: evidenceStatus }
+      },
+    })
+    const response = await service.handle(frame, { peerIdentity: 'controller' })
+    assert.equal(response.payload.kind, expectedKind)
+    assert.equal(validateManagerControlResponseFrame(response, frame), response)
+  }
+
+  const missingResolver = createManagerControlService({
+    manager: { reconcile: async () => { throw new Error('must not dispatch') } },
+    peers: { controller: { operations: ['reconcile'], namespacePrefixes: ['review-service'] } },
+  })
+  const instanceIdentity = identity({ instanceId: 'missing-reconcile-resolver' })
+  const request = createManagerControlRequestFrame({
+    connectionNonce: '999',
+    payload: {
+      apiVersion: 'runtime.sympoies.dev/v1', kind: 'ReconcileInstanceRequest',
+      requestId: 'missing-reconcile-resolver', originalOperation: 'start',
+      originalIdempotencyKey: 'missing-reconcile-resolver', originalRequestDigest: ONE_DIGEST,
+      identity: instanceIdentity, journalEvidenceDigest: TWO_DIGEST,
+      dshEvidenceDigest: THREE_DIGEST, expectedSourceStates: ['Locked'],
+      expectedTerminalState: 'Running',
+    },
+  })
+  await assert.rejects(
+    () => missingResolver.handle(request, { peerIdentity: 'controller' }),
+    error => error instanceof RuntimeManagerError && error.code === 'unsupported-kind',
+  )
+})
+
 test('control frames admit exactly all ten public requests plus reconcile and their exhaustive result unions', () => {
   const instanceIdentity = identity()
   const signing = signingFixture()
@@ -615,6 +709,34 @@ test('control response frames validate every lifecycle result variant with stric
   )
 })
 
+test('doctor control results admit the frozen degraded check state without claiming full health', () => {
+  const instanceIdentity = identity()
+  const request = createManagerControlRequestFrame({
+    connectionNonce: '44',
+    payload: {
+      apiVersion: 'runtime.sympoies.dev/v1', kind: 'DoctorInstanceRequest',
+      requestId: 'doctor-degraded', identity: instanceIdentity,
+      expectedCompositionLockReceiptDigest: ONE_DIGEST,
+      expectedAdmissionSealDigest: TWO_DIGEST,
+      expectedReceiptChainHead: THREE_DIGEST,
+    },
+  })
+  const response = createManagerControlResponseFrame({
+    requestFrame: request,
+    payload: {
+      apiVersion: 'runtime.sympoies.dev/v1', kind: 'DoctorInstanceSucceeded',
+      requestId: 'doctor-degraded', identity: instanceIdentity, observedState: 'Running',
+      checks: [
+        { id: 'composition-lock', state: 'pass' },
+        { id: 'admission-seal', state: 'degraded' },
+        { id: 'receipt-chain', state: 'pass' },
+      ],
+      recoveryRecommendation: 'reconcile', receiptChainVerified: true,
+    },
+  })
+  assert.equal(validateManagerControlResponseFrame(response, request), response)
+})
+
 test('manager control datagrams reject oversize request and response frames before dispatch or cloning', () => {
   const statusRequest = {
     apiVersion: 'runtime.sympoies.dev/v1', kind: 'StatusInstanceRequest',
@@ -778,6 +900,83 @@ test('trust verifier paginates one retained snapshot and rejects authority-time 
     () => verifier.readCurrent('review-service'),
     error => error instanceof RuntimeManagerError && error.code === 'time-revision-conflict',
   )
+})
+
+test('trust verifiers sharing retained state serialize namespace refresh and preserve the newest revision', async () => {
+  const signing = signingFixture()
+  const bundle = trustBundle(signing)
+  const head = {
+    apiVersion: 'infra.serenvia.dev/v1', kind: 'DshTrustLineageHead', digest: ZERO_DIGEST,
+    namespace: 'review-service', genesisBundleDigest: bundle.metadata.digest,
+    sequence: '0', bundleDigest: bundle.metadata.digest, transitionDigest: null, casRevision: '0',
+  }
+  head.digest = computeManagerDocumentDigest(head)
+  let releaseFirst
+  const firstGate = new Promise(resolve => { releaseFirst = resolve })
+  let lineageCalls = 0
+  let bundleCalls = 0
+  const authority = {
+    async readLineage(request) {
+      lineageCalls += 1
+      const revision = lineageCalls
+      if (revision === 1) await firstGate
+      const authorityTime = `2026-08-28T00:00:0${revision}Z`
+      const response = {
+        apiVersion: 'infra.serenvia.dev/v1', kind: 'DshTrustLineageReadSucceeded', digest: ZERO_DIGEST,
+        requestId: request.requestId, requestDigest: request.requestDigest,
+        challengeNonce: request.challengeNonce, namespace: request.namespace,
+        controllerIdentity: 'controller.review-service', snapshotHead: head,
+        snapshotHeadDigest: head.digest, currentHeadDigest: head.digest,
+        snapshotAuthorityObservationDigest: ZERO_DIGEST, afterSequence: request.afterSequence,
+        pageStartSequence: null, pageEndSequence: null, nextAfterSequence: null,
+        complete: true, transitions: [], authorityTime,
+        priorAuthorityTime: revision === 1 ? null : '2026-08-28T00:00:01Z',
+        timeRevision: String(revision), priorTimeRevision: revision === 1 ? null : '1',
+        clockHealth: 'healthy', controllerReceiptDigest: TWO_DIGEST,
+      }
+      response.snapshotAuthorityObservationDigest = computeTrustAuthorityObservationDigest(response)
+      response.digest = computeManagerDocumentDigest(response)
+      return response
+    },
+    async readBundle(request) {
+      bundleCalls += 1
+      const response = {
+        apiVersion: 'infra.serenvia.dev/v1', kind: 'DshTrustBundleReadSucceeded', digest: ZERO_DIGEST,
+        requestId: request.requestId, requestDigest: request.requestDigest,
+        challengeNonce: request.challengeNonce, namespace: request.namespace,
+        controllerIdentity: 'controller.review-service', snapshotHeadDigest: head.digest,
+        snapshotAuthorityObservationDigest: request.snapshotAuthorityObservationDigest,
+        bundleDigest: bundle.metadata.digest, bundle, controllerReceiptDigest: THREE_DIGEST,
+      }
+      response.digest = computeManagerDocumentDigest(response)
+      return response
+    },
+  }
+  const state = new Map()
+  const bootstrap = {
+    'review-service': {
+      genesisBundleDigest: bundle.metadata.digest,
+      controllerIdentity: 'controller.review-service',
+    },
+  }
+  const first = createTrustVerifier({
+    authority, bootstrap, state, nonce: () => 'AAAAAAAAAAAAAAAAAAAAAA',
+  })
+  const second = createTrustVerifier({
+    authority, bootstrap, state, nonce: () => 'AQEBAQEBAQEBAQEBAQEBAQ',
+  })
+  const older = first.readCurrent('review-service')
+  await new Promise(resolve => setImmediate(resolve))
+  const newer = second.readCurrent('review-service')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(lineageCalls, 1)
+  releaseFirst()
+  const [olderSnapshot, newerSnapshot] = await Promise.all([older, newer])
+  assert.equal(olderSnapshot.timeRevision, '1')
+  assert.equal(newerSnapshot.timeRevision, '2')
+  assert.equal(state.get('review-service').timeRevision, '2')
+  assert.equal(lineageCalls, 2)
+  assert.equal(bundleCalls, 1)
 })
 
 test('trust reads reject current-head and nested namespace substitution', async () => {
@@ -1125,6 +1324,36 @@ test('trust failures are strict and correlated before their typed code is expose
     () => malformed.readCurrent('review-service'),
     error => error instanceof RuntimeManagerError && error.code === 'schema-invalid',
   )
+  const rawLineageFailure = (request, details) => ({
+    apiVersion: 'infra.serenvia.dev/v1', kind: 'DshTrustLineageReadFailed', digest: ZERO_DIGEST,
+    requestId: request.requestId, requestDigest: request.requestDigest,
+    challengeNonce: request.challengeNonce, namespace: request.namespace,
+    controllerIdentity: 'controller.review-service', code: 'lineage-unavailable', retryable: true,
+    currentHeadDigest: head.digest, currentTimeRevision: '1', details,
+  })
+  const cyclicDetails = {}
+  cyclicDetails.self = cyclicDetails
+  let deepDetails = { leaf: true }
+  for (let depth = 0; depth < 70; depth += 1) deepDetails = { nested: deepDetails }
+  for (const details of [
+    { data: 'x'.repeat(9 * 1024) },
+    cyclicDetails,
+    deepDetails,
+  ]) {
+    let bundleReads = 0
+    const boundedFailure = createTrustVerifier({
+      authority: {
+        async readLineage(request) { return rawLineageFailure(request, details) },
+        async readBundle() { bundleReads += 1; throw new Error('must not read a bundle') },
+      },
+      bootstrap, nonce: () => 'AAAAAAAAAAAAAAAAAAAAAA',
+    })
+    await assert.rejects(
+      () => boundedFailure.readCurrent('review-service'),
+      error => error instanceof RuntimeManagerError && error.code === 'schema-invalid',
+    )
+    assert.equal(bundleReads, 0)
+  }
   const wrongCorrelation = createTrustVerifier({
     authority: {
       async readLineage(request) {
@@ -1578,6 +1807,42 @@ test('mediated GitHub effects require broker routing and bind one-use acceptance
   request.requestDigest = computeSemanticRequestDigest(request)
   request.runtimeAssertion = runtimeAssertion(seal, instanceIdentity, signing, bundle, 'host.action', request.requestDigest)
   request.runtimeAssertionDigest = request.runtimeAssertion.metadata.digest
+  let guardAuthorizations = 0
+  let guardBrokerCalls = 0
+  const identityGuard = createMediatedHostService({
+    store, trustVerifier,
+    authorize: async () => {
+      guardAuthorizations += 1
+      return { allowed: true, admissionSealDigest: seal.metadata.digest, route: 'github-broker' }
+    },
+    broker: async (_request, context) => {
+      guardBrokerCalls += 1
+      return {
+        status: 'succeeded', outputPayload: { published: true },
+        brokerReceipt: { digest: ONE_DIGEST, idempotencyToken: context.externalIdempotencyToken },
+      }
+    },
+  })
+  const storedInstance = store.instances.get(instanceIdentity.namespace)
+  const storedIdentity = storedInstance.identity
+  const trustCallsBeforeGuard = trustVerifier.calls.length
+  storedInstance.identity = identity({ instanceId: 'stored-host-substitute' })
+  const freshIdentityDenial = await identityGuard.execute(request)
+  assert.equal(freshIdentityDenial.code, 'state-conflict')
+  assert.equal(freshIdentityDenial.observedState, null)
+  assert.equal(guardAuthorizations, 0)
+  assert.equal(guardBrokerCalls, 0)
+  assert.equal(trustVerifier.calls.length, trustCallsBeforeGuard)
+  storedInstance.identity = storedIdentity
+  assert.equal((await identityGuard.execute(request)).kind, 'MediatedHostActionSucceeded')
+  assert.equal(guardAuthorizations, 1)
+  assert.equal(guardBrokerCalls, 1)
+  storedInstance.identity = identity({ instanceId: 'stored-host-replay-substitute' })
+  const replayIdentityDenial = await identityGuard.execute({ ...request, requestId: 'host-identity-replay' })
+  assert.equal(replayIdentityDenial.code, 'state-conflict')
+  assert.equal(guardAuthorizations, 1)
+  assert.equal(guardBrokerCalls, 1)
+  storedInstance.identity = storedIdentity
   const callsBefore = trustVerifier.calls.length
   const unrouted = createMediatedHostService({
     store, trustVerifier,
@@ -1605,6 +1870,98 @@ test('mediated GitHub effects require broker routing and bind one-use acceptance
   assert.equal(brokerCalls, 1)
   assert.equal((await routed.execute({ ...request, requestId: 'host-action-replay' })).digest, published.digest)
   assert.equal(brokerCalls, 1)
+
+  let oversizedBrokerCalls = 0
+  const oversizedOutput = createMediatedHostService({
+    store, trustVerifier,
+    authorize: async () => ({ allowed: true, admissionSealDigest: seal.metadata.digest, route: 'github-broker' }),
+    broker: async (_request, context) => {
+      oversizedBrokerCalls += 1
+      return {
+        status: 'succeeded', outputPayload: { data: 'x'.repeat(MANAGER_CONTROL_MAX_DATAGRAM_BYTES) },
+        brokerReceipt: { digest: TWO_DIGEST, idempotencyToken: context.externalIdempotencyToken },
+      }
+    },
+  })
+  const oversizedRequest = structuredClone(request)
+  oversizedRequest.requestId = 'host-action-oversized-output'
+  oversizedRequest.idempotencyKey = 'host-action-oversized-output'
+  oversizedRequest.requestDigest = computeSemanticRequestDigest(oversizedRequest)
+  oversizedRequest.runtimeAssertion = runtimeAssertion(
+    seal, instanceIdentity, signing, bundle, 'host.action', oversizedRequest.requestDigest,
+    { nonce: 'AgICAgICAgICAgICAgICAg', revocationId: 'host-action-oversized-output' },
+  )
+  oversizedRequest.runtimeAssertionDigest = oversizedRequest.runtimeAssertion.metadata.digest
+  const oversized = await oversizedOutput.execute(oversizedRequest)
+  assert.equal(oversized.kind, 'MediatedHostActionIndeterminate')
+  assert.equal(oversized.budgetDecision, 'reserved')
+  assert.equal(oversized.mandatoryRecovery.reconcileSameToken, true)
+  assert.equal(validateMediatedHostActionResult(oversized), oversized)
+  assert.equal((await oversizedOutput.execute({ ...oversizedRequest, requestId: 'host-action-oversized-replay' })).digest, oversized.digest)
+  assert.equal(oversizedBrokerCalls, 1)
+
+  let malformedDirectCalls = 0
+  const malformedDirect = createMediatedHostService({
+    store, trustVerifier,
+    authorize: async () => ({ allowed: true, admissionSealDigest: seal.metadata.digest, route: 'host' }),
+    effect: async (_request, context) => {
+      malformedDirectCalls += 1
+      return {
+        status: 'succeeded', outputPayload: { written: true },
+        externalEffectReceipt: {
+          digest: TWO_DIGEST, idempotencyToken: context.externalIdempotencyToken,
+          credential: 'must-not-cross',
+        },
+      }
+    },
+  })
+  const malformedDirectRequest = structuredClone(request)
+  malformedDirectRequest.requestId = 'host-action-malformed-direct-receipt'
+  malformedDirectRequest.idempotencyKey = 'host-action-malformed-direct-receipt'
+  malformedDirectRequest.actionClass = 'filesystem-write'
+  malformedDirectRequest.publisherEpoch = null
+  malformedDirectRequest.requestDigest = computeSemanticRequestDigest(malformedDirectRequest)
+  malformedDirectRequest.runtimeAssertion = runtimeAssertion(
+    seal, instanceIdentity, signing, bundle, 'host.action', malformedDirectRequest.requestDigest,
+    { nonce: 'AwMDAwMDAwMDAwMDAwMDAw', revocationId: 'host-action-malformed-direct-receipt' },
+  )
+  malformedDirectRequest.runtimeAssertionDigest = malformedDirectRequest.runtimeAssertion.metadata.digest
+  const malformedDirectResult = await malformedDirect.execute(malformedDirectRequest)
+  assert.equal(malformedDirectResult.kind, 'MediatedHostActionIndeterminate')
+  assert.equal(malformedDirectResult.mandatoryRecovery.retryBeforeReconcile, false)
+  assert.equal((await malformedDirect.execute({
+    ...malformedDirectRequest, requestId: 'host-action-malformed-direct-replay',
+  })).digest, malformedDirectResult.digest)
+  assert.equal(malformedDirectCalls, 1)
+
+  let wrongDirectCalls = 0
+  const wrongDirect = createMediatedHostService({
+    store, trustVerifier,
+    authorize: async () => ({ allowed: true, admissionSealDigest: seal.metadata.digest, route: 'host' }),
+    effect: async () => {
+      wrongDirectCalls += 1
+      return {
+        status: 'succeeded', outputPayload: { written: true },
+        externalEffectReceipt: { digest: TWO_DIGEST, idempotencyToken: ONE_DIGEST },
+      }
+    },
+  })
+  const wrongDirectRequest = structuredClone(malformedDirectRequest)
+  wrongDirectRequest.requestId = 'host-action-wrong-direct-token'
+  wrongDirectRequest.idempotencyKey = 'host-action-wrong-direct-token'
+  wrongDirectRequest.requestDigest = computeSemanticRequestDigest(wrongDirectRequest)
+  wrongDirectRequest.runtimeAssertion = runtimeAssertion(
+    seal, instanceIdentity, signing, bundle, 'host.action', wrongDirectRequest.requestDigest,
+    { nonce: 'BAQEBAQEBAQEBAQEBAQEBA', revocationId: 'host-action-wrong-direct-token' },
+  )
+  wrongDirectRequest.runtimeAssertionDigest = wrongDirectRequest.runtimeAssertion.metadata.digest
+  const wrongDirectResult = await wrongDirect.execute(wrongDirectRequest)
+  assert.equal(wrongDirectResult.kind, 'MediatedHostActionIndeterminate')
+  assert.equal(wrongDirectResult.mandatoryRecovery.retryBeforeReconcile, false)
+  assert.equal((await wrongDirect.execute({
+    ...wrongDirectRequest, requestId: 'host-action-wrong-direct-token-replay',
+  })).digest, wrongDirectResult.digest)
+  assert.equal(wrongDirectCalls, 1)
 
   const changed = structuredClone(request)
   changed.requestId = 'host-action-changed'
@@ -1658,7 +2015,9 @@ test('mediated GitHub effects require broker routing and bind one-use acceptance
   separate.runtimeAssertion = runtimeAssertion(seal, instanceIdentity, signing, bundle, 'host.action', separate.requestDigest)
   separate.runtimeAssertionDigest = separate.runtimeAssertion.metadata.digest
   const crossEffect = await substitutedReceipt.execute(separate)
-  assert.equal(crossEffect.code, 'broker-state-conflict')
+  assert.equal(crossEffect.kind, 'MediatedHostActionIndeterminate')
+  assert.equal(crossEffect.mandatoryRecovery.retryBeforeReconcile, false)
+  assert.equal((await substitutedReceipt.execute({ ...separate, requestId: 'host-action-cross-effect-replay' })).digest, crossEffect.digest)
 })
 
 test('mediated host serializes same-key writes and rejects receipt overexposure', async () => {
@@ -1781,9 +2140,9 @@ test('mediated host serializes same-key writes and rejects receipt overexposure'
   )
   leakRequest.runtimeAssertionDigest = leakRequest.runtimeAssertion.metadata.digest
   const leak = await leaking.execute(leakRequest)
-  assert.equal(leak.kind, 'MediatedHostActionFailed')
-  assert.equal(leak.code, 'broker-state-conflict')
-  assert.equal(leaking.journal.values().next().value.result.kind, 'MediatedHostActionFailed')
+  assert.equal(leak.kind, 'MediatedHostActionIndeterminate')
+  assert.equal(leak.mandatoryRecovery.retryBeforeReconcile, false)
+  assert.equal(leaking.journal.values().next().value.result.kind, 'MediatedHostActionIndeterminate')
   const malformed = await leaking.execute(null)
   assert.equal(validateMediatedHostActionResult(malformed), malformed)
   const malformedFields = await leaking.execute({

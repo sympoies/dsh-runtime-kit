@@ -974,7 +974,7 @@ function validateManagerResult(payload) {
       for (const [index, value] of payload.checks.entries()) {
         const check = plainRecord(value, `${payload.kind}.checks[${index}]`)
         exactKeys(check, ['id', 'state'], [], `${payload.kind}.checks[${index}]`)
-        if (check.id !== expectedChecks[index] || !['pass', 'fail'].includes(check.state)) fail('schema-invalid', 'doctor check is invalid')
+        if (check.id !== expectedChecks[index] || !['pass', 'degraded', 'fail'].includes(check.state)) fail('schema-invalid', 'doctor check is invalid')
       }
       if (!['none', 'reconcile'].includes(payload.recoveryRecommendation)
         || typeof payload.receiptChainVerified !== 'boolean') fail('schema-invalid', 'doctor result is invalid')
@@ -1205,6 +1205,7 @@ export function validateManagerControlResponseFrame(value, requestFrame) {
  *   manager: Record<string, (payload: unknown, context?: any) => Promise<any> | any>,
  *   peers: Record<string, {operations: string[], namespacePrefixes: string[]}>,
  *   nonceHighWater?: Map<string, string>,
+ *   reconcileEvidence?: (payload: unknown, context: {peerIdentity: string}) => Promise<unknown> | unknown,
  * }} options
  */
 export function createManagerControlService(options) {
@@ -1225,7 +1226,31 @@ export function createManagerControlService(options) {
     const method = options.manager[operation]
     if (typeof method !== 'function') fail('unsupported-kind', 'manager operation is unavailable')
     highWater.set(context.peerIdentity, frame.connectionNonce)
-    const result = await method(structuredClone(frame.payload), operation === 'reconcile' ? { authorized: true } : undefined)
+    let operationContext
+    if (operation === 'reconcile') {
+      if (typeof options.reconcileEvidence !== 'function') fail('unsupported-kind', 'reconciliation evidence resolver is unavailable')
+      let evidenceValue
+      try {
+        evidenceValue = await options.reconcileEvidence(structuredClone(frame.payload), {
+          peerIdentity: context.peerIdentity,
+        })
+      } catch {
+        evidenceValue = { status: 'temporary-unavailable' }
+      }
+      const evidence = plainRecord(evidenceValue, 'reconciliation evidence')
+      const statuses = ['committed', 'not-committed', 'temporary-unavailable', 'authority-unavailable', 'conflict']
+      if (!statuses.includes(evidence.status)) fail('schema-invalid', 'reconciliation evidence status is invalid')
+      exactKeys(
+        evidence,
+        evidence.status === 'committed' ? ['status'] : ['status'],
+        evidence.status === 'committed' ? ['sessionIdentity'] : [],
+        'reconciliation evidence',
+      )
+      if (evidence.sessionIdentity !== undefined) text(evidence.sessionIdentity, 'reconciliation evidence.sessionIdentity', 256)
+      assertSecretFree(evidence, 'reconciliation evidence')
+      operationContext = { authorized: true, evidence: structuredClone(evidence) }
+    }
+    const result = await method(structuredClone(frame.payload), operationContext)
     return createManagerControlResponseFrame({ requestFrame: frame, payload: result })
   }
   return Object.freeze({ handle, nonceHighWater: highWater })

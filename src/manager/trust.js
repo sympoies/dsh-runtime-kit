@@ -6,6 +6,7 @@ import {
   INFRA_API_VERSION,
   RuntimeManagerError,
   TRUST_FAILURE_CODE_MAP,
+  assertCanonicalByteBound,
   assertSecretFree,
   computeManagerDocumentDigest,
   computeTrustAuthorityObservationDigest,
@@ -24,6 +25,8 @@ import {
 
 const MAX_DATAGRAM_BYTES = 1024 * 1024
 const MAX_TRANSITION_BYTES = 8 * 1024
+/** @type {WeakMap<Map<any, any>, Map<string, Promise<any>>>} */
+const TRUST_STATE_COORDINATORS = new WeakMap()
 const AUTHORITY_FAILURE_CODES = Object.freeze({
   DshTrustLineageReadFailed: new Set([
     'invalid-request', 'unauthenticated', 'unauthorized', 'namespace-not-found',
@@ -52,8 +55,7 @@ const AUTHORITY_RETRYABLE_CODES = Object.freeze({
 
 /** @param {unknown} value @param {string} path */
 function boundedDatagram(value, path) {
-  const bytes = Buffer.byteLength(JSON.stringify(value))
-  if (bytes > MAX_DATAGRAM_BYTES) fail('lineage-invalid', `${path} exceeds the one-datagram limit`)
+  assertCanonicalByteBound(value, path, MAX_DATAGRAM_BYTES)
 }
 
 /** @param {unknown} value */
@@ -245,6 +247,7 @@ function validateBundleSuccess(response, request, controllerIdentity, observatio
  * @param {string} controllerIdentity
  */
 function validateAuthorityFailure(port, response, request, controllerIdentity) {
+  assertCanonicalByteBound(response, 'trust authority failure', MAX_DATAGRAM_BYTES)
   const expectedKind = port === 'lineage'
     ? 'DshTrustLineageReadFailed'
     : port === 'bundle'
@@ -309,8 +312,8 @@ function validateAuthorityFailure(port, response, request, controllerIdentity) {
     if (response[field] !== null && field !== 'acceptanceKind') digest(response[field], `${expectedKind}.${field}`)
   }
   plainRecord(response.details, `${expectedKind}.details`)
+  assertCanonicalByteBound(response.details, `${expectedKind}.details`, 8 * 1024)
   if (computeManagerDocumentDigest(response) !== response.digest) fail('digest-invalid', `${expectedKind} digest is invalid`)
-  boundedDatagram(response, expectedKind)
   assertSecretFree(response, expectedKind)
   return response
 }
@@ -337,9 +340,26 @@ export function createTrustVerifier(options) {
   if (options === null || typeof options !== 'object' || options.authority === undefined) fail('invalid-request', 'trust verifier options are invalid')
   const nonceSource = options.nonce ?? (() => randomBytes(16).toString('base64url'))
   const state = options.state ?? new Map()
+  let namespaceLocks = TRUST_STATE_COORDINATORS.get(state)
+  if (namespaceLocks === undefined) {
+    namespaceLocks = new Map()
+    TRUST_STATE_COORDINATORS.set(state, namespaceLocks)
+  }
   let requestSequence = 0
 
   const freshId = (/** @type {string} */ prefix) => `${prefix}-${++requestSequence}`
+
+  /** @param {string} namespace @param {() => Promise<any>} action */
+  const serializeNamespace = async (namespace, action) => {
+    const previous = namespaceLocks.get(namespace) ?? Promise.resolve()
+    const current = previous.catch(() => undefined).then(action)
+    namespaceLocks.set(namespace, current)
+    try {
+      return await current
+    } finally {
+      if (namespaceLocks.get(namespace) === current) namespaceLocks.delete(namespace)
+    }
+  }
 
   /** @param {string} namespace @param {Record<string, any>} head @param {string} observationDigest @param {string} bundleDigest */
   const readBundle = async (namespace, head, observationDigest, bundleDigest) => {
@@ -362,11 +382,11 @@ export function createTrustVerifier(options) {
       validateAuthorityFailure('bundle', result, request, bootstrap.controllerIdentity)
       throwAuthorityFailure('bundle read', result)
     }
-    return validateBundleSuccess(result, request, bootstrap.controllerIdentity, observationDigest)
+    return structuredClone(validateBundleSuccess(result, request, bootstrap.controllerIdentity, observationDigest))
   }
 
   /** @param {string} namespace */
-  const readCurrent = async namespace => {
+  const refreshCurrent = async namespace => {
     const bootstrap = options.bootstrap[namespace]
     if (bootstrap === undefined) fail('signature-trust-unapproved', 'namespace has no verifier-owned bootstrap')
     digest(bootstrap.genesisBundleDigest, 'bootstrap.genesisBundleDigest')
@@ -380,10 +400,24 @@ export function createTrustVerifier(options) {
     let startingSequence = afterSequence
     /** @type {Record<string, any> | null} */
     let head = null
-    /** @type {Record<string, any>[]} */
-    const transitions = []
     /** @type {Record<string, any> | null} */
     let firstResponse = null
+    let transitionCount = 0n
+    /** @type {string | null} */
+    let lastSequence = null
+    /** @type {string | null} */
+    let lastTransitionDigest = null
+    let expectedBundle = reuseCached ? retained.head.bundleDigest : bootstrap.genesisBundleDigest
+    let baseBundles = reuseCached ? retained.bundles : new Map()
+    let stagedBundles = new Map()
+    /** @type {Record<string, any> | null} */
+    let priorBundle = reuseCached ? baseBundles.get(expectedBundle) ?? null : null
+    let baseTombstones = reuseCached ? retained.tombstones ?? new Set() : new Set()
+    let stagedTombstones = new Set()
+    const tombstoneView = () => ({
+      has: (/** @type {string} */ key) => baseTombstones.has(key) || stagedTombstones.has(key),
+      add: (/** @type {string} */ key) => { stagedTombstones.add(key); return stagedTombstones },
+    })
     while (true) {
       const request = {
         apiVersion: INFRA_API_VERSION,
@@ -411,6 +445,15 @@ export function createTrustVerifier(options) {
           afterSequence = '0'
           startingSequence = '0'
           expectedCurrentHeadDigest = null
+          transitionCount = 0n
+          lastSequence = null
+          lastTransitionDigest = null
+          expectedBundle = bootstrap.genesisBundleDigest
+          baseBundles = new Map()
+          stagedBundles = new Map()
+          priorBundle = null
+          baseTombstones = new Set()
+          stagedTombstones = new Set()
           continue
         }
         throwAuthorityFailure('lineage read', result)
@@ -440,11 +483,6 @@ export function createTrustVerifier(options) {
       }
       const expectedNext = BigInt(afterSequence) + 1n
       if (result.transitions.length > 0 && BigInt(result.transitions[0].sequence) !== expectedNext) fail('lineage-invalid', 'lineage page contains a gap')
-      for (const transition of result.transitions) {
-        const previous = transitions.at(-1)
-        if (previous !== undefined && BigInt(transition.sequence) !== BigInt(previous.sequence) + 1n) fail('lineage-invalid', 'lineage transitions are not contiguous')
-        transitions.push(transition)
-      }
       if (result.transitions.length === 0) {
         if (!result.complete || result.pageStartSequence !== null || result.pageEndSequence !== null
           || BigInt(afterSequence) !== BigInt(validated.head.sequence)) fail('lineage-invalid', 'empty lineage page is not terminal')
@@ -458,6 +496,31 @@ export function createTrustVerifier(options) {
           fail('lineage-invalid', 'lineage continuation cursor is inconsistent')
         }
       }
+      if (priorBundle === null && (result.transitions.length > 0 || result.complete)) {
+        priorBundle = baseBundles.get(expectedBundle)
+          ?? stagedBundles.get(expectedBundle)
+          ?? await readBundle(namespace, validated.head, result.snapshotAuthorityObservationDigest, expectedBundle)
+        stagedBundles.set(expectedBundle, priorBundle)
+      }
+      for (const transition of result.transitions) {
+        const previousSequence = lastSequence ?? startingSequence
+        if (BigInt(transition.sequence) !== BigInt(previousSequence) + 1n) fail('lineage-invalid', 'lineage transitions are not contiguous')
+        if (transition.priorBundleDigest !== expectedBundle || priorBundle === null) fail('lineage-invalid', 'lineage transition prior bundle is invalid')
+        const nextBundle = await readBundle(
+          namespace, validated.head, result.snapshotAuthorityObservationDigest,
+          transition.nextBundleDigest,
+        )
+        validateTrustBundleTransition(transition, priorBundle, nextBundle, {
+          authorityTime: firstResponse.authorityTime,
+          tombstones: /** @type {Set<string>} */ (/** @type {unknown} */ (tombstoneView())),
+        })
+        expectedBundle = transition.nextBundleDigest
+        priorBundle = nextBundle
+        stagedBundles.set(expectedBundle, nextBundle)
+        lastSequence = transition.sequence
+        lastTransitionDigest = transition.metadata.digest
+        transitionCount += 1n
+      }
       if (result.complete) {
         if (result.nextAfterSequence !== null) fail('lineage-invalid', 'complete lineage page has a continuation')
         break
@@ -467,25 +530,17 @@ export function createTrustVerifier(options) {
       expectedCurrentHeadDigest = null
     }
     if (head === null || firstResponse === null || observationDigest === null) fail('lineage-invalid', 'lineage observation is incomplete')
-    if (BigInt(head.sequence) - BigInt(startingSequence) !== BigInt(transitions.length)) fail('lineage-invalid', 'lineage transition count does not reach its head')
-    if (transitions.length > 0 && head.transitionDigest !== transitions[transitions.length - 1].metadata.digest) fail('lineage-invalid', 'lineage head does not name its terminal transition')
-    let expectedBundle = reuseCached ? retained.head.bundleDigest : bootstrap.genesisBundleDigest
-    const bundles = reuseCached ? new Map(retained.bundles) : new Map()
-    let priorBundle = bundles.get(expectedBundle)
-      ?? await readBundle(namespace, head, observationDigest, expectedBundle)
-    bundles.set(expectedBundle, priorBundle)
-    const tombstones = reuseCached ? new Set(retained.tombstones ?? []) : new Set()
-    for (const transition of transitions) {
-      if (transition.priorBundleDigest !== expectedBundle) fail('lineage-invalid', 'lineage transition prior bundle is invalid')
-      const nextBundle = await readBundle(namespace, head, observationDigest, transition.nextBundleDigest)
-      validateTrustBundleTransition(transition, priorBundle, nextBundle, {
-        authorityTime: firstResponse.authorityTime, tombstones,
-      })
-      expectedBundle = transition.nextBundleDigest
-      priorBundle = nextBundle
-      bundles.set(expectedBundle, nextBundle)
-    }
+    if (BigInt(head.sequence) - BigInt(startingSequence) !== transitionCount) fail('lineage-invalid', 'lineage transition count does not reach its head')
+    if (transitionCount > 0n && head.transitionDigest !== lastTransitionDigest) fail('lineage-invalid', 'lineage head does not name its terminal transition')
     if (expectedBundle !== head.bundleDigest) fail('lineage-invalid', 'lineage does not reach the snapshot head bundle')
+    if (priorBundle === null) {
+      priorBundle = await readBundle(namespace, head, observationDigest, expectedBundle)
+      stagedBundles.set(expectedBundle, priorBundle)
+    }
+    const bundles = baseBundles
+    for (const [bundleDigest, bundle] of stagedBundles) bundles.set(bundleDigest, bundle)
+    const tombstones = baseTombstones
+    for (const keyId of stagedTombstones) tombstones.add(keyId)
     state.set(namespace, {
       timeRevision: firstResponse.timeRevision,
       authorityTime: firstResponse.authorityTime,
@@ -503,10 +558,22 @@ export function createTrustVerifier(options) {
     })
   }
 
+  /** @param {string} namespace */
+  const readCurrent = async namespace => serializeNamespace(namespace, async () => {
+    const snapshot = await refreshCurrent(namespace)
+    return Object.freeze({
+      head: structuredClone(snapshot.head),
+      bundles: new Map([...snapshot.bundles].map(([key, value]) => [key, structuredClone(value)])),
+      observationDigest: snapshot.observationDigest,
+      authorityTime: snapshot.authorityTime,
+      timeRevision: snapshot.timeRevision,
+    })
+  })
+
   /** @param {{namespace: string, acceptanceKind: 'seal'|'assertion', signedDocument: any, operation: string, semanticRequestDigest: string, expectedEffectJournalRevision: string}} input */
-  const acceptSignedDocument = async input => {
+  const acceptSignedDocument = async input => serializeNamespace(input.namespace, async () => {
     if (typeof options.authority.accept !== 'function') fail('trust-authority-unavailable', 'trust acceptance authority is unavailable')
-    const snapshot = await readCurrent(input.namespace)
+    const snapshot = await refreshCurrent(input.namespace)
     const bundleDigest = input.signedDocument.bundleDigest
     const bundle = snapshot.bundles.get(bundleDigest)
     if (bundle === undefined) fail('bundle-unreachable', 'signed document trust bundle is not reachable from the verified lineage')
@@ -580,7 +647,7 @@ export function createTrustVerifier(options) {
       authorityTime: response.authorityTime,
     })
     return Object.freeze(structuredClone(response))
-  }
+  })
 
   return Object.freeze({ readCurrent, acceptSignedDocument, state })
 }

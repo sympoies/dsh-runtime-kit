@@ -42,6 +42,12 @@ authenticated control peer with explicit reconcile authority. There is no
 manager install, update, rollback, promote, route, publisher, teardown, or
 cross-generation recovery operation.
 
+The control service requires an explicit authenticated reconciliation-evidence
+resolver. The resolver consumes the request's journal and DSH evidence digests;
+its strict result is passed to the manager only after peer, operation,
+namespace, and nonce checks. Omitting the resolver disables control-path
+reconciliation rather than silently choosing quarantine.
+
 ## Lifecycle and recovery
 
 The exported `LIFECYCLE_TRANSITIONS` and `RECONCILIATION_MATRIX` are the sole
@@ -52,13 +58,16 @@ compare expected state and semantic request digest, and journal before effect.
 Operation, immutable identity, idempotency key, and semantic request digest
 form the replay identity. Exact replay returns the original result and never
 repeats an effect. Lock, start, and resume replay first accepts a refreshed
-current assertion without changing that identity. Changed semantic bytes under
+current assertion without changing that identity; only the latest replay
+acceptance digest is retained in the hot journal. Changed semantic bytes under
 the same key fail with `idempotency-conflict`.
 
 A successful start allocates one bounded, non-null DSH session identity. Resume
 retains that same logical identity and refuses missing or substituted retained
 state. Lock reports only its exact receipt; optional health degradation remains
-observable through status rather than widening the lock success schema.
+observable through status rather than widening the lock success schema, and a
+successful start refreshes that observation. A failed start retains the prior
+observation.
 
 An unknown effect retains the required transient state. Only `reconcile` may
 resolve that journal. It uses the recorded source plus required transient and
@@ -72,7 +81,10 @@ repeating the effect.
 `createTrustVerifier` accepts only verifier-owned namespace bootstrap. It reads
 one retained, paginated lineage observation and every digest-addressed bundle
 needed by that snapshot. There is no global transition-count or cumulative-byte
-cap; bounds apply to each transition, bundle, and datagram.
+cap; bounds apply to each transition, bundle, and datagram. Validation streams
+one bounded page at a time, stages only new bundle and tombstone deltas, and
+serializes refresh-plus-acceptance across verifiers sharing the same retained
+namespace state.
 
 Every edge checks prior/next digests, contiguous sequence, an active prior
 `trust-transition` signer, immutable key material/use, irreversible states,
@@ -95,6 +107,13 @@ reviewed bounded details shape. The transport-neutral
 `createManagerControlService` consumes an already authenticated peer identity,
 then enforces exact operations, namespace prefixes, and a persistable uint64
 connection-nonce high-water mark before dispatch.
+
+Status correlates the authenticated current receipt head with instance state,
+session, composition, and admission identity for its hot-path view; doctor adds
+the complete genesis-to-head chain audit. Successful adapter effects are
+normalized before terminal instance state is committed. Malformed post-effect
+lifecycle evidence and invalid, mismatched, oversized, or unsafe effectful host
+output/receipts remain indeterminate and require same-key reconciliation.
 
 `createMediatedHostService` binds plugin, action, schemas, payload, target,
 resource class, budget, state, publisher epoch, nonce, and idempotency key into
