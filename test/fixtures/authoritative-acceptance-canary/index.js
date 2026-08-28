@@ -11,7 +11,8 @@ import {
 } from './body-execution-counter.js'
 import { observableChildPid } from './observable-child-pid.js'
 import {
-  finalizeScenarioCanary,
+  createScenarioCanaryDeadlineController,
+  SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_MARKER,
   startScenarioCanaryWhenReady,
 } from './receipt-output.js'
@@ -187,6 +188,25 @@ export function apply(ctx) {
   const acceptanceRequired = !['baseline-seed', 'baseline-rollback', 'unpatched-smoke']
     .includes(phase)
   rmSync(required(validationMarker, 'validation marker'), { force: true })
+  let handle
+  let resumedHandle
+  let receipt
+  const deadlineController = createScenarioCanaryDeadlineController({
+    deadlineEpoch: process.env[SCENARIO_CANARY_DEADLINE_ENV],
+    stream: process.stdout,
+    reportFailure: error => process.stderr.write(String(error?.stack ?? error) + '\n'),
+    dispose: async () => {
+      try { await resumedHandle?.dispose() } catch {}
+      try { await handle?.dispose() } catch {}
+    },
+    successStatus: () => process.exitCode ?? 0,
+    setExitCode: status => { process.exitCode = status },
+    exit: status => ctx.get('appExit')?.(status),
+    onUnhandledFailure: error => {
+      process.exitCode = 1
+      process.stderr.write(String(error?.stack ?? error) + '\n')
+    },
+  })
   const sequence = []
   const bodyExecutions = createBodyExecutionCounter()
   let maxConcurrentBodies = 0
@@ -280,11 +300,10 @@ export function apply(ctx) {
     },
   }))
   const run = async (initialAcceptance) => {
+    if (deadlineController.isFinalizing()) return deadlineController.wait()
     let acceptance = initialAcceptance
     const acceptanceEnabled = acceptanceRequired
     const results = []
-    let handle
-    let resumedHandle
     let goal
     let goalBefore
     let goalAfterDenial
@@ -316,7 +335,6 @@ export function apply(ctx) {
     let legacySteeringObserved = false
     let recoverySessionSha
     let legacyValidationSessionSha
-    let receipt
     let failure
     let resolveRecoveryTransition
     const recoveryTransition = new Promise(resolve => { resolveRecoveryTransition = resolve })
@@ -744,40 +762,7 @@ export function apply(ctx) {
         }
       }
 
-      let idleTimer
-      try {
-        await Promise.race([
-          handle.agent.whenIdle(),
-          new Promise((_, reject) => {
-            idleTimer = setTimeout(() => {
-              let currentVerdict
-              try { currentVerdict = verdictView(acceptance?.verdict(handle.agent)) } catch {}
-              reject(new Error('agent idle unavailable: ' + JSON.stringify({
-                status: handle.agent.status,
-                model_calls: adapter.modelCalls,
-                results,
-                turn_stops: turnStops,
-                turn_verdicts: turnVerdicts,
-                verdict: currentVerdict,
-                events: handle.agent.session.events.flatMap(event => {
-                  if (event.type === 'tool/call') {
-                    return [{ type: event.type, name: event.data.name, call_id: event.data.callId }]
-                  }
-                  if (event.type === 'tool/result') {
-                    return [{ type: event.type, call_id: event.data.message.callId }]
-                  }
-                  if (event.type === 'turn/end') {
-                    return [{ type: event.type, reason: event.data.reason }]
-                  }
-                  return []
-                }).slice(-30),
-              })))
-            }, 120_000)
-          }),
-        ])
-      } finally {
-        if (idleTimer !== undefined) clearTimeout(idleTimer)
-      }
+      await handle.agent.whenIdle()
       if (disposalPromise !== undefined) {
         await disposalPromise
         resumedHandle = await ctx.agents.resume({
@@ -899,19 +884,7 @@ export function apply(ctx) {
     } catch (error) {
       failure = { error }
     }
-    await finalizeScenarioCanary({
-      stream: process.stdout,
-      receipt,
-      failure,
-      reportFailure: error => process.stderr.write(String(error?.stack ?? error) + '\n'),
-      dispose: async () => {
-        try { await resumedHandle?.dispose() } catch {}
-        try { await handle?.dispose() } catch {}
-      },
-      successStatus: process.exitCode ?? 0,
-      setExitCode: status => { process.exitCode = status },
-      exit: status => ctx.get('appExit')?.(status),
-    })
+    await deadlineController.finish(receipt, failure)
   }
   if (phase === 'unpatched-smoke') return run(undefined)
   startScenarioCanaryWhenReady(ctx, acceptanceRequired, run)

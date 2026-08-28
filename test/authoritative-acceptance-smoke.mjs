@@ -26,6 +26,11 @@ import {
   nilsCompatibilityCandidateEnvironment,
   sanitizeAcceptanceScenarioEnvironment,
 } from '../src/acceptance/scenario-environment.js'
+import {
+  SCENARIO_CANARY_DEADLINE_ENV,
+  SCENARIO_CANARY_EXECUTION_TIMEOUT_MS,
+  SCENARIO_CANARY_PROCESS_TIMEOUT_MS,
+} from './fixtures/authoritative-acceptance-canary/receipt-output.js'
 
 const failureDiagnostic = createScenarioFailureDiagnosticTracker('packed-runtime')
 
@@ -215,14 +220,18 @@ function installMismatchProfile(profile, runtimePackage) {
 
 function runPhase(profile, selectedPhase, selectedSession, kind = 'candidate') {
   const processInstance = processIdentity(selectedPhase)
+  const executionDeadline = Date.now() + SCENARIO_CANARY_EXECUTION_TIMEOUT_MS
   const result = run(pnpmBin, ['dsh', '--profile', profile], {
-    timeout: 120_000,
+    // The canary deadline shares this process launch origin. Preserve a later
+    // supervisor boundary for failure/receipt flush, disposal, and host exit.
+    timeout: SCENARIO_CANARY_PROCESS_TIMEOUT_MS,
     env: {
       ...baseEnvironment,
       ...nilsEnvironment(kind),
       DSH_ACCEPTANCE_PHASE: selectedPhase,
       DSH_ACCEPTANCE_SESSION_ID: selectedSession,
       DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: processInstance,
+      [SCENARIO_CANARY_DEADLINE_ENV]: String(executionDeadline),
     },
   })
   const receipt = parseScenarioCanaryReceipt({
@@ -237,6 +246,7 @@ function runPhase(profile, selectedPhase, selectedSession, kind = 'candidate') {
 async function crashPhase(profile, selectedSession) {
   rmSync(crashMarker, { force: true })
   const processInstance = processIdentity('crash-start')
+  const executionDeadline = Date.now() + SCENARIO_CANARY_EXECUTION_TIMEOUT_MS
   const child = spawn(pnpmBin, ['dsh', '--profile', profile], {
     cwd: dshRoot,
     env: {
@@ -245,6 +255,7 @@ async function crashPhase(profile, selectedSession) {
       DSH_ACCEPTANCE_PHASE: 'crash-start',
       DSH_ACCEPTANCE_SESSION_ID: selectedSession,
       DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: processInstance,
+      [SCENARIO_CANARY_DEADLINE_ENV]: String(executionDeadline),
     },
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
