@@ -17,6 +17,8 @@ import {
   createScenarioFailureDiagnosticTracker,
   parseScenarioCanaryReceipt,
   recordScenarioOperationResult,
+  scenarioOperationFailureMessage,
+  scenarioOperationSucceeded,
   waitForScenarioOperationMarker,
 } from '../src/acceptance/contract.js'
 import {
@@ -103,12 +105,11 @@ function run(command, args, options = {}) {
     ...options,
   })
   recordScenarioOperationResult(failureDiagnostic, result)
-  assert.equal(result.status, 0, [
-    `${basename(command)} ${args.join(' ')} failed`,
-    result.error?.stack,
-    result.stdout,
-    result.stderr,
-  ].filter(Boolean).join('\n'))
+  assert.equal(
+    scenarioOperationSucceeded(result),
+    true,
+    scenarioOperationFailureMessage(basename(command)),
+  )
   failureDiagnostic.recordOperationExitStatus(0)
   return result
 }

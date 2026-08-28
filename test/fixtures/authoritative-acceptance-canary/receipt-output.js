@@ -1,6 +1,32 @@
 export const SCENARIO_CANARY_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
 
 /**
+ * Start one scenario only after the runtime services required by that phase
+ * are present. The runtime and acceptance providers are mounted by separate
+ * loader entries, so either can become visible first.
+ *
+ * @param {{get:(name:string)=>unknown,inject:(names:string[],callback:(ctx:any)=>void)=>unknown}} ctx
+ * @param {boolean} acceptanceRequired
+ * @param {(acceptance:unknown)=>unknown} run
+ */
+export function startScenarioCanaryWhenReady(ctx, acceptanceRequired, run) {
+  let started = false
+  const start = runtimeCtx => {
+    if (started || runtimeCtx.get('dshRuntimeKit') === undefined) return
+    const acceptance = runtimeCtx.get('dshAcceptance')
+    if (acceptanceRequired && acceptance === undefined) return
+    started = true
+    void run(acceptanceRequired ? acceptance : undefined)
+  }
+  start(ctx)
+  if (started) return
+  ctx.inject(
+    acceptanceRequired ? ['dshRuntimeKit', 'dshAcceptance'] : ['dshRuntimeKit'],
+    start,
+  )
+}
+
+/**
  * Write one canary receipt and wait until the host stream has accepted the
  * complete line. DSH may terminate the process as soon as the plugin settles,
  * so callers must await this boundary before requesting host exit.

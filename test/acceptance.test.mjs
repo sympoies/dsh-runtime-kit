@@ -24,6 +24,8 @@ import {
   createScenarioFailureDiagnosticTracker,
   parseScenarioCanaryReceipt,
   recordScenarioOperationResult,
+  scenarioOperationFailureMessage,
+  scenarioOperationSucceeded,
   waitForScenarioOperationMarker,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
@@ -1316,6 +1318,45 @@ test('real subprocess timeout and signal results use the production outcome reco
     cause_code: 'PROCESS_SIGNALED',
     operation_signal: 'SIGKILL',
   })
+})
+
+test('a zero exit cannot mask a synchronous subprocess timeout or signal', () => {
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: undefined,
+    signal: null,
+  }), true)
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
+    signal: null,
+  }), false)
+  assert.equal(scenarioOperationSucceeded({
+    status: 0,
+    error: undefined,
+    signal: 'SIGTERM',
+  }), false)
+})
+
+test('subprocess failure diagnostics never expose child output or error messages', () => {
+  const result = {
+    status: 0,
+    error: Object.assign(new Error('PRIVATE_ERROR_SENTINEL'), { code: 'ETIMEDOUT' }),
+    signal: null,
+    stdout: 'PRIVATE_STDOUT_SENTINEL',
+    stderr: 'PRIVATE_STDERR_SENTINEL',
+  }
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-positive')
+  recordScenarioOperationResult(tracker, result)
+  const publicFailure = [
+    scenarioOperationFailureMessage('node'),
+    JSON.stringify(tracker.take()),
+  ].join('\n')
+
+  assert.match(publicFailure, /node failed/u)
+  assert.match(publicFailure, /"cause_code":"ETIMEDOUT"/u)
+  assert.doesNotMatch(publicFailure, /PRIVATE_(?:ERROR|STDOUT|STDERR)_SENTINEL/u)
 })
 
 test('production outcome recorder ignores inherited fields and accessors', () => {
