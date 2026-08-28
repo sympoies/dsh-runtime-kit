@@ -72,7 +72,7 @@ npm run typecheck
 npm run benchmark:policy
 ```
 
-The GitHub package matrix runs these commands on Node.js 22 and 24. It also
+The GitHub package matrix runs these commands on Node.js 24. It also
 benchmarks the packed runtime through the released `agent-hook` and validates
 the selected DSH public package closure.
 
