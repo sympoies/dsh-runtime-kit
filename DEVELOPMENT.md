@@ -12,7 +12,10 @@ boundary is a fork or vendored upstream source.
 
 - Linux for authoritative finish-line, process-containment, and acceptance
   validation.
-- Node.js `22.19` or `24` and npm.
+- Node.js `24` or newer and npm. The repo pins `24` in `.node-version`, so an
+  fnm-managed shell (`fnm use`, or `--use-on-cd`) selects it regardless of the
+  host default; `.npmrc` sets `engine-strict` and the acceptance runner refuses
+  older Node outright.
 - A pristine DeepSeek Harness `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2`
   source checkout for compatibility, patch, and packed smoke validation.
 - Released nils-cli `1.27.8` binaries when exercising the real policy,

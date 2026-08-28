@@ -1713,11 +1713,19 @@ exec /usr/bin/git-upload-pack "$@"
 test('acceptance runner is packaged with its scenario programs and rejects old receipt injection flags', async () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   assert.equal(manifest.scripts.acceptance, 'node scripts/run-acceptance.mjs')
+  assert.equal(manifest.engines.node, '>=24.0.0')
+  assert.equal(
+    readFileSync(join(projectRoot, '.node-version'), 'utf8').trim(),
+    '24',
+  )
   assert.ok(manifest.files.includes('test/smoke.mjs'))
   assert.ok(manifest.files.includes('test/operations-smoke.mjs'))
   assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.mjs'))
   assert.ok(manifest.files.includes('test/fixtures/authoritative-acceptance-canary'))
   const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
+  assert.match(runner, /const MINIMUM_NODE_MAJOR = 24/u)
+  assert.match(runner, /DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED/u)
+  assert.match(runner, /assertSupportedNodeRuntime\(\)\n\s+const input = parseCli\(\)/u)
   assert.match(runner, /'semantic-commit-bin'/u)
   assert.match(runner, /'forge-cli-bin'/u)
   assert.match(runner, /'nils-source-commit'/u)
