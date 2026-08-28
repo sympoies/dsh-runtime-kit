@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   mkdirSync,
@@ -22,6 +22,8 @@ import {
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
   createScenarioFailureDiagnosticTracker,
+  recordScenarioOperationResult,
+  waitForScenarioOperationMarker,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
@@ -1104,6 +1106,235 @@ test('scenario diagnostic tracker binds a later leg and clears stale operation s
     step: 'candidate-positive',
     cause_code: 'UNKNOWN_FAILURE',
   })
+})
+
+test('scenario diagnostic tracker classifies bounded timeout and signal outcomes', () => {
+  const timedOut = createScenarioFailureDiagnosticTracker('packed-runtime')
+  timedOut.enterStep('candidate-positive')
+  timedOut.recordOperationOutcome(null, 'ETIMEDOUT', 'SIGTERM')
+  assert.deepEqual(timedOut.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'ETIMEDOUT',
+    operation_signal: 'SIGTERM',
+  })
+
+  const signaled = createScenarioFailureDiagnosticTracker('packed-runtime')
+  signaled.enterStep('candidate-positive')
+  signaled.recordOperationOutcome(null, undefined, 'SIGKILL')
+  assert.deepEqual(signaled.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'PROCESS_SIGNALED',
+    operation_signal: 'SIGKILL',
+  })
+})
+
+test('scenario diagnostic tracker rejects unbounded operation fields and clears stale outcomes', () => {
+  let accessorInvocations = 0
+  const untrusted = Object.create(null)
+  Object.defineProperty(untrusted, 'toString', {
+    get() {
+      accessorInvocations += 1
+      return () => 'ETIMEDOUT'
+    },
+  })
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-install')
+  tracker.recordOperationOutcome(null, untrusted, 'PRIVATE_SIGNAL')
+  tracker.enterStep('candidate-positive')
+  assert.deepEqual(tracker.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'UNKNOWN_FAILURE',
+  })
+  assert.equal(accessorInvocations, 0)
+})
+
+test('legacy operation status updates clear timeout and signal metadata', () => {
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-positive')
+  tracker.recordOperationOutcome(null, 'ETIMEDOUT', 'SIGTERM')
+  tracker.recordOperationExitStatus(0)
+  assert.deepEqual(tracker.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'UNKNOWN_FAILURE',
+  })
+})
+
+test('real subprocess timeout and signal results use the production outcome recorder', () => {
+  const timeoutResult = spawnSync(process.execPath, [
+    '-e',
+    'setTimeout(() => {}, 1000)',
+  ], { encoding: 'utf8', timeout: 10 })
+  assert.equal(timeoutResult.status, null)
+  assert.equal(timeoutResult.error?.code, 'ETIMEDOUT')
+  assert.equal(timeoutResult.signal, 'SIGTERM')
+  const timedOut = createScenarioFailureDiagnosticTracker('packed-runtime')
+  timedOut.enterStep('candidate-positive')
+  recordScenarioOperationResult(timedOut, timeoutResult)
+  assert.deepEqual(timedOut.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'ETIMEDOUT',
+    operation_signal: 'SIGTERM',
+  })
+
+  const signalResult = spawnSync(process.execPath, [
+    '-e',
+    "process.kill(process.pid, 'SIGKILL')",
+  ], { encoding: 'utf8' })
+  assert.equal(signalResult.status, null)
+  assert.equal(signalResult.error, undefined)
+  assert.equal(signalResult.signal, 'SIGKILL')
+  const signaled = createScenarioFailureDiagnosticTracker('packed-runtime')
+  signaled.enterStep('candidate-positive')
+  recordScenarioOperationResult(signaled, signalResult)
+  assert.deepEqual(signaled.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'PROCESS_SIGNALED',
+    operation_signal: 'SIGKILL',
+  })
+})
+
+test('production outcome recorder ignores inherited fields and accessors', () => {
+  let accessorInvocations = 0
+  const inherited = {
+    status: 7,
+    error: { code: 'ETIMEDOUT' },
+    signal: 'SIGKILL',
+  }
+  const result = Object.create(inherited)
+  for (const key of ['status', 'error', 'signal']) {
+    Object.defineProperty(result, key, {
+      configurable: true,
+      get() {
+        accessorInvocations += 1
+        return inherited[key]
+      },
+    })
+  }
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-positive')
+  recordScenarioOperationResult(tracker, result)
+  assert.deepEqual(tracker.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'UNKNOWN_FAILURE',
+  })
+  assert.equal(accessorInvocations, 0)
+})
+
+test('async marker wait records an early child signal without waiting for its deadline', async () => {
+  const child = spawn(process.execPath, [
+    '-e',
+    "process.kill(process.pid, 'SIGKILL')",
+  ], { stdio: 'ignore' })
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('crash-start')
+  const startedAt = Date.now()
+  const markerReached = await waitForScenarioOperationMarker({
+    tracker,
+    child,
+    markerExists: () => false,
+    timeoutMs: 3_000,
+    pollMs: 5,
+  })
+  assert.equal(markerReached, false)
+  assert.ok(Date.now() - startedAt < 1_500, 'signal termination must preempt the marker deadline')
+  assert.deepEqual(tracker.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'crash-start',
+    cause_code: 'PROCESS_SIGNALED',
+    operation_signal: 'SIGKILL',
+  })
+})
+
+test('async marker wait bounds spawn failure and ignores post-marker termination', async () => {
+  const missingChild = spawn(join(tmpdir(), 'dsh-runtime-kit-missing-child'), [], {
+    stdio: 'ignore',
+  })
+  const failed = createScenarioFailureDiagnosticTracker('packed-runtime')
+  failed.enterStep('crash-start')
+  assert.equal(await waitForScenarioOperationMarker({
+    tracker: failed,
+    child: missingChild,
+    markerExists: () => false,
+    timeoutMs: 3_000,
+    pollMs: 5,
+  }), false)
+  assert.deepEqual(failed.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'crash-start',
+    cause_code: 'ENOENT',
+  })
+
+  const markedChild = spawn(process.execPath, [
+    '-e',
+    'setInterval(() => {}, 1000)',
+  ], { detached: true, stdio: 'ignore' })
+  const marked = createScenarioFailureDiagnosticTracker('packed-runtime')
+  marked.enterStep('crash-start')
+  assert.equal(await waitForScenarioOperationMarker({
+    tracker: marked,
+    child: markedChild,
+    markerExists: () => true,
+    timeoutMs: 3_000,
+    pollMs: 5,
+  }), true)
+  process.kill(-markedChild.pid, 'SIGKILL')
+  await new Promise(resolve => markedChild.once('close', resolve))
+  assert.deepEqual(marked.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'crash-start',
+    cause_code: 'UNKNOWN_FAILURE',
+  })
+})
+
+test('scenario failure parser accepts only bounded operation signal metadata', () => {
+  assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'ETIMEDOUT',
+    operation_signal: 'SIGTERM',
+  })), {
+    scenario_producer: 'packed-runtime',
+    scenario_step: 'candidate-positive',
+    scenario_cause_code: 'ETIMEDOUT',
+    scenario_operation_signal: 'SIGTERM',
+  })
+  assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'PROCESS_SIGNALED',
+    operation_signal: 'PRIVATE_SIGNAL',
+  })), {})
 })
 
 test('authoritative scenario emits exactly one bounded diagnostic for an uncaught failure', async () => {

@@ -13,7 +13,11 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createScenarioFailureDiagnosticTracker } from '../src/acceptance/contract.js'
+import {
+  createScenarioFailureDiagnosticTracker,
+  recordScenarioOperationResult,
+  waitForScenarioOperationMarker,
+} from '../src/acceptance/contract.js'
 import {
   NILS_COMPATIBILITY_CANDIDATE_ENV,
   nilsCompatibilityCandidateEnvironment,
@@ -97,7 +101,7 @@ function run(command, args, options = {}) {
     maxBuffer: 64 * 1024 * 1024,
     ...options,
   })
-  failureDiagnostic.recordOperationExitStatus(result.status)
+  recordScenarioOperationResult(failureDiagnostic, result)
   assert.equal(result.status, 0, [
     `${basename(command)} ${args.join(' ')} failed`,
     result.error?.stack,
@@ -248,18 +252,21 @@ async function crashPhase(profile, selectedSession) {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  const markerWait = waitForScenarioOperationMarker({
+    tracker: failureDiagnostic,
+    child,
+    markerExists: () => existsSync(crashMarker),
+    timeoutMs: 20_000,
+  })
   let stdout = ''
   let stderr = ''
   child.stdout.setEncoding('utf8')
   child.stderr.setEncoding('utf8')
   child.stdout.on('data', chunk => { stdout += chunk })
   child.stderr.on('data', chunk => { stderr += chunk })
-  const deadline = Date.now() + 20_000
-  while (!existsSync(crashMarker) && Date.now() < deadline && child.exitCode === null) {
-    await new Promise(resolve => setTimeout(resolve, 25))
-  }
+  const markerReached = await markerWait
   assert.equal(
-    existsSync(crashMarker),
+    markerReached,
     true,
     `crash mutation did not reach a terminal fail-closed state:\n${stdout}\n${stderr}`,
   )
@@ -434,7 +441,7 @@ digest = ${JSON.stringify(policyDigest)}
       timeout: 120_000,
       maxBuffer: 64 * 1024 * 1024,
     })
-    failureDiagnostic.recordOperationExitStatus(mismatch.status)
+    recordScenarioOperationResult(failureDiagnostic, mismatch)
     const mismatchOutput = `${mismatch.stdout}\n${mismatch.stderr}`
     assert.notEqual(mismatch.status, 0)
     failureDiagnostic.recordOperationExitStatus(0)
