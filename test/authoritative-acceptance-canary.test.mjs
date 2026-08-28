@@ -42,6 +42,8 @@ test('the canary waits for its receipt line to flush before allowing host exit',
     receipt,
     reportFailure() { events.push('failure') },
     async dispose() { events.push('dispose') },
+    successStatus: 0,
+    setExitCode(status) { events.push('status:' + status) },
     exit(status) { events.push('exit:' + status) },
   })
   await Promise.resolve()
@@ -51,7 +53,7 @@ test('the canary waits for its receipt line to flush before allowing host exit',
   ])
   flushed()
   await pending
-  assert.deepEqual(events, ['write', 'dispose', 'exit:0'])
+  assert.deepEqual(events, ['write', 'dispose', 'status:0', 'exit:0'])
 })
 
 test('the canary fails host exit closed when its receipt write fails', async () => {
@@ -73,9 +75,37 @@ test('the canary fails host exit closed when its receipt write fails', async () 
         events.push('failure')
       },
       async dispose() { events.push('dispose') },
+      successStatus: 0,
+      setExitCode(status) { events.push('status:' + status) },
       exit(status) { events.push('exit:' + status) },
     })
-    assert.deepEqual(events, ['write', 'failure', 'dispose', 'exit:1'])
+    assert.deepEqual(events, ['write', 'failure', 'dispose', 'status:1', 'exit:1'])
+  }
+})
+
+test('the canary retains process failure when host exit is unavailable or throws', async () => {
+  for (const mode of ['unavailable', 'throw']) {
+    let processStatus = 0
+    const hostFailure = new Error('host exit failed')
+    const pending = finalizeScenarioCanary({
+      stream: {
+        write(_chunk, callback) {
+          callback(new Error('closed output'))
+          return false
+        },
+      },
+      receipt: { phase: 'positive' },
+      reportFailure() {},
+      async dispose() {},
+      successStatus: 0,
+      setExitCode(status) { processStatus = status },
+      exit() {
+        if (mode === 'throw') throw hostFailure
+      },
+    })
+    if (mode === 'throw') await assert.rejects(pending, hostFailure)
+    else await pending
+    assert.equal(processStatus, 1)
   }
 })
 

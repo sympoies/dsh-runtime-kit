@@ -36,6 +36,8 @@ export function writeScenarioCanaryReceipt(stream, receipt) {
  *   failure?:{error:unknown},
  *   reportFailure:(error:unknown)=>void,
  *   dispose:()=>Promise<void>,
+ *   successStatus:number,
+ *   setExitCode:(status:number)=>void,
  *   exit:(status:number)=>void,
  * }} options
  */
@@ -54,7 +56,9 @@ export async function finalizeScenarioCanary(options) {
     try {
       await options.dispose()
     } finally {
-      options.exit(failure === undefined ? 0 : 1)
+      const status = failure === undefined ? options.successStatus : 1
+      options.setExitCode(status)
+      options.exit(status)
     }
   }
 }

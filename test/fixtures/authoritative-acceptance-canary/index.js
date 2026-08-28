@@ -907,6 +907,8 @@ export function apply(ctx) {
         try { await resumedHandle?.dispose() } catch {}
         try { await handle?.dispose() } catch {}
       },
+      successStatus: process.exitCode ?? 0,
+      setExitCode: status => { process.exitCode = status },
       exit: status => ctx.get('appExit')?.(status),
     })
   }
