@@ -2925,6 +2925,43 @@ test('opaque shell fan-out denials explain the direct executable recovery path',
   assert.equal(partial.delegated, false)
 })
 
+test('typed shell guidance is the first visible denial line and keeps policy diagnostics', async () => {
+  const blockingCodes = [
+    'block-direct-git-commit',
+    'block-direct-git-worktree',
+    'block-direct-pr-create',
+    'block-direct-python',
+    'block-unsafe-default-delivery',
+    'checkout-lease-guard',
+    'semantic-commit-body-gate',
+  ]
+  const context = 'The Bash tool call was blocked before command dispatch because a preceding shell-state command such as `set`, `export`, or `cd` makes later commands impossible to classify safely. Retry now with each command in a separate Bash tool call and use the tool\'s `workdir` field instead of `cd`.'
+  const subject = harness({
+    envelope: decision('block', {
+      context,
+      reasons: blockingCodes.map(code => ({
+        rule_id: `dsh.${code}`,
+        code,
+        disposition: 'block',
+      })),
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+
+  assert.equal(result.kind, 'deny')
+  const lines = result.reason.split('\n')
+  assert.match(lines[0], /^agent-hook:blocked — /)
+  assert.match(lines[0], /blocked before command dispatch/i)
+  assert.match(lines[0], /Retry now/i)
+  assert.equal(
+    lines.filter(line => line.includes('blocked before command dispatch')).length,
+    1,
+  )
+  for (const code of blockingCodes) assert.match(result.reason, new RegExp(code))
+  assert.equal(delegated, false)
+})
+
 test('a lone unsafe default delivery denial explains inspection and delivery recovery', async () => {
   const subject = harness({
     envelope: decision('block', {
@@ -2942,7 +2979,9 @@ test('a lone unsafe default delivery denial explains inspection and delivery rec
   assert.match(result.reason, /agent-hook:block-unsafe-default-delivery/)
   assert.match(result.reason, /blocked before command dispatch/i)
   assert.match(result.reason, /split read-only inspection from delivery/i)
-  assert.match(result.reason, /semantic-commit, managed worktrees, and the repository PR workflow/i)
+  assert.match(result.reason, /Bash tool workdir/i)
+  assert.match(result.reason, /semantic-commit commit --repo <absolute managed-worktree path>/i)
+  assert.match(result.reason, /repository PR workflow/i)
   assert.equal(delegated, false)
 })
 
