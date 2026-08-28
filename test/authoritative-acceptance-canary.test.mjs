@@ -9,6 +9,7 @@ import {
   validationBodyExecutions,
 } from './fixtures/authoritative-acceptance-canary/body-execution-counter.js'
 import { observableChildPid } from './fixtures/authoritative-acceptance-canary/observable-child-pid.js'
+import { writeScenarioCanaryReceipt } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
 
 const fixtureManifest = new URL('./fixtures/authoritative-acceptance-canary/package.json', import.meta.url)
 
@@ -16,6 +17,48 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   const manifest = JSON.parse(readFileSync(fixtureManifest, 'utf8'))
   assert.equal(manifest.files.includes('observable-child-pid.js'), true)
   assert.equal(manifest.files.includes('body-execution-counter.js'), true)
+  assert.equal(manifest.files.includes('receipt-output.js'), true)
+})
+
+test('the canary waits for its receipt line to flush before allowing host exit', async () => {
+  const receipt = {
+    schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
+    phase: 'positive',
+    process_instance_sha256: 'sha256:' + 'a'.repeat(64),
+  }
+  const writes = []
+  let flushed
+  const stream = {
+    write(chunk, callback) {
+      writes.push(chunk)
+      flushed = callback
+      return false
+    },
+  }
+  let settled = false
+  const pending = writeScenarioCanaryReceipt(stream, receipt)
+    .then(() => { settled = true })
+  await Promise.resolve()
+  assert.equal(settled, false)
+  assert.deepEqual(writes, [
+    'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY=' + JSON.stringify(receipt) + '\n',
+  ])
+  flushed()
+  await pending
+  assert.equal(settled, true)
+})
+
+test('the canary rejects a receipt write that fails before host exit', async () => {
+  const failure = new Error('closed output')
+  await assert.rejects(
+    writeScenarioCanaryReceipt({
+      write(_chunk, callback) {
+        callback(failure)
+        return false
+      },
+    }, { phase: 'positive' }),
+    failure,
+  )
 })
 
 test('body evidence freezes body-side observations at the first stopping turn', () => {

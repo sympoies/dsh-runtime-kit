@@ -10,11 +10,15 @@ import {
   validationBodyExecutions,
 } from './body-execution-counter.js'
 import { observableChildPid } from './observable-child-pid.js'
+import {
+  SCENARIO_CANARY_MARKER,
+  writeScenarioCanaryReceipt,
+} from './receipt-output.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
 export const inject = ['agents', 'goals', 'llm', 'tools']
 
-const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
+const marker = SCENARIO_CANARY_MARKER
 const phase = process.env.DSH_ACCEPTANCE_PHASE ?? 'positive'
 const sessionId = process.env.DSH_ACCEPTANCE_SESSION_ID ?? 'authoritative-acceptance-canary'
 const workspace = process.env.DSH_ACCEPTANCE_WORKSPACE
@@ -842,7 +846,7 @@ export function apply(ctx) {
           throw new Error('completion settlement failed closed')
         }
       }
-      process.stdout.write(marker + JSON.stringify({
+      await writeScenarioCanaryReceipt(process.stdout, {
         schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
         phase,
         process_instance_sha256: processInstance,
@@ -888,7 +892,7 @@ export function apply(ctx) {
         cancellation_child_process_dead: cancellationChildProcessDead,
         cancellation_heartbeat_stopped: cancellationHeartbeatStopped,
         resources_after: resources(ctx),
-      }) + '\n')
+      })
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\n')
       process.exitCode = 1
