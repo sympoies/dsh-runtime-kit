@@ -21,6 +21,16 @@ const NILS_ARTIFACTS = Object.freeze([
   'review-specialists',
   'semantic-commit',
 ])
+const SCENARIO_CAUSE_CODES = new Set([
+  'EACCES',
+  'ENOENT',
+  'ENOBUFS',
+  'ENOTDIR',
+  'ERR_ASSERTION',
+  'ETIMEDOUT',
+  'UNCLASSIFIED',
+  'UNKNOWN_FAILURE',
+])
 
 const PRODUCERS = Object.freeze({
   operations: Object.freeze(['bootstrap', 'inspect']),
@@ -513,6 +523,77 @@ export class AcceptanceError extends Error {
   }
 }
 
+/**
+ * `cause` is accepted only to make its non-observation explicit at the fatal
+ * boundary. Diagnostic construction never reads or invokes the thrown value.
+ *
+ * @param {{
+ *   producer?: unknown,
+ *   step?: unknown,
+ *   cause?: unknown,
+ *   operationExitStatus?: unknown,
+ * }} input
+ */
+export function buildScenarioFailureDiagnostic(input) {
+  const producer = input?.producer === 'operations' || input?.producer === 'packed-runtime'
+    ? input.producer
+    : 'packed-runtime'
+  const step = typeof input?.step === 'string' && /^[a-z][a-z0-9-]{0,63}$/u.test(input.step)
+    ? input.step
+    : 'unknown-step'
+  const operationExitStatusCandidate = input?.operationExitStatus
+  const operationExitStatus = typeof operationExitStatusCandidate === 'number'
+    && Number.isSafeInteger(operationExitStatusCandidate)
+    && operationExitStatusCandidate >= 1
+    && operationExitStatusCandidate <= 255
+    ? operationExitStatusCandidate
+    : undefined
+  return Object.freeze({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer,
+    step,
+    cause_code: 'UNKNOWN_FAILURE',
+    ...(operationExitStatus === undefined ? {} : { operation_exit_status: operationExitStatus }),
+  })
+}
+
+/** @param {unknown} producer */
+export function createScenarioFailureDiagnosticTracker(producer) {
+  let step = 'input-authentication'
+  /** @type {number | undefined} */
+  let operationExitStatus
+  let taken = false
+  return Object.freeze({
+    /** @param {unknown} nextStep */
+    enterStep(nextStep) {
+      step = typeof nextStep === 'string' && /^[a-z][a-z0-9-]{0,63}$/u.test(nextStep)
+        ? nextStep
+        : 'unknown-step'
+      operationExitStatus = undefined
+    },
+    /** @param {unknown} nextStatus */
+    recordOperationExitStatus(nextStatus) {
+      operationExitStatus = typeof nextStatus === 'number'
+        && Number.isSafeInteger(nextStatus)
+        && nextStatus >= 1
+        && nextStatus <= 255
+        ? nextStatus
+        : undefined
+    },
+    take() {
+      if (taken) return undefined
+      const diagnostic = buildScenarioFailureDiagnostic({
+        producer,
+        step,
+        operationExitStatus,
+      })
+      taken = true
+      return diagnostic
+    },
+  })
+}
+
 /** @param {unknown} output */
 export function scenarioFailureDiagnostic(output) {
   if (typeof output !== 'string') return Object.freeze({})
@@ -546,10 +627,13 @@ export function scenarioFailureDiagnostic(output) {
         && (!Number.isSafeInteger(parsed.operation_exit_status)
           || parsed.operation_exit_status < 1
           || parsed.operation_exit_status > 255))) continue
+    const causeCode = SCENARIO_CAUSE_CODES.has(parsed.cause_code)
+      ? parsed.cause_code
+      : 'UNKNOWN_FAILURE'
     return Object.freeze({
       scenario_producer: parsed.producer,
       scenario_step: parsed.step,
-      scenario_cause_code: parsed.cause_code,
+      scenario_cause_code: causeCode,
       ...(hasOperationExitStatus
         ? { scenario_operation_exit_status: parsed.operation_exit_status }
         : {}),
