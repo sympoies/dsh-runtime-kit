@@ -149,10 +149,10 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 ## Released dependency
 
-The implementation requires the independently authenticated nils-cli v1.27.21
-release, which contains the actionable runtime diagnostics delivered in PR
-#1550 and the Linux user-namespace system Git trust repair delivered in PR
-#1552. The exact tag commit, Linux archive, six acceptance binaries, and macOS
+The implementation requires the independently authenticated nils-cli v1.27.22
+release, which contains the managed-startup activity convergence delivered in
+PR #1554 and actionable retry diagnostics for unclassifiable shell activity
+delivered in PR #1555. The exact tag commit, Linux archive, six acceptance binaries, and macOS
 runtime-health companions are recorded in `compatibility/nils-cli.json`; the completed
 source-candidate record is no longer an activation path. Registering an
 acceptance contract against a nils build without these RPCs fails closed;
