@@ -1066,9 +1066,10 @@ test('authenticated DSH clone trust reaches local upload-pack and excludes ambie
   writeFileSync(globalConfig, '')
   writeFileSync(uploadPack, `#!/bin/sh
 set -eu
-# Git 2.55 began propagating clone -c values to local upload-pack. Recreate
-# the Git 2.43 boundary that exposed the hosted defect so this negative stays
-# deterministic across runner Git revisions.
+# Git 2.55 began propagating clone -c values to local upload-pack and may admit
+# an explicit local repository without repeating Git 2.43's ownership failure.
+# Remove command-scoped transport, then require the exact private trust pair so
+# the subprocess contract stays deterministic across runner Git revisions.
 unset GIT_CONFIG_PARAMETERS
 if test "\${GIT_CONFIG_COUNT+x}" = x; then
   count=$GIT_CONFIG_COUNT
@@ -1082,6 +1083,10 @@ fi
 observed=$(/usr/bin/git config --get-all safe.directory || true)
 printf '%s' "$observed" > "$DSH_TEST_UPLOAD_PACK_OBSERVATION"
 printf '%s' "$1" > "$DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION"
+if test "$observed" != "$DSH_TEST_EXPECTED_SAFE_DIRECTORIES"; then
+  printf '%s\n' 'fatal: detected dubious ownership in repository' >&2
+  exit 128
+fi
 export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
 exec /usr/bin/git-upload-pack "$@"
 `)
@@ -1118,6 +1123,7 @@ exec /usr/bin/git-upload-pack "$@"
         encoding: 'utf8',
         env: {
           ...gitEnvironment,
+          DSH_TEST_EXPECTED_SAFE_DIRECTORIES: exactTrust,
           DSH_TEST_UPLOAD_PACK_OBSERVATION: observation,
           DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION: sourceObservation,
         },
@@ -1145,6 +1151,7 @@ exec /usr/bin/git-upload-pack "$@"
       },
       env: {
         ...gitEnvironment,
+        DSH_TEST_EXPECTED_SAFE_DIRECTORIES: exactTrust,
         DSH_TEST_UPLOAD_PACK_OBSERVATION: observation,
         DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION: sourceObservation,
       },
