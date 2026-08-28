@@ -22,6 +22,7 @@ import {
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
   createScenarioFailureDiagnosticTracker,
+  parseScenarioCanaryReceipt,
   recordScenarioOperationResult,
   waitForScenarioOperationMarker,
   resolveSourceCandidateAcceptance,
@@ -1019,6 +1020,112 @@ test('scenario failure diagnostic construction cannot disclose an error payload'
     'private stdout',
     'private stderr',
   ]) assert.equal(serialized.includes(secret), false)
+})
+
+test('scenario canary receipt diagnostics identify the exact bounded assertion stage', () => {
+  const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
+  const processInstance = 'sha256:' + 'a'.repeat(64)
+  const validReceipt = {
+    schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
+    phase: 'positive',
+    process_instance_sha256: processInstance,
+    results: [],
+  }
+  const cases = [
+    {
+      output: 'private output without a receipt',
+      steps: ['positive-receipt-marker'],
+    },
+    {
+      output: marker + '{private-invalid-json',
+      steps: ['positive-receipt-marker', 'positive-receipt-json'],
+    },
+    {
+      output: marker + JSON.stringify({ ...validReceipt, schema_version: 'private-schema' }),
+      steps: [
+        'positive-receipt-marker',
+        'positive-receipt-json',
+        'positive-receipt-schema',
+      ],
+    },
+    {
+      output: marker + JSON.stringify({ ...validReceipt, phase: 'private-phase' }),
+      steps: [
+        'positive-receipt-marker',
+        'positive-receipt-json',
+        'positive-receipt-schema',
+        'positive-receipt-phase',
+      ],
+    },
+    {
+      output: marker + JSON.stringify({
+        ...validReceipt,
+        process_instance_sha256: 'sha256:' + 'b'.repeat(64),
+      }),
+      steps: [
+        'positive-receipt-marker',
+        'positive-receipt-json',
+        'positive-receipt-schema',
+        'positive-receipt-phase',
+        'positive-receipt-process',
+      ],
+    },
+  ]
+  for (const item of cases) {
+    const steps = []
+    assert.throws(
+      () => parseScenarioCanaryReceipt({
+        output: item.output,
+        phase: 'positive',
+        processInstance,
+        enterStep: step => steps.push(step),
+      }),
+      error => {
+        assert.equal(error instanceof AcceptanceError, true)
+        assert.equal(error.code, 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID')
+        assert.equal(String(error).includes('private'), false)
+        return true
+      },
+    )
+    assert.deepEqual(steps, item.steps)
+  }
+
+  const duplicateSteps = []
+  assert.throws(
+    () => parseScenarioCanaryReceipt({
+      output: `${marker}${JSON.stringify(validReceipt)}\n${marker}${JSON.stringify(validReceipt)}`,
+      phase: 'positive',
+      processInstance,
+      enterStep: step => duplicateSteps.push(step),
+    }),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
+  assert.deepEqual(duplicateSteps, ['positive-receipt-marker'])
+})
+
+test('scenario canary receipt diagnostics return only an exactly bound receipt', () => {
+  const processInstance = 'sha256:' + 'c'.repeat(64)
+  const receipt = {
+    schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
+    phase: 'cancellation-recover',
+    process_instance_sha256: processInstance,
+    results: [{ name: 'bash', is_error: false }],
+  }
+  const steps = []
+  assert.deepEqual(parseScenarioCanaryReceipt({
+    output: `progress\nDSH_AUTHORITATIVE_ACCEPTANCE_CANARY=${JSON.stringify(receipt)}\n`,
+    phase: 'cancellation-recover',
+    processInstance,
+    enterStep: step => steps.push(step),
+  }), receipt)
+  assert.deepEqual(steps, [
+    'cancellation-recover-receipt-marker',
+    'cancellation-recover-receipt-json',
+    'cancellation-recover-receipt-schema',
+    'cancellation-recover-receipt-phase',
+    'cancellation-recover-receipt-process',
+  ])
 })
 
 test('scenario diagnostics distrust accessors and allow only public cause codes', () => {

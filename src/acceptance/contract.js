@@ -6,6 +6,8 @@ const SCENARIO_SCHEMA = 'dsh-runtime-kit.acceptance-scenarios.v1'
 const DELIVERY_SCHEMA = 'dsh-runtime-kit.acceptance-delivery.v1'
 const DIAGNOSTIC_SCHEMA = 'dsh-runtime-kit.acceptance-diagnostic.v1'
 const AUTHORITATIVE_MATRIX_SCHEMA = 'dsh-runtime-kit.authoritative-acceptance-matrix.v1'
+const SCENARIO_CANARY_SCHEMA = 'dsh-runtime-kit.authoritative-acceptance-canary.v1'
+const SCENARIO_CANARY_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
@@ -731,6 +733,87 @@ export function createScenarioFailureDiagnosticTracker(producer) {
       return diagnostic
     },
   })
+}
+
+/**
+ * Parse one packed canary receipt while advancing only bounded diagnostic step
+ * names. Raw child output and untrusted receipt values never enter errors.
+ *
+ * @param {{
+ *   output:unknown,
+ *   phase:unknown,
+ *   processInstance:unknown,
+ *   enterStep:(step:string)=>void,
+ * }} input
+ */
+export function parseScenarioCanaryReceipt(input) {
+  const phase = typeof input?.phase === 'string'
+    && /^[a-z][a-z0-9-]{0,31}$/u.test(input.phase)
+    ? input.phase
+    : undefined
+  const processInstance = typeof input?.processInstance === 'string'
+    && /^sha256:[0-9a-f]{64}$/u.test(input.processInstance)
+    ? input.processInstance
+    : undefined
+  if (phase === undefined || processInstance === undefined
+    || typeof input?.enterStep !== 'function') {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt expectation is invalid',
+    )
+  }
+  /** @param {string} suffix */
+  const enter = suffix => input.enterStep(`${phase}-receipt-${suffix}`)
+  enter('marker')
+  const markers = typeof input.output === 'string'
+    ? input.output.split('\n').filter(line => line.startsWith(SCENARIO_CANARY_MARKER))
+    : []
+  if (markers.length !== 1) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt marker is invalid',
+    )
+  }
+
+  enter('json')
+  let receipt
+  try {
+    receipt = JSON.parse(markers[0].slice(SCENARIO_CANARY_MARKER.length))
+  } catch {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt JSON is invalid',
+    )
+  }
+  if (receipt === null || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt JSON is invalid',
+    )
+  }
+
+  enter('schema')
+  if (receipt.schema_version !== SCENARIO_CANARY_SCHEMA) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt schema is invalid',
+    )
+  }
+  enter('phase')
+  if (receipt.phase !== phase) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt phase is invalid',
+    )
+  }
+  enter('process')
+  if (receipt.process_instance_sha256 !== processInstance) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'scenario canary receipt process binding is invalid',
+    )
+  }
+  return receipt
 }
 
 /** @param {unknown} value @param {string} key */

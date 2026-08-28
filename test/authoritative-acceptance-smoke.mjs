@@ -15,6 +15,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   createScenarioFailureDiagnosticTracker,
+  parseScenarioCanaryReceipt,
   recordScenarioOperationResult,
   waitForScenarioOperationMarker,
 } from '../src/acceptance/contract.js'
@@ -110,14 +111,6 @@ function run(command, args, options = {}) {
   ].filter(Boolean).join('\n'))
   failureDiagnostic.recordOperationExitStatus(0)
   return result
-}
-
-function canaryReceipt(result, label) {
-  const line = result.stdout.split('\n').find(candidate => candidate.startsWith(marker))
-  assert.ok(line, `${label} emitted no canary receipt:\n${result.stdout}\n${result.stderr}`)
-  const receipt = JSON.parse(line.slice(marker.length))
-  assert.equal(receipt.schema_version, 'dsh-runtime-kit.authoritative-acceptance-canary.v1')
-  return receipt
 }
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-authoritative-acceptance-'))
@@ -231,9 +224,12 @@ function runPhase(profile, selectedPhase, selectedSession, kind = 'candidate') {
       DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: processInstance,
     },
   })
-  const receipt = canaryReceipt(result, selectedPhase)
-  assert.equal(receipt.phase, selectedPhase)
-  assert.equal(receipt.process_instance_sha256, processInstance)
+  const receipt = parseScenarioCanaryReceipt({
+    output: result.stdout,
+    phase: selectedPhase,
+    processInstance,
+    enterStep,
+  })
   return receipt
 }
 
@@ -388,6 +384,7 @@ digest = ${JSON.stringify(policyDigest)}
     installProfile(candidateProfile, candidatePackage)
     enterStep('candidate-positive')
     const positive = runPhase(candidateProfile, 'positive', 'acceptance-positive')
+    enterStep('candidate-positive-results')
     const positiveToolOutcomes = exactResults(positive, ['bash', 'canary_host_validator'])
     enterStep('downstream-denial')
     const downstream = runPhase(candidateProfile, 'downstream-denial', 'acceptance-downstream')
