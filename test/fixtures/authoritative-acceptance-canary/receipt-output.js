@@ -24,3 +24,37 @@ export function writeScenarioCanaryReceipt(stream, receipt) {
     }
   })
 }
+
+/**
+ * Preserve the canary's final host ordering in one testable boundary: write a
+ * successful receipt, report any failure, dispose resources, then request host
+ * exit with the matching status.
+ *
+ * @param {{
+ *   stream:{write:(chunk:string, callback:(error?:Error|null)=>void)=>unknown},
+ *   receipt:unknown,
+ *   failure?:{error:unknown},
+ *   reportFailure:(error:unknown)=>void,
+ *   dispose:()=>Promise<void>,
+ *   exit:(status:number)=>void,
+ * }} options
+ */
+export async function finalizeScenarioCanary(options) {
+  let failure = options.failure
+  if (failure === undefined) {
+    try {
+      await writeScenarioCanaryReceipt(options.stream, options.receipt)
+    } catch (error) {
+      failure = { error }
+    }
+  }
+  try {
+    if (failure !== undefined) options.reportFailure(failure.error)
+  } finally {
+    try {
+      await options.dispose()
+    } finally {
+      options.exit(failure === undefined ? 0 : 1)
+    }
+  }
+}

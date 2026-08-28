@@ -9,7 +9,7 @@ import {
   validationBodyExecutions,
 } from './fixtures/authoritative-acceptance-canary/body-execution-counter.js'
 import { observableChildPid } from './fixtures/authoritative-acceptance-canary/observable-child-pid.js'
-import { writeScenarioCanaryReceipt } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
+import { finalizeScenarioCanary } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
 
 const fixtureManifest = new URL('./fixtures/authoritative-acceptance-canary/package.json', import.meta.url)
 
@@ -27,38 +27,56 @@ test('the canary waits for its receipt line to flush before allowing host exit',
     process_instance_sha256: 'sha256:' + 'a'.repeat(64),
   }
   const writes = []
+  const events = []
   let flushed
   const stream = {
     write(chunk, callback) {
       writes.push(chunk)
+      events.push('write')
       flushed = callback
       return false
     },
   }
-  let settled = false
-  const pending = writeScenarioCanaryReceipt(stream, receipt)
-    .then(() => { settled = true })
+  const pending = finalizeScenarioCanary({
+    stream,
+    receipt,
+    reportFailure() { events.push('failure') },
+    async dispose() { events.push('dispose') },
+    exit(status) { events.push('exit:' + status) },
+  })
   await Promise.resolve()
-  assert.equal(settled, false)
+  assert.deepEqual(events, ['write'])
   assert.deepEqual(writes, [
     'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY=' + JSON.stringify(receipt) + '\n',
   ])
   flushed()
   await pending
-  assert.equal(settled, true)
+  assert.deepEqual(events, ['write', 'dispose', 'exit:0'])
 })
 
-test('the canary rejects a receipt write that fails before host exit', async () => {
-  const failure = new Error('closed output')
-  await assert.rejects(
-    writeScenarioCanaryReceipt({
-      write(_chunk, callback) {
-        callback(failure)
-        return false
+test('the canary fails host exit closed when its receipt write fails', async () => {
+  for (const mode of ['callback', 'throw']) {
+    const failure = new Error('closed output')
+    const events = []
+    await finalizeScenarioCanary({
+      stream: {
+        write(_chunk, callback) {
+          events.push('write')
+          if (mode === 'throw') throw failure
+          callback(failure)
+          return false
+        },
       },
-    }, { phase: 'positive' }),
-    failure,
-  )
+      receipt: { phase: 'positive' },
+      reportFailure(error) {
+        assert.equal(error, failure)
+        events.push('failure')
+      },
+      async dispose() { events.push('dispose') },
+      exit(status) { events.push('exit:' + status) },
+    })
+    assert.deepEqual(events, ['write', 'failure', 'dispose', 'exit:1'])
+  }
 })
 
 test('body evidence freezes body-side observations at the first stopping turn', () => {

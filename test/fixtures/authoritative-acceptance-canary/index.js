@@ -11,8 +11,8 @@ import {
 } from './body-execution-counter.js'
 import { observableChildPid } from './observable-child-pid.js'
 import {
+  finalizeScenarioCanary,
   SCENARIO_CANARY_MARKER,
-  writeScenarioCanaryReceipt,
 } from './receipt-output.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
@@ -315,6 +315,8 @@ export function apply(ctx) {
     let legacySteeringObserved = false
     let recoverySessionSha
     let legacyValidationSessionSha
+    let receipt
+    let failure
     let resolveRecoveryTransition
     const recoveryTransition = new Promise(resolve => { resolveRecoveryTransition = resolve })
     let resolveLegacySteering
@@ -846,7 +848,7 @@ export function apply(ctx) {
           throw new Error('completion settlement failed closed')
         }
       }
-      await writeScenarioCanaryReceipt(process.stdout, {
+      receipt = {
         schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
         phase,
         process_instance_sha256: processInstance,
@@ -892,15 +894,21 @@ export function apply(ctx) {
         cancellation_child_process_dead: cancellationChildProcessDead,
         cancellation_heartbeat_stopped: cancellationHeartbeatStopped,
         resources_after: resources(ctx),
-      })
+      }
     } catch (error) {
-      process.stderr.write(String(error?.stack ?? error) + '\n')
-      process.exitCode = 1
-    } finally {
-      try { await resumedHandle?.dispose() } catch {}
-      try { await handle?.dispose() } catch {}
-      ctx.get('appExit')?.(process.exitCode ?? 0)
+      failure = { error }
     }
+    await finalizeScenarioCanary({
+      stream: process.stdout,
+      receipt,
+      failure,
+      reportFailure: error => process.stderr.write(String(error?.stack ?? error) + '\n'),
+      dispose: async () => {
+        try { await resumedHandle?.dispose() } catch {}
+        try { await handle?.dispose() } catch {}
+      },
+      exit: status => ctx.get('appExit')?.(status),
+    })
   }
   if (phase === 'unpatched-smoke') return run(undefined)
   const currentRuntime = ctx.get('dshRuntimeKit')
