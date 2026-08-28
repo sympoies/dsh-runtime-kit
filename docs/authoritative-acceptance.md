@@ -149,7 +149,7 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 ## Released dependency
 
-The implementation requires the independently authenticated nils-cli v1.27.17
+The implementation requires the independently authenticated nils-cli v1.27.19
 release, which contains the provider first reviewed in PR #1507. The exact tag
 commit, Linux archive, six acceptance binaries, and macOS runtime-health
 companions are recorded in `compatibility/nils-cli.json`; the completed
