@@ -18,8 +18,10 @@ import { promisify } from 'node:util'
 
 import {
   AcceptanceError,
+  buildScenarioFailureDiagnostic,
   buildAcceptanceCliResult,
   buildAcceptanceSummary,
+  createScenarioFailureDiagnosticTracker,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
@@ -983,8 +985,149 @@ test('scenario failure diagnostics expose only a bounded producer, step, and cau
     ok: false,
     producer: 'operations',
     step: '/tmp/private-path',
-    cause_code: 'ERR_ASSERTION',
+    cause_code: 'UNKNOWN_FAILURE',
   })), {})
+})
+
+test('scenario failure diagnostic construction cannot disclose an error payload', () => {
+  const diagnostic = buildScenarioFailureDiagnostic({
+    producer: 'packed-runtime',
+    step: 'candidate-upgrade',
+    cause: {
+      code: 'ERR_ASSERTION',
+      message: 'private path: /tmp/private-profile',
+      stack: 'private stack',
+      stdout: 'private stdout',
+      stderr: 'private stderr',
+    },
+    operationExitStatus: 17,
+  })
+  assert.deepEqual(diagnostic, {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-upgrade',
+    cause_code: 'UNKNOWN_FAILURE',
+    operation_exit_status: 17,
+  })
+  const serialized = JSON.stringify(diagnostic)
+  for (const secret of [
+    '/tmp/private-profile',
+    'private stack',
+    'private stdout',
+    'private stderr',
+  ]) assert.equal(serialized.includes(secret), false)
+})
+
+test('scenario diagnostics distrust accessors and allow only public cause codes', () => {
+  let accessorInvocations = 0
+  const accessorCause = Object.create(null)
+  Object.defineProperty(accessorCause, 'code', {
+    get() {
+      accessorInvocations += 1
+      return 'ERR_ASSERTION'
+    },
+  })
+  for (const cause of [accessorCause, new Proxy({}, {
+    get() {
+      accessorInvocations += 1
+      return 'ERR_ASSERTION'
+    },
+  }), { code: 'PRIVATE_TOKEN_123456789' }]) {
+    const diagnostic = buildScenarioFailureDiagnostic({
+      producer: 'packed-runtime',
+      step: 'candidate-install',
+      cause,
+    })
+    assert.equal(diagnostic.cause_code, 'UNKNOWN_FAILURE')
+    assert.equal(JSON.stringify(diagnostic).includes('private'), false)
+  }
+  assert.equal(accessorInvocations, 0)
+  assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-install',
+    cause_code: 'PRIVATE_TOKEN_123456789',
+  })), {
+    scenario_producer: 'packed-runtime',
+    scenario_step: 'candidate-install',
+    scenario_cause_code: 'UNKNOWN_FAILURE',
+  })
+})
+
+test('scenario diagnostics preserve every declared public operations cause code', () => {
+  const operationsSource = readFileSync(join(projectRoot, 'src/operations/index.js'), 'utf8')
+  const constructors = [...operationsSource.matchAll(/new OperationsError\(/gu)]
+  const declaredCodes = [...operationsSource.matchAll(
+    /new OperationsError\(\s*['"]([a-z][a-z0-9-]*)['"]/gu,
+  )].map(match => match[1])
+  assert.equal(declaredCodes.length, constructors.length)
+
+  for (const code of new Set([...declaredCodes, 'command-failed'])) {
+    const causeCode = `DSH_OPERATIONS_${code.replaceAll('-', '_').toUpperCase()}`
+    assert.deepEqual(scenarioFailureDiagnostic(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+      ok: false,
+      producer: 'operations',
+      step: 'profile-setup',
+      cause_code: causeCode,
+    })), {
+      scenario_producer: 'operations',
+      scenario_step: 'profile-setup',
+      scenario_cause_code: causeCode,
+    })
+  }
+})
+
+test('scenario diagnostic tracker binds a later leg and clears stale operation status', () => {
+  const failedOperation = createScenarioFailureDiagnosticTracker('packed-runtime')
+  failedOperation.enterStep('candidate-install')
+  failedOperation.recordOperationExitStatus(17)
+  assert.deepEqual(failedOperation.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-install',
+    cause_code: 'UNKNOWN_FAILURE',
+    operation_exit_status: 17,
+  })
+  assert.equal(failedOperation.take(), undefined)
+
+  const laterAssertion = createScenarioFailureDiagnosticTracker('packed-runtime')
+  laterAssertion.enterStep('candidate-positive')
+  laterAssertion.recordOperationExitStatus(0)
+  assert.deepEqual(laterAssertion.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'UNKNOWN_FAILURE',
+  })
+})
+
+test('authoritative scenario emits exactly one bounded diagnostic for an uncaught failure', async () => {
+  await assert.rejects(
+    run(process.execPath, [join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs')], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      env: {},
+    }),
+    error => {
+      const diagnostics = error.stderr
+        .split('\n')
+        .filter(line => line.includes('dsh-runtime-kit.acceptance-scenario-diagnostic.v1'))
+      assert.equal(diagnostics.length, 1)
+      assert.deepEqual(JSON.parse(diagnostics[0]), {
+        schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+        ok: false,
+        producer: 'packed-runtime',
+        step: 'input-authentication',
+        cause_code: 'UNKNOWN_FAILURE',
+      })
+      return true
+    },
+  )
 })
 
 test('acceptance Git isolation persists exact clone trust without ambient wildcard trust', async () => {

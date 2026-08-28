@@ -13,11 +13,25 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createScenarioFailureDiagnosticTracker } from '../src/acceptance/contract.js'
 import {
   NILS_COMPATIBILITY_CANDIDATE_ENV,
   nilsCompatibilityCandidateEnvironment,
   sanitizeAcceptanceScenarioEnvironment,
 } from '../src/acceptance/scenario-environment.js'
+
+const failureDiagnostic = createScenarioFailureDiagnosticTracker('packed-runtime')
+
+function enterStep(step) {
+  failureDiagnostic.enterStep(step)
+}
+
+function emitFailureDiagnostic() {
+  const diagnostic = failureDiagnostic.take()
+  if (diagnostic !== undefined) process.stderr.write(JSON.stringify(diagnostic) + '\n')
+}
+
+process.once('uncaughtExceptionMonitor', emitFailureDiagnostic)
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = requiredAbsolute('DSH_SOURCE_ROOT')
@@ -83,12 +97,14 @@ function run(command, args, options = {}) {
     maxBuffer: 64 * 1024 * 1024,
     ...options,
   })
+  failureDiagnostic.recordOperationExitStatus(result.status)
   assert.equal(result.status, 0, [
     `${basename(command)} ${args.join(' ')} failed`,
     result.error?.stack,
     result.stdout,
     result.stderr,
   ].filter(Boolean).join('\n'))
+  failureDiagnostic.recordOperationExitStatus(0)
   return result
 }
 
@@ -293,6 +309,7 @@ function common(receipt, id) {
   }
 }
 
+enterStep('artifact-authentication')
 assert.equal(digestFile(candidatePackage), candidatePackageSha)
 assert.equal(digestFile(baselinePackage), baselinePackageSha)
 for (const [name, sha256] of Object.entries(candidateArtifacts)) {
@@ -303,6 +320,7 @@ for (const [name, sha256] of Object.entries(baselineArtifacts)) {
 }
 
 try {
+  enterStep('profile-setup')
   for (const directory of [
     home, dshHome, configHome, stateHome, hookRoot, hookState, docsState, workspace,
     join(temporaryRoot, 'empty-private-skills'),
@@ -332,6 +350,7 @@ path = ${JSON.stringify(hookPolicy)}
 digest = ${JSON.stringify(policyDigest)}
 `, { mode: 0o600 })
 
+  enterStep('canary-package')
   const packed = run(npmBin, [
     'pack', '--json', '--ignore-scripts', '--pack-destination', temporaryRoot,
   ], {
@@ -342,8 +361,10 @@ digest = ${JSON.stringify(policyDigest)}
   chmodSync(canaryPackage, 0o400)
 
   if (unpatchedOnly) {
+    enterStep('unpatched-install')
     const profile = 'authoritative-unpatched'
     installUnpatchedProfile(profile)
+    enterStep('unpatched-smoke')
     const receipt = runPhase(profile, 'unpatched-smoke', 'unpatched-tools-smoke')
     assert.equal(receipt.acceptance_mode, 'absent')
     assert.deepEqual(exactResults(receipt, ['canary_host_validator']), ['succeeded'])
@@ -356,36 +377,49 @@ digest = ${JSON.stringify(policyDigest)}
     }) + '\n')
   } else {
     const candidateProfile = 'authoritative-candidate'
+    enterStep('candidate-install')
     installProfile(candidateProfile, candidatePackage)
+    enterStep('candidate-positive')
     const positive = runPhase(candidateProfile, 'positive', 'acceptance-positive')
     const positiveToolOutcomes = exactResults(positive, ['bash', 'canary_host_validator'])
+    enterStep('downstream-denial')
     const downstream = runPhase(candidateProfile, 'downstream-denial', 'acceptance-downstream')
+    enterStep('concurrent-mutation')
     const concurrent = runPhase(candidateProfile, 'concurrent-mutation', 'acceptance-concurrent')
     const cancellationSession = 'acceptance-cancellation'
+    enterStep('active-cancellation')
     const cancellationReceipt = runPhase(
       candidateProfile,
       'active-cancellation',
       cancellationSession,
     )
+    enterStep('cancellation-recovery')
     const cancellationRecovery = runPhase(
       candidateProfile,
       'cancellation-recover',
       'acceptance-cancellation-recovery',
     )
+    enterStep('agent-disposal')
     const disposal = runPhase(candidateProfile, 'agent-disposal', 'acceptance-disposal')
 
     const restartSession = 'acceptance-restart'
+    enterStep('restart-seed')
     const restartSeed = runPhase(candidateProfile, 'restart-seed', restartSession)
+    enterStep('restart-check')
     const restart = runPhase(candidateProfile, 'restart-check', restartSession)
 
     const crashSession = 'acceptance-crash'
+    enterStep('crash-start')
     const preCrash = await crashPhase(candidateProfile, crashSession)
+    enterStep('crash-recovery')
     const crashRecovery = runPhase(candidateProfile, 'crash-recover', crashSession)
 
     const mismatchProfile = 'authoritative-mismatch'
+    enterStep('provider-mismatch-install')
     installMismatchProfile(mismatchProfile, candidatePackage)
     rmSync(providerProbePath, { force: true })
     const mismatchProcess = processIdentity('candidate-old-provider-mismatch')
+    enterStep('provider-mismatch')
     const mismatch = spawnSync(pnpmBin, ['dsh', '--profile', mismatchProfile], {
       cwd: dshRoot,
       env: {
@@ -400,8 +434,10 @@ digest = ${JSON.stringify(policyDigest)}
       timeout: 120_000,
       maxBuffer: 64 * 1024 * 1024,
     })
+    failureDiagnostic.recordOperationExitStatus(mismatch.status)
     const mismatchOutput = `${mismatch.stdout}\n${mismatch.stderr}`
     assert.notEqual(mismatch.status, 0)
+    failureDiagnostic.recordOperationExitStatus(0)
     assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
     assert.equal(mismatchOutput.includes(marker), false)
     assert.equal(existsSync(providerProbePath), true, 'provider mismatch probe did not load')
@@ -412,9 +448,10 @@ digest = ${JSON.stringify(policyDigest)}
       model_calls: 0,
       session_starts: 0,
     })
-
     const upgradeProfile = 'authoritative-upgrade'
+    enterStep('baseline-install')
     installProfile(upgradeProfile, baselinePackage)
+    enterStep('baseline-seed')
     const baselineSeed = runPhase(upgradeProfile, 'baseline-seed', 'acceptance-upgrade', 'baseline')
     assert.equal(baselineSeed.acceptance_mode, 'absent')
     assert.equal(baselineSeed.mutation_executions, 1)
@@ -423,14 +460,18 @@ digest = ${JSON.stringify(policyDigest)}
     rmSync(join(workspace, '.authoritative-acceptance-mutation'), { force: true })
     const cleanAfterSeed = run('git', ['status', '--porcelain'], { cwd: workspace })
     assert.equal(cleanAfterSeed.stdout, '')
+    enterStep('candidate-upgrade-install')
     installProfile(upgradeProfile, candidatePackage, false)
+    enterStep('candidate-upgrade')
     const candidateUpgrade = runPhase(
       upgradeProfile,
       'candidate-upgrade',
       'acceptance-upgrade',
       'candidate',
     )
+    enterStep('baseline-rollback-install')
     installProfile(upgradeProfile, baselinePackage, false)
+    enterStep('baseline-rollback')
     const baselineRollback = runPhase(
       upgradeProfile,
       'baseline-rollback',
@@ -440,6 +481,7 @@ digest = ${JSON.stringify(policyDigest)}
     const cleanAfterRollback = run('git', ['status', '--porcelain'], { cwd: workspace })
     assert.equal(cleanAfterRollback.stdout, '')
 
+    enterStep('matrix-assertions')
     assert.equal(positive.body_executions, 2)
     assert.equal(downstream.body_executions, 0)
 
@@ -574,6 +616,7 @@ digest = ${JSON.stringify(policyDigest)}
         },
       ],
     }
+    enterStep('matrix-serialization')
     assert.equal(baselineSeed.acceptance_mode, 'absent')
     process.stdout.write(JSON.stringify({
       schema_version: 'dsh-runtime-kit.authoritative-acceptance-smoke.v1',
