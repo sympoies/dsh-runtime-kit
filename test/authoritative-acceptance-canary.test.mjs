@@ -23,6 +23,116 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   assert.equal(manifest.files.includes('receipt-output.js'), true)
 })
 
+test('the process supervisor outlives the canary-wide execution deadline', async () => {
+  const timeouts = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  assert.equal(timeouts.SCENARIO_CANARY_EXECUTION_TIMEOUT_MS, 120_000)
+  assert.equal(timeouts.SCENARIO_CANARY_PROCESS_TIMEOUT_MS, 180_000)
+  const supervisor = readFileSync(
+    new URL('./authoritative-acceptance-smoke.mjs', import.meta.url),
+    'utf8',
+  )
+  assert.match(supervisor, /timeout: SCENARIO_CANARY_PROCESS_TIMEOUT_MS/u)
+  assert.match(supervisor, /\[SCENARIO_CANARY_DEADLINE_ENV\]: String\(executionDeadline\)/u)
+
+  const canary = readFileSync(
+    new URL('./fixtures/authoritative-acceptance-canary/index.js', import.meta.url),
+    'utf8',
+  )
+  const controllerIndex = canary.indexOf('createScenarioCanaryDeadlineController({')
+  const runIndex = canary.indexOf('const run = async')
+  assert.ok(controllerIndex >= 0 && controllerIndex < runIndex)
+  assert.doesNotMatch(canary, /setTimeout\([\s\S]*SCENARIO_CANARY_EXECUTION_TIMEOUT_MS/u)
+})
+
+test('a late canary start receives only its process-origin execution budget', async () => {
+  const { scheduleScenarioCanaryDeadline } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const processStartedAt = 2_000_000_000_000
+  const deadline = String(processStartedAt + 120_000)
+  let scheduledDelay
+  let scheduledCallback
+  let deadlineObserved = false
+  const expectedTimer = /** @type {ReturnType<typeof setTimeout>} */ ({})
+  const timer = scheduleScenarioCanaryDeadline(deadline, () => {
+    deadlineObserved = true
+  }, {
+    now: () => processStartedAt + 75_000,
+    setTimer(callback, delay) {
+      scheduledCallback = callback
+      scheduledDelay = delay
+      return expectedTimer
+    },
+  })
+  assert.equal(timer, expectedTimer)
+  assert.equal(scheduledDelay, 45_000)
+  assert.equal(typeof scheduledCallback, 'function')
+  scheduledCallback()
+  assert.equal(deadlineObserved, true)
+})
+
+test('deadline finalization fails closed once before service readiness', async () => {
+  const { createScenarioCanaryDeadlineController } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const events = []
+  const writes = []
+  let handleGeneration = 'initial'
+  let deadlineCallback
+  const expectedTimer = /** @type {ReturnType<typeof setTimeout>} */ ({})
+  const controller = createScenarioCanaryDeadlineController({
+    deadlineEpoch: '2000000120000',
+    stream: {
+      write(chunk, callback) {
+        writes.push(chunk)
+        callback()
+        return true
+      },
+    },
+    reportFailure(error) { events.push('failure:' + error.message) },
+    async dispose() { events.push('dispose:' + handleGeneration) },
+    successStatus: () => 0,
+    setExitCode(status) { events.push('status:' + status) },
+    exit(status) { events.push('exit:' + status) },
+    now: () => 2_000_000_075_000,
+    setTimer(callback, delay) {
+      assert.equal(delay, 45_000)
+      deadlineCallback = callback
+      return expectedTimer
+    },
+    clearTimer(timer) {
+      assert.equal(timer, expectedTimer)
+      events.push('clear')
+    },
+  })
+  assert.equal(controller.isFinalizing(), false)
+  assert.equal(typeof deadlineCallback, 'function')
+  deadlineCallback()
+  await controller.wait()
+  assert.equal(controller.isFinalizing(), true)
+  assert.deepEqual(writes, [])
+  assert.deepEqual(events, [
+    'failure:scenario execution deadline exceeded',
+    'dispose:initial',
+    'status:1',
+    'exit:1',
+  ])
+
+  handleGeneration = 'replacement'
+  await controller.finish({ phase: 'positive' }, undefined)
+  assert.deepEqual(writes, [])
+  assert.deepEqual(events, [
+    'failure:scenario execution deadline exceeded',
+    'dispose:initial',
+    'status:1',
+    'exit:1',
+    'clear',
+    'dispose:replacement',
+  ])
+})
+
 test('an acceptance canary waits for both runtime services across staggered activation', () => {
   const runtime = Object.freeze({})
   const acceptance = Object.freeze({})
