@@ -404,15 +404,17 @@ async function snapshotBinary(root, source, name) {
  * @param {string} revision
  * @param {Record<string,{path:string,sha256:string}>} tools
  * @param {Record<string,string>} env
+ * @param {(sourceRoot:string)=>Promise<void>} authenticateSource
  */
-async function prepareDsh(root, sourceRoot, revision, tools, env) {
+async function prepareDsh(root, sourceRoot, revision, tools, env, authenticateSource) {
   const destination = resolve(root, 'dsh')
-  cloneAuthenticatedDshSource({
+  await cloneAuthenticatedDshSource({
     sourceRoot,
     destination,
     revision,
     gitBin: tools.git.path,
     env,
+    authenticateSource,
     timeout: SCENARIO_TIMEOUT_MS,
     maxBuffer: MAX_OUTPUT,
   })
@@ -759,20 +761,21 @@ async function main() {
       await jsonFile(dshManifestPath, 'DSH compatibility manifest'),
     )
     const selected = dshManifest.channels.pinned
-    const authenticatedDshSourceRoot = await realpath(input.dshSourceRoot)
-    await inspectSelectedDshCheckoutIdentity({
-      sourceRoot: authenticatedDshSourceRoot,
-      channel: 'pinned',
-      gitBin: git.path,
-      manifest: dshManifest,
-    })
-    enterPhase('dsh-preparation')
     const dshSourceRoot = await prepareDsh(
       runRoot,
-      authenticatedDshSourceRoot,
+      input.dshSourceRoot,
       selected.revision,
       tools,
       env,
+      async authenticatedDshSourceRoot => {
+        await inspectSelectedDshCheckoutIdentity({
+          sourceRoot: authenticatedDshSourceRoot,
+          channel: 'pinned',
+          gitBin: git.path,
+          manifest: dshManifest,
+        })
+        enterPhase('dsh-preparation')
+      },
     )
     const dshReport = await inspectSelectedDshCheckout({
       sourceRoot: dshSourceRoot,

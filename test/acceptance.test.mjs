@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1038,12 +1039,14 @@ test('acceptance Git isolation persists exact clone trust without ambient wildca
 test('authenticated DSH clone trust reaches local upload-pack and excludes ambient config', async () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-upload-pack-'))
   const sourceRoot = join(fixtureRoot, 'authenticated-source')
+  const sourceAlias = join(fixtureRoot, 'authenticated-source-alias')
   const commandScopedDestination = join(fixtureRoot, 'command-scoped-clone')
   const privateConfigDestination = join(fixtureRoot, 'private-config-clone')
   const systemConfig = join(fixtureRoot, 'system.gitconfig')
   const globalConfig = join(fixtureRoot, 'global.gitconfig')
   const callerConfig = join(fixtureRoot, '.gitconfig')
   const observation = join(fixtureRoot, 'upload-pack-safe-directories')
+  const sourceObservation = join(fixtureRoot, 'upload-pack-source')
   const binDir = join(fixtureRoot, 'bin')
   const uploadPack = join(binDir, 'git-upload-pack-guard')
   const exactTrust = [sourceRoot, resolve(sourceRoot, '.git')].join('\n')
@@ -1065,7 +1068,8 @@ test('authenticated DSH clone trust reaches local upload-pack and excludes ambie
 set -eu
 observed=$(/usr/bin/git config --get-all safe.directory || true)
 printf '%s' "$observed" > "$DSH_TEST_UPLOAD_PACK_OBSERVATION"
-test "$observed" = "$DSH_TEST_EXPECTED_SAFE_DIRECTORIES"
+printf '%s' "$1" > "$DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION"
+export GIT_TEST_ASSUME_DIFFERENT_OWNER=1
 exec /usr/bin/git-upload-pack "$@"
 `)
   chmodSync(uploadPack, 0o500)
@@ -1085,42 +1089,71 @@ exec /usr/bin/git-upload-pack "$@"
       encoding: 'utf8',
       env: gitEnvironment,
     })).stdout.trim()
+    symlinkSync(sourceRoot, sourceAlias, 'dir')
 
-    await run('/usr/bin/git', [
-      '-c', 'safe.directory=' + sourceRoot,
-      '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
-      'clone',
-      '--no-hardlinks',
-      '--no-checkout',
-      '--upload-pack=' + uploadPack,
-      sourceRoot,
-      commandScopedDestination,
-    ], {
-      encoding: 'utf8',
-      env: {
-        ...gitEnvironment,
-        DSH_TEST_UPLOAD_PACK_OBSERVATION: observation,
-        DSH_TEST_EXPECTED_SAFE_DIRECTORIES: '',
+    await assert.rejects(
+      run('/usr/bin/git', [
+        '-c', 'safe.directory=' + sourceRoot,
+        '-c', 'safe.directory=' + resolve(sourceRoot, '.git'),
+        'clone',
+        '--no-hardlinks',
+        '--no-checkout',
+        '--upload-pack=' + uploadPack,
+        sourceRoot,
+        commandScopedDestination,
+      ], {
+        encoding: 'utf8',
+        env: {
+          ...gitEnvironment,
+          DSH_TEST_UPLOAD_PACK_OBSERVATION: observation,
+          DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION: sourceObservation,
+        },
+      }),
+      error => {
+        assert.match(error.stderr, /dubious ownership/u)
+        return true
       },
-    })
-    assert.equal(readFileSync(observation, 'utf8'), '')
+    )
 
     const { cloneAuthenticatedDshSource } = await import(
       '../src/acceptance/dsh-clone.js'
     )
-    cloneAuthenticatedDshSource({
-      sourceRoot,
+    const authenticatedSources = []
+    await cloneAuthenticatedDshSource({
+      sourceRoot: sourceAlias,
       destination: privateConfigDestination,
       revision,
       gitBin: '/usr/bin/git',
       uploadPackBin: uploadPack,
+      authenticateSource: async authenticatedSourceRoot => {
+        authenticatedSources.push(authenticatedSourceRoot)
+      },
       env: {
         ...gitEnvironment,
         DSH_TEST_UPLOAD_PACK_OBSERVATION: observation,
-        DSH_TEST_EXPECTED_SAFE_DIRECTORIES: exactTrust,
+        DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION: sourceObservation,
       },
     })
+    assert.deepEqual(authenticatedSources, [sourceRoot])
     assert.equal(readFileSync(observation, 'utf8'), exactTrust)
+    assert.equal(
+      readFileSync(sourceObservation, 'utf8'),
+      resolve(authenticatedSources[0], '.git'),
+    )
+    assert.equal(
+      (await run('/usr/bin/git', ['-C', privateConfigDestination, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+        env: gitEnvironment,
+      })).stdout.trim(),
+      revision,
+    )
+    await assert.rejects(
+      run('/usr/bin/git', ['-C', privateConfigDestination, 'symbolic-ref', '-q', 'HEAD'], {
+        encoding: 'utf8',
+        env: gitEnvironment,
+      }),
+      error => error.code === 1,
+    )
     assert.deepEqual(
       (await run('/usr/bin/git', ['config', '--file', globalConfig, '--get-all', 'safe.directory'], {
         encoding: 'utf8',
@@ -1187,12 +1220,6 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'run-id'/u)
   assert.match(runner, /'package-tarball'/u)
   assert.match(runner, /packageSha256/u)
-  assert.match(runner, /const authenticatedDshSourceRoot = await realpath\(input\.dshSourceRoot\)/u)
-  assert.match(
-    runner,
-    /inspectSelectedDshCheckoutIdentity\(\{\s*sourceRoot: authenticatedDshSourceRoot,/u,
-    'DSH authentication must use the canonical source identity',
-  )
   const dshPreparation = runner.slice(
     runner.indexOf('async function prepareDsh('),
     runner.indexOf('async function preparePackageArtifact('),
@@ -1200,13 +1227,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.doesNotMatch(dshPreparation, /'-c', 'safe\.directory='/u)
   assert.match(dshPreparation, /cloneAuthenticatedDshSource\(\{/u)
   assert.doesNotMatch(dshPreparation, /gitConfig/u)
-  const dshClone = readFileSync(
-    join(projectRoot, 'src', 'acceptance', 'dsh-clone.js'),
-    'utf8',
-  )
-  assert.match(dshClone, /const gitConfig = input\.env\.GIT_CONFIG_GLOBAL/u)
-  assert.match(dshClone, /'config', '--file', gitConfig, '--add', 'safe\.directory', identity/u)
-  assert.match(dshClone, /repositoryIdentity = resolve\(input\.sourceRoot, '\.git'\)/u)
+  assert.ok(manifest.files.includes('src'))
   assert.match(runner, /GIT_CONFIG_GLOBAL: gitConfig/u)
   assert.match(runner, /GIT_CONFIG_NOSYSTEM: '1'/u)
   const authoritativeSmoke = readFileSync(

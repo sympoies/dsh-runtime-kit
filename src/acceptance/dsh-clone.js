@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { realpath } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
 import { AcceptanceError } from './contract.js'
@@ -30,8 +31,8 @@ function runGit(gitBin, args, env, label, timeout, maxBuffer) {
 }
 
 /**
- * Clone one already-authenticated, canonical DSH source through the private
- * acceptance Git context and check out its pinned revision.
+ * Canonicalize and authenticate one DSH source, then clone that exact identity
+ * through the private acceptance Git context and check out its pinned revision.
  *
  * @param {{
  *   sourceRoot:string,
@@ -39,12 +40,13 @@ function runGit(gitBin, args, env, label, timeout, maxBuffer) {
  *   revision:string,
  *   gitBin:string,
  *   env:Record<string,string>,
+ *   authenticateSource:(sourceRoot:string)=>Promise<void>,
  *   uploadPackBin?:string,
  *   timeout?:number,
  *   maxBuffer?:number,
  * }} input
  */
-export function cloneAuthenticatedDshSource(input) {
+export async function cloneAuthenticatedDshSource(input) {
   const gitConfig = input.env.GIT_CONFIG_GLOBAL
   if (!isAbsolute(input.sourceRoot)
     || !isAbsolute(input.destination)
@@ -52,17 +54,20 @@ export function cloneAuthenticatedDshSource(input) {
     || typeof gitConfig !== 'string'
     || !isAbsolute(gitConfig)
     || input.env.GIT_CONFIG_NOSYSTEM !== '1'
+    || typeof input.authenticateSource !== 'function'
     || (input.uploadPackBin !== undefined && !isAbsolute(input.uploadPackBin))) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
       'authenticated DSH clone Git context is invalid',
     )
   }
+  const sourceRoot = await realpath(input.sourceRoot)
+  await input.authenticateSource(sourceRoot)
   const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
   const maxBuffer = input.maxBuffer ?? DEFAULT_MAX_BUFFER
-  const repositoryIdentity = resolve(input.sourceRoot, '.git')
+  const repositoryIdentity = resolve(sourceRoot, '.git')
   for (const [identity, label] of [
-    [input.sourceRoot, 'authenticated DSH worktree trust configuration'],
+    [sourceRoot, 'authenticated DSH worktree trust configuration'],
     [repositoryIdentity, 'authenticated DSH repository trust configuration'],
   ]) {
     runGit(input.gitBin, [
@@ -77,7 +82,7 @@ export function cloneAuthenticatedDshSource(input) {
   if (input.uploadPackBin !== undefined) {
     cloneArgs.push('--upload-pack=' + input.uploadPackBin)
   }
-  cloneArgs.push(input.sourceRoot, input.destination)
+  cloneArgs.push(sourceRoot, input.destination)
   runGit(
     input.gitBin,
     cloneArgs,
