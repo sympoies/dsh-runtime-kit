@@ -16,6 +16,7 @@
     "./agent-console-profile": "./src/compat/agent-console.js",
     "./governed-commit": "./src/governed-commit/index.js",
     "./composition": "./src/composition/index.js",
+    "./manager": "./src/manager/index.js",
     "./runtime-health": "./src/health/index.js",
     "./authoritative-acceptance": "./src/authoritative-acceptance/index.js",
     "./workspace-lease": "./src/workspace-lease/index.js",
@@ -77,6 +78,9 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:composition-contracts": "node --test test/composition-contracts.test.mjs",
+    "test:admission-isolation": "node --test test/admission-isolation.test.mjs",
+    "test:lifecycle-contracts": "node --test test/lifecycle-contracts.test.mjs",
+    "test:control-boundary-contracts": "node --test test/control-boundary-contracts.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "test:authoritative-acceptance-smoke": "node test/authoritative-acceptance-smoke.mjs",
     "test:workspace-lease-smoke": "node test/workspace-lease-smoke.mjs",
