@@ -81,12 +81,15 @@ function denial(reason) {
 
 /** @param {Record<string, any>} decision */
 function policyReason(decision) {
-  const codes = Array.isArray(decision.reasons)
-    ? decision.reasons
-      .filter(reason => reason?.disposition === 'block')
-      .map(reason => reason?.code)
-      .filter(code => typeof code === 'string' && code.length > 0)
+  const blockingReasons = Array.isArray(decision.reasons)
+    ? decision.reasons.filter(reason => reason?.disposition === 'block')
     : []
+  const codes = [...new Set(blockingReasons
+    .map(reason => reason?.code)
+    .filter(code => typeof code === 'string' && code.length > 0))]
+  const ruleIds = [...new Set(blockingReasons
+    .map(reason => reason?.rule_id)
+    .filter(ruleId => typeof ruleId === 'string' && ruleId.length > 0))]
   const summary = codes.length > 0 ? `agent-hook:${codes.join(',')}` : 'agent-hook:blocked'
   const opaqueShellFanOut = [...OPAQUE_SHELL_FAN_OUT_CODES]
     .every(code => codes.includes(code))
@@ -98,7 +101,31 @@ function policyReason(decision) {
       ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Split read-only inspection from delivery into separate tool calls. For delivery, use semantic-commit, managed worktrees, and the repository PR workflow instead of direct default-branch mutation.'
     : undefined
   const context = typeof decision.context === 'string' ? decision.context.trim() : ''
-  return [summary, guidance, context].filter(Boolean).join('\n')
+  const promotedGuidance = opaqueShellFanOut && context.length > 0
+    ? context
+    : guidance
+  if (promotedGuidance === undefined || promotedGuidance.length === 0) {
+    return [summary, context].filter(Boolean).join('\n')
+  }
+  const guidanceLines = promotedGuidance
+    .split(/\r?\n/)
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  const primaryCode = codes.length === 1 ? codes[0] : 'blocked'
+  const policyCodes = codes.length > 1 ? `Policy codes: ${codes.join(',')}` : undefined
+  const policyRules = ruleIds.length > codes.length
+    ? `Policy rules: ${ruleIds.join(',')}`
+    : undefined
+  const remainingContext = promotedGuidance === context
+    ? []
+    : context.split(/\r?\n/).filter(Boolean)
+  return [
+    `agent-hook:${primaryCode} — ${guidanceLines[0]}`,
+    ...guidanceLines.slice(1),
+    policyCodes,
+    policyRules,
+    ...remainingContext,
+  ].filter(Boolean).join('\n')
 }
 
 /**
