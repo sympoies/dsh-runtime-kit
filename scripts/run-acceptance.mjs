@@ -50,11 +50,23 @@ const DEFAULT_GIT = '/usr/bin/git'
 const DEFAULT_TAR = '/usr/bin/tar'
 const DEFAULT_SYSTEMD_RUN = '/usr/bin/systemd-run'
 const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
+const MINIMUM_NODE_MAJOR = 24
 let activePhase = 'arguments'
 
 /** @param {string} phase */
 function enterPhase(phase) {
   activePhase = phase
+}
+
+function assertSupportedNodeRuntime() {
+  const major = Number(process.versions.node.split('.', 1)[0])
+  if (Number.isInteger(major) && major >= MINIMUM_NODE_MAJOR) return
+  throw new AcceptanceError(
+    'DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED',
+    'acceptance requires Node.js ' + MINIMUM_NODE_MAJOR
+      + '+; activate the pinned .node-version (for example `fnm use`) before running',
+    { node_version: process.versions.node },
+  )
 }
 
 /** @param {unknown} error */
@@ -657,6 +669,7 @@ async function runScenario(script, env, label, systemdRun, options = {}) {
 }
 
 async function main() {
+  assertSupportedNodeRuntime()
   const input = parseCli()
   if (input.acknowledgeTrustedCode !== true) {
     throw new AcceptanceError(

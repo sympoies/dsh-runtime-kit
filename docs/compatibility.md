@@ -7,7 +7,7 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.9.3` |
 | Cordis | `4.0.1` |
-| Node.js | `22.19` or `24` |
+| Node.js | `24` or newer |
 | nils-cli | `1.27.17` minimum; exactly validated through `1.27.22` |
 
 The package does not claim compatibility with DSH release candidates after the

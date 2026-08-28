@@ -99,11 +99,11 @@
     "test:main-agent-e2e": "node test/main-agent-e2e.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.20.0",
+    "@types/node": "^24.13.3",
     "typescript": "^6.0.3"
   },
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": ">=24.0.0"
   },
   "license": "MIT",
   "repository": {
