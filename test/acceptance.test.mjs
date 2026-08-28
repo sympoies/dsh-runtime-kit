@@ -1066,6 +1066,19 @@ test('authenticated DSH clone trust reaches local upload-pack and excludes ambie
   writeFileSync(globalConfig, '')
   writeFileSync(uploadPack, `#!/bin/sh
 set -eu
+# Git 2.55 began propagating clone -c values to local upload-pack. Recreate
+# the Git 2.43 boundary that exposed the hosted defect so this negative stays
+# deterministic across runner Git revisions.
+unset GIT_CONFIG_PARAMETERS
+if test "\${GIT_CONFIG_COUNT+x}" = x; then
+  count=$GIT_CONFIG_COUNT
+  unset GIT_CONFIG_COUNT
+  index=0
+  while test "$index" -lt "$count"; do
+    unset "GIT_CONFIG_KEY_$index" "GIT_CONFIG_VALUE_$index"
+    index=$((index + 1))
+  done
+fi
 observed=$(/usr/bin/git config --get-all safe.directory || true)
 printf '%s' "$observed" > "$DSH_TEST_UPLOAD_PACK_OBSERVATION"
 printf '%s' "$1" > "$DSH_TEST_UPLOAD_PACK_SOURCE_OBSERVATION"
@@ -1114,6 +1127,8 @@ exec /usr/bin/git-upload-pack "$@"
         return true
       },
     )
+    assert.equal(readFileSync(observation, 'utf8'), '')
+    assert.equal(readFileSync(sourceObservation, 'utf8'), resolve(sourceRoot, '.git'))
 
     const { cloneAuthenticatedDshSource } = await import(
       '../src/acceptance/dsh-clone.js'
