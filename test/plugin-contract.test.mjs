@@ -2962,7 +2962,7 @@ test('typed shell guidance is the first visible denial line and keeps policy dia
   assert.equal(delegated, false)
 })
 
-test('a lone unsafe default delivery denial explains inspection and delivery recovery', async () => {
+test('a lone unsafe default delivery denial gives an immediate inspection retry', async () => {
   const subject = harness({
     envelope: decision('block', {
       reasons: [{
@@ -2976,9 +2976,12 @@ test('a lone unsafe default delivery denial explains inspection and delivery rec
   const { result, delegated } = await subject.invoke({ value: 41 })
 
   assert.equal(result.kind, 'deny')
-  assert.match(result.reason, /agent-hook:block-unsafe-default-delivery/)
-  assert.match(result.reason, /blocked before command dispatch/i)
-  assert.match(result.reason, /split read-only inspection from delivery/i)
+  const lines = result.reason.split('\n')
+  assert.match(lines[0], /^agent-hook:block-unsafe-default-delivery — /)
+  assert.match(lines[0], /blocked before command dispatch/i)
+  assert.match(lines[0], /Retry now/i)
+  assert.match(lines[0], /one read-only command per Bash call/i)
+  assert.match(lines[0], /No operator intervention is required/i)
   assert.match(result.reason, /Bash tool workdir/i)
   assert.match(result.reason, /semantic-commit commit --repo <absolute managed-worktree path>/i)
   assert.match(result.reason, /repository PR workflow/i)

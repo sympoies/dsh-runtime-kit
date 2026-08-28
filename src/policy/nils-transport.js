@@ -98,7 +98,7 @@ function policyReason(decision) {
   const guidance = opaqueShellFanOut
     ? 'The shell invocation was opaque to multiple policy classifiers and was blocked before command dispatch. Run executable repository scripts directly (for example, ./scripts/check.sh), without a bash/sh wrapper, and split compound operations into separate tool calls.'
     : unsafeDefaultDelivery
-      ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Split read-only inspection from delivery into separate tool calls. Set the Bash tool workdir to the exact target checkout; if the managed session cwd differs, run `semantic-commit commit --repo <absolute managed-worktree path> ...`. Then use the repository PR workflow instead of direct default-branch mutation.'
+      ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Retry now with one read-only command per Bash call (for example, first `pwd`, then `git status --short --branch`) and set the Bash tool workdir to the exact target checkout; do not include delivery commands in an inspection call. No operator intervention is required.\nFor a genuine delivery from a managed session whose cwd differs, run `semantic-commit commit --repo <absolute managed-worktree path> ...`, then use the repository PR workflow instead of direct default-branch mutation.'
       : undefined
   const context = typeof decision.context === 'string' ? decision.context.trim() : ''
   const promotedGuidance = opaqueShellFanOut && context.length > 0
