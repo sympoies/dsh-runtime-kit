@@ -28,6 +28,8 @@ tools, sandbox, approvals, skills, and subagents.
 - Model-hidden native runtime health for exact DSH/nils identity, project
   catalog readiness, and optional child capabilities. Failed dependencies are
   rejected at DSH admission boundaries instead of becoming prompt context.
+- Strict public plugin and bot composition contracts with canonical
+  dependency resolution and secret-free sibling lock receipts.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
@@ -206,6 +208,7 @@ for its ownership model and current limitations.
 - [Operations](docs/operations.md)
 - [Architecture and runtime contract](docs/architecture.md)
 - [Native runtime health](docs/runtime-health.md)
+- [Composition contracts](docs/composition-contracts.md)
 - [Workspace identity and leases](docs/workspace-leases.md)
 - [Authoritative completion acceptance](docs/authoritative-acceptance.md)
 - [Compatibility](docs/compatibility.md)
