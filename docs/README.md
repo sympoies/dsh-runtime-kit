@@ -16,6 +16,8 @@ routine contributor entrypoint.
   support plus promotion checks.
 - [Native runtime health](runtime-health.md) — model-hidden capability probes,
   admission states, cleanup, and operator recovery.
+- [Composition contracts](composition-contracts.md) — strict public plugin and
+  bot schemas, canonical resolution, lock receipts, and trust boundaries.
 
 ## Understand the runtime
 
