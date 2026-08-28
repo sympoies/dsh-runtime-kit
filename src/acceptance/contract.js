@@ -95,8 +95,33 @@ const SCENARIO_CAUSE_CODES = new Set([
   'ENOTDIR',
   'ERR_ASSERTION',
   'ETIMEDOUT',
+  'PROCESS_SIGNALED',
   'UNCLASSIFIED',
   'UNKNOWN_FAILURE',
+])
+const OPERATION_CAUSE_CODES = new Set([
+  'EACCES',
+  'ENOENT',
+  'ENOBUFS',
+  'ENOTDIR',
+  'ETIMEDOUT',
+])
+const OPERATION_SIGNALS = new Set([
+  'SIGABRT',
+  'SIGALRM',
+  'SIGBUS',
+  'SIGFPE',
+  'SIGHUP',
+  'SIGILL',
+  'SIGINT',
+  'SIGKILL',
+  'SIGPIPE',
+  'SIGQUIT',
+  'SIGSEGV',
+  'SIGTERM',
+  'SIGTRAP',
+  'SIGUSR1',
+  'SIGUSR2',
 ])
 
 const PRODUCERS = Object.freeze({
@@ -599,6 +624,8 @@ export class AcceptanceError extends Error {
  *   step?: unknown,
  *   cause?: unknown,
  *   operationExitStatus?: unknown,
+ *   operationCauseCode?: unknown,
+ *   operationSignal?: unknown,
  * }} input
  */
 export function buildScenarioFailureDiagnostic(input) {
@@ -615,13 +642,25 @@ export function buildScenarioFailureDiagnostic(input) {
     && operationExitStatusCandidate <= 255
     ? operationExitStatusCandidate
     : undefined
+  const operationCauseCodeCandidate = input?.operationCauseCode
+  const operationCauseCode = typeof operationCauseCodeCandidate === 'string'
+    && OPERATION_CAUSE_CODES.has(operationCauseCodeCandidate)
+    ? operationCauseCodeCandidate
+    : undefined
+  const operationSignalCandidate = input?.operationSignal
+  const operationSignal = typeof operationSignalCandidate === 'string'
+    && OPERATION_SIGNALS.has(operationSignalCandidate)
+    ? operationSignalCandidate
+    : undefined
   return Object.freeze({
     schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
     ok: false,
     producer,
     step,
-    cause_code: 'UNKNOWN_FAILURE',
+    cause_code: operationCauseCode
+      ?? (operationSignal === undefined ? 'UNKNOWN_FAILURE' : 'PROCESS_SIGNALED'),
     ...(operationExitStatus === undefined ? {} : { operation_exit_status: operationExitStatus }),
+    ...(operationSignal === undefined ? {} : { operation_signal: operationSignal }),
   })
 }
 
@@ -630,6 +669,10 @@ export function createScenarioFailureDiagnosticTracker(producer) {
   let step = 'input-authentication'
   /** @type {number | undefined} */
   let operationExitStatus
+  /** @type {string | undefined} */
+  let operationCauseCode
+  /** @type {string | undefined} */
+  let operationSignal
   let taken = false
   return Object.freeze({
     /** @param {unknown} nextStep */
@@ -638,6 +681,8 @@ export function createScenarioFailureDiagnosticTracker(producer) {
         ? nextStep
         : 'unknown-step'
       operationExitStatus = undefined
+      operationCauseCode = undefined
+      operationSignal = undefined
     },
     /** @param {unknown} nextStatus */
     recordOperationExitStatus(nextStatus) {
@@ -647,6 +692,31 @@ export function createScenarioFailureDiagnosticTracker(producer) {
         && nextStatus <= 255
         ? nextStatus
         : undefined
+      operationCauseCode = undefined
+      operationSignal = undefined
+    },
+    /**
+     * Record only bounded primitives from a trusted Node subprocess result.
+     * Arbitrary error objects, messages, output, and stacks remain unobserved.
+     *
+     * @param {unknown} nextStatus
+     * @param {unknown} nextCauseCode
+     * @param {unknown} nextSignal
+     */
+    recordOperationOutcome(nextStatus, nextCauseCode, nextSignal) {
+      operationExitStatus = typeof nextStatus === 'number'
+        && Number.isSafeInteger(nextStatus)
+        && nextStatus >= 1
+        && nextStatus <= 255
+        ? nextStatus
+        : undefined
+      operationCauseCode = typeof nextCauseCode === 'string'
+        && OPERATION_CAUSE_CODES.has(nextCauseCode)
+        ? nextCauseCode
+        : undefined
+      operationSignal = typeof nextSignal === 'string' && OPERATION_SIGNALS.has(nextSignal)
+        ? nextSignal
+        : undefined
     },
     take() {
       if (taken) return undefined
@@ -654,11 +724,85 @@ export function createScenarioFailureDiagnosticTracker(producer) {
         producer,
         step,
         operationExitStatus,
+        operationCauseCode,
+        operationSignal,
       })
       taken = true
       return diagnostic
     },
   })
+}
+
+/** @param {unknown} value @param {string} key */
+function ownDataValue(value, key) {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+    return undefined
+  }
+  let descriptor
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, key)
+  } catch {
+    return undefined
+  }
+  return descriptor !== undefined && Object.hasOwn(descriptor, 'value')
+    ? descriptor.value
+    : undefined
+}
+
+/**
+ * Project one native Node subprocess result into the bounded diagnostic tracker.
+ * The projection does not read child output, messages, stacks, or accessors.
+ *
+ * @param {{recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void}} tracker
+ * @param {unknown} result
+ */
+export function recordScenarioOperationResult(tracker, result) {
+  const error = ownDataValue(result, 'error')
+  tracker.recordOperationOutcome(
+    ownDataValue(result, 'status'),
+    ownDataValue(error, 'code'),
+    ownDataValue(result, 'signal'),
+  )
+}
+
+/**
+ * Wait for a scenario marker while retaining bounded early child termination.
+ * A deliberate termination after the marker is never recorded as a failure.
+ *
+ * @param {{
+ *   tracker:{recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void},
+ *   child:{once:(event:string,listener:(value:unknown)=>void)=>unknown,off:(event:string,listener:(value:unknown)=>void)=>unknown},
+ *   markerExists:()=>boolean,
+ *   timeoutMs:number,
+ *   pollMs?:number,
+ * }} input
+ */
+export async function waitForScenarioOperationMarker(input) {
+  let spawnError
+  const onError = (/** @type {unknown} */ error) => { spawnError = error }
+  input.child.once('error', onError)
+  try {
+    const deadline = Date.now() + input.timeoutMs
+    let markerReached = input.markerExists()
+    while (!markerReached
+      && Date.now() < deadline
+      && ownDataValue(input.child, 'exitCode') === null
+      && ownDataValue(input.child, 'signalCode') === null
+      && spawnError === undefined) {
+      await new Promise(resolve => setTimeout(resolve, input.pollMs ?? 25))
+      markerReached = input.markerExists()
+    }
+    if (!markerReached) {
+      recordScenarioOperationResult(input.tracker, {
+        status: ownDataValue(input.child, 'exitCode'),
+        error: spawnError,
+        signal: ownDataValue(input.child, 'signalCode'),
+      })
+    }
+    return markerReached
+  } finally {
+    input.child.off('error', onError)
+  }
 }
 
 /** @param {unknown} output */
@@ -674,6 +818,7 @@ export function scenarioFailureDiagnostic(output) {
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) continue
     const hasOperationExitStatus = Object.hasOwn(parsed, 'operation_exit_status')
+    const hasOperationSignal = Object.hasOwn(parsed, 'operation_signal')
     const expectedKeys = [
       'cause_code',
       'ok',
@@ -681,6 +826,7 @@ export function scenarioFailureDiagnostic(output) {
       'schema_version',
       'step',
       ...(hasOperationExitStatus ? ['operation_exit_status'] : []),
+      ...(hasOperationSignal ? ['operation_signal'] : []),
     ].sort().join('\0')
     if (Object.keys(parsed).sort().join('\0') !== expectedKeys
       || parsed.schema_version !== 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1'
@@ -693,7 +839,11 @@ export function scenarioFailureDiagnostic(output) {
       || (hasOperationExitStatus
         && (!Number.isSafeInteger(parsed.operation_exit_status)
           || parsed.operation_exit_status < 1
-          || parsed.operation_exit_status > 255))) continue
+          || parsed.operation_exit_status > 255))
+      || (hasOperationSignal
+        && (typeof parsed.operation_signal !== 'string'
+          || !OPERATION_SIGNALS.has(parsed.operation_signal)))
+      || (parsed.cause_code === 'PROCESS_SIGNALED' && !hasOperationSignal)) continue
     const causeCode = SCENARIO_CAUSE_CODES.has(parsed.cause_code)
       ? parsed.cause_code
       : 'UNKNOWN_FAILURE'
@@ -704,6 +854,7 @@ export function scenarioFailureDiagnostic(output) {
       ...(hasOperationExitStatus
         ? { scenario_operation_exit_status: parsed.operation_exit_status }
         : {}),
+      ...(hasOperationSignal ? { scenario_operation_signal: parsed.operation_signal } : {}),
     })
   }
   return Object.freeze({})
