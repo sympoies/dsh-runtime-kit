@@ -13,6 +13,15 @@ I/O, concurrency, memory pressure, large payloads, and hot-path code.
 - Cache invalidation and stale data risk.
 - Missing benchmarks or targeted regression tests for hot paths.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue that is reachable
+at relevant scale in a supported scenario and material to the requested outcome
+or an established performance boundary. Exclude hypothetical scale concerns,
+unrelated defects, preferences, cleanup, and future flexibility. Low and
+informational observations never block. Recommend the smallest sufficient local
+repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

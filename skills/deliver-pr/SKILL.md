@@ -57,10 +57,12 @@ Inputs:
   linked issue closeout.
 - Mandatory generic code review in pre-merge context. The caller may prefer
   quick or full review, but scope and risk own the final profile selection.
-- On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode `findings.merged.json` produced
-  by `review-specialists bundle --mode delivery` for the reviewed head. A clean
-  review still supplies the generated envelope with `data.findings: []` so the
-  required genesis observation is deterministic.
+- On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode `findings.merged.json`
+  produced by `review-specialists bundle --mode delivery` from admitted
+  blocking findings only for the reviewed head. Keep raw reviewer JSONL in a
+  separate evidence artifact; rejected rows and low/info observations never
+  become open ledger entries. A review with no admitted blocker still supplies
+  the generated envelope with `data.findings: []` so genesis is deterministic.
 - On GitHub, `REVIEW_LEDGER_DISPOSITIONS`, a bare observation array for every finding
   repaired or dispositioned after genesis. Omit it only when the genesis
   envelope is empty; otherwise every row carries the same
@@ -182,8 +184,8 @@ The user requests the PR/MR outcome, not a lifecycle helper.
   merge through the CLI-owned convergence/thread/task gates unless the user
   requested a readiness stop.
 - **Review repair** — adopt the existing record, classify unresolved review
-  threads, make authorized fixes, rerun validation and affected review modes,
-  and return to the delivery gates.
+  threads, make authorized fixes, rerun validation, and recheck affected review
+  modes as closed-set closure before returning to the delivery gates.
 - **Merge** — adopt an existing ready record, inspect native review evidence,
   and satisfy every remaining semantic, linked-lifecycle, and provider gate
   before `forge-cli pr merge`.
@@ -200,19 +202,21 @@ Pre-merge remains mandatory. Select the smallest safe profile after checks and
 scope detection; a user request such as "PR quick merge" expresses a preference,
 not permission to bypass escalation.
 
-- **Quick merge** — available for an L0 or L1 PR only when the diff is bounded,
+- **Quick merge** — available for initial discovery on an L0 or L1 PR only when the diff is bounded,
   required validation and checks pass, scope suggests or forces no risk
   specialist, no unresolved current-head review state exists, and `reviewer-quick` has
   enough confidence to inspect the complete change. A clean `pass` is terminal
   review evidence for the current head; post one final outcome with `--lens
   quick`, then continue through the ordinary merge gates.
-- **Quick findings** — post concrete findings before repair, block merge, rerun
-  affected validation, and use quick follow-up only while the scope stays
-  bounded.
+- **Quick findings** — apply admission first. Only admitted medium-or-higher
+  findings block merge. A supplied unresolved quick finding remains eligible
+  for quick closed-set closure; rerun affected validation and use quick
+  follow-up while the closure surface stays bounded.
 - **Full review** — mandatory for L2 or L3 delivery, any specialist trigger,
-  existing unresolved review state, insufficient quick-review confidence, or a
-  quick `escalate` verdict. It routes to the full pre-merge profile without changing the work tier
-  or requiring another user decision.
+  existing unresolved review state during initial discovery, insufficient
+  initial quick-review confidence, or an initial quick `escalate` verdict. A
+  closure escalation uses only its one named directly relevant specialist; it
+  does not route an ordinary repair to full discovery.
 
 The quick profile changes review depth only. It never skips checks, final
 provider review-state inspection, convergence, unresolved-thread, unchecked-task,
@@ -361,11 +365,12 @@ review-specialists scope \
   --maintainability \
   --format json
 
-# After the selected quick or specialist review has been merged with
-# `review-specialists bundle --mode delivery`, bind its generated envelope.
+# After admission triage, bundle only admitted blocking findings with
+# `review-specialists bundle --mode delivery`; retain raw reviewer JSONL
+# separately. Bind the generated empty envelope when no admitted blocker exists.
 # GitHub-only review-loop ledger: GitLab v1 has no ledger surface or merge gate.
 if [ "$PROVIDER" = github ]; then
-: "${REVIEW_LEDGER_FINDINGS:?set to delivery-mode findings.merged.json}"
+: "${REVIEW_LEDGER_FINDINGS:?set to admitted-blocking delivery findings.merged.json}"
 REVIEW_LEDGER_INSPECT="$(
   forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
     pr review-loop inspect "$PR_NUMBER"
@@ -627,8 +632,10 @@ fi
 ```
 
 On GitHub, treat `data.current_head_reviews[].summary` as evidence, never as a
-machine verdict: repair actionable feedback, accept it with rationale, or move
-it to a follow-up before posting the final combined owner outcome. Stale-head
+machine verdict. Apply the closed-set admission rule: repair admitted feedback,
+accept it with rationale, or move it to a follow-up; a non-admitted critical
+concern requires an explicit handoff rather than another repair round. Do this
+before posting the final combined owner outcome. Stale-head
 reviews are informational. GitLab has no native snapshot in v1 and keeps the
 existing specialist/outcome-note flow. If `summary_truncated` is true, retrieve
 the full review body through provider read tooling before disposition; stop if
@@ -642,8 +649,9 @@ Observed convergence is GitHub-only in v1. On GitLab, pass
 turn a supported MR delivery into `provider_unsupported`.
 
 If merge returns `review_convergence_activity_changed`, read `pr reviews`
-again, disposition the new current-head evidence, refresh the final owner
-outcome, and retry. For `review_changes_requested` or
+again, disposition the new current-head evidence under the closed-set admission
+rule, refresh the final owner outcome, and retry without extending the repair
+loop for a non-admitted concern. For `review_changes_requested` or
 `review_snapshot_incomplete`, inspect `pr reviews` and stop until the native
 state is cleared or complete. For `unresolved_review_threads`, use
 `forge-cli pr review-threads list`, then repair, reply and resolve as accepted,
@@ -726,8 +734,11 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    `--no-merge` so checks / pipelines complete before the mandatory review gate.
 9. Run the generic code-review outcome in pre-merge context. Start with
    unforced scope detection and select quick or full through **Review Profile
-   Selection**. Quick requires an eligible L0/L1 change and a `pass`; L2/L3,
-   risk signals, unresolved current-head review state, or `escalate` select full.
+   Selection**. For initial discovery, quick requires an eligible L0/L1 change;
+   L2/L3, risk signals, unresolved current-head review state, or `escalate`
+   select full. A supplied quick finding stays in quick closed-set closure unless
+   its repair creates a new-generation trigger; a closure `escalate` uses only
+   the named directly relevant specialist.
 10. Keep review workers read-only. For a clean quick pass, defer the review
    outcome write to step 15; the required ledger genesis in step 11 is separate
    workflow state. As each full-profile lens or blocking
@@ -742,35 +753,45 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    `REVIEW_OUTCOME_POSTING_CONTRACT.md`, posting order). On GitHub, attach
    `--thread-file` for actionable findings so the fix can close a native review
    thread; summary-only reviews omit it.
-11. On GitHub, produce `REVIEW_LEDGER_FINDINGS` with `review-specialists bundle --mode
-    delivery`, including its generated empty envelope for a clean review. Record
+11. On GitHub, retain the validated raw reviewer JSONL as evidence, then produce
+    `REVIEW_LEDGER_FINDINGS` with `review-specialists bundle --mode delivery`
+    from only admitted `critical`, `high`, or `medium` findings. Rejected rows,
+    low/info observations, and report-only residual risk never enter the ledger.
+    Include the generated empty envelope when no admitted blocker exists. Record
     the genesis ledger observation **before** repairing anything, at the head
     the review actually ran against:
     `forge-cli pr review-loop observe "$PR_NUMBER" --expected-head "$REVIEWED_HEAD"
-    --findings-file "$REVIEW_LEDGER_FINDINGS"`. Finding rows are `open` at this
-    point; an empty envelope records the clean quick/full pass. The head is
+    --findings-file "$REVIEW_LEDGER_FINDINGS"`. Admitted blocking rows are `open`
+    at this point; an empty envelope records a terminal quick/full pass. The head is
     a compare-and-swap input and history cannot be backfilled, so this step has
     no second chance once the repair is pushed — see **Review-Loop Ledger** for
     both accepted `--findings-file` shapes and the ordering rules. Validate with
     `--dry-run` first; a live `observe` writes durable provider state. On GitLab,
     do not require ledger artifacts or call `pr review-loop`; retain the
     outcome-note path and pass `--review-convergence=false` to merge.
-12. Repair concrete findings in this delivery workflow, publish the repair with
+12. Repair admitted findings in this delivery workflow, publish the repair with
    `git-cli push --format json`, then rerun validation, checks, and affected
-   review. Post each focused follow-up review comment with
-   the same semantic lens before continuing. Quick follow-up remains eligible
-   only while scope is bounded; otherwise switch to full.
+   review as closed-set closure. Post each focused follow-up review comment with
+   the same semantic lens before continuing. A changed head or ordinary repair
+   never switches quick closure to full discovery. Start a new discovery
+   generation only for a user-requested fresh review or any head change that
+   materially changes the accepted design, public contract, trust boundary, or
+   migration strategy.
 13. On GitHub, after that publish, create `REVIEW_LEDGER_DISPOSITIONS` as a bare
     array and append the closing observation at the repaired head with
     `disposition: fixed` (or an evidence-backed terminal disposition), passing
     `--expected-state <current tip>`.
     A `fixed` disposition is rejected at the head where the finding was first
-    recorded, which is why step 11 had to precede the push. Repeat steps 11–13
-    per round while findings remain, inspecting the current tip before each
-    round and replacing it with each live append's returned digest.
+    recorded, which is why step 11 had to precede the push. Repeat the closure
+    mechanics only for the finite unresolved admitted finding set, inspecting
+    the current tip before each round and replacing it with each live append's
+    returned digest. Do not reopen full-diff discovery for an ordinary repair.
 14. On GitHub, read `forge-cli pr reviews` once after specialist repairs and
-    semantically disposition every actionable current-head summary; stale-head
-    reviews are informational. When `summary_truncated` is true, obtain the full
+    semantically disposition every actionable current-head summary under the
+    closed-set admission rule. A new concern that is not admitted becomes
+    follow-up or an explicit critical-risk handoff; it does not extend the
+    current repair loop. Stale-head reviews are informational. When
+    `summary_truncated` is true, obtain the full
     review body and stop if it is unavailable. On GitLab, retain the outcome-note
     path and do not invoke the unsupported snapshot. Do not implement a polling
     or sleep loop in the workflow.
@@ -792,12 +813,16 @@ Use `profile=tracking` for lightweight plan-tracking issues and
     timing, complete/final native-review reads, native change requests,
     thread/task gates, and head CAS. On
     `review_convergence_activity_changed`, re-read `pr reviews`, disposition
-    the new evidence, refresh the final owner outcome, and retry. Route other
+    the new evidence under the closed-set admission rule, refresh the final
+    owner outcome, and retry without extending the repair loop for a
+    non-admitted concern. Route other
     typed review/thread/task failures through the matching read surface and the
     same repair/accept/follow-up discipline before retrying.
     `review_convergence_head_changed` additionally requires delivery-evidence
-    rebinding, validation and affected-review reruns, and a new owner outcome on
-    the new head before retry.
+    rebinding and a new owner outcome on the new head before retry. Rerun only
+    validation and affected closure lenses for an ordinary head change; rerun
+    initial scope selection when the head materially changes the accepted
+    design, public contract, trust boundary, or migration strategy.
 18. After merge, if the body referenced a linked tracking or dispatch issue
     and `--no-closeout` was not supplied, run `plan-issue record close` with
     the correct profile. On gate fail, leave the issue open with the blocked

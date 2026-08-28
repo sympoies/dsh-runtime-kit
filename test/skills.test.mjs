@@ -146,6 +146,54 @@ test('code review routes quick, focused, specialist, and red-team work through t
   assert.doesNotMatch(content, /\b(?:quick|testing|security|red-team)\b[^\n]*role per call/i)
 })
 
+test('review convergence bounds broad discovery and keeps repair review closed-set', () => {
+  const agentPolicy = readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')
+  const convergence = readFileSync(
+    join(projectRoot, 'docs', 'policies', 'review-thread-convergence.md'),
+    'utf8',
+  )
+  const reviewSkill = readFileSync(join(skillsRoot, 'code-review-specialists', 'SKILL.md'), 'utf8')
+  const reviewGate = readFileSync(
+    join(skillsRoot, 'code-review-specialists', 'references', 'DELIVERY_SPECIALIST_REVIEW_GATE.md'),
+    'utf8',
+  )
+  const reviewContract = readFileSync(
+    join(skillsRoot, 'code-review-specialists', 'references', 'SPECIALIST_REVIEW_CONTRACT.md'),
+    'utf8',
+  )
+  const quickReviewer = readFileSync(join(projectRoot, 'agents', 'reviewers', 'reviewer-quick.md'), 'utf8')
+  const deliveryOwners = [
+    'deliver-pr',
+    'deliver-plan-tracking-issue',
+    'deliver-dispatch-plan',
+  ].map(name => readFileSync(join(skillsRoot, name, 'SKILL.md'), 'utf8'))
+
+  assert.match(agentPolicy, /possible improvement is not incompleteness/i)
+  assert.match(convergence, /Each discovery generation has at most one broad review\./)
+  assert.match(convergence, /closed-set closure review/i)
+  assert.match(convergence, /any head change that materially changes/i)
+  assert.match(reviewSkill, /Admit a new finding only when[^.]+repair introduced a material/i)
+  assert.match(reviewSkill, /legacy size-only result to not selected/i)
+  assert.match(reviewSkill, /completed `findings` verdict[\s\S]*?does\s+not itself make them blocking/i)
+  assert.match(reviewSkill, /During closure, escalation permits at most the one named directly\s+relevant specialist/i)
+  assert.match(reviewGate, /Evidence alone does not make a concern blocking\./)
+  assert.match(reviewGate, /Low and informational observations never block delivery\./)
+  assert.match(reviewGate, /finite set of unresolved admitted\s+findings/i)
+  assert.match(reviewGate, /unresolved-state disqualifier applies only to initial\s+discovery/i)
+  assert.match(reviewContract, /Raw diff size alone does not activate red-team\./)
+  assert.match(reviewContract, /smallest sufficient local repair/i)
+  assert.match(quickReviewer, /Do not list skipped areas for completeness\./)
+  for (const owner of deliveryOwners) {
+    assert.match(owner, /closed-set admission rule/i)
+    assert.match(owner, /without extending the repair loop for a\s+non-admitted concern/i)
+    assert.match(owner, /admitted\s+blocking findings only/i)
+    assert.match(owner, /materially\s+changes the accepted design, public\s+contract, trust boundary, or\s+migration strategy/i)
+  }
+
+  assert.doesNotMatch(reviewGate, /Repeat review and repair until no concrete unresolved findings remain/i)
+  assert.doesNotMatch(reviewContract, /Run `red-team`[^\n]+when either condition is true:[\s\S]*?- `diff_lines > 200`\n/i)
+})
+
 test('the public skill artifact contains no named private profile', () => {
   const violations = []
   for (const relative of collectFiles(skillsRoot)) {

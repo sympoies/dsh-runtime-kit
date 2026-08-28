@@ -13,6 +13,14 @@ retention changes, index changes, and serialization format changes.
 - Application compatibility during staged deploys.
 - Test fixtures that prove migrated and unmigrated states behave correctly.
 
+## Finding Admission
+
+Admit only a change-introduced or materially worsened issue that is reachable
+in a supported scenario and material to the requested outcome or an established
+data boundary. Exclude unrelated defects, hypothetical hardening, preferences,
+cleanup, and future flexibility. Low and informational observations never
+block. Recommend the smallest sufficient local repair.
+
 ## Required Output Shape
 
 Emit one JSONL finding per verified issue using the normalized schema in

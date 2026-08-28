@@ -40,9 +40,11 @@ Inputs:
   `SPECIALIST_REVIEW_COMMENT_FILE`, optional GitHub `REVIEW_THREAD_FILE` for
   actionable findings, `REVIEW_DECISION`, and `DELIVERY_REVIEW_OUTCOME`
   (combined outcome body).
-- On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode specialist merge envelope for
-  the reviewed head (including the generated empty envelope for a clean
-  review), plus `REVIEW_LEDGER_DISPOSITIONS` when genesis has open findings.
+- On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode specialist merge
+  envelope produced from admitted blocking findings only for the reviewed head
+  (including the generated empty envelope when none exist), plus
+  `REVIEW_LEDGER_DISPOSITIONS` when genesis has open findings. Raw reviewer
+  evidence remains separate; rejected and low/info rows never enter genesis.
 - `REVIEW_OUTCOME_COMMENT`: the native review event URL produced by
   `forge-cli pr review --submit-review` (or a retained evidence path).
   `REVIEW_FINDINGS_JSON` is optional and contains finding rows when findings
@@ -100,8 +102,9 @@ Failure modes:
   `plan-tooling ledger-update` before retrying the gate.
 - Stop when `pr merge` fails closed on review convergence, native change
   requests, unresolved threads, unchecked tasks, or head drift. Read the
-  matching provider surface, disposition the evidence, update the owner
-  outcome/checkpoint when it changed, and only then retry.
+  matching provider surface, disposition the evidence under the closed-set
+  admission rule, update the owner outcome/checkpoint when it changed, and only
+  then retry without extending the repair loop for a non-admitted concern.
 - Forbidden writes: dispatch-profile posts, raw lifecycle comments, raw
   `gh pr review` / `glab mr approve` for recorded review evidence, or merging before the review
   gate and `review` checkpoint complete.
@@ -252,9 +255,10 @@ forge-cli --provider "$PROVIDER" pr review "$PR_NUMBER" \
   --lens "$REVIEW_LENS" \
   --issue "$ISSUE" --mirror-issue --format json
 
-# GitHub-only review-loop ledger: GitLab v1 has no ledger surface or merge gate.
+# GitHub-only review-loop ledger: bundle admitted blocking findings only and
+# retain raw reviewer JSONL separately. GitLab v1 has no ledger surface or merge gate.
 if [ "$PROVIDER" = github ]; then
-: "${REVIEW_LEDGER_FINDINGS:?set to delivery-mode findings.merged.json}"
+: "${REVIEW_LEDGER_FINDINGS:?set to admitted-blocking delivery findings.merged.json}"
 REVIEW_LEDGER_INSPECT="$(
   forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
     pr review-loop inspect "$PR_NUMBER"
@@ -557,7 +561,9 @@ mode selection; this
 skill owns the provider writes, semantic disposition,
 review-loop observations, checkpoint, and merge, and reviewer subagents never post. On
 `review_convergence_activity_changed`, read `forge-cli pr reviews` again,
-disposition the new evidence, refresh the final outcome/checkpoint, and retry.
+disposition the new evidence under the closed-set admission rule, refresh the
+final outcome/checkpoint, and retry without extending the repair loop for a
+non-admitted concern.
 For `unresolved_review_threads` or `unchecked_task_items`, call the matching
 `pr review-threads list` or `pr tasks` read surface, disposition the returned
 items, and retry. Outdated unresolved threads are auto-dispositioned `stale` by
@@ -589,13 +595,17 @@ directory the policy-owned `test-first-evidence` CLI flow produces — or it fai
    review comment through `forge-cli pr review` as it returns (native `COMMENT`
    on GitHub via `--submit-review`, semantic `--lens`; `--thread-file`
    for actionable findings). After repairs, read `forge-cli pr reviews` and
-   disposition every actionable current-head summary; stale summaries are
-   informational. Then post the combined delivery outcome (native GitHub
+   disposition every actionable current-head summary under the closed-set
+   admission rule; route a non-admitted new concern to follow-up or an explicit
+   critical-risk handoff without extending the repair loop. Stale summaries
+   are informational. Then post the combined delivery outcome (native GitHub
    approval only with the independent-identity capability; repeated selected
    lenses; `--mirror-issue`), per
    `REVIEW_OUTCOME_POSTING_CONTRACT.md`. Every tracking PR runs the full gate —
-   there is no single-author self-review shortcut. Repair concrete findings in
-   this delivery branch and rerun affected lenses before continuing. A pending
+   there is no single-author self-review shortcut. Repair admitted findings in
+   this delivery branch and rerun affected lenses as closed-set closure without
+   restarting full-diff discovery. Only the generic review outcome's explicit
+   new-generation conditions may reopen discovery. A pending
    native draft uses only the exact-node recovery above; never delete an
    ambiguous draft or replace the requested native outcome with a note.
 5. **Review + final checkpoint** — set `phase=ready-for-close`, record the linked
@@ -606,12 +616,15 @@ directory the policy-owned `test-first-evidence` CLI flow produces — or it fai
 6. **Merge** — mark the PR ready, then call `forge-cli pr merge` once semantic
    review and the issue-side checkpoint pass. Let the CLI enforce convergence,
    native state, threads, tasks, and head binding. On a typed failure, read and
-   disposition the matching evidence; `review_convergence_activity_changed`
+   disposition the matching evidence under the closed-set admission rule;
+   `review_convergence_activity_changed`
    requires a refreshed owner outcome/checkpoint before retry.
    `review_convergence_head_changed` requires rebinding delivery evidence to
-   the new head, then re-run validation and affected review lenses, read the
-   current-head summaries, post a new owner outcome, and refresh the
-   validation/review checkpoint before retry.
+   the new head. For an ordinary head change, re-run validation and affected
+   closure lenses; when the head materially changes the accepted design, public
+   contract, trust boundary, or migration strategy, rerun initial scope
+   selection as a new generation. Then read current-head summaries, post a new
+   owner outcome, and refresh the validation/review checkpoint before retry.
 7. **Close-ready / closeout** — run `tracking close-ready --expect-visible`.
    Stop on every blocker. On `ready: true`, write the closing summary, perform
    only controller-authorized final-role/dashboard repair, and call `record

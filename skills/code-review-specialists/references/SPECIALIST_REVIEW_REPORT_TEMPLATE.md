@@ -36,11 +36,14 @@
 - Logs/artifacts:
 - Prior review evidence:
 
-## Residual Risk
+## Residual Risk (omit when none)
 
 - Unverified claims:
 - Low-confidence concerns:
 - Coverage gaps:
+
+Do not populate this section for completeness; include only concrete,
+decision-relevant risk tied to an explicitly unvalidated boundary.
 
 ## Recommended Next Step
 

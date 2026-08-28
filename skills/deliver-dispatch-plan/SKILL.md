@@ -38,9 +38,11 @@ Inputs:
   integration evidence for close-ready.
 - Reviewer-owned lane outcome inputs: `LANE_REVIEW_DECISION`,
   `LANE_REVIEW_OUTCOME`, and `LANE_REVIEW_LENS_ARGS`.
-- On GitHub, `REVIEW_LEDGER_FINDINGS`, the lane review's delivery-mode specialist merge
-  envelope (including its generated empty envelope), plus
-  `REVIEW_LEDGER_DISPOSITIONS` when the genesis observation has open findings.
+- On GitHub, `REVIEW_LEDGER_FINDINGS`, the lane review's delivery-mode
+  specialist merge envelope produced from admitted blocking findings only
+  (including its generated empty envelope when none exist), plus
+  `REVIEW_LEDGER_DISPOSITIONS` when genesis has open findings. Raw reviewer
+  evidence remains separate; rejected and low/info rows never enter genesis.
 - Captured terminal identity for each lane and the integration checkout:
   checkout root, branch, delivered head SHA, base ref, and
   primary-versus-managed-worktree kind.
@@ -86,9 +88,10 @@ Failure modes:
 - Stop on `ledger-rows-pending`; repair only the named task rows before
   retrying close-ready.
 - Stop on typed review-convergence, native change-request, thread/task, or head
-  gate failures. Read and disposition the matching evidence; on
+  gate failures. Read and disposition the matching evidence under the
+  closed-set admission rule; on
   `review_convergence_activity_changed`, refresh lane review approval before
-  retrying merge.
+  retrying merge without extending the repair loop for a non-admitted concern.
 - Forbidden writes: lane-scoped implementation posts by the orchestrator, lane
   review posts by lane executors, lightweight-tracking closeout rules, multiple
   shared issues for one dispatch plan, or raw lifecycle comments.
@@ -166,9 +169,10 @@ REVIEWED_HEAD="$(
     jq -er 'select(.ok == true) | .data.head_sha'
 )" || exit $?
 readonly REVIEWED_HEAD
-# GitHub-only review-loop ledger: GitLab v1 has no ledger surface or merge gate.
+# GitHub-only review-loop ledger: bundle admitted blocking findings only and
+# retain raw reviewer JSONL separately. GitLab v1 has no ledger surface or merge gate.
 if [ "$PROVIDER" = github ]; then
-: "${REVIEW_LEDGER_FINDINGS:?set to delivery-mode findings.merged.json}"
+: "${REVIEW_LEDGER_FINDINGS:?set to admitted-blocking delivery findings.merged.json}"
 REVIEW_LEDGER_INSPECT="$(
   forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
     pr review-loop inspect "$LANE_PR_NUMBER"
@@ -427,13 +431,17 @@ Replace `area::docs` with the dispatch plan's primary `area::` label.
    outcome with retained evidence and posts provider review activity. On
    GitHub, for every lane generate the delivery-mode findings envelope and
    append review-loop genesis at the reviewed head before any repair. A clean
-   lane uses the generated empty envelope. After the repair is published with
-   `git-cli push`, append the closing dispositions with exact state-tip and
-   repaired-head CAS before approval. On
+   lane uses the generated empty envelope. After the repair is published, rerun
+   affected lenses as closed-set closure without restarting full-diff discovery;
+   only the generic review outcome's explicit new-generation conditions may
+   reopen discovery. Then append the closing dispositions with exact state-tip
+   and repaired-head CAS before approval. On
    GitLab, do not require ledger artifacts or call `pr review-loop`; retain the
    outcome-note path and pass `--review-convergence=false` to merge. On
    GitHub, read `forge-cli pr reviews` and disposition actionable current-head
-   summaries; on GitLab, retain the outcome-note path. Then finalize lane
+   summaries under the closed-set admission rule; route a non-admitted new
+   concern to follow-up or an explicit critical-risk handoff without extending
+   the repair loop. On GitLab, retain the outcome-note path. Then finalize lane
    approval and the review checkpoint. If native submission returns
    `github_pending_review_exists`, use `data.pending_reviews[]` plus `pr
    pending-review delete` only for one exact abandoned node, refresh the
@@ -450,15 +458,20 @@ Replace `area::docs` with the dispatch plan's primary `area::` label.
    non-outdated threads block, and any `--allow-unresolved-threads` bypass on a
    lane requires a paired `--allow-unresolved-threads-reason`
    (`data.unresolved_threads_override_reason`). On
-   `review_convergence_activity_changed`, re-read summaries and refresh lane
-   approval/checkpoint before retrying; other typed failures route to their
-   matching read/disposition path. Observed convergence is GitHub-only in v1,
+   `review_convergence_activity_changed`, re-read summaries, disposition them
+   under the closed-set admission rule, and refresh lane approval/checkpoint
+   before retrying without extending the repair loop for a non-admitted
+   concern; other typed failures route to their matching read/disposition path.
+   Observed convergence is GitHub-only in v1,
    so GitLab merge calls explicitly pass `--review-convergence=false` to
    neutralize any user-global GitHub policy.
    `review_convergence_head_changed` requires rebinding lane delivery evidence
-   to the new head, then re-run validation and affected review lenses, read the
-   current-head summaries, post a new owner outcome, and refresh lane
-   approval/checkpoint before retry. A reviewer does not merge.
+   to the new head. For an ordinary head change, re-run validation and affected
+   closure lenses; when the head materially changes the accepted design, public
+   contract, trust boundary, or migration strategy, rerun initial scope
+   selection as a new generation. Then read current-head summaries, post a new
+   owner outcome, and refresh lane approval/checkpoint before retry. A reviewer
+   does not merge.
 7. **Dispatch checkpoints** — post plan-level state/session/validation/review
    only when orchestration truth changes across lanes.
 8. **Ledger finalize branch** — before close-ready, patch any lane row not
