@@ -27,6 +27,7 @@ import {
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
+import { cloneAuthenticatedDshSource } from '../src/acceptance/dsh-clone.js'
 import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
 import { extractFreshPackage } from '../src/acceptance/package-staging.js'
 import {
@@ -403,26 +404,17 @@ async function snapshotBinary(root, source, name) {
  * @param {string} revision
  * @param {Record<string,{path:string,sha256:string}>} tools
  * @param {Record<string,string>} env
- * @param {string} gitConfig
  */
-async function prepareDsh(root, sourceRoot, revision, tools, env, gitConfig) {
+async function prepareDsh(root, sourceRoot, revision, tools, env) {
   const destination = resolve(root, 'dsh')
-  runChecked(tools.git.path, [
-    'config', '--file', gitConfig, '--add', 'safe.directory', sourceRoot,
-  ], { env, label: 'authenticated DSH worktree trust configuration' })
-  runChecked(tools.git.path, [
-    'config', '--file', gitConfig, '--add', 'safe.directory', resolve(sourceRoot, '.git'),
-  ], { env, label: 'authenticated DSH repository trust configuration' })
-  runChecked(tools.git.path, [
-    'clone',
-    '--no-hardlinks',
-    '--no-checkout',
+  cloneAuthenticatedDshSource({
     sourceRoot,
     destination,
-  ], { env, label: 'fresh DSH source clone' })
-  runChecked(tools.git.path, ['-C', destination, 'checkout', '--detach', revision], {
+    revision,
+    gitBin: tools.git.path,
     env,
-    label: 'pinned DSH source checkout',
+    timeout: SCENARIO_TIMEOUT_MS,
+    maxBuffer: MAX_OUTPUT,
   })
   const canonicalStore = await discoverPreparedPnpmStore({
     cwd: destination,
@@ -767,8 +759,9 @@ async function main() {
       await jsonFile(dshManifestPath, 'DSH compatibility manifest'),
     )
     const selected = dshManifest.channels.pinned
+    const authenticatedDshSourceRoot = await realpath(input.dshSourceRoot)
     await inspectSelectedDshCheckoutIdentity({
-      sourceRoot: input.dshSourceRoot,
+      sourceRoot: authenticatedDshSourceRoot,
       channel: 'pinned',
       gitBin: git.path,
       manifest: dshManifest,
@@ -776,11 +769,10 @@ async function main() {
     enterPhase('dsh-preparation')
     const dshSourceRoot = await prepareDsh(
       runRoot,
-      input.dshSourceRoot,
+      authenticatedDshSourceRoot,
       selected.revision,
       tools,
       env,
-      gitConfig,
     )
     const dshReport = await inspectSelectedDshCheckout({
       sourceRoot: dshSourceRoot,
