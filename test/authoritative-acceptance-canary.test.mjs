@@ -104,11 +104,23 @@ test('turn-stopping progress follows the observable listener waterfall', async (
       reporter.enter(code)
     },
   }
+  let releaseCanaryCallback
+  let canaryCallbackEntered
+  const canaryCallbackStarted = new Promise(resolve => { canaryCallbackEntered = resolve })
   registerScenarioCanaryTurnStoppingProgress(ctx, {
     phase: 'positive',
     progress,
     isTrackedAgent: agent => agent.id === 'tracked-agent',
-    onCompleted() { entered.push('callback-completed') },
+    onCompleted() {
+      entered.push('callback-entered')
+      canaryCallbackEntered()
+      return new Promise(resolve => {
+        releaseCanaryCallback = () => {
+          entered.push('callback-completed')
+          resolve()
+        }
+      })
+    },
   })
 
   const dispatch = (async () => {
@@ -129,13 +141,143 @@ test('turn-stopping progress follows the observable listener waterfall', async (
   ])
 
   releaseRuntimeListener()
+  await canaryCallbackStarted
+  assert.deepEqual(entered, [
+    SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'callback-entered',
+  ])
+  releaseCanaryCallback()
   await dispatch
   assert.deepEqual(entered, [
     SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
     SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'callback-entered',
     'callback-completed',
     SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
   ])
+})
+
+test('pending turn-stopping callbacks retain the preceding deadline boundary', async () => {
+  const {
+    createScenarioCanaryProgressReporter,
+    registerScenarioCanaryTurnStoppingProgress,
+    SCENARIO_CANARY_FAILURE_MARKER,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+  const listeners = []
+  const ctx = {
+    on(event, listener, options = {}) {
+      assert.equal(event, 'agent/turn-stopping')
+      if (options.prepend === true) listeners.unshift(listener)
+      else listeners.push(listener)
+    },
+  }
+  const writes = []
+  const processInstance = 'sha256:' + 'c'.repeat(64)
+  const reporter = createScenarioCanaryProgressReporter({
+    phase: 'positive',
+    processInstance,
+    stream: {
+      write(chunk, callback) {
+        writes.push(chunk)
+        callback()
+        return true
+      },
+    },
+  })
+  const entered = []
+  let releaseCallback
+  let callbackEntered
+  const callbackStarted = new Promise(resolve => { callbackEntered = resolve })
+  registerScenarioCanaryTurnStoppingProgress(ctx, {
+    phase: 'positive',
+    progress: {
+      enter(code) {
+        entered.push(code)
+        reporter.enter(code)
+      },
+    },
+    isTrackedAgent: agent => agent.id === 'tracked-agent',
+    onCompleted() {
+      callbackEntered()
+      return new Promise(resolve => { releaseCallback = resolve })
+    },
+  })
+
+  const dispatch = (async () => {
+    for (const listener of listeners) {
+      await listener({ agent: { id: 'tracked-agent' } })
+    }
+  })()
+  await callbackStarted
+  await reporter.reportDeadline()
+  assert.deepEqual(entered, [
+    SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+  ])
+  assert.deepEqual(writes, [
+    SCENARIO_CANARY_FAILURE_MARKER + JSON.stringify({
+      schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+      phase: 'positive',
+      process_instance_sha256: processInstance,
+      cause_code: SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    }) + '\n',
+  ])
+
+  releaseCallback()
+  await dispatch
+  assert.equal(
+    entered.at(-1),
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
+  )
+})
+
+test('turn-stopping callback failures cannot advance completion progress', async () => {
+  const {
+    registerScenarioCanaryTurnStoppingProgress,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+
+  for (const scenario of [
+    {
+      name: 'rejected callback',
+      onCompleted() { return Promise.reject(new Error('callback rejected')) },
+      expected: /callback rejected/u,
+    },
+    {
+      name: 'throwing callback',
+      onCompleted() { throw new Error('callback threw') },
+      expected: /callback threw/u,
+    },
+  ]) {
+    const listeners = []
+    const ctx = {
+      on(event, listener, options = {}) {
+        assert.equal(event, 'agent/turn-stopping')
+        if (options.prepend === true) listeners.unshift(listener)
+        else listeners.push(listener)
+      },
+    }
+    const entered = []
+    registerScenarioCanaryTurnStoppingProgress(ctx, {
+      phase: 'positive',
+      progress: { enter(code) { entered.push(code) } },
+      isTrackedAgent: agent => agent.id === 'tracked-agent',
+      onCompleted: scenario.onCompleted,
+    })
+
+    const dispatch = async () => {
+      for (const listener of listeners) {
+        await listener({ agent: { id: 'tracked-agent' } })
+      }
+    }
+    await assert.rejects(dispatch(), scenario.expected, scenario.name)
+    assert.deepEqual(entered, [
+      SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+      SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    ], scenario.name)
+  }
 })
 
 test('the process supervisor outlives the canary-wide execution deadline', async () => {
