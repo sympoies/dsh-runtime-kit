@@ -359,10 +359,16 @@ export function apply(ctx) {
         case 'restart-seed':
         case 'candidate-upgrade':
           if (!settled('bash')) {
+            if (phase !== 'restart-seed') {
+              progress.enter(SCENARIO_CANARY_PROGRESS.VALIDATION_TOOL_REQUESTED)
+            }
             return validation(phase === 'candidate-upgrade' ? 'upgrade-validation' : 'validation')
           }
           if (!succeeded('bash')) return stop('contained validation failed')
           if (hostResults.length === 0) {
+            if (phase !== 'restart-seed') {
+              progress.enter(SCENARIO_CANARY_PROGRESS.HOST_VALIDATOR_REQUESTED)
+            }
             return call(
               'canary_host_validator',
               {},
@@ -370,6 +376,9 @@ export function apply(ctx) {
             )
           }
           if (!succeeded('canary_host_validator')) return stop('host validation failed')
+          if (phase !== 'restart-seed') {
+            progress.enter(SCENARIO_CANARY_PROGRESS.STOP_REQUESTED)
+          }
           return stop(phase === 'candidate-upgrade'
             ? 'upgrade revalidation complete'
             : 'acceptance complete')
@@ -454,6 +463,13 @@ export function apply(ctx) {
 
       ctx.on('tools/result', (exec, result) => {
         if (exec.agent?.id === handle?.agent.id || exec.agent?.id === resumedHandle?.agent.id) {
+          if (['positive', 'candidate-upgrade'].includes(phase)) {
+            if (exec.name === 'bash' && exec.arguments?.command === validationCommand) {
+              progress.enter(SCENARIO_CANARY_PROGRESS.VALIDATION_TOOL_RESULT)
+            } else if (exec.name === 'canary_host_validator') {
+              progress.enter(SCENARIO_CANARY_PROGRESS.HOST_VALIDATOR_RESULT)
+            }
+          }
           if (!result.isError && exec.name === 'bash'
             && exec.arguments?.command === validationCommand) {
             validationExecutions += 1
@@ -485,7 +501,16 @@ export function apply(ctx) {
         }
       })
       ctx.on('agent/turn-stopping', ({ agent }) => {
+        if (['positive', 'candidate-upgrade'].includes(phase)
+          && (agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id)) {
+          progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
+        }
+      }, { prepend: true })
+      ctx.on('agent/turn-stopping', ({ agent }) => {
         if (agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id) {
+          if (['positive', 'candidate-upgrade'].includes(phase)) {
+            progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_COMPLETED)
+          }
           bodyExecutions.turnStopping(validationBodyExecutions(
             required(validationMarker, 'validation marker'),
             required(validationToken, 'validation token'),

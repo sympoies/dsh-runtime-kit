@@ -23,6 +23,43 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   assert.equal(manifest.files.includes('receipt-output.js'), true)
 })
 
+test('the positive canary reports bounded validator and stop-policy boundaries', async () => {
+  const { SCENARIO_CANARY_PROGRESS } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const canary = readFileSync(
+    new URL('./fixtures/authoritative-acceptance-canary/index.js', import.meta.url),
+    'utf8',
+  )
+  const milestones = [
+    'VALIDATION_TOOL_REQUESTED',
+    'VALIDATION_TOOL_RESULT',
+    'HOST_VALIDATOR_REQUESTED',
+    'HOST_VALIDATOR_RESULT',
+    'STOP_REQUESTED',
+    'TURN_STOPPING_ENTERED',
+    'TURN_STOPPING_COMPLETED',
+  ]
+  for (const milestone of milestones) {
+    assert.match(
+      SCENARIO_CANARY_PROGRESS[milestone],
+      /^DSH_CANARY_DEADLINE_[A-Z_]+$/u,
+    )
+    assert.match(
+      canary,
+      new RegExp(`progress\\.enter\\(SCENARIO_CANARY_PROGRESS\\.${milestone}\\)`, 'u'),
+    )
+  }
+  assert.ok(
+    canary.indexOf('SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED')
+      < canary.indexOf('SCENARIO_CANARY_PROGRESS.TURN_STOPPING_COMPLETED'),
+  )
+  assert.match(
+    canary,
+    /agent\/turn-stopping'[\s\S]*TURN_STOPPING_ENTERED[\s\S]*\{ prepend: true \}/u,
+  )
+})
+
 test('the process supervisor outlives the canary-wide execution deadline', async () => {
   const timeouts = await import(
     './fixtures/authoritative-acceptance-canary/receipt-output.js'
@@ -157,7 +194,7 @@ test('deadline finalization emits one bounded process-bound progress marker', as
       },
     },
   })
-  progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_AGENT_IDLE)
+  progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
   const controller = createScenarioCanaryDeadlineController({
     deadlineEpoch: '2000000120000',
     stream: { write() { assert.fail('a deadline must not write a success receipt') } },
@@ -190,7 +227,7 @@ test('deadline finalization emits one bounded process-bound progress marker', as
       schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
       phase: 'positive',
       process_instance_sha256: processInstance,
-      cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+      cause_code: 'DSH_CANARY_DEADLINE_TURN_STOPPING_ENTERED',
     }) + '\n',
   ])
   assert.deepEqual(events, [
