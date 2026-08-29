@@ -133,6 +133,79 @@ test('deadline finalization fails closed once before service readiness', async (
   ])
 })
 
+test('deadline finalization emits one bounded process-bound progress marker', async () => {
+  const {
+    createScenarioCanaryDeadlineController,
+    createScenarioCanaryProgressReporter,
+    SCENARIO_CANARY_FAILURE_MARKER,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+  const events = []
+  const failureWrites = []
+  let deadlineCallback
+  let markerFlushed
+  const processInstance = 'sha256:' + 'a'.repeat(64)
+  const progress = createScenarioCanaryProgressReporter({
+    phase: 'positive',
+    processInstance,
+    stream: {
+      write(chunk, callback) {
+        events.push('marker-write')
+        failureWrites.push(chunk)
+        markerFlushed = callback
+        return false
+      },
+    },
+  })
+  progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_AGENT_IDLE)
+  const controller = createScenarioCanaryDeadlineController({
+    deadlineEpoch: '2000000120000',
+    stream: { write() { assert.fail('a deadline must not write a success receipt') } },
+    reportFailure(error) { events.push('failure:' + error.message) },
+    async dispose() { events.push('dispose') },
+    successStatus: () => 0,
+    setExitCode(status) { events.push('status:' + status) },
+    exit(status) { events.push('exit:' + status) },
+    onDeadline: () => progress.reportDeadline(),
+    now: () => 2_000_000_075_000,
+    setTimer(callback) {
+      deadlineCallback = callback
+      return /** @type {ReturnType<typeof setTimeout>} */ ({})
+    },
+  })
+
+  deadlineCallback()
+  deadlineCallback()
+  await Promise.resolve()
+  assert.equal(typeof markerFlushed, 'function')
+  assert.deepEqual(events, ['marker-write'])
+
+  markerFlushed()
+  await controller.wait()
+  deadlineCallback()
+  await controller.wait()
+
+  assert.deepEqual(failureWrites, [
+    SCENARIO_CANARY_FAILURE_MARKER + JSON.stringify({
+      schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+      phase: 'positive',
+      process_instance_sha256: processInstance,
+      cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+    }) + '\n',
+  ])
+  assert.deepEqual(events, [
+    'marker-write',
+    'failure:scenario execution deadline exceeded',
+    'dispose',
+    'status:1',
+    'exit:1',
+  ])
+  assert.throws(
+    () => progress.enter('PRIVATE_DEADLINE_DETAIL'),
+    /progress milestone is invalid/u,
+  )
+})
+
 test('an elapsed deadline cannot be cleared into a success receipt', async () => {
   const { createScenarioCanaryDeadlineController } = await import(
     './fixtures/authoritative-acceptance-canary/receipt-output.js'

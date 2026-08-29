@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import {
   createScenarioFailureDiagnosticTracker,
   parseScenarioCanaryReceipt,
+  recordScenarioCanaryFailure,
   recordScenarioOperationResult,
   scenarioOperationFailureMessage,
   scenarioOperationSucceeded,
@@ -101,15 +102,19 @@ function processIdentity(label) {
 }
 
 function run(command, args, options = {}) {
+  const { scenarioCanaryExpectation, ...spawnOptions } = options
   const result = spawnSync(command, args, {
     cwd: dshRoot,
     env: baseEnvironment,
     encoding: 'utf8',
     timeout: 120_000,
     maxBuffer: 64 * 1024 * 1024,
-    ...options,
+    ...spawnOptions,
   })
   recordScenarioOperationResult(failureDiagnostic, result)
+  if (!scenarioOperationSucceeded(result) && scenarioCanaryExpectation !== undefined) {
+    recordScenarioCanaryFailure(failureDiagnostic, result, scenarioCanaryExpectation)
+  }
   assert.equal(
     scenarioOperationSucceeded(result),
     true,
@@ -233,6 +238,7 @@ function runPhase(profile, selectedPhase, selectedSession, kind = 'candidate') {
       DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: processInstance,
       [SCENARIO_CANARY_DEADLINE_ENV]: String(executionDeadline),
     },
+    scenarioCanaryExpectation: { phase: selectedPhase, processInstance },
   })
   const receipt = parseScenarioCanaryReceipt({
     output: result.stdout,

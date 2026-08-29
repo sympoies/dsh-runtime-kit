@@ -1359,6 +1359,117 @@ test('subprocess failure diagnostics never expose child output or error messages
   assert.doesNotMatch(publicFailure, /PRIVATE_(?:ERROR|STDOUT|STDERR)_SENTINEL/u)
 })
 
+test('authoritative canary deadline diagnostics accept only a bound allowlisted marker', async () => {
+  const { recordScenarioCanaryFailure } = await import('../src/acceptance/contract.js')
+  const processInstance = 'sha256:' + 'a'.repeat(64)
+  const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
+  const result = {
+    status: 1,
+    error: undefined,
+    signal: null,
+    stdout: 'PRIVATE_STDOUT_SENTINEL',
+    stderr: [
+      'PRIVATE_STDERR_SENTINEL',
+      marker + JSON.stringify({
+        schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+        phase: 'positive',
+        process_instance_sha256: processInstance,
+        cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+      }),
+    ].join('\n'),
+  }
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-positive')
+  recordScenarioOperationResult(tracker, result)
+  recordScenarioCanaryFailure(tracker, result, {
+    phase: 'positive',
+    processInstance,
+  })
+  const diagnostic = tracker.take()
+
+  assert.deepEqual(diagnostic, {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+    operation_exit_status: 1,
+  })
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_(?:STDOUT|STDERR)_SENTINEL/u)
+})
+
+test('authoritative canary deadline diagnostics reject spoofed or unbounded markers', async () => {
+  const { recordScenarioCanaryFailure } = await import('../src/acceptance/contract.js')
+  const processInstance = 'sha256:' + 'a'.repeat(64)
+  const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
+  const valid = {
+    schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+    phase: 'positive',
+    process_instance_sha256: processInstance,
+    cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+  }
+  const invalidOutputs = [
+    marker + '{',
+    marker + JSON.stringify({ ...valid, cause_code: 'PRIVATE_DEADLINE_DETAIL' }),
+    marker + JSON.stringify({ ...valid, phase: 'candidate-upgrade' }),
+    marker + JSON.stringify({
+      ...valid,
+      process_instance_sha256: 'sha256:' + 'b'.repeat(64),
+    }),
+    marker + JSON.stringify({ ...valid, private_detail: '/tmp/private-profile' }),
+    [marker + JSON.stringify(valid), marker + JSON.stringify(valid)].join('\n'),
+  ]
+  for (const stderr of invalidOutputs) {
+    const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+    tracker.enterStep('candidate-positive')
+    const result = { status: 1, error: undefined, signal: null, stderr }
+    recordScenarioOperationResult(tracker, result)
+    recordScenarioCanaryFailure(tracker, result, {
+      phase: 'positive',
+      processInstance,
+    })
+    assert.deepEqual(tracker.take(), {
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+      ok: false,
+      producer: 'packed-runtime',
+      step: 'candidate-positive',
+      cause_code: 'UNKNOWN_FAILURE',
+      operation_exit_status: 1,
+    })
+  }
+
+  let accessorInvocations = 0
+  const accessorResult = { status: 1, error: undefined, signal: null }
+  Object.defineProperty(accessorResult, 'stderr', {
+    get() {
+      accessorInvocations += 1
+      return marker + JSON.stringify(valid)
+    },
+  })
+  const accessorExpectation = Object.create(null)
+  for (const [key, value] of Object.entries({ phase: 'positive', processInstance })) {
+    Object.defineProperty(accessorExpectation, key, {
+      get() {
+        accessorInvocations += 1
+        return value
+      },
+    })
+  }
+  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+  tracker.enterStep('candidate-positive')
+  recordScenarioOperationResult(tracker, accessorResult)
+  recordScenarioCanaryFailure(tracker, accessorResult, accessorExpectation)
+  assert.deepEqual(tracker.take(), {
+    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+    ok: false,
+    producer: 'packed-runtime',
+    step: 'candidate-positive',
+    cause_code: 'UNKNOWN_FAILURE',
+    operation_exit_status: 1,
+  })
+  assert.equal(accessorInvocations, 0)
+})
+
 test('production outcome recorder ignores inherited fields and accessors', () => {
   let accessorInvocations = 0
   const inherited = {
