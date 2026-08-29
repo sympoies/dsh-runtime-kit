@@ -21,6 +21,8 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
   TURN_STOPPING_ENTERED: 'DSH_CANARY_DEADLINE_TURN_STOPPING_ENTERED',
   RUNTIME_STOP_LISTENERS_COMPLETED:
     'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
+  CANARY_STOP_CALLBACK_COMPLETED:
+    'DSH_CANARY_DEADLINE_CANARY_STOP_CALLBACK_COMPLETED',
   AGENT_IDLE: 'DSH_CANARY_DEADLINE_AGENT_IDLE',
   WAITING_RESOURCE_DRAIN: 'DSH_CANARY_DEADLINE_WAITING_RESOURCE_DRAIN',
   COMPLETION_SETTLEMENT: 'DSH_CANARY_DEADLINE_COMPLETION_SETTLEMENT',
@@ -170,7 +172,11 @@ export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
     if (reportsProgress) {
       options.progress.enter(SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED)
     }
-    return options.onCompleted(agent)
+    const completed = options.onCompleted(agent)
+    if (!reportsProgress) return completed
+    return Promise.resolve(completed).then(() => {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED)
+    })
   })
 }
 
