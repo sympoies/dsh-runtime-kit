@@ -1374,7 +1374,7 @@ test('authoritative canary deadline diagnostics accept only a bound allowlisted 
         schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
         phase: 'positive',
         process_instance_sha256: processInstance,
-        cause_code: 'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
+        cause_code: 'DSH_CANARY_DEADLINE_CANARY_STOP_CALLBACK_COMPLETED',
       }),
     ].join('\n'),
   }
@@ -1392,7 +1392,7 @@ test('authoritative canary deadline diagnostics accept only a bound allowlisted 
     ok: false,
     producer: 'packed-runtime',
     step: 'candidate-positive',
-    cause_code: 'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
+    cause_code: 'DSH_CANARY_DEADLINE_CANARY_STOP_CALLBACK_COMPLETED',
     operation_exit_status: 1,
   })
   assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_(?:STDOUT|STDERR)_SENTINEL/u)
