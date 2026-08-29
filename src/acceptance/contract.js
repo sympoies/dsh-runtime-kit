@@ -8,6 +8,24 @@ const DIAGNOSTIC_SCHEMA = 'dsh-runtime-kit.acceptance-diagnostic.v1'
 const AUTHORITATIVE_MATRIX_SCHEMA = 'dsh-runtime-kit.authoritative-acceptance-matrix.v1'
 const SCENARIO_CANARY_SCHEMA = 'dsh-runtime-kit.authoritative-acceptance-canary.v1'
 const SCENARIO_CANARY_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
+const SCENARIO_CANARY_FAILURE_SCHEMA =
+  'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1'
+const SCENARIO_CANARY_FAILURE_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
+const SCENARIO_CANARY_DEADLINE_CAUSE_CODES = Object.freeze([
+  'DSH_CANARY_DEADLINE_WAITING_SERVICES',
+  'DSH_CANARY_DEADLINE_SCENARIO_STARTED',
+  'DSH_CANARY_DEADLINE_CONTRACT_REGISTERED',
+  'DSH_CANARY_DEADLINE_CREATING_AGENT',
+  'DSH_CANARY_DEADLINE_AGENT_CREATED',
+  'DSH_CANARY_DEADLINE_WAITING_SESSION_REGISTRATION',
+  'DSH_CANARY_DEADLINE_SESSION_REGISTERED',
+  'DSH_CANARY_DEADLINE_FOLLOWUP_SUBMITTED',
+  'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+  'DSH_CANARY_DEADLINE_AGENT_IDLE',
+  'DSH_CANARY_DEADLINE_WAITING_RESOURCE_DRAIN',
+  'DSH_CANARY_DEADLINE_COMPLETION_SETTLEMENT',
+  'DSH_CANARY_DEADLINE_FINALIZING',
+])
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u
 const COMMIT_SHA = /^[0-9a-f]{40,64}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
@@ -90,6 +108,7 @@ const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
 ].map(code => `DSH_OPERATIONS_${code.replaceAll('-', '_').toUpperCase()}`))
 const SCENARIO_CAUSE_CODES = new Set([
   ...OPERATIONS_SCENARIO_CAUSE_CODES,
+  ...SCENARIO_CANARY_DEADLINE_CAUSE_CODES,
   'DSH_OPERATIONS_COMMAND_FAILED',
   'EACCES',
   'ENOENT',
@@ -102,6 +121,7 @@ const SCENARIO_CAUSE_CODES = new Set([
   'UNKNOWN_FAILURE',
 ])
 const OPERATION_CAUSE_CODES = new Set([
+  ...SCENARIO_CANARY_DEADLINE_CAUSE_CODES,
   'EACCES',
   'ENOENT',
   'ENOBUFS',
@@ -844,6 +864,52 @@ export function recordScenarioOperationResult(tracker, result) {
   tracker.recordOperationOutcome(
     ownDataValue(result, 'status'),
     ownDataValue(error, 'code'),
+    ownDataValue(result, 'signal'),
+  )
+}
+
+/**
+ * Accept one canary deadline marker only when its fixed schema, phase, process
+ * identity, and cause code match the parent-authenticated expectation. Raw
+ * child output and arbitrary properties never enter the public diagnostic.
+ *
+ * @param {{recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void}} tracker
+ * @param {unknown} result
+ * @param {unknown} expectation
+ */
+export function recordScenarioCanaryFailure(tracker, result, expectation) {
+  const phase = ownDataValue(expectation, 'phase')
+  const processInstance = ownDataValue(expectation, 'processInstance')
+  if (typeof phase !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/u.test(phase)
+    || typeof processInstance !== 'string'
+    || !/^sha256:[0-9a-f]{64}$/u.test(processInstance)) return
+  const stderr = ownDataValue(result, 'stderr')
+  if (typeof stderr !== 'string') return
+  const markers = stderr.split('\n').filter(line => line.startsWith(
+    SCENARIO_CANARY_FAILURE_MARKER,
+  ))
+  if (markers.length !== 1) return
+  let parsed
+  try {
+    parsed = JSON.parse(markers[0].slice(SCENARIO_CANARY_FAILURE_MARKER.length))
+  } catch {
+    return
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)
+    || Object.keys(parsed).sort().join('\0') !== [
+      'cause_code',
+      'phase',
+      'process_instance_sha256',
+      'schema_version',
+    ].join('\0')
+    || parsed.schema_version !== SCENARIO_CANARY_FAILURE_SCHEMA
+    || parsed.phase !== phase
+    || parsed.process_instance_sha256 !== processInstance
+    || typeof parsed.cause_code !== 'string'
+    || !SCENARIO_CANARY_DEADLINE_CAUSE_CODES.includes(parsed.cause_code)) return
+  tracker.recordOperationOutcome(
+    ownDataValue(result, 'status'),
+    parsed.cause_code,
     ownDataValue(result, 'signal'),
   )
 }

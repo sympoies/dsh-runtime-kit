@@ -12,8 +12,10 @@ import {
 import { observableChildPid } from './observable-child-pid.js'
 import {
   createScenarioCanaryDeadlineController,
+  createScenarioCanaryProgressReporter,
   SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_MARKER,
+  SCENARIO_CANARY_PROGRESS,
   startScenarioCanaryWhenReady,
 } from './receipt-output.js'
 
@@ -191,6 +193,11 @@ export function apply(ctx) {
   let handle
   let resumedHandle
   let receipt
+  const progress = createScenarioCanaryProgressReporter({
+    phase,
+    processInstance,
+    stream: process.stderr,
+  })
   const deadlineController = createScenarioCanaryDeadlineController({
     deadlineEpoch: process.env[SCENARIO_CANARY_DEADLINE_ENV],
     stream: process.stdout,
@@ -202,6 +209,7 @@ export function apply(ctx) {
     successStatus: () => process.exitCode ?? 0,
     setExitCode: status => { process.exitCode = status },
     exit: status => ctx.get('appExit')?.(status),
+    onDeadline: () => progress.reportDeadline(),
     onUnhandledFailure: error => {
       process.exitCode = 1
       process.stderr.write(String(error?.stack ?? error) + '\n')
@@ -301,6 +309,7 @@ export function apply(ctx) {
   }))
   const run = async (initialAcceptance) => {
     if (deadlineController.isFinalizing()) return deadlineController.wait()
+    progress.enter(SCENARIO_CANARY_PROGRESS.SCENARIO_STARTED)
     let acceptance = initialAcceptance
     const acceptanceEnabled = acceptanceRequired
     const results = []
@@ -559,8 +568,10 @@ export function apply(ctx) {
       if (acceptanceEnabled) {
         acceptanceContract = currentAcceptanceContract()
         acceptance.register(acceptanceContract)
+        progress.enter(SCENARIO_CANARY_PROGRESS.CONTRACT_REGISTERED)
       }
 
+      progress.enter(SCENARIO_CANARY_PROGRESS.CREATING_AGENT)
       handle = phase === 'restart-check' || phase === 'crash-recover'
         || phase === 'candidate-upgrade' || phase === 'baseline-rollback'
         ? await ctx.agents.resume({
@@ -572,10 +583,13 @@ export function apply(ctx) {
             agentOptions: { provider: 'authoritative-acceptance-canary', model: 'scripted' },
             meta: { cwd: workspace },
           })
+      progress.enter(SCENARIO_CANARY_PROGRESS.AGENT_CREATED)
       if (acceptanceEnabled) {
+        progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_SESSION_REGISTRATION)
         await waitUntil(() => {
           try { return acceptance.verdict(handle.agent) !== undefined } catch { return false }
         }, 'acceptance session registration')
+        progress.enter(SCENARIO_CANARY_PROGRESS.SESSION_REGISTERED)
       }
 
       if (['positive', 'candidate-upgrade'].includes(phase)) {
@@ -605,6 +619,7 @@ export function apply(ctx) {
         content: [{ type: 'text', text: 'run the authoritative acceptance canary' }],
         source: { kind: 'user' },
       }))
+      progress.enter(SCENARIO_CANARY_PROGRESS.FOLLOWUP_SUBMITTED)
 
       if (phase === 'crash-start') {
         await waitUntil(
@@ -762,7 +777,9 @@ export function apply(ctx) {
         }
       }
 
+      progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_AGENT_IDLE)
       await handle.agent.whenIdle()
+      progress.enter(SCENARIO_CANARY_PROGRESS.AGENT_IDLE)
       if (disposalPromise !== undefined) {
         await disposalPromise
         resumedHandle = await ctx.agents.resume({
@@ -822,8 +839,10 @@ export function apply(ctx) {
         )
       }
 
+      progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_RESOURCE_DRAIN)
       await waitUntil(() => Object.values(resources(ctx)).every(value => value === 0), 'resource drain')
       if (goalAfterCompletion !== undefined) {
+        progress.enter(SCENARIO_CANARY_PROGRESS.COMPLETION_SETTLEMENT)
         const settlement = acceptance.completionSettlement(handle.agent)
         const finishLineDegraded = ctx.get('dshRuntimeKit')?.finishLineDegraded
         completionSettlement = {
@@ -884,6 +903,7 @@ export function apply(ctx) {
     } catch (error) {
       failure = { error }
     }
+    if (failure === undefined) progress.enter(SCENARIO_CANARY_PROGRESS.FINALIZING)
     await deadlineController.finish(receipt, failure)
   }
   if (phase === 'unpatched-smoke') return run(undefined)

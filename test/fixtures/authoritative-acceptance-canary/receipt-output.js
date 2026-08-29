@@ -1,7 +1,25 @@
 export const SCENARIO_CANARY_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_CANARY='
+export const SCENARIO_CANARY_FAILURE_MARKER = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
 export const SCENARIO_CANARY_DEADLINE_ENV = 'DSH_ACCEPTANCE_CANARY_DEADLINE_EPOCH_MS'
 export const SCENARIO_CANARY_EXECUTION_TIMEOUT_MS = 120_000
 export const SCENARIO_CANARY_PROCESS_TIMEOUT_MS = 180_000
+export const SCENARIO_CANARY_PROGRESS = Object.freeze({
+  WAITING_SERVICES: 'DSH_CANARY_DEADLINE_WAITING_SERVICES',
+  SCENARIO_STARTED: 'DSH_CANARY_DEADLINE_SCENARIO_STARTED',
+  CONTRACT_REGISTERED: 'DSH_CANARY_DEADLINE_CONTRACT_REGISTERED',
+  CREATING_AGENT: 'DSH_CANARY_DEADLINE_CREATING_AGENT',
+  AGENT_CREATED: 'DSH_CANARY_DEADLINE_AGENT_CREATED',
+  WAITING_SESSION_REGISTRATION: 'DSH_CANARY_DEADLINE_WAITING_SESSION_REGISTRATION',
+  SESSION_REGISTERED: 'DSH_CANARY_DEADLINE_SESSION_REGISTERED',
+  FOLLOWUP_SUBMITTED: 'DSH_CANARY_DEADLINE_FOLLOWUP_SUBMITTED',
+  WAITING_AGENT_IDLE: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+  AGENT_IDLE: 'DSH_CANARY_DEADLINE_AGENT_IDLE',
+  WAITING_RESOURCE_DRAIN: 'DSH_CANARY_DEADLINE_WAITING_RESOURCE_DRAIN',
+  COMPLETION_SETTLEMENT: 'DSH_CANARY_DEADLINE_COMPLETION_SETTLEMENT',
+  FINALIZING: 'DSH_CANARY_DEADLINE_FINALIZING',
+})
+
+const SCENARIO_CANARY_PROGRESS_CODES = new Set(Object.values(SCENARIO_CANARY_PROGRESS))
 
 function parseScenarioCanaryDeadlineEpoch(deadlineEpoch) {
   if (typeof deadlineEpoch !== 'string' || !/^[1-9][0-9]{12}$/u.test(deadlineEpoch)) {
@@ -53,6 +71,73 @@ export function scheduleScenarioCanaryDeadline(deadlineEpoch, onDeadline, option
   return setTimer(onDeadline, scenarioCanaryDeadlineDelay(deadlineEpoch, now()))
 }
 
+function writeScenarioCanaryLine(stream, marker, value, invalidMessage) {
+  let serialized
+  try {
+    serialized = JSON.stringify(value)
+  } catch (error) {
+    return Promise.reject(error)
+  }
+  if (serialized === undefined) return Promise.reject(new Error(invalidMessage))
+  return new Promise((resolve, reject) => {
+    try {
+      stream.write(marker + serialized + '\n', error => {
+        if (error) reject(error)
+        else resolve()
+      })
+    } catch (error) {
+      reject(error)
+    }
+  })
+}
+
+/**
+ * Retain only a fixed canary milestone and emit it once at the deadline. The
+ * marker binds the expected phase and process without exposing child state,
+ * output, arguments, messages, or stacks.
+ *
+ * @param {{
+ *   phase:unknown,
+ *   processInstance:unknown,
+ *   stream:{write:(chunk:string,callback:(error?:Error|null)=>void)=>unknown},
+ * }} options
+ */
+export function createScenarioCanaryProgressReporter(options) {
+  if (typeof options?.phase !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/u.test(options.phase)
+    || typeof options?.processInstance !== 'string'
+    || !/^sha256:[0-9a-f]{64}$/u.test(options.processInstance)
+    || typeof options?.stream?.write !== 'function') {
+    throw new Error('scenario canary progress reporter is invalid')
+  }
+  let causeCode = SCENARIO_CANARY_PROGRESS.WAITING_SERVICES
+  let report
+  return Object.freeze({
+    /** @param {unknown} nextCauseCode */
+    enter(nextCauseCode) {
+      if (!SCENARIO_CANARY_PROGRESS_CODES.has(nextCauseCode)) {
+        throw new Error('scenario canary progress milestone is invalid')
+      }
+      causeCode = nextCauseCode
+    },
+    reportDeadline() {
+      if (report !== undefined) return report
+      const diagnostic = {
+        schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+        phase: options.phase,
+        process_instance_sha256: options.processInstance,
+        cause_code: causeCode,
+      }
+      report = writeScenarioCanaryLine(
+        options.stream,
+        SCENARIO_CANARY_FAILURE_MARKER,
+        diagnostic,
+        'scenario canary failure diagnostic is not serializable',
+      )
+      return report
+    },
+  })
+}
+
 /**
  * Arm the process-origin canary deadline before service readiness and arbitrate
  * deadline and normal completion through one finalization promise.
@@ -65,6 +150,7 @@ export function scheduleScenarioCanaryDeadline(deadlineEpoch, onDeadline, option
  *   successStatus:()=>number,
  *   setExitCode:(status:number)=>void,
  *   exit:(status:number)=>void,
+ *   onDeadline?:()=>Promise<void>|void,
  *   onUnhandledFailure?:(error:unknown)=>void,
  *   now?:()=>number,
  *   setTimer?:(callback:()=>void,delay:number)=>ReturnType<typeof setTimeout>,
@@ -76,23 +162,34 @@ export function createScenarioCanaryDeadlineController(options) {
   let postDeadlineCleanup
   const deadlineEpoch = parseScenarioCanaryDeadlineEpoch(options.deadlineEpoch)
   const now = options.now ?? Date.now
+  const finalize = (receipt, failure) => finalizeScenarioCanary({
+    stream: options.stream,
+    receipt,
+    failure,
+    reportFailure: options.reportFailure,
+    dispose: options.dispose,
+    successStatus: options.successStatus(),
+    setExitCode: options.setExitCode,
+    exit: options.exit,
+  })
   const finalizeOnce = (receipt, failure) => {
     if (finalization !== undefined) return finalization
-    finalization = finalizeScenarioCanary({
-      stream: options.stream,
-      receipt,
-      failure,
-      reportFailure: options.reportFailure,
-      dispose: options.dispose,
-      successStatus: options.successStatus(),
-      setExitCode: options.setExitCode,
-      exit: options.exit,
-    })
+    finalization = finalize(receipt, failure)
     return finalization
   }
-  const finalizeDeadline = () => finalizeOnce(undefined, {
-    error: new Error('scenario execution deadline exceeded'),
-  })
+  const finalizeDeadline = () => {
+    if (finalization !== undefined) return finalization
+    finalization = (async () => {
+      let failure = { error: new Error('scenario execution deadline exceeded') }
+      try {
+        await options.onDeadline?.()
+      } catch (error) {
+        failure = { error }
+      }
+      return finalize(undefined, failure)
+    })()
+    return finalization
+  }
   const deadlineTimer = scheduleScenarioCanaryDeadline(
     String(deadlineEpoch),
     () => {
@@ -151,20 +248,12 @@ export function startScenarioCanaryWhenReady(ctx, acceptanceRequired, run) {
  * @param {unknown} receipt
  */
 export function writeScenarioCanaryReceipt(stream, receipt) {
-  const serialized = JSON.stringify(receipt)
-  if (serialized === undefined) {
-    return Promise.reject(new Error('scenario canary receipt is not serializable'))
-  }
-  return new Promise((resolve, reject) => {
-    try {
-      stream.write(SCENARIO_CANARY_MARKER + serialized + '\n', error => {
-        if (error) reject(error)
-        else resolve()
-      })
-    } catch (error) {
-      reject(error)
-    }
-  })
+  return writeScenarioCanaryLine(
+    stream,
+    SCENARIO_CANARY_MARKER,
+    receipt,
+    'scenario canary receipt is not serializable',
+  )
 }
 
 /**
