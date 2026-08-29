@@ -23,6 +23,116 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   assert.equal(manifest.files.includes('receipt-output.js'), true)
 })
 
+test('the positive canary reports bounded validator and stop-request boundaries', async () => {
+  const { SCENARIO_CANARY_PROGRESS } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const canary = readFileSync(
+    new URL('./fixtures/authoritative-acceptance-canary/index.js', import.meta.url),
+    'utf8',
+  )
+  const milestones = [
+    'VALIDATION_TOOL_REQUESTED',
+    'VALIDATION_TOOL_RESULT',
+    'HOST_VALIDATOR_REQUESTED',
+    'HOST_VALIDATOR_RESULT',
+    'STOP_REQUESTED',
+  ]
+  for (const milestone of milestones) {
+    assert.match(
+      SCENARIO_CANARY_PROGRESS[milestone],
+      /^DSH_CANARY_DEADLINE_[A-Z_]+$/u,
+    )
+    assert.match(
+      canary,
+      new RegExp(`progress\\.enter\\(SCENARIO_CANARY_PROGRESS\\.${milestone}\\)`, 'u'),
+    )
+  }
+})
+
+test('turn-stopping progress follows the observable listener waterfall', async () => {
+  const {
+    createScenarioCanaryProgressReporter,
+    registerScenarioCanaryTurnStoppingProgress,
+    SCENARIO_CANARY_FAILURE_MARKER,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+  assert.equal(typeof registerScenarioCanaryTurnStoppingProgress, 'function')
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
+  )
+  assert.equal('TURN_STOPPING_COMPLETED' in SCENARIO_CANARY_PROGRESS, false)
+
+  const listeners = []
+  const ctx = {
+    on(event, listener, options = {}) {
+      assert.equal(event, 'agent/turn-stopping')
+      if (options.prepend === true) listeners.unshift(listener)
+      else listeners.push(listener)
+    },
+  }
+  let releaseRuntimeListener
+  let runtimeListenerEntered
+  const runtimeListenerStarted = new Promise(resolve => { runtimeListenerEntered = resolve })
+  ctx.on('agent/turn-stopping', async () => {
+    runtimeListenerEntered()
+    await new Promise(resolve => { releaseRuntimeListener = resolve })
+  })
+
+  const writes = []
+  const processInstance = 'sha256:' + 'b'.repeat(64)
+  const reporter = createScenarioCanaryProgressReporter({
+    phase: 'positive',
+    processInstance,
+    stream: {
+      write(chunk, callback) {
+        writes.push(chunk)
+        callback()
+        return true
+      },
+    },
+  })
+  const entered = []
+  const progress = {
+    enter(code) {
+      entered.push(code)
+      reporter.enter(code)
+    },
+  }
+  registerScenarioCanaryTurnStoppingProgress(ctx, {
+    phase: 'positive',
+    progress,
+    isTrackedAgent: agent => agent.id === 'tracked-agent',
+    onCompleted() { entered.push('callback-completed') },
+  })
+
+  const dispatch = (async () => {
+    for (const listener of listeners) {
+      await listener({ agent: { id: 'tracked-agent' } })
+    }
+  })()
+  await runtimeListenerStarted
+  await reporter.reportDeadline()
+  assert.deepEqual(entered, [SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED])
+  assert.deepEqual(writes, [
+    SCENARIO_CANARY_FAILURE_MARKER + JSON.stringify({
+      schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+      phase: 'positive',
+      process_instance_sha256: processInstance,
+      cause_code: SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+    }) + '\n',
+  ])
+
+  releaseRuntimeListener()
+  await dispatch
+  assert.deepEqual(entered, [
+    SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'callback-completed',
+  ])
+})
+
 test('the process supervisor outlives the canary-wide execution deadline', async () => {
   const timeouts = await import(
     './fixtures/authoritative-acceptance-canary/receipt-output.js'
@@ -157,7 +267,7 @@ test('deadline finalization emits one bounded process-bound progress marker', as
       },
     },
   })
-  progress.enter(SCENARIO_CANARY_PROGRESS.WAITING_AGENT_IDLE)
+  progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
   const controller = createScenarioCanaryDeadlineController({
     deadlineEpoch: '2000000120000',
     stream: { write() { assert.fail('a deadline must not write a success receipt') } },
@@ -190,7 +300,7 @@ test('deadline finalization emits one bounded process-bound progress marker', as
       schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
       phase: 'positive',
       process_instance_sha256: processInstance,
-      cause_code: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+      cause_code: 'DSH_CANARY_DEADLINE_TURN_STOPPING_ENTERED',
     }) + '\n',
   ])
   assert.deepEqual(events, [

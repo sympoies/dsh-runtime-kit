@@ -13,6 +13,14 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
   SESSION_REGISTERED: 'DSH_CANARY_DEADLINE_SESSION_REGISTERED',
   FOLLOWUP_SUBMITTED: 'DSH_CANARY_DEADLINE_FOLLOWUP_SUBMITTED',
   WAITING_AGENT_IDLE: 'DSH_CANARY_DEADLINE_WAITING_AGENT_IDLE',
+  VALIDATION_TOOL_REQUESTED: 'DSH_CANARY_DEADLINE_VALIDATION_TOOL_REQUESTED',
+  VALIDATION_TOOL_RESULT: 'DSH_CANARY_DEADLINE_VALIDATION_TOOL_RESULT',
+  HOST_VALIDATOR_REQUESTED: 'DSH_CANARY_DEADLINE_HOST_VALIDATOR_REQUESTED',
+  HOST_VALIDATOR_RESULT: 'DSH_CANARY_DEADLINE_HOST_VALIDATOR_RESULT',
+  STOP_REQUESTED: 'DSH_CANARY_DEADLINE_STOP_REQUESTED',
+  TURN_STOPPING_ENTERED: 'DSH_CANARY_DEADLINE_TURN_STOPPING_ENTERED',
+  RUNTIME_STOP_LISTENERS_COMPLETED:
+    'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
   AGENT_IDLE: 'DSH_CANARY_DEADLINE_AGENT_IDLE',
   WAITING_RESOURCE_DRAIN: 'DSH_CANARY_DEADLINE_WAITING_RESOURCE_DRAIN',
   COMPLETION_SETTLEMENT: 'DSH_CANARY_DEADLINE_COMPLETION_SETTLEMENT',
@@ -135,6 +143,34 @@ export function createScenarioCanaryProgressReporter(options) {
       )
       return report
     },
+  })
+}
+
+/**
+ * Mark entry before existing turn-stopping listeners and completion after
+ * them. The observer never returns a decision or consumes event content.
+ *
+ * @param {{on:(event:string,listener:(event:any)=>unknown,options?:{prepend?:boolean})=>unknown}} ctx
+ * @param {{
+ *   phase:string,
+ *   progress:{enter:(causeCode:string)=>void},
+ *   isTrackedAgent:(agent:any)=>boolean,
+ *   onCompleted:(agent:any)=>unknown,
+ * }} options
+ */
+export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
+  const reportsProgress = ['positive', 'candidate-upgrade'].includes(options.phase)
+  ctx.on('agent/turn-stopping', ({ agent }) => {
+    if (reportsProgress && options.isTrackedAgent(agent)) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
+    }
+  }, { prepend: true })
+  ctx.on('agent/turn-stopping', ({ agent }) => {
+    if (!options.isTrackedAgent(agent)) return
+    if (reportsProgress) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED)
+    }
+    return options.onCompleted(agent)
   })
 }
 
