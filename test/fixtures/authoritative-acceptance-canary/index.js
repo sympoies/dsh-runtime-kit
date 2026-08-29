@@ -13,6 +13,7 @@ import { observableChildPid } from './observable-child-pid.js'
 import {
   createScenarioCanaryDeadlineController,
   createScenarioCanaryProgressReporter,
+  registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_MARKER,
   SCENARIO_CANARY_PROGRESS,
@@ -500,17 +501,13 @@ export function apply(ctx) {
           }
         }
       })
-      ctx.on('agent/turn-stopping', ({ agent }) => {
-        if (['positive', 'candidate-upgrade'].includes(phase)
-          && (agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id)) {
-          progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
-        }
-      }, { prepend: true })
-      ctx.on('agent/turn-stopping', ({ agent }) => {
-        if (agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id) {
-          if (['positive', 'candidate-upgrade'].includes(phase)) {
-            progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_COMPLETED)
-          }
+      registerScenarioCanaryTurnStoppingProgress(ctx, {
+        phase,
+        progress,
+        isTrackedAgent: agent => (
+          agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id
+        ),
+        onCompleted(agent) {
           bodyExecutions.turnStopping(validationBodyExecutions(
             required(validationMarker, 'validation marker'),
             required(validationToken, 'validation token'),
@@ -523,7 +520,7 @@ export function apply(ctx) {
             agent.cancel({ kind: 'user' })
             resolveRecoveryTransition()
           }
-        }
+        },
       })
       ctx.on('tools/pre-execute', async (exec, next) => {
         const decision = await next()

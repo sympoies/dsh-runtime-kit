@@ -146,6 +146,34 @@ export function createScenarioCanaryProgressReporter(options) {
 }
 
 /**
+ * Mark entry before existing turn-stopping listeners and completion after
+ * them. The observer never returns a decision or consumes event content.
+ *
+ * @param {{on:(event:string,listener:(event:any)=>unknown,options?:{prepend?:boolean})=>unknown}} ctx
+ * @param {{
+ *   phase:string,
+ *   progress:{enter:(causeCode:string)=>void},
+ *   isTrackedAgent:(agent:any)=>boolean,
+ *   onCompleted:(agent:any)=>unknown,
+ * }} options
+ */
+export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
+  const reportsProgress = ['positive', 'candidate-upgrade'].includes(options.phase)
+  ctx.on('agent/turn-stopping', ({ agent }) => {
+    if (reportsProgress && options.isTrackedAgent(agent)) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
+    }
+  }, { prepend: true })
+  ctx.on('agent/turn-stopping', ({ agent }) => {
+    if (!options.isTrackedAgent(agent)) return
+    if (reportsProgress) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_COMPLETED)
+    }
+    return options.onCompleted(agent)
+  })
+}
+
+/**
  * Arm the process-origin canary deadline before service readiness and arbitrate
  * deadline and normal completion through one finalization promise.
  *
