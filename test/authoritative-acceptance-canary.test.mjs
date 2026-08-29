@@ -58,6 +58,11 @@ test('turn-stopping progress follows the observable listener waterfall', async (
     SCENARIO_CANARY_PROGRESS,
   } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
   assert.equal(typeof registerScenarioCanaryTurnStoppingProgress, 'function')
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'DSH_CANARY_DEADLINE_RUNTIME_STOP_LISTENERS_COMPLETED',
+  )
+  assert.equal('TURN_STOPPING_COMPLETED' in SCENARIO_CANARY_PROGRESS, false)
 
   const listeners = []
   const ctx = {
@@ -123,7 +128,7 @@ test('turn-stopping progress follows the observable listener waterfall', async (
   await dispatch
   assert.deepEqual(entered, [
     SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
-    SCENARIO_CANARY_PROGRESS.TURN_STOPPING_COMPLETED,
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
     'callback-completed',
   ])
 })
