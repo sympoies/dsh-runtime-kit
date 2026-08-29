@@ -66,6 +66,14 @@ test('turn-stopping progress follows the observable listener waterfall', async (
     SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
     'DSH_CANARY_DEADLINE_CANARY_STOP_CALLBACK_COMPLETED',
   )
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED,
+    'DSH_CANARY_DEADLINE_CANARY_STOP_LISTENER_TAIL_COMPLETED',
+  )
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED,
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
+  )
   assert.equal('TURN_STOPPING_COMPLETED' in SCENARIO_CANARY_PROGRESS, false)
 
   const listeners = []
@@ -155,7 +163,41 @@ test('turn-stopping progress follows the observable listener waterfall', async (
     'callback-entered',
     'callback-completed',
     SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED,
   ])
+})
+
+test('a repeated tracked stop is distinguished at the listener tail', async () => {
+  const {
+    registerScenarioCanaryTurnStoppingProgress,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+  const listeners = []
+  const ctx = {
+    on(event, listener, options = {}) {
+      assert.equal(event, 'agent/turn-stopping')
+      if (options.prepend === true) listeners.unshift(listener)
+      else listeners.push(listener)
+    },
+  }
+  const entered = []
+  registerScenarioCanaryTurnStoppingProgress(ctx, {
+    phase: 'positive',
+    progress: { enter(code) { entered.push(code) } },
+    isTrackedAgent: agent => agent.id === 'tracked-agent',
+    onCompleted() {},
+  })
+
+  for (let index = 0; index < 2; index += 1) {
+    for (const listener of listeners) {
+      await listener({ agent: { id: 'tracked-agent' } })
+    }
+  }
+
+  assert.equal(
+    entered.at(-1),
+    SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED,
+  )
 })
 
 test('pending turn-stopping callbacks retain the preceding deadline boundary', async () => {
@@ -229,7 +271,7 @@ test('pending turn-stopping callbacks retain the preceding deadline boundary', a
   await dispatch
   assert.equal(
     entered.at(-1),
-    SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED,
   )
 })
 
