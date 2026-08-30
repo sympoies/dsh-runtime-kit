@@ -43,6 +43,7 @@ function finding(overrides = {}) {
     summary: 'A material problem was found.',
     evidence: 'The changed branch violates its documented invariant.',
     recommendation: 'Restore the invariant and add a regression test.',
+    actionable: true,
     fingerprint: 'correctness:reviewer:documented-invariant',
     root_cause_fingerprint: 'correctness:reviewer:shared-root',
     test_suggestion: 'Exercise the failing branch.',
@@ -508,6 +509,7 @@ test('review_specialists emits deterministic validator-compatible JSONL from str
     severity: 'critical',
     summary: 'Structured finding.',
     line: 7,
+    actionable: true,
   })
   const subject = reviewHarness({
     start: ({ index }) => ({
@@ -548,6 +550,7 @@ test('review_specialists emits deterministic validator-compatible JSONL from str
     evidence: observed.evidence,
     recommendation: observed.recommendation,
     specialist: 'security',
+    actionable: observed.actionable,
     fingerprint: observed.fingerprint,
     root_cause_fingerprint: observed.root_cause_fingerprint,
     test_suggestion: observed.test_suggestion,
@@ -596,6 +599,52 @@ test('structured findings reject whitespace required fields before JSONL emissio
     }, execution(subject.parent)),
     /finding path must be a non-empty string/,
   )
+})
+
+test('structured findings reject a non-boolean actionable marker', async () => {
+  const subject = reviewHarness({
+    start: () => ({
+      result: Promise.resolve(reviewerResult('Malformed finding.', [
+        finding({ actionable: 'yes' }),
+      ])),
+    }),
+  })
+  await assert.rejects(
+    subject.tool.execute({
+      task: 'Review.', roles: ['reviewer-security'],
+    }, execution(subject.parent)),
+    /finding actionable must be a boolean/,
+  )
+})
+
+test('structured findings require actionable classification and preserve false', async () => {
+  const omitted = reviewHarness({
+    start: () => ({
+      result: Promise.resolve(reviewerResult('Unclassified finding.', [
+        finding({ actionable: undefined }),
+      ])),
+    }),
+  })
+  await assert.rejects(
+    omitted.tool.execute({
+      task: 'Review.', roles: ['reviewer-security'],
+    }, execution(omitted.parent)),
+    /finding actionable must be a boolean/,
+  )
+
+  const classified = reviewHarness({
+    start: () => ({
+      result: Promise.resolve(reviewerResult('Report-only finding.', [
+        finding({ actionable: false }),
+      ])),
+    }),
+  })
+  const result = await classified.tool.execute({
+    task: 'Review.', roles: ['reviewer-security'],
+  }, execution(classified.parent))
+  assert.equal(JSON.parse(result.findings_jsonl).actionable, false)
+  assert.ok(classified.starts[0].request.outputSchema.properties.findings.items.required
+    .includes('actionable'))
 })
 
 test('review_specialists measures task and structured output limits in UTF-8 bytes', async () => {

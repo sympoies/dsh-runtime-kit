@@ -1972,7 +1972,11 @@ test('the first accepted pre-step receives one bounded native lifecycle context'
   assert.equal(first.messages[1].source.kind, 'plugin')
   assert.equal(first.messages[1].source.plugin, 'dsh-runtime-kit')
   assert.equal(first.messages[1].content[0].text, 'startup health and memory context')
-  assert.deepEqual(duplicate, { kind: 'enter', messages: [userMessage] })
+  assert.equal(duplicate.kind, 'enter')
+  assert.equal(duplicate.messages.length, 2)
+  assert.equal(duplicate.messages[1].source.kind, 'plugin')
+  assert.equal(duplicate.messages[1].source.plugin, 'dsh-runtime-kit')
+  assert.equal(duplicate.messages[1].content[0].text, 'startup health and memory context')
   assert.equal(subject.spawnCount, 1)
   assert.deepEqual(JSON.parse(subject.spawnSpecs[0].stdio.stdin.data), {
     schema_version: 'agent-hook.dsh-ingress.v3',
@@ -2053,7 +2057,9 @@ test('a concurrent duplicate waits for an accepted pre-step instead of bypassing
   assert.equal(accepted.kind, 'enter')
   assert.equal(accepted.messages.length, 2)
   assert.equal(accepted.messages[1].content[0].text, 'serialized lifecycle context')
-  assert.deepEqual(duplicate, { kind: 'enter', messages: [userMessage] })
+  assert.equal(duplicate.kind, 'enter')
+  assert.equal(duplicate.messages.length, 2)
+  assert.equal(duplicate.messages[1].content[0].text, 'serialized lifecycle context')
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(subject.spawnCount, 1)
 })

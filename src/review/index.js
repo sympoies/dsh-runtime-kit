@@ -161,6 +161,7 @@ const REVIEW_OUTPUT_SCHEMA = Object.freeze({
           summary: { type: 'string' },
           evidence: { type: 'string' },
           recommendation: { type: 'string' },
+          actionable: { type: 'boolean' },
           fingerprint: { type: 'string' },
           root_cause_fingerprint: { type: 'string' },
           test_suggestion: { type: 'string' },
@@ -173,6 +174,7 @@ const REVIEW_OUTPUT_SCHEMA = Object.freeze({
           'summary',
           'evidence',
           'recommendation',
+          'actionable',
         ],
         additionalProperties: false,
       },
@@ -244,6 +246,9 @@ function normalizeFinding(finding, specialist) {
     && (!Number.isSafeInteger(finding.line) || /** @type {number} */ (finding.line) < 1)) {
     throw new Error('dsh-runtime-kit: reviewer finding line must be a positive integer')
   }
+  if (typeof finding.actionable !== 'boolean') {
+    throw new Error('dsh-runtime-kit: reviewer finding actionable must be a boolean')
+  }
   for (const field of ['fingerprint', 'root_cause_fingerprint', 'test_suggestion']) {
     if (finding[field] !== undefined && typeof finding[field] !== 'string') {
       throw new Error(`dsh-runtime-kit: reviewer finding ${field} must be a non-empty string`)
@@ -259,6 +264,7 @@ function normalizeFinding(finding, specialist) {
     evidence: finding.evidence,
     recommendation: finding.recommendation,
     specialist,
+    actionable: finding.actionable,
     ...(typeof finding.fingerprint !== 'string' || finding.fingerprint.trim().length === 0
       ? {}
       : { fingerprint: finding.fingerprint }),

@@ -510,7 +510,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   )
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const authorizedTools = new WeakSet()
-  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], { position: string, promptDigest: string, status: 'pending' | 'accepted', settled: Promise<boolean>, resolve: (accepted: boolean) => void }>} */
+  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], { position: string, promptDigest: string, status: 'pending' | 'accepted', context?: string, settled: Promise<boolean>, resolve: (accepted: boolean) => void }>} */
   let acceptedLifecycleSteps = new WeakMap()
   /** @type {WeakSet<import('@deepseek-ai/dsh-agent').Agent['session']>} */
   let startupEvaluated = new WeakSet()
@@ -619,21 +619,28 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (downstream.kind !== 'enter' || payload.signal.aborted || closing) return downstream
     const prompt = lifecyclePrompt(downstream.messages)
     const promptDigest = createHash('sha256').update(prompt).digest('hex')
-    /** @type {{ position: string, promptDigest: string, status: 'pending' | 'accepted', settled: Promise<boolean>, resolve: (accepted: boolean) => void } | undefined} */
+    /** @param {string | undefined} context */
+    const withPolicyContext = context => context === undefined
+      ? downstream
+      : {
+          ...downstream,
+          messages: [...downstream.messages, policyContextMessage(createUserMessage, context)],
+        }
+    /** @type {{ position: string, promptDigest: string, status: 'pending' | 'accepted', context?: string, settled: Promise<boolean>, resolve: (accepted: boolean) => void } | undefined} */
     let claim
     while (claim === undefined) {
       const current = acceptedLifecycleSteps.get(session)
       if (current?.status === 'pending') {
         const accepted = await current.settled
         if (accepted && current.position === position && current.promptDigest === promptDigest) {
-          return downstream
+          return withPolicyContext(current.context)
         }
         continue
       }
       if (current?.status === 'accepted'
           && current.position === position
           && current.promptDigest === promptDigest) {
-        return downstream
+        return withPolicyContext(current.context)
       }
       /** @type {(accepted: boolean) => void} */
       let resolve = () => {}
@@ -673,12 +680,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       return { kind: /** @type {const} */ ('reject') }
     }
     if (includeStartup) startupEvaluated.add(session)
-    const accepted = policyDecision?.kind === 'context'
-      ? {
-          ...downstream,
-          messages: [...downstream.messages, policyContextMessage(createUserMessage, policyDecision.context)],
-        }
-      : downstream
+    const policyContext = policyDecision?.kind === 'context' ? policyDecision.context : undefined
+    claim.context = policyContext
+    const accepted = withPolicyContext(policyContext)
     settleClaim(true)
     return accepted
   })

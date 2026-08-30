@@ -1063,6 +1063,7 @@ class SmokeAdapter extends LlmAdapter {
   contextVisibility = []
   providerContextVisibility = []
   policyContextVisibility = []
+  userPromptPolicyContextVisibility = []
   healthContextVisibility = []
   healthAuditSentinelVisibility = []
   resolveModel(provider, model) {
@@ -1096,7 +1097,28 @@ class SmokeAdapter extends LlmAdapter {
               summary: 'The reviewer write attempt was denied.',
               evidence: 'The scoped reviewer guard returned a pre-body tool error.',
               recommendation: 'Keep the packed mutation-denial regression.',
+              actionable: true,
               fingerprint: 'testing:reviewer:mutation-denial',
+            }, {
+              severity: 'medium',
+              confidence: 0.85,
+              path: 'src/review/index.js',
+              category: 'testing',
+              summary: 'The reviewer result also needs a file-level thread.',
+              evidence: 'Provider-review transport accepts actionable findings without a line.',
+              recommendation: 'Keep file-level thread generation in the packed smoke.',
+              actionable: true,
+              fingerprint: 'testing:reviewer:file-level-thread',
+            }, {
+              severity: 'low',
+              confidence: 0.8,
+              path: 'README.md',
+              category: 'documentation',
+              summary: 'The report also retains a non-actionable observation.',
+              evidence: 'Summary-only findings must not create native diff threads.',
+              recommendation: 'Keep report-only classification explicit in the smoke.',
+              actionable: false,
+              fingerprint: 'documentation:reviewer:report-only',
             }],
           }, 'reviewer-structured-output')
       for (const chunk of chunks) {
@@ -1190,6 +1212,20 @@ class SmokeAdapter extends LlmAdapter {
     this.contextVisibility.push(serializedMessages.includes('# DSH project development'))
     this.providerContextVisibility.push(serializedMessages.includes('ARK_PROVIDER_DOCS_MUST_NOT_LOAD'))
     this.policyContextVisibility.push(serializedMessages.includes('skill-backed workflow'))
+    let userPromptIndex = -1
+    for (const [index, message] of options.messages.entries()) {
+      if (message.source?.kind === 'user'
+        && message.content?.some(block => block.type === 'text'
+          && block.text === 'review and run plus one')) userPromptIndex = index
+    }
+    if (userPromptIndex >= 0) {
+      this.userPromptPolicyContextVisibility.push(options.messages
+        .slice(userPromptIndex + 1)
+        .some(message => message.source?.kind === 'plugin'
+          && message.source.plugin === 'dsh-runtime-kit'
+          && message.content?.some(block => block.type === 'text'
+            && block.text.includes('skill-backed workflow'))))
+    }
     this.healthContextVisibility.push(
       serializedMessages.includes("Session health could not verify this repository's agent-docs catalog")
       || serializedMessages.includes('Session health found an agent-docs catalog problem')
@@ -1712,6 +1748,7 @@ export function apply(ctx) {
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
+        userPromptPolicyContextVisibility: adapter.userPromptPolicyContextVisibility,
         healthContextVisibility: adapter.healthContextVisibility,
         healthAuditSentinelVisibility: adapter.healthAuditSentinelVisibility,
         lifecycle,
@@ -2082,7 +2119,8 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
-  assert.equal(receipt.policyContextVisibility[0], true)
+  assert.ok(receipt.userPromptPolicyContextVisibility.length > 0)
+  assert.ok(receipt.userPromptPolicyContextVisibility.every(Boolean))
   assert.ok(receipt.healthContextVisibility.every(value => value === false))
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
@@ -2410,7 +2448,7 @@ ${agentConsoleTuiOverlay}
     /reviewer completed after the denied mutation/,
   )
   assert.equal(reviewerReceipt.reviewResult.value.results[0].verdict, 'findings')
-  assert.equal(reviewerReceipt.reviewResult.value.results[0].finding_count, 1)
+  assert.equal(reviewerReceipt.reviewResult.value.results[0].finding_count, 3)
   assert.equal(reviewerReceipt.reviewResult.value.red_team, 'not-run')
   assert.match(reviewerReceipt.reviewResult.value.findings_jsonl, /"specialist":"quick"/)
   const reviewerFindingsPath = join(temporaryRoot, 'reviewer-findings.jsonl')
@@ -2427,7 +2465,145 @@ ${agentConsoleTuiOverlay}
     0,
     `review-specialists validate failed:\n${reviewerValidation.stdout}\n${reviewerValidation.stderr}`,
   )
-  assert.equal(JSON.parse(reviewerValidation.stdout).data.findings_count, 1)
+  assert.equal(JSON.parse(reviewerValidation.stdout).data.findings_count, 3)
+  const reviewerBundleDir = join(temporaryRoot, 'reviewer-provider-review')
+  const reviewerBundle = spawnSync(
+    reviewSpecialistsBin,
+    [
+      'bundle',
+      '--mode', 'delivery',
+      '--input', reviewerFindingsPath,
+      '--out-dir', reviewerBundleDir,
+      '--profile', 'provider-review',
+      '--repo', 'sympoies/dsh-runtime-kit',
+      '--ref', dshRevision,
+      '--reviewable', 'sympoies/dsh-runtime-kit#1',
+      '--lens', 'quick',
+      '--lens-verdict', 'findings',
+      '--scope', 'packed reviewer provider-review transport',
+      '--evidence-reviewed', 'native reviewer and mutation-denial smoke',
+      '--format', 'json',
+    ],
+    { encoding: 'utf8', env: environment },
+  )
+  assert.equal(
+    reviewerBundle.status,
+    0,
+    `review-specialists bundle failed:\n${reviewerBundle.stdout}\n${reviewerBundle.stderr}`,
+  )
+  const reviewerReportPath = join(reviewerBundleDir, 'provider-review.md')
+  const reviewerThreadsPath = join(reviewerBundleDir, 'review-threads.json')
+  const reviewerReport = readFileSync(reviewerReportPath, 'utf8')
+  assert.match(
+    reviewerReport,
+    /\| Finding \| Severity \| Confidence \| Evidence \| Recommendation \|/u,
+  )
+  assert.match(reviewerReport, /The report also retains a non-actionable observation\./u)
+  const reviewerThreads = JSON.parse(readFileSync(reviewerThreadsPath, 'utf8'))
+  assert.equal(reviewerThreads.length, 2)
+  assert.deepEqual(reviewerThreads.map(thread => thread.path), [
+    'test/smoke.mjs',
+    'src/review/index.js',
+  ])
+  assert.equal(reviewerThreads[0].line, 1)
+  assert.equal(reviewerThreads[1].line, undefined)
+  const forgeCliBin = join(dirname(agentHookBin), 'forge-cli')
+  const providerReviewValidation = spawnSync(
+    forgeCliBin,
+    [
+      '--provider', 'local',
+      '--repo', 'local:dsh-runtime-kit-smoke',
+      '--format', 'json',
+      'pr', 'review', 'validate',
+      '--specialist-report',
+      '--comment-file', reviewerReportPath,
+      '--thread-file', reviewerThreadsPath,
+    ],
+    { encoding: 'utf8', env: environment },
+  )
+  assert.equal(
+    providerReviewValidation.status,
+    0,
+    `forge-cli specialist validation failed:\n${providerReviewValidation.stdout}\n${providerReviewValidation.stderr}`,
+  )
+  assert.equal(JSON.parse(providerReviewValidation.stdout).ok, true)
+  const publisherHarnessPath = join(temporaryRoot, 'recording-forge-review-publish.mjs')
+  writeFileSync(publisherHarnessPath, `
+import { existsSync } from 'node:fs'
+
+const args = process.argv.slice(2)
+const value = name => {
+  const index = args.indexOf(name)
+  if (index < 0 || index + 1 >= args.length) throw new Error('missing ' + name)
+  return args[index + 1]
+}
+if (!args.includes('--submit-review')) throw new Error('missing --submit-review')
+const prIndex = args.indexOf('pr')
+if (prIndex < 0 || args[prIndex + 1] !== 'review-publish' || args[prIndex + 2] !== '1') {
+  throw new Error('invalid review-publish target')
+}
+const repo = value('--repo')
+const head = value('--expected-head')
+const commentFile = value('--comment-file')
+const threadFile = value('--thread-file')
+if (!existsSync(commentFile) || !existsSync(threadFile)) throw new Error('missing review bundle')
+const nativeUrl = 'https://github.com/' + repo + '/pull/1#pullrequestreview-1'
+const nativeAuthor = 'sympoies-dsh-release-reviewer[bot]'
+const app = [
+  '--repo', repo,
+  'pr', 'review', '1',
+  '--decision', value('--decision'),
+  '--expected-head', head,
+  '--comment-file', commentFile,
+  '--thread-file', threadFile,
+  '--submit-review',
+]
+const personal = [
+  '--repo', repo,
+  'pr', 'review', '1',
+  '--decision', value('--decision'),
+  '--metadata-only',
+  '--expected-head', head,
+  '--native-review-url', nativeUrl,
+  '--native-review-author', nativeAuthor,
+  '--lens', value('--lens'),
+]
+process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
+`)
+  const publication = spawnSync(
+    process.execPath,
+    [
+      publisherHarnessPath,
+      '--format', 'json',
+      '--provider', 'github',
+      '--repo', 'sympoies/dsh-runtime-kit',
+      'pr', 'review-publish', '1',
+      '--decision', 'comments-only',
+      '--expected-head', dshRevision,
+      '--comment-file', reviewerReportPath,
+      '--thread-file', reviewerThreadsPath,
+      '--lens', 'quick',
+      '--submit-review',
+    ],
+    { encoding: 'utf8', env: environment },
+  )
+  assert.equal(
+    publication.status,
+    0,
+    `recording publisher failed:\n${publication.stdout}\n${publication.stderr}`,
+  )
+  const publishedCalls = JSON.parse(publication.stdout)
+  assert.equal(publishedCalls.app.filter(arg => arg === '--comment-file').length, 1)
+  assert.equal(publishedCalls.app.filter(arg => arg === '--thread-file').length, 1)
+  assert.ok(publishedCalls.app.includes(reviewerReportPath))
+  assert.ok(publishedCalls.app.includes(reviewerThreadsPath))
+  assert.ok(publishedCalls.app.includes(dshRevision))
+  assert.ok(publishedCalls.personal.includes('--metadata-only'))
+  assert.ok(publishedCalls.personal.includes(dshRevision))
+  assert.ok(publishedCalls.personal.includes(publishedCalls.nativeUrl))
+  assert.ok(publishedCalls.personal.includes(publishedCalls.nativeAuthor))
+  assert.equal(publishedCalls.personal.includes('--comment-file'), false)
+  assert.equal(publishedCalls.personal.includes('--thread-file'), false)
   assert.equal(reviewerReceipt.reviewerMutationResult.isError, true)
   assert.match(
     reviewerReceipt.reviewerMutationResult.content[0].text,
