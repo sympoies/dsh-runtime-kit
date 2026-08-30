@@ -520,7 +520,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   let stopPolicyOutcomes = new WeakMap()
   /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, count: number}>} */
   let stopSteers = new WeakMap()
-  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, outcome: 'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'}>} */
+  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, outcome: 'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'reservation-unterminalized' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'}>} */
   let stopPipelineOutcomes = new WeakMap()
   let closing = false
 
@@ -691,7 +691,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   })
   ctx.on('agent/turn-stopping', async payload => {
     if (isReviewer(payload.agent)) return
-    /** @param {'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'} outcome */
+    /** @param {'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'reservation-unterminalized' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'} outcome */
     const recordPipelineOutcome = outcome => {
       stopPipelineOutcomes.set(payload.agent.session, { turn: payload.turn, outcome })
     }
@@ -713,6 +713,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         await acceptance.cancelCompletion(payload.agent, String(payload.turn))
         return true
       } catch {
+        recordPipelineOutcome('reservation-unterminalized')
         if (!closing && !payload.signal.aborted) {
           steerStop(payload.agent, payload.turn, 'reservation-unterminalized',
             'The acceptance reservation could not be terminalized. Restore the runtime boundary and retry.',

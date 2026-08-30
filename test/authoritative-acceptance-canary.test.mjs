@@ -300,6 +300,7 @@ test('a repeated tracked stop is distinguished at the listener tail', async () =
     ['finish-line-denied', 'CANARY_REPEATED_STOP_FINISH_LINE_DENIED'],
     ['context-invalid', 'CANARY_REPEATED_STOP_CONTEXT_INVALID'],
     ['already-evaluated', 'CANARY_REPEATED_STOP_ALREADY_EVALUATED'],
+    ['reservation-unterminalized', 'CANARY_REPEATED_STOP_RESERVATION_UNTERMINALIZED'],
     ['allow', 'CANARY_REPEATED_STOP_POLICY_ALLOWED'],
     ['context', 'CANARY_REPEATED_STOP_POLICY_CONTEXT'],
     ['policy-denied', 'CANARY_REPEATED_STOP_POLICY_DENIED'],

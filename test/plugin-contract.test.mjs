@@ -3020,6 +3020,63 @@ test('stop pipeline outcome records an authoritative acceptance denial', async (
   assert.equal(actions.includes('verdict'), true)
 })
 
+test('stop pipeline outcome replaces a policy cause when reservation terminalization fails', async () => {
+  const actions = []
+  const subject = harness({
+    envelope: acceptanceStopEnvelope(
+      actions,
+      () => decision('block', { event: 'Stop' }),
+    ),
+    throwOnSpawn: spec => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex < 0 || spec.argv[finishLineIndex + 1] !== 'observe') return false
+      const request = JSON.parse(spec.stdio.stdin.data)
+      return request.observation?.status === 'cancelled'
+    },
+  })
+  subject.acceptanceService.register({
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'runtime-plus-one',
+        definition: subject.tool('runtime_kit_plus_one'),
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [],
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  await subject.waterfall('agent/turn-stopping', [{
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }], async () => undefined)
+
+  assert.equal(subject.service.stopPolicyOutcome(subject.agent, 1), 'policy-denied')
+  assert.equal(
+    subject.service.stopPipelineOutcome(subject.agent, 1),
+    'reservation-unterminalized',
+  )
+  assert.equal(subject.steered.length, 1)
+  assert.match(subject.steered[0].content[0].text, /reservation could not be terminalized/u)
+})
+
 test('governed stop cancellation terminalizes policy denials and preserves retry authority', async () => {
   const expectedFirstOutcome = {
     context: 'context',
