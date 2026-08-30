@@ -27,6 +27,14 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
     'DSH_CANARY_DEADLINE_CANARY_STOP_LISTENER_TAIL_COMPLETED',
   CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED:
     'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
+  CANARY_REPEATED_STOP_ACCEPTANCE_DENIED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_ACCEPTANCE_DENIED',
+  CANARY_REPEATED_STOP_FINISH_LINE_DENIED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_FINISH_LINE_DENIED',
+  CANARY_REPEATED_STOP_CONTEXT_INVALID:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_CONTEXT_INVALID',
+  CANARY_REPEATED_STOP_ALREADY_EVALUATED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_ALREADY_EVALUATED',
   CANARY_REPEATED_STOP_POLICY_ALLOWED:
     'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_POLICY_ALLOWED',
   CANARY_REPEATED_STOP_POLICY_CONTEXT:
@@ -198,13 +206,17 @@ export function createScenarioCanaryProgressReporter(options) {
  *   phase:string,
  *   progress:{enter:(causeCode:string)=>void},
  *   isTrackedAgent:(agent:any)=>boolean,
- *   stopPolicyOutcome?:(agent:any,turn:number)=>string|undefined,
+ *   stopPipelineOutcome?:(agent:any,turn:number)=>string|undefined,
  *   onCompleted:(agent:any,turn:number)=>unknown,
  * }} options
  */
 export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
   const reportsProgress = ['positive', 'candidate-upgrade'].includes(options.phase)
   const repeatedStopProgress = Object.freeze({
+    'acceptance-denied': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_ACCEPTANCE_DENIED,
+    'finish-line-denied': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_FINISH_LINE_DENIED,
+    'context-invalid': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_CONTEXT_INVALID,
+    'already-evaluated': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_ALREADY_EVALUATED,
     allow: SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_ALLOWED,
     context: SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_CONTEXT,
     'policy-denied': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_DENIED,
@@ -238,7 +250,7 @@ export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
       options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED)
       return
     }
-    const outcome = options.stopPolicyOutcome?.(agent, turn)
+    const outcome = options.stopPipelineOutcome?.(agent, turn)
     options.progress.enter(repeatedStopProgress[outcome]
       ?? SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED)
   })

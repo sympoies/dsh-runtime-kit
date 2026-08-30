@@ -520,6 +520,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   let stopPolicyOutcomes = new WeakMap()
   /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, count: number}>} */
   let stopSteers = new WeakMap()
+  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, outcome: 'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'}>} */
+  let stopPipelineOutcomes = new WeakMap()
   let closing = false
 
   /** @param {import('@deepseek-ai/dsh-agent').Agent | undefined} agent */
@@ -578,6 +580,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     evaluatedStops = new WeakMap()
     stopPolicyOutcomes = new WeakMap()
     stopSteers = new WeakMap()
+    stopPipelineOutcomes = new WeakMap()
     compatibility.dispose()
     prerequisites.dispose()
   }, 'dsh-runtime-kit policy state')
@@ -688,9 +691,21 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   })
   ctx.on('agent/turn-stopping', async payload => {
     if (isReviewer(payload.agent)) return
+    /** @param {'acceptance-denied' | 'finish-line-denied' | 'context-invalid' | 'already-evaluated' | 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'} outcome */
+    const recordPipelineOutcome = outcome => {
+      stopPipelineOutcomes.set(payload.agent.session, { turn: payload.turn, outcome })
+    }
+    /** @param {'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'} outcome */
+    const recordPolicyOutcome = outcome => {
+      stopPolicyOutcomes.set(payload.agent.session, { turn: payload.turn, outcome })
+      recordPipelineOutcome(outcome)
+    }
     const correlated = compatibility.turnStopping(payload)
     const acceptanceAllowed = await acceptance.turnStopping(payload)
-    if (!acceptanceAllowed) return
+    if (!acceptanceAllowed) {
+      recordPipelineOutcome('acceptance-denied')
+      return
+    }
     const governed = acceptance.governs(payload.agent)
     const cancelReservedStop = async () => {
       if (!governed) return true
@@ -707,23 +722,32 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       }
     }
     if (closing || payload.signal.aborted) {
+      recordPipelineOutcome('cancelled')
       await cancelReservedStop()
       return
     }
     const finishAllowed = governed
       ? true
       : await finishLine.turnStopping(payload, correlated)
-    if (!finishAllowed) return
+    if (!finishAllowed) {
+      recordPipelineOutcome('finish-line-denied')
+      return
+    }
     if (closing || payload.signal.aborted) {
+      recordPipelineOutcome('cancelled')
       await cancelReservedStop()
       return
     }
     const stop = compatibility.stopContext(payload)
     if (!stop.ok) {
+      recordPipelineOutcome('context-invalid')
       await cancelReservedStop()
       return
     }
-    if (evaluatedStops.get(payload.agent.session) === payload.turn) return
+    if (evaluatedStops.get(payload.agent.session) === payload.turn) {
+      recordPipelineOutcome('already-evaluated')
+      return
+    }
     let policyDecision
     try {
       policyDecision = await transport.evaluateLifecycle({
@@ -732,10 +756,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         context: stop.context,
       })
     } catch {
-      stopPolicyOutcomes.set(payload.agent.session, {
-        turn: payload.turn,
-        outcome: 'transport-failed',
-      })
+      recordPolicyOutcome('transport-failed')
       await cancelReservedStop()
       if (!closing && !payload.signal.aborted) {
         steerStop(payload.agent, payload.turn, 'transport-failed',
@@ -745,33 +766,21 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       return
     }
     if (closing || payload.signal.aborted) {
-      stopPolicyOutcomes.set(payload.agent.session, {
-        turn: payload.turn,
-        outcome: 'cancelled',
-      })
+      recordPolicyOutcome('cancelled')
       await cancelReservedStop()
       return
     }
     if (policyDecision?.kind === 'context') {
-      stopPolicyOutcomes.set(payload.agent.session, {
-        turn: payload.turn,
-        outcome: 'context',
-      })
+      recordPolicyOutcome('context')
       if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage, policyDecision.context))
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else if (policyDecision === undefined) {
-      stopPolicyOutcomes.set(payload.agent.session, {
-        turn: payload.turn,
-        outcome: 'allow',
-      })
+      recordPolicyOutcome('allow')
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else {
       const outcome = stopPolicyFailureOutcome(policyDecision)
-      stopPolicyOutcomes.set(payload.agent.session, {
-        turn: payload.turn,
-        outcome,
-      })
+      recordPolicyOutcome(outcome)
       if (!await cancelReservedStop()) return
       steerStop(payload.agent, payload.turn, outcome,
         explicitPolicyDenial(policyDecision)
@@ -1000,6 +1009,18 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       const observed = agent?.session === undefined
         ? undefined
         : stopPolicyOutcomes.get(agent.session)
+      return observed !== undefined && observed.turn === turn
+        ? observed.outcome
+        : undefined
+    },
+    /**
+     * @param {import('@deepseek-ai/dsh-agent').Agent} agent
+     * @param {number} turn
+     */
+    stopPipelineOutcome(agent, turn) {
+      const observed = agent?.session === undefined
+        ? undefined
+        : stopPipelineOutcomes.get(agent.session)
       return observed !== undefined && observed.turn === turn
         ? observed.outcome
         : undefined

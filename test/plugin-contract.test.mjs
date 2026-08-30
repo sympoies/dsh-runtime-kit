@@ -2673,6 +2673,7 @@ test('stop advisory is steered once only after the authoritative finish-line all
   await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
   await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
 
+  assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), 'already-evaluated')
   assert.equal(subject.steered.length, 1)
   assert.equal(subject.steered[0].content[0].text, 'run the pre-PR check now')
   const stopIngresses = subject.spawnSpecs
@@ -2862,7 +2863,9 @@ test('stop outcome distinguishes provider and transport failure without cross-se
     }], async () => undefined)
 
     assert.equal(subject.service.stopPolicyOutcome(subject.agent, 1), scenario.name)
+    assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), scenario.name)
     assert.equal(subject.service.stopPolicyOutcome(subject.agent, 2), undefined)
+    assert.equal(subject.service.stopPipelineOutcome(subject.agent, 2), undefined)
     assert.equal(subject.service.stopPolicyOutcome({
       ...subject.agent,
       session: {
@@ -2871,7 +2874,150 @@ test('stop outcome distinguishes provider and transport failure without cross-se
         events: [],
       },
     }, 1), undefined)
+    assert.equal(subject.service.stopPipelineOutcome({
+      ...subject.agent,
+      session: {
+        id: 'foreign-session',
+        header: { id: 'foreign-session', cwd: '/tmp' },
+        events: [],
+      },
+    }, 1), undefined)
   }
+})
+
+test('stop pipeline outcome distinguishes pre-policy exits without content', async () => {
+  const cancelled = harness()
+  const cancelledController = new AbortController()
+  cancelledController.abort(new Error('private cancellation detail'))
+  await cancelled.waterfall('agent/turn-stopping', [{
+    agent: cancelled.agent,
+    turn: 1,
+    signal: cancelledController.signal,
+  }], async () => undefined)
+  assert.equal(cancelled.service.stopPipelineOutcome(cancelled.agent, 1), 'cancelled')
+  assert.equal(cancelled.service.stopPolicyOutcome(cancelled.agent, 1), undefined)
+
+  const finishLineDenied = harness()
+  await finishLineDenied.waterfall('agent/turn-stopping', [{
+    agent: finishLineDenied.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }], async () => undefined)
+  assert.equal(
+    finishLineDenied.service.stopPipelineOutcome(finishLineDenied.agent, 1),
+    'finish-line-denied',
+  )
+  assert.equal(finishLineDenied.service.stopPolicyOutcome(finishLineDenied.agent, 1), undefined)
+
+  const contextInvalid = harness({
+    envelope: lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' })),
+    pending: spec => spec.argv.includes('finish-line'),
+  })
+  contextInvalid.emit('agent/session-start', {
+    agent: contextInvalid.agent,
+    source: 'startup',
+  })
+  await contextInvalid.waterfall(
+    'agent/pre-step',
+    [{
+      agent: contextInvalid.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  contextInvalid.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  const stopHandleIndex = contextInvalid.spawnSpecs.length
+  const contextInvalidStop = contextInvalid.waterfall('agent/turn-stopping', [{
+    agent: contextInvalid.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }], async () => undefined)
+  for (let attempt = 0;
+    attempt < 100 && contextInvalid.spawnSpecs.length === stopHandleIndex;
+    attempt += 1) {
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.equal(contextInvalid.spawnSpecs.length, stopHandleIndex + 1)
+  contextInvalid.agent.session.header.cwd = '/tmp/context-changed-after-finish-line-request'
+  contextInvalid.release(stopHandleIndex)
+  await contextInvalidStop
+  assert.equal(
+    contextInvalid.service.stopPipelineOutcome(contextInvalid.agent, 1),
+    'context-invalid',
+  )
+  assert.equal(contextInvalid.service.stopPolicyOutcome(contextInvalid.agent, 1), undefined)
+})
+
+test('stop pipeline outcome records an authoritative acceptance denial', async () => {
+  const actions = []
+  const selectStopDecision = () => decision('allow', { event: 'Stop' })
+  const baseEnvelope = acceptanceStopEnvelope(actions, selectStopDecision)
+  const subject = harness({
+    envelope: spec => {
+      const response = baseEnvelope(spec)
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex < 0 || spec.argv[finishLineIndex + 1] !== 'verdict') return response
+      return {
+        ...response,
+        data: {
+          ...response.data,
+          action: 'block',
+          aggregate: 'unsatisfied',
+          completion_reservation: null,
+          reason_codes: ['validation-missing'],
+          requirements: [{
+            name: 'unit',
+            status: 'unsatisfied',
+            attempt_generation: 1,
+          }],
+        },
+      }
+    },
+  })
+  subject.acceptanceService.register({
+    requirements: [{
+      name: 'unit',
+      validators: [{
+        id: 'runtime-plus-one',
+        definition: subject.tool('runtime_kit_plus_one'),
+        execution: { kind: 'host-observed' },
+      }],
+    }],
+    invalidators: [],
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  await subject.waterfall('agent/turn-stopping', [{
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }], async () => undefined)
+
+  assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), 'acceptance-denied')
+  assert.equal(subject.service.stopPolicyOutcome(subject.agent, 1), undefined)
+  assert.equal(actions.includes('verdict'), true)
 })
 
 test('governed stop cancellation terminalizes policy denials and preserves retry authority', async () => {

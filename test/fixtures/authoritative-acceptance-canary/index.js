@@ -544,8 +544,8 @@ export function apply(ctx) {
         isTrackedAgent: agent => (
           agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id
         ),
-        stopPolicyOutcome: (agent, turn) => (
-          ctx.get('dshRuntimeKit')?.stopPolicyOutcome?.(agent, turn)
+        stopPipelineOutcome: (agent, turn) => (
+          ctx.get('dshRuntimeKit')?.stopPipelineOutcome?.(agent, turn)
         ),
         onCompleted(agent) {
           bodyExecutions.turnStopping(validationBodyExecutions(
