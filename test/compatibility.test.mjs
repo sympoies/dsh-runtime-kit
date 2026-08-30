@@ -753,9 +753,15 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /22\.19\.0/)
   assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
   assert.equal(workflow.match(/Rebuild and authenticate unpatched DSH runtime/g)?.length, 2)
-  assert.match(workflow, /Run released native full-host authority smoke/)
-  assert.match(workflow, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST: '1'/)
-  assert.match(workflow, /DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: '1'/)
+  assert.doesNotMatch(workflow, /Run released native full-host authority smoke/)
+  assert.match(
+    workflow,
+    /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_FULL_HOST: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
+  )
+  assert.match(
+    workflow,
+    /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
+  )
   assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
   assert.equal(workflow.match(/pnpm run build:lib\n/g)?.length, 2)
