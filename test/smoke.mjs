@@ -1733,6 +1733,7 @@ export function apply(ctx) {
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
+        policyDebug: ctx.dshRuntimeKit.policyDebug,
         healthContextVisibility: adapter.healthContextVisibility,
         healthAuditSentinelVisibility: adapter.healthAuditSentinelVisibility,
         lifecycle,
@@ -2103,7 +2104,9 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
-  assert.equal(receipt.policyContextVisibility[0], true)
+  process.stderr.write(`POLICY_DEBUG ${JSON.stringify({ policyDebug: receipt.policyDebug, visibility: receipt.policyContextVisibility })}\n`)
+  assert.equal(receipt.policyContextVisibility[0], true,
+    JSON.stringify({ policyDebug: receipt.policyDebug, visibility: receipt.policyContextVisibility }))
   assert.ok(receipt.healthContextVisibility.every(value => value === false))
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)

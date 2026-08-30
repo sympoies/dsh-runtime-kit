@@ -557,6 +557,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   }, 'dsh-runtime-kit policy state')
 
   let plusOneExecutions = 0
+  const policyDebug = []
   ctx.tools.register(createRuntimeContextTool(contextClient))
   ctx.tools.register(createPlusOneTool(() => { plusOneExecutions += 1 }))
 
@@ -584,6 +585,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (!proposal.ok) return compatibility.preStep(payload, next)
     const session = payload.agent.session
     const position = `${proposal.context.turn}:${proposal.context.step}`
+    const agentId = String(payload.agent.id)
+    policyDebug.push({ phase: 'start', agentId, position })
     let downstream
     try {
       downstream = await compatibility.preStep(payload, next)
@@ -593,6 +596,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     if (downstream.kind !== 'enter' || payload.signal.aborted || closing) return downstream
     const prompt = lifecyclePrompt(downstream.messages)
     const promptDigest = createHash('sha256').update(prompt).digest('hex')
+    policyDebug.push({ phase: 'downstream', agentId, position, promptDigest })
     /** @param {string | undefined} context */
     const withPolicyContext = context => context === undefined
       ? downstream
@@ -609,12 +613,14 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       if (current?.status === 'pending') {
         const accepted = await current.settled
         if (accepted && current.position === position && current.promptDigest === promptDigest) {
+          policyDebug.push({ phase: 'pending-replay', position, promptDigest, hasContext: current.context !== undefined })
           return withPolicyContext(current.context)
         }
         continue
       }
       if (current?.status === 'accepted' && current.position === position) {
         if (current.promptDigest === promptDigest) {
+          policyDebug.push({ phase: 'accepted-replay', position, promptDigest, hasContext: current.context !== undefined })
           return withPolicyContext(current.context)
         }
         positionContext = current.context
@@ -646,8 +652,16 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         context: proposal.context,
       })
     } catch {
+      policyDebug.push({ phase: 'evaluation-threw', agentId, position, promptDigest })
       policyDecision = undefined
     }
+    policyDebug.push({
+      phase: 'decision',
+      agentId,
+      position,
+      promptDigest,
+      decision: policyDecision?.kind,
+    })
     if (closing || payload.signal.aborted) {
       settleClaim(false)
       return downstream
@@ -660,6 +674,14 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     const policyContext = policyDecision?.kind === 'context'
       ? policyDecision.context
       : positionContext
+    policyDebug.push({
+      phase: 'evaluated',
+      position,
+      promptDigest,
+      decision: policyDecision?.kind,
+      hasContext: policyContext !== undefined,
+      hasSkillReminder: policyContext?.includes('skill-backed workflow') === true,
+    })
     claim.context = policyContext
     const accepted = withPolicyContext(policyContext)
     settleClaim(true)
@@ -965,6 +987,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     apiVersion: 1,
     get childPluginStatus() { return snapshotChildPluginStatus(childPlugins) },
     get plusOneExecutions() { return plusOneExecutions },
+    get policyDebug() { return structuredClone(policyDebug) },
     get activePolicyChecks() { return transport.active },
     get activeContextRequests() { return contextClient.active },
     get activeFinishLineRequests() { return finishLineClient.active },
