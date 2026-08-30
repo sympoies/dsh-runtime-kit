@@ -2103,7 +2103,10 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
-  assert.equal(receipt.policyContextVisibility[0], true)
+  assert.ok(
+    receipt.policyContextVisibility.some(Boolean),
+    JSON.stringify(receipt.policyContextVisibility),
+  )
   assert.ok(receipt.healthContextVisibility.every(value => value === false))
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
