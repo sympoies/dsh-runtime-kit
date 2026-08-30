@@ -250,6 +250,21 @@ Requested sandbox escalation remains governed by DSH's own approval service.
 The adapter rejects runtime preparation if command text changes, cwd escapes
 the repository root, or bounds and provider argv are malformed.
 
+The `danger-full-access` descriptor is the explicit native full-host authority
+profile. Nils may place that command in a transient user cgroup for lifecycle,
+timeout, output, cancellation, and descendant cleanup, but it must preserve the
+host user's namespaces, IPC and network families, localhost, supplementary
+groups, user bus, and daemon sockets. Permission restrictions belong only to a
+confined runner. Future isolation for the full agent belongs at a reviewed
+whole-runtime container boundary, not in a second per-command host sandbox.
+Work that a full-host command deliberately delegates to the user manager lives
+outside the command cgroup and is therefore outside finish-line's descendant
+cleanup claim.
+This authority profile describes technical host reachability, not action
+authorization or secret projection: DSH policy and approval still decide which
+actions may run, and the runtime's credential-scrubbed child environment remains
+unchanged.
+
 The second run carries that prepared runtime and its bounded child environment
 to nils. Nils is the sole executor and durable recorder: it invokes the exact
 runner once, classifies the observed exit, signal, timeout, abort, bounded
