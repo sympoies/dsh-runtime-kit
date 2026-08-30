@@ -156,6 +156,11 @@ test('provider review publication uses one canonical App report and metadata-onl
     ),
     'utf8',
   )
+  const deliverPr = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
+  const tracking = readFileSync(
+    join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
+    'utf8',
+  )
   for (const marker of [
     '--profile provider-review',
     '--specialist-report',
@@ -167,6 +172,33 @@ test('provider review publication uses one canonical App report and metadata-onl
   ]) {
     assert.match(posting, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
+  assert.match(
+    posting,
+    /\| Finding \| Severity \| Confidence \| Evidence \| Recommendation \|/u,
+  )
+  const publisherSection = posting.slice(
+    posting.indexOf("The governed publisher's semantic interface is:"),
+    posting.indexOf('\n## Command\n'),
+  )
+  assert.match(publisherSection, /ISSUE_MIRROR_ARGS=\(\)/u)
+  assert.match(publisherSection, /"\$\{ISSUE_MIRROR_ARGS\[@\]\}"/u)
+  assert.doesNotMatch(
+    publisherSection.slice(publisherSection.indexOf('forge-review-publish')),
+    /--issue "\$ISSUE"/u,
+  )
+
+  for (const marker of [
+    'review-specialists bundle',
+    'REVIEW_COMMENT_FILE="$REVIEW_BUNDLE_DIR/provider-review.md"',
+    'REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"',
+    '--specialist-report',
+    'command -v forge-review-publish',
+    'forge-review-publish --provider github',
+    'forge-cli --provider "$PROVIDER" pr review',
+  ]) {
+    assert.match(tracking, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+  assert.match(deliverPr, /governed-vs-portable publication branch/u)
 })
 
 test('review convergence bounds broad discovery and keeps repair review closed-set', () => {

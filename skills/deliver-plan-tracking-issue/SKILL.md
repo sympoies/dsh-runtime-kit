@@ -36,10 +36,12 @@ Inputs:
 - Optional `LINKED_PR` when a PR already exists and should be verified
   instead of created.
 - Approval evidence for the later close-ready probe.
-- Review-gate artifacts: per-lens `REVIEW_LENS`,
-  `SPECIALIST_REVIEW_COMMENT_FILE`, optional GitHub `REVIEW_THREAD_FILE` for
-  actionable findings, `REVIEW_DECISION`, and `DELIVERY_REVIEW_OUTCOME`
-  (combined outcome body).
+- Review-gate artifacts: per-lens `REVIEW_LENS`, `REVIEW_LENS_VERDICT`,
+  `REVIEW_FINDINGS_JSONL`, `REVIEW_BUNDLE_DIR`, `REVIEW_SCOPE`, and
+  `REVIEW_EVIDENCE`. `review-specialists bundle --profile provider-review`
+  derives `provider-review.md` and `review-threads.json` from those same
+  findings. `REVIEW_DECISION` and `DELIVERY_REVIEW_OUTCOME` carry the final
+  decision and its canonical combined `provider-review.md` body.
 - On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode specialist merge
   envelope produced from admitted blocking findings only for the reviewed head
   (including the generated empty envelope when none exist), plus
@@ -244,21 +246,60 @@ for selected_lens in "${SELECTED_REVIEW_LENSES[@]}"; do
   REVIEW_LENS_ARGS+=(--lens "$selected_lens")
   TRACKING_LENS_ARGS+=(--review-lens "$selected_lens")
 done
+ISSUE_MIRROR_ARGS=()
+if [ -n "${ISSUE:-}" ]; then
+  ISSUE_MIRROR_ARGS=(--issue "$ISSUE" --mirror-issue)
+fi
 
 # Repeat this specialist block once for each returned lens: testing,
 # maintainability, plus any risk lens selected by the full pre-merge review.
+review-specialists bundle \
+  --mode delivery \
+  --input "$REVIEW_FINDINGS_JSONL" \
+  --out-dir "$REVIEW_BUNDLE_DIR" \
+  --profile provider-review \
+  --repo "$OWNER_REPO" \
+  --ref "$REVIEWED_HEAD" \
+  --reviewable "$OWNER_REPO#$PR_NUMBER" \
+  --lens "$REVIEW_LENS" \
+  --lens-verdict "$REVIEW_LENS_VERDICT" \
+  --scope "$REVIEW_SCOPE" \
+  --evidence-reviewed "$REVIEW_EVIDENCE" \
+  --format json
+REVIEW_COMMENT_FILE="$REVIEW_BUNDLE_DIR/provider-review.md"
+REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"
 THREAD_FILE_ARGS=()
-if [ "$PROVIDER" = github ] && [ -n "${REVIEW_THREAD_FILE:-}" ]; then
+if [ "$PROVIDER" = github ] &&
+  jq -e 'type == "array" and length > 0' "$REVIEW_THREAD_FILE" >/dev/null; then
   THREAD_FILE_ARGS=(--thread-file "$REVIEW_THREAD_FILE")
 fi
-forge-cli --provider "$PROVIDER" pr review "$PR_NUMBER" \
-  --repo "$OWNER_REPO" \
-  --decision comments-only \
-  "${SUBMIT_REVIEW[@]}" \
-  "${THREAD_FILE_ARGS[@]}" \
-  --comment-file "$SPECIALIST_REVIEW_COMMENT_FILE" \
-  --lens "$REVIEW_LENS" \
-  --issue "$ISSUE" --mirror-issue --format json
+forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
+  pr review validate "$PR_NUMBER" \
+  --specialist-report \
+  --comment-file "$REVIEW_COMMENT_FILE" \
+  "${THREAD_FILE_ARGS[@]}"
+if [ "$PROVIDER" = github ] && command -v forge-review-publish >/dev/null; then
+  forge-review-publish --provider github --repo "$OWNER_REPO" \
+    pr review-publish "$PR_NUMBER" \
+    --decision comments-only \
+    --submit-review \
+    --expected-head "$REVIEWED_HEAD" \
+    --comment-file "$REVIEW_COMMENT_FILE" \
+    "${THREAD_FILE_ARGS[@]}" \
+    --lens "$REVIEW_LENS" \
+    "${ISSUE_MIRROR_ARGS[@]}" \
+    --format json
+else
+  forge-cli --provider "$PROVIDER" pr review "$PR_NUMBER" \
+    --repo "$OWNER_REPO" \
+    --decision comments-only \
+    "${SUBMIT_REVIEW[@]}" \
+    "${THREAD_FILE_ARGS[@]}" \
+    --comment-file "$REVIEW_COMMENT_FILE" \
+    --lens "$REVIEW_LENS" \
+    "${ISSUE_MIRROR_ARGS[@]}" \
+    --format json
+fi
 
 # GitHub-only review-loop ledger: bundle admitted blocking findings only and
 # retain raw reviewer JSONL separately. GitLab v1 has no ledger surface or merge gate.
@@ -370,6 +411,26 @@ case "${AGENT_RUNTIME_FORGE_IDENTITY_ROUTER_REQUIRED:-}" in
     ;;
 esac
 
+# The final body is the canonical combined provider-review artifact. Validate
+# it before either governed publication or the portable fallback.
+forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
+  pr review validate "$PR_NUMBER" \
+  --specialist-report \
+  --comment-file "$DELIVERY_REVIEW_OUTCOME"
+
+if [ "$PROVIDER" = github ] && command -v forge-review-publish >/dev/null; then
+  NATIVE_REVIEW_JSON="$(
+    forge-review-publish --provider github --repo "$OWNER_REPO" \
+      pr review-publish "$PR_NUMBER" \
+      --decision "$REVIEW_DECISION" \
+      --submit-review \
+      --expected-head "$EXPECTED_REVIEW_HEAD" \
+      --comment-file "$DELIVERY_REVIEW_OUTCOME" \
+      "${REVIEW_LENS_ARGS[@]}" \
+      "${ISSUE_MIRROR_ARGS[@]}" \
+      --format json
+  )" || exit $?
+else
 # Capture the outcome bytes once. Initial submission, guarded recovery, and
 # the single retry must all use this immutable value rather than rereading a
 # mutable file path. Preserve capture failures before freezing the value, and
@@ -383,7 +444,7 @@ NATIVE_REVIEW_CMD=(
   "${FINAL_SUBMIT_REVIEW[@]}"
   --comment="$EXPECTED_REVIEW_BODY"
   "${REVIEW_LENS_ARGS[@]}"
-  --issue "$ISSUE" --mirror-issue
+  "${ISSUE_MIRROR_ARGS[@]}"
 )
 # Clear stale selector state, then preserve the failed command status and JSON.
 unset PENDING_REVIEW_ID
@@ -454,10 +515,12 @@ if [ "$NATIVE_REVIEW_STATUS" -ne 0 ]; then
     fi
   fi
 fi
+fi
 
 printf '%s\n' "$NATIVE_REVIEW_JSON"
 REVIEW_OUTCOME_COMMENT="$(
-  printf '%s\n' "$NATIVE_REVIEW_JSON" | jq -er '.data.pr_comment_url'
+  printf '%s\n' "$NATIVE_REVIEW_JSON" |
+    jq -er '.data.pr_comment_url // .data.receipt.native.url'
 )"
 # Record issue-side review evidence from the native outcome, then post the final
 # state + review checkpoint before merging.
@@ -596,10 +659,12 @@ directory the policy-owned `test-first-evidence` CLI flow produces — or it fai
    verify `LINKED_PR` through `pr deliver` existing-PR adoption). Do not merge
    yet; the review gate runs first.
 4. **Review gate** — run the generic code-review outcome in pre-merge context with the full profile (min `testing` +
-   `maintainability`; add risk lenses per scope). Post each lens's specialist
-   review comment through `forge-cli pr review` as it returns (native `COMMENT`
-   on GitHub via `--submit-review`, semantic `--lens`; `--thread-file`
-   for actionable findings). Render the canonical five-column body and thread
+   `maintainability`; add risk lenses per scope). For GitHub, post each lens's
+   specialist review through the governed `forge-review-publish` path when it
+   is available; use direct `forge-cli pr review` only for GitLab or the
+   explicit no-publisher portable fallback. Apply the same branch to follow-up
+   reports (native `COMMENT` on GitHub, semantic `--lens`; `--thread-file` for
+   actionable findings). Render the canonical five-column body and thread
    artifact together, and pass `--specialist-report` during validation before
    publication. After repairs, read `forge-cli pr reviews` and
    disposition every actionable current-head summary under the closed-set

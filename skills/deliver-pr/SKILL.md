@@ -747,8 +747,12 @@ Use `profile=tracking` for lightweight plan-tracking issues and
 10. Keep review workers read-only. For a clean quick pass, defer the review
    outcome write to step 15; the required ledger genesis in step 11 is separate
    workflow state. As each full-profile lens or blocking
-   quick finding returns, post one compact review comment through `forge-cli pr review`
-   (a native `COMMENT` review event via `--submit-review` on GitHub)
+   quick finding returns, execute the governed-vs-portable publication branch
+   in `REVIEW_OUTCOME_POSTING_CONTRACT.md`. On GitHub, use
+   `forge-review-publish` when it is available so the owner App receives the
+   canonical body and actionable threads; use direct `forge-cli pr review`
+   only for the documented no-publisher fallback. The GitHub write is a native
+   `COMMENT` review event via `--submit-review`.
    with `--decision comments-only` and that semantic `--lens` (`quick` for a
    quick finding). The parent
    delivery workflow posts; reviewer
@@ -780,7 +784,8 @@ Use `profile=tracking` for lightweight plan-tracking issues and
 12. Repair admitted findings in this delivery workflow, publish the repair with
    `git-cli push --format json`, then rerun validation, checks, and affected
    review as closed-set closure. Post each focused follow-up review comment with
-   the same semantic lens before continuing. A changed head or ordinary repair
+   the same semantic lens through the same governed-vs-portable publication
+   branch before continuing. A changed head or ordinary repair
    never switches quick closure to full discovery. Start a new discovery
    generation only for a user-requested fresh review or any head change that
    materially changes the accepted design, public contract, trust boundary, or
@@ -804,7 +809,9 @@ Use `profile=tracking` for lightweight plan-tracking issues and
     path and do not invoke the unsupported snapshot. Do not implement a polling
     or sleep loop in the workflow.
 15. Post the final combined delivery review outcome body produced by the
-   selected pre-merge profile with `forge-cli pr review` before merge. Use the
+   selected pre-merge profile through the same governed-vs-portable publication
+   branch before merge. Direct `forge-cli pr review` is only the portable
+   fallback. Use the
    final `--decision` and repeat every selected `--lens` (`quick` for quick
    merge; the complete specialist set for full); add native GitHub
    approval only through the declared independent-identity capability, and keep

@@ -25,6 +25,12 @@ is a compatibility alias for that profile, not a second renderer. Never hand
 write a bullet-list alternative or transform the rendered table before
 publication.
 
+The findings header is exact:
+
+```markdown
+| Finding | Severity | Confidence | Evidence | Recommendation |
+```
+
 Reviewer subagents remain read-only. The owning parent, dispatch, or delivery
 workflow writes every provider-visible comment. Quick-finding and specialist
 review comments are pre-disposition `comments-only` reports posted after one
@@ -218,6 +224,11 @@ cannot write the review, stop and surface the provider error.
 The governed publisher's semantic interface is:
 
 ```bash
+ISSUE_MIRROR_ARGS=()
+if [ -n "${ISSUE:-}" ]; then
+  ISSUE_MIRROR_ARGS=(--issue "$ISSUE" --mirror-issue)
+fi
+
 forge-review-publish --provider github --repo "$OWNER_REPO" \
   pr review-publish "$PR_NUMBER" \
   --decision "$REVIEW_DECISION" \
@@ -226,8 +237,7 @@ forge-review-publish --provider github --repo "$OWNER_REPO" \
   --comment-file "$REVIEW_COMMENT_FILE" \
   "${THREAD_FILE_ARGS[@]}" \
   "${REVIEW_LENS_ARGS[@]}" \
-  --issue "$ISSUE" \
-  --mirror-issue \
+  "${ISSUE_MIRROR_ARGS[@]}" \
   --format json
 ```
 
