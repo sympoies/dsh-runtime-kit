@@ -13,6 +13,7 @@ import { observableChildPid } from './observable-child-pid.js'
 import {
   createScenarioCanaryDeadlineController,
   createScenarioCanaryProgressReporter,
+  registerScenarioCanaryAgentSettlementProgress,
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_MARKER,
@@ -521,6 +522,17 @@ export function apply(ctx) {
             resolveRecoveryTransition()
           }
         },
+      })
+      registerScenarioCanaryAgentSettlementProgress(ctx, {
+        phase,
+        progress,
+        isTrackedAgent: agent => (
+          agent.id === handle?.agent.id || agent.id === resumedHandle?.agent.id
+        ),
+        isTrackedSession: session => (
+          session === handle?.agent.session || session === resumedHandle?.agent.session
+        ),
+        hasCompletedStop: () => turnStops > 0,
       })
       ctx.on('tools/pre-execute', async (exec, next) => {
         const decision = await next()

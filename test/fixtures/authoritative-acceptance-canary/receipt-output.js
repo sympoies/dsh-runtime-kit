@@ -27,6 +27,14 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
     'DSH_CANARY_DEADLINE_CANARY_STOP_LISTENER_TAIL_COMPLETED',
   CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED:
     'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
+  CANARY_TURN_ENDED_AFTER_STOP:
+    'DSH_CANARY_DEADLINE_CANARY_TURN_ENDED_AFTER_STOP',
+  CANARY_AGENT_IDLE_STATUS_AFTER_STOP:
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_IDLE_STATUS_AFTER_STOP',
+  CANARY_AGENT_RESTARTED_AFTER_STOP:
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_RESTARTED_AFTER_STOP',
+  CANARY_NEXT_TURN_STARTED_AFTER_STOP:
+    'DSH_CANARY_DEADLINE_CANARY_NEXT_TURN_STARTED_AFTER_STOP',
   AGENT_IDLE: 'DSH_CANARY_DEADLINE_AGENT_IDLE',
   WAITING_RESOURCE_DRAIN: 'DSH_CANARY_DEADLINE_WAITING_RESOURCE_DRAIN',
   COMPLETION_SETTLEMENT: 'DSH_CANARY_DEADLINE_COMPLETION_SETTLEMENT',
@@ -190,6 +198,43 @@ export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
     options.progress.enter(completedStops > 1
       ? SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED
       : SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED)
+  })
+}
+
+/**
+ * Observe only public, content-free DSH settlement boundaries after the
+ * tracked canary has completed at least one stopping callback.
+ *
+ * @param {{on:(event:string,listener:(...args:any[])=>unknown)=>unknown}} ctx
+ * @param {{
+ *   phase:string,
+ *   progress:{enter:(causeCode:string)=>void},
+ *   isTrackedAgent:(agent:any)=>boolean,
+ *   isTrackedSession:(session:any)=>boolean,
+ *   hasCompletedStop:()=>boolean,
+ * }} options
+ */
+export function registerScenarioCanaryAgentSettlementProgress(ctx, options) {
+  if (!['positive', 'candidate-upgrade'].includes(options.phase)) return
+  let turnEnded = false
+  let idleObserved = false
+  ctx.on('session/event', (session, event) => {
+    if (!options.hasCompletedStop() || !options.isTrackedSession(session)) return
+    if (event?.type === 'turn/end') {
+      turnEnded = true
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_TURN_ENDED_AFTER_STOP)
+    } else if (turnEnded && event?.type === 'turn/start') {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_NEXT_TURN_STARTED_AFTER_STOP)
+    }
+  })
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (!options.hasCompletedStop() || !options.isTrackedAgent(agent)) return
+    if (status === 'idle') {
+      idleObserved = true
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_AGENT_IDLE_STATUS_AFTER_STOP)
+    } else if (status === 'running' && idleObserved) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_AGENT_RESTARTED_AFTER_STOP)
+    }
   })
 }
 
