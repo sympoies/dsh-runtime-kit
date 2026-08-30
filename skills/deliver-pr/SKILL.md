@@ -98,6 +98,11 @@ Outputs:
   resolve them; no-finding reports omit `--thread-file` and stay summary-only.
   If a linked tracking or dispatch issue is present, mirror the compact review
   URL breadcrumb to that issue.
+- Every provider-visible specialist body is the canonical
+  `review-specialists bundle --profile provider-review` artifact. The complete
+  report uses the marker and five-column table; actionable GitHub threads come
+  from the same bundle. `pr-comment` is only an alias for this profile, never a
+  second bullet renderer.
 - A delivery review outcome posted to the PR/MR before merge through
   `forge-cli pr review`; combined owner outcomes use the final `--decision`
   plus repeated selected lenses and own final finding dispositions. GitHub uses
@@ -752,7 +757,10 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    step-12 fix responds to, so it must exist first (see
    `REVIEW_OUTCOME_POSTING_CONTRACT.md`, posting order). On GitHub, attach
    `--thread-file` for actionable findings so the fix can close a native review
-   thread; summary-only reviews omit it.
+   thread; summary-only reviews omit it. Render both the body and thread file
+   through `review-specialists bundle --profile provider-review`, then validate
+   the body with `forge-cli pr review validate --specialist-report` before the
+   provider write.
 11. On GitHub, retain the validated raw reviewer JSONL as evidence, then produce
     `REVIEW_LEDGER_FINDINGS` with `review-specialists bundle --mode delivery`
     from only admitted `critical`, `high`, or `medium` findings. Rejected rows,
@@ -804,6 +812,10 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    returns `github_pending_review_exists`, use the exact-node
    `pending_reviews` recovery above and retry the unchanged outcome once; do
    not delete ambiguous drafts or downgrade the outcome to a note.
+   When a governed environment publisher is available, it posts the complete
+   canonical body exactly once through the owner App and records only
+   exact-head-verified `--metadata-only` provenance through the personal
+   identity; the personal call never receives the report `--comment-file`.
 16. Before merge, if the PR/MR references a linked tracking or dispatch issue,
     audit it and confirm lifecycle readiness: source/plan snapshots, complete
     state, latest `role=session`, validation, review, and dashboard links are

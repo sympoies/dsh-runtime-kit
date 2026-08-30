@@ -146,6 +146,29 @@ test('code review routes quick, focused, specialist, and red-team work through t
   assert.doesNotMatch(content, /\b(?:quick|testing|security|red-team)\b[^\n]*role per call/i)
 })
 
+test('provider review publication uses one canonical App report and metadata-only provenance', () => {
+  const posting = readFileSync(
+    join(
+      skillsRoot,
+      'code-review-specialists',
+      'references',
+      'REVIEW_OUTCOME_POSTING_CONTRACT.md',
+    ),
+    'utf8',
+  )
+  for (const marker of [
+    '--profile provider-review',
+    '--specialist-report',
+    '--metadata-only',
+    '--native-review-url',
+    '--native-review-author',
+    'complete report body exactly once',
+    'must not pass `--comment-file`',
+  ]) {
+    assert.match(posting, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  }
+})
+
 test('review convergence bounds broad discovery and keeps repair review closed-set', () => {
   const agentPolicy = readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')
   const convergence = readFileSync(

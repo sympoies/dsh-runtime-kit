@@ -2,8 +2,10 @@
 
 Use this contract when a review workflow needs provider-visible PR/MR review
 activity for either a single-lens quick-finding/specialist report or a combined
-delivery-owner outcome. `forge-cli pr review` is the only provider primitive for
-this path. On GitHub finding reports pass `--submit-review` so each post is a native
+delivery-owner outcome. `review-specialists` is the only report renderer, and
+`forge-cli pr review` is the only provider primitive below an optional
+environment-owned publisher. On GitHub finding reports pass `--submit-review`
+so each post is a native
 `COMMENT` pull request review event (the `#pullrequestreview-` object) authored
 by the active provider identity. A combined delivery-owner outcome becomes a
 native `APPROVE` / `REQUEST_CHANGES` review only when an environment-owned
@@ -17,6 +19,12 @@ single review event or resolvable-thread creation surface, so it omits
 `--submit-review` and `--thread-file` and posts an outcome note (provider parity
 is preserved by the guards in the snippets below).
 
+The canonical provider artifact is the `provider-review` profile: the marker,
+metadata, and exact five-column findings table are one contract. `pr-comment`
+is a compatibility alias for that profile, not a second renderer. Never hand
+write a bullet-list alternative or transform the rendered table before
+publication.
+
 Reviewer subagents remain read-only. The owning parent, dispatch, or delivery
 workflow writes every provider-visible comment. Quick-finding and specialist
 review comments are pre-disposition `comments-only` reports posted after one
@@ -25,6 +33,44 @@ once in the final outcome with `--lens quick`. Combined
 delivery-owner outcomes are post-disposition comments posted after the owner has
 synthesized findings, decided repairs or tradeoffs, and chosen the final review
 decision.
+
+## Canonical Report Artifacts
+
+Render the complete body and actionable thread file from the same admitted,
+merged findings. Keep raw reviewer output as evidence; it is not a provider
+comment body.
+
+```bash
+review-specialists bundle \
+  --mode delivery \
+  --input "$REVIEW_FINDINGS_JSONL" \
+  --out-dir "$REVIEW_BUNDLE_DIR" \
+  --profile provider-review \
+  --repo "$OWNER_REPO" \
+  --ref "$EXPECTED_REVIEW_HEAD" \
+  --reviewable "$REVIEWABLE" \
+  --lens "$REVIEW_LENS" \
+  --lens-verdict "$REVIEW_LENS_VERDICT" \
+  --scope "$REVIEW_SCOPE" \
+  --evidence-reviewed "$REVIEW_EVIDENCE" \
+  --format json
+
+REVIEW_COMMENT_FILE="$REVIEW_BUNDLE_DIR/provider-review.md"
+REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"
+```
+
+Before any GitHub publication, validate the immutable body snapshot and diff
+anchors. Add `--thread-file` only when the generated array has actionable
+entries; a clean `[]` means omit the flag.
+
+```bash
+forge-cli --provider github --repo "$OWNER_REPO" --format json \
+  pr review validate "$PR_NUMBER" \
+  --check-diff \
+  --specialist-report \
+  --comment-file "$REVIEW_COMMENT_FILE" \
+  "${THREAD_FILE_ARGS[@]}"
+```
 
 ## Actionable Finding Threads
 
@@ -124,9 +170,10 @@ combined delivery-owner outcome records final dispositions.
 - `REVIEW_DECISION`: `comments-only`, `approve`, or `request-changes`.
   Specialist review comments use `comments-only`; combined owner outcomes map
   the final delivery decision to `approve` or `request-changes`.
-- `REVIEW_COMMENT_FILE`: compact comment body. Use
-  `SPECIALIST_REVIEW_COMMENT.md` for specialist reports and
-  `DELIVERY_REVIEW_OUTCOME_COMMENT.md` for combined owner outcomes.
+- `REVIEW_COMMENT_FILE`: immutable canonical `provider-review.md` produced by
+  the bundle for GitHub specialist/native publication. The delivery outcome
+  fallback for GitLab or an environment without a governed publisher follows
+  `DELIVERY_REVIEW_OUTCOME_COMMENT.md`.
 - Optional `REVIEW_THREAD_FILE`: GitHub-only JSON array of actionable findings
   to create as resolvable review threads. Omit this when there are no requested
   changes or when posting to GitLab.
@@ -154,11 +201,40 @@ canonical `forge-cli` position on PATH so interactive calls, subprocesses, and
 nested shells share the same policy. Runtime-kit does not parse arbitrary shell
 execution or enforce a private wrapper. Exporting the capability asserts that
 the environment selects a GitHub review identity independent from the PR author
-for combined native approval outcomes. Without it, runtime-kit posts the
-combined decision as an outcome note instead of attempting native self-approval.
+for combined native approval outcomes. When the environment also provides a
+governed `forge-review-publish` adapter, the owning workflow delegates GitHub
+publication to it. The adapter publishes the complete report body exactly once
+as the owner App's native review, including actionable diff threads, then uses
+the canonical personal identity only for a concise `--metadata-only`
+breadcrumb. That personal invocation must not pass `--comment-file`; it binds
+`--expected-head`, `--native-review-url`, and `--native-review-author` and
+verifies the native review before mutation. Without the governed publisher,
+runtime-kit posts the combined decision as an outcome note instead of
+attempting native self-approval.
 
 Do not let a reviewer subagent post directly. If the active provider identity
 cannot write the review, stop and surface the provider error.
+
+The governed publisher's semantic interface is:
+
+```bash
+forge-review-publish --provider github --repo "$OWNER_REPO" \
+  pr review-publish "$PR_NUMBER" \
+  --decision "$REVIEW_DECISION" \
+  --submit-review \
+  --expected-head "$EXPECTED_REVIEW_HEAD" \
+  --comment-file "$REVIEW_COMMENT_FILE" \
+  "${THREAD_FILE_ARGS[@]}" \
+  "${REVIEW_LENS_ARGS[@]}" \
+  --issue "$ISSUE" \
+  --mirror-issue \
+  --format json
+```
+
+The adapter owns credentials, native-review read-back, receipt/resume, and the
+personal metadata-only call. Public skills never set its private identity
+profiles. If the adapter is unavailable, use the portable direct commands below
+and do not claim the two-identity publication contract was exercised.
 
 ## Command
 

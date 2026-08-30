@@ -46,6 +46,14 @@ Use the provider-aware primitive for GitHub and GitLab. Follow
 `references/REVIEW_OUTCOME_POSTING_CONTRACT.md` for the parent-owned posting
 flow, portable identity boundary, and optional issue mirroring:
 
+On GitHub with a governed `forge-review-publish` adapter, the final native
+review body is the canonical `provider-review` table rendered with the combined
+lens. Do not publish this delivery-outcome body as a second personal comment.
+The App review carries the complete report once; the personal identity records
+only verified metadata, while dispositions remain in the review-loop and
+tracking evidence. The outcome-note body below remains the portable GitLab and
+no-governed-publisher fallback.
+
 ```bash
 # Native combined approval requires an environment-owned executable router that
 # guarantees a GitHub review identity independent from the PR author. Other
