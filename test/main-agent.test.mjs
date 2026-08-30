@@ -158,6 +158,8 @@ function createContext({
   children = [],
   followupFailure = false,
   drainFailure = false,
+  closeContinuable,
+  lifecycleEvents = [],
 } = {}) {
   const listeners = new Map()
   const effects = []
@@ -201,6 +203,9 @@ function createContext({
       },
       spawn(spec) {
         if (spawnFailure) throw new Error('spawn failed')
+        if (spec.argv.includes('broker') && spec.argv.includes('stop')) {
+          lifecycleEvents.push('broker-stop')
+        }
         const record = { spec, terminated: false }
         spawned.push(record)
         // Heartbeats are long-running broker processes; everything else is a
@@ -227,7 +232,11 @@ function createContext({
           : Promise.resolve({ exitCode: currentEnvelope.ok === false ? 1 : 0, signal: null })
         return {
           done,
-          terminate() { record.terminated = true },
+          terminate() {
+            const wasTerminated = record.terminated
+            record.terminated = true
+            if (isHeartbeat && !wasTerminated) lifecycleEvents.push('heartbeat-stop')
+          },
           async waitForExit() { return true },
           collected: {
             stdout: {
@@ -276,7 +285,10 @@ function createContext({
         return () => workspaceProviders.delete(provider.name)
       },
       async closeContinuable(parent, childId, signal) {
+        lifecycleEvents.push('dsh-close:start')
         closedContinuations.push({ parent, childId, signal })
+        await closeContinuable?.({ parent, childId, signal })
+        lifecycleEvents.push('dsh-close:end')
       },
       interrupt(target, authority) {
         interrupts.push({ target, authority })
@@ -315,6 +327,7 @@ function createContext({
     workspaceProviders,
     workspaceLeaseRefs,
     closedContinuations,
+    lifecycleEvents,
     setup: () => setupContribution,
   }
 }
@@ -357,6 +370,7 @@ const TEST_CONTROLLER_ENVIRONMENT = Object.freeze({
   AGENT_SESSION_ID: 'controller-managed',
   AGENT_SESSION_RUNTIME_ID: 'controller-runtime',
   AGENT_SESSION_STATE_DIR: '/private/state',
+  AGENT_SESSION_COORDINATION_MODE: 'advisory',
   AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
   AGENT_SESSION_CHECKPOINT_FILE: '/private/checkpoint.json',
   AGENT_SESSION_BIN: AGENT_SESSION_CLI,
@@ -1445,17 +1459,33 @@ test('disposal closes the runtime: tools refuse and lane bookkeeping empties', a
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
-  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
+  const releaseClose = Promise.withResolvers()
+  const lifecycleEvents = []
+  const harness = createContext({
+    envelope: workerStartEnvelope(livenessFile),
+    lifecycleEvents,
+    closeContinuable: async () => releaseClose.promise,
+  })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  for (const effect of harness.effects) {
-    const dispose = effect.callback()
-    if (typeof dispose === 'function') dispose()
-  }
   const service = harness.provided.get('dshRuntimeKitMainAgent')
+  const disposals = harness.effects.map((effect) => {
+    const dispose = effect.callback()
+    return typeof dispose === 'function' ? dispose() : undefined
+  })
+  await Promise.resolve()
+  assert.deepEqual(lifecycleEvents, ['dsh-close:start'])
+  assert.equal(service.laneCount, 1, 'registry authority remains while DSH drains')
+  releaseClose.resolve()
+  await Promise.all(disposals)
+  assert.deepEqual(lifecycleEvents.slice(0, 3), [
+    'dsh-close:start',
+    'dsh-close:end',
+    'heartbeat-stop',
+  ])
   assert.equal(service.laneCount, 0, 'disposal empties the lane registry')
   for (const name of [
     'main_agent_worker_launch',
@@ -1792,6 +1822,8 @@ async function launchedLane(scratch, options = {}) {
     children: options.children,
     followupFailure: options.followupFailure,
     drainFailure: options.drainFailure,
+    closeContinuable: options.closeContinuable,
+    lifecycleEvents: options.lifecycleEvents,
   })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
@@ -1932,7 +1964,7 @@ test('supervision folds lane transport facts onto the store classification', asy
     { assignment_id: 'assignment-one' },
     controllerExec(),
   )
-  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v1')
+  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v2')
   assert.equal(supervised.store.classification, 'healthy_progress')
   assert.equal(supervised.lane.child_activity, 'running')
   assert.equal(supervised.lane.turn_phase, 'working')
@@ -1962,7 +1994,7 @@ test('request-changes records the fenced decision first, then delivers it into t
     },
     controllerExec(),
   )
-  assert.equal(returned.schema_version, 'dsh-runtime-kit.main-agent-review.v1')
+  assert.equal(returned.schema_version, 'dsh-runtime-kit.main-agent-review.v2')
   assert.equal(returned.decision, 'request-changes')
   assert.equal(returned.delivered, true)
 
@@ -2019,9 +2051,11 @@ test('closeout drains host-bound children before fencing the final store checkpo
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const start = workerStartEnvelope(livenessFile)
+  const lifecycleEvents = []
   let closeoutFile
   const envelope = (spec) => {
     if (spec.argv.includes('closeout')) {
+      lifecycleEvents.push('store-closeout')
       closeoutFile = spec.argv[spec.argv.indexOf('--checkpoint-file') + 1]
       return {
         schema_version: 'cli.main-agent.closeout.v1',
@@ -2031,7 +2065,14 @@ test('closeout drains host-bound children before fencing the final store checkpo
     }
     return start
   }
-  const { harness } = await launchedLane(scratch, { envelope })
+  const { harness } = await launchedLane(scratch, {
+    envelope,
+    lifecycleEvents,
+    async closeContinuable() {
+      const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+      assert.equal(sidecar.lane.state, 'open', 'sidecar authority remains until DSH drain ends')
+    },
+  })
   const closed = await harness.registeredTools.get('main_agent_run_closeout').execute(
     {
       summary: 'delivered both lanes',
@@ -2042,7 +2083,7 @@ test('closeout drains host-bound children before fencing the final store checkpo
     },
     controllerExec(),
   )
-  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v1')
+  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v2')
   assert.equal(closed.store.run.state, 'closed')
   assert.equal(closed.lanes_closed.length, 1)
   assert.equal(closed.lanes_closed[0].closed, true)
@@ -2053,6 +2094,13 @@ test('closeout drains host-bound children before fencing the final store checkpo
   assert.equal(sidecar.lane.state, 'terminated')
   assert.equal(harness.closedContinuations.length, 1)
   assert.equal(harness.drains.length, 0, 'the exact child close seam owns recursive drain')
+  assert.deepEqual(lifecycleEvents, [
+    'dsh-close:start',
+    'dsh-close:end',
+    'heartbeat-stop',
+    'broker-stop',
+    'store-closeout',
+  ])
 
   // The private closeout checkpoint is removed with its temporary directory.
   assert.ok(closeoutFile, 'closeout passed a checkpoint file')

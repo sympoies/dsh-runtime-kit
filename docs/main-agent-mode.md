@@ -198,7 +198,13 @@ covers workspace activation, tool surface, and the provided service. The
 promotion gate additionally runs a model-driven lane through bootstrap, edit,
 validation, checkpoint, review change, acceptance, and closeout.
 
-`dsh-runtime-kit.main-agent-lane.v1` uses `disposition` only for launch results:
+The direct-child response contract uses `dsh-runtime-kit.main-agent-lane.v2`;
+supervision, review, and closeout use their corresponding v2 schemas. The v2
+migration removes `anchor_session_id` because no parked anchor Agent exists.
+Consumers that accepted v1 must select by `schema_version` and read the direct
+`child_session_id` instead of treating a controller or child as an anchor.
+
+`dsh-runtime-kit.main-agent-lane.v2` uses `disposition` only for launch results:
 `launched` means this call created the in-process lane, while `reattached` means
 an idempotent launch found the exact existing incarnation. Interrupt and close
 results instead carry the neutral `operation` value `interrupt` or `close`, and

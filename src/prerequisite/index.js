@@ -33,7 +33,7 @@ function validDefinition(definition) {
  * @param {Context} ctx
  * @param {{beginPrerequisite(exec: ToolExecution, intent: string, binding: ExecutionBinding): Promise<any>, commitPrerequisite(exec: ToolExecution, pending: {intent: string, phase: string, receipt: string, binding: ExecutionBinding}): Promise<any>}} client
  * @param {(input: any) => import('@deepseek-ai/dsh-llm').UserMessage} createUserMessage
- * @param {(exec: ToolExecution, correlation: ToolCorrelation, proof: PrerequisiteProof) => Promise<{kind?: string, context?: string} | undefined>} revalidatePolicy
+ * @param {(exec: ToolExecution, correlation: ToolCorrelation, proof: PrerequisiteProof) => Promise<{kind?: string, context?: string, reason?: string} | undefined>} revalidatePolicy
  */
 export function createPrerequisiteCoordinator(ctx, client, createUserMessage, revalidatePolicy) {
   /** @type {WeakMap<ToolDefinition, RequirementRegistration>} */
@@ -123,8 +123,16 @@ export function createPrerequisiteCoordinator(ctx, client, createUserMessage, re
     }
   }
 
-  /** @param {ToolRunContext} exec @param {PendingPrerequisite} record */
-  async function beforeBody(exec, record) {
+  /**
+   * @param {ToolRunContext} exec
+   * @param {PendingPrerequisite} record
+   * @param {'dispatch' | 'body'} phase
+   */
+  async function beforeBody(exec, record, phase) {
+    if (phase !== 'dispatch' && phase !== 'body') {
+      pending.delete(exec)
+      throw new Error('dsh-runtime-kit:prerequisite-binding-invalid:phase')
+    }
     if (exec.signal.aborted) {
       pending.delete(exec)
       throw new Error('dsh-runtime-kit:prerequisite-binding-invalid:cancelled')
@@ -137,19 +145,29 @@ export function createPrerequisiteCoordinator(ctx, client, createUserMessage, re
       if (typeof verified.receipt !== 'string') {
         throw new Error('dsh-runtime-kit:prerequisite-decision-invalid')
       }
-      policyDecision = await revalidatePolicy(exec, record.correlation, {
-        agentId: record.binding.agentId,
-        workspaceGeneration: record.binding.workspaceGeneration,
-        definitionId: record.binding.definitionId,
-        receipt: verified.receipt,
-      })
+      if (phase === 'body') {
+        policyDecision = await revalidatePolicy(exec, record.correlation, {
+          agentId: record.binding.agentId,
+          workspaceGeneration: record.binding.workspaceGeneration,
+          definitionId: record.binding.definitionId,
+          receipt: verified.receipt,
+        })
+      }
     } catch {
       pending.delete(exec)
       throw new Error('dsh-runtime-kit:prerequisite-verification-failed')
     }
-    if (exec.signal.aborted || policyDecision?.kind === 'deny') {
+    if (exec.signal.aborted) {
       pending.delete(exec)
       throw new Error('dsh-runtime-kit:prerequisite-binding-invalid')
+    }
+    if (policyDecision?.kind === 'deny') {
+      pending.delete(exec)
+      throw new Error(
+        typeof policyDecision.reason === 'string' && policyDecision.reason.length > 0
+          ? policyDecision.reason
+          : 'dsh-runtime-kit:prerequisite-binding-invalid',
+      )
     }
     requireMatchingRecord(exec, record)
     record.receipt = verified.receipt
@@ -298,7 +316,9 @@ export function createPrerequisiteCoordinator(ctx, client, createUserMessage, re
           throw new Error('dsh-runtime-kit:prerequisite-native-seam-unavailable')
         }
         tools.bindPrerequisite(exec, required.definition, Object.freeze({
-          beforeBody: (/** @type {ToolRunContext} */ runtimeExec) => beforeBody(runtimeExec, record),
+          beforeBody: (/** @type {ToolRunContext} */ runtimeExec, /** @type {'dispatch' | 'body'} */ phase) => (
+            beforeBody(runtimeExec, record, phase)
+          ),
           commit: (/** @type {Readonly<ToolExecution>} */ runtimeExec) => commit(runtimeExec, record),
         }))
       } catch (error) {

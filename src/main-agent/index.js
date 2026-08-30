@@ -43,6 +43,7 @@ const DEFAULT_BROKER_READY_TIMEOUT_MS = 15_000
 const HARD_BROKER_READY_TIMEOUT_MS = 60_000
 const BROKER_READY_POLL_MS = 100
 const BROKER_STATUS_SCHEMA = 'agent-session.coordination-broker.v1'
+const LANE_SCHEMA = 'dsh-runtime-kit.main-agent-lane.v2'
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
 const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
@@ -92,6 +93,7 @@ const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_ID',
   'AGENT_SESSION_RUNTIME_ID',
   'AGENT_SESSION_STATE_DIR',
+  'AGENT_SESSION_COORDINATION_MODE',
   'AGENT_SESSION_CAPABILITY_FILE',
   'AGENT_SESSION_CHECKPOINT_FILE',
   'AGENT_SESSION_BIN',
@@ -321,7 +323,7 @@ function laneEnvironmentSection(lane) {
 /** @param {Lane} lane */
 function laneSummary(lane) {
   return {
-    schema_version: 'dsh-runtime-kit.main-agent-lane.v1',
+    schema_version: LANE_SCHEMA,
     assignment_id: lane.assignmentId,
     worker_session_id: lane.workerSessionId,
     launch_id: lane.launchId,
@@ -526,17 +528,31 @@ export function applyMainAgentMode(ctx, config = {}) {
     const pending = authenticatingControllers.get(controllerSessionId)
     if (pending !== undefined) return pending
     const authentication = (async () => {
+      const bridged = /** @type {Record<string, any> | undefined} */ (
+        config.managedSessionBridge?.resolve?.(controllerSessionId)
+      )
+      const candidateEnvironment = bridged !== null
+        && typeof bridged === 'object'
+        && bridged.sessionId === controllerSessionId
+        && bridged.environment !== null
+        && typeof bridged.environment === 'object'
+        ? bridged.environment
+        : undefined
       const readiness = await runEnvelope([
         mainAgentCli,
         'self',
         'readiness',
         '--format',
         'json',
-      ], exec, controllerCwd(exec))
+      ], exec, controllerCwd(exec), candidateEnvironment)
       if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
         throw laneError('main-agent-controller-not-ready')
       }
-      const principal = await controllerPrincipal(readiness, exec.signal)
+      const principal = await controllerPrincipal(
+        readiness,
+        exec.signal,
+        candidateEnvironment,
+      )
       const existing = controllers.get(controllerSessionId)
       if (existing !== undefined && !sameControllerPrincipal(existing, principal)) {
         throw laneError('main-agent-controller-binding-conflict')
@@ -554,22 +570,25 @@ export function applyMainAgentMode(ctx, config = {}) {
     }
   }
 
-  ctx.effect(() => () => {
+  ctx.effect(() => async () => {
     closing = true
     // A fiber teardown or plugin reload leaves the process alive, so the
     // pinned harness identity would keep vouching for every `open` lane and
     // the CLI could never classify a stop. Mark each lane terminated and
     // publish best effort before dropping the bookkeeping, and release the
     // heartbeats explicitly rather than relying on ctx ownership alone.
-    for (const lane of lanes.list()) {
+    const activeLanes = lanes.list()
+    for (const lane of activeLanes) {
       lane.state = 'terminated'
       lane.turn = undefined
       void publishLivenessSidecar(lane).catch(() => {})
-      void hostSubagents.closeContinuable(
+    }
+    await Promise.allSettled(activeLanes.map(lane => hostSubagents.closeContinuable(
         /** @type {any} */ (lane.parent),
         /** @type {any} */ (lane.childId),
         new AbortController().signal,
-      ).catch(() => {})
+    )))
+    for (const lane of activeLanes) {
       lane.stopHeartbeat?.()
     }
     pendingRunEvents.length = 0
@@ -867,12 +886,17 @@ export function applyMainAgentMode(ctx, config = {}) {
    *
    * @param {Record<string, any>} readiness
    * @param {AbortSignal | undefined} signal
+   * @param {Record<string, any> | undefined} candidateEnvironment
    */
-  const controllerPrincipal = async (readiness, signal) => {
+  const controllerPrincipal = async (
+    readiness,
+    signal,
+    candidateEnvironment = process.env,
+  ) => {
     /** @type {Record<string, string>} */
     const environment = {}
     for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
-      const value = process.env[name]
+      const value = candidateEnvironment[name]
       if (typeof value !== 'string' || value.length === 0) {
         throw laneError('main-agent-controller-principal-unavailable')
       }
@@ -911,6 +935,36 @@ export function applyMainAgentMode(ctx, config = {}) {
    */
   const sameControllerPrincipal = (left, right) => left.sessionId === right.sessionId
     && CONTROLLER_PRINCIPAL_ENV_KEYS.every(name => left.environment[name] === right.environment[name])
+
+  /** @param {any} exec */
+  const controllerExecutionEnvironment = (exec) => {
+    const sessionId = requireNonEmptyString(
+      dshRc7SessionHeader(exec?.agent).id,
+      'main-agent-controller-identity-unavailable',
+    )
+    const bound = controllers.get(sessionId)
+    if (bound !== undefined) return bound.environment
+    const bridged = /** @type {Record<string, any> | undefined} */ (
+      config.managedSessionBridge?.resolve?.(sessionId)
+    )
+    const source = bridged !== null
+      && typeof bridged === 'object'
+      && bridged.sessionId === sessionId
+      && bridged.environment !== null
+      && typeof bridged.environment === 'object'
+      ? bridged.environment
+      : process.env
+    /** @type {Record<string, string>} */
+    const selected = {}
+    for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
+      const value = source[name]
+      if (typeof value !== 'string' || value.length === 0) {
+        throw laneError('main-agent-controller-principal-unavailable')
+      }
+      selected[name] = value
+    }
+    return Object.freeze(selected)
+  }
 
   /**
    * The lane's declared checkpoint file, or undefined when the launch payload
@@ -1121,6 +1175,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         throw laneError('main-agent-idempotency-key-invalid')
       }
       const cwd = controllerCwd(exec)
+      const candidateEnvironment = controllerExecutionEnvironment(exec)
       const capabilities = await runEnvelope([
         mainAgentCli,
         'capabilities',
@@ -1128,7 +1183,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         'dsh',
         '--format',
         'json',
-      ], exec, cwd)
+      ], exec, cwd, candidateEnvironment)
       if (capabilities?.schema_version !== CAPABILITIES_SCHEMA
         || capabilities.compatible !== true
         || capabilities.capabilities?.external_runtime !== EXTERNAL_RUNTIME_CAPABILITY) {
@@ -1140,14 +1195,18 @@ export function applyMainAgentMode(ctx, config = {}) {
         'readiness',
         '--format',
         'json',
-      ], exec, cwd)
+      ], exec, cwd, candidateEnvironment)
       if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
         throw laneError('main-agent-controller-not-ready')
       }
-      const principal = await controllerPrincipal(readiness, exec.signal)
+      const verifiedPrincipal = await controllerPrincipal(
+        readiness,
+        exec.signal,
+        candidateEnvironment,
+      )
       const existingPrincipal = controllers.get(controllerSessionId)
       if (existingPrincipal !== undefined
-        && !sameControllerPrincipal(existingPrincipal, principal)) {
+        && !sameControllerPrincipal(existingPrincipal, verifiedPrincipal)) {
         throw laneError('main-agent-controller-binding-conflict')
       }
       const initialized = await runEnvelope([
@@ -1160,8 +1219,8 @@ export function applyMainAgentMode(ctx, config = {}) {
         idempotencyKey,
         '--format',
         'json',
-      ], exec, cwd)
-      controllers.set(controllerSessionId, principal)
+      ], exec, cwd, verifiedPrincipal.environment)
+      controllers.set(controllerSessionId, verifiedPrincipal)
       return {
         ...initialized,
         readiness: {
@@ -1279,6 +1338,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         'main-agent-idempotency-key-invalid',
       )
       const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
       // The CLI call itself allocates a store-side worker incarnation and its
       // broker, so it belongs inside the lock: two concurrent launches of one
       // assignment would otherwise allocate two incarnations and abandon the
@@ -1297,7 +1357,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           idempotencyKey,
           '--format',
           'json',
-        ], exec, cwd)
+        ], exec, cwd, controllerEnvironment)
         const trustedAgentSessionCli = await resolveTrustedAgentSessionCli(exec.signal)
         if (data?.schema_version !== WORKER_START_RESULT_SCHEMA
           || trustedAgentSessionCli === undefined
@@ -1684,6 +1744,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         'main-agent-assignment-id-invalid',
       )
       const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
       const store = await runEnvelope([
         mainAgentCli,
         'worker',
@@ -1691,7 +1752,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         assignmentId,
         '--format',
         'json',
-      ], exec, cwd)
+      ], exec, cwd, controllerEnvironment)
       const lane = lanes.byAssignment(assignmentId)
       // Enumeration is read-only and never resumes a child. A listing failure
       // is reported as unknown activity rather than failing supervision: the
@@ -1749,6 +1810,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       const ifRevision = requireRevision(record)
       const lane = requireLane(assignmentId)
       const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
       // The store decision comes first: delivering a revision request the store
       // refused would tell the lane to redo work under a fence that never moved.
       const store = await runEnvelope([
@@ -1764,7 +1826,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         idempotencyKey,
         '--format',
         'json',
-      ], exec, cwd)
+      ], exec, cwd, controllerEnvironment)
       let delivered = false
       let deliveryError
       try {
@@ -1838,6 +1900,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       )
       const ifRevision = requireRevision(record)
       const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
       const store = await runEnvelope([
         mainAgentCli,
         'worker',
@@ -1849,7 +1912,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         idempotencyKey,
         '--format',
         'json',
-      ], exec, cwd)
+      ], exec, cwd, controllerEnvironment)
       const lane = lanes.byAssignment(assignmentId)
       return {
         schema_version: REVIEW_SCHEMA,
@@ -1905,6 +1968,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         resultSummary: /** @type {string | undefined} */ (record.result_summary),
       })
       const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
       // Every lane must be terminal before the store retires its worker: a lane
       // left `open` would keep the pinned harness identity vouching for a
       // runtime the store already considers retired.
@@ -1929,7 +1993,7 @@ export function applyMainAgentMode(ctx, config = {}) {
           idempotencyKey,
           '--format',
           'json',
-        ], exec, cwd)
+        ], exec, cwd, controllerEnvironment)
         return {
           schema_version: CLOSEOUT_SCHEMA,
           store,
@@ -1987,6 +2051,6 @@ export function applyMainAgentMode(ctx, config = {}) {
  */
 export const mainAgentMode = Object.freeze({
   name: 'dsh-runtime-kit-main-agent',
-  inject: ['agents', 'subagents', 'subprocess', 'tools'],
+  inject: ['agents', 'subagents', 'subprocess', 'tools', 'workspaceLease'],
   apply: applyMainAgentMode,
 })

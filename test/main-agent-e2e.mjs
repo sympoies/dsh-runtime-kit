@@ -45,6 +45,7 @@ const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-main-agent-e2e-'))
 const stateDir = join(root, 'state')
 const project = join(root, 'project')
 const laneRoot = join(root, 'lanes')
+let controllerSessionId
 mkdirSync(stateDir, { recursive: true })
 mkdirSync(laneRoot, { recursive: true })
 
@@ -63,6 +64,14 @@ try {
 } catch (error) {
   failure = error
 } finally {
+  if (controllerSessionId !== undefined) {
+    spawnSync(agentSessionCli, [
+      '--state-dir', stateDir,
+      'delete',
+      controllerSessionId,
+      '--format', 'json',
+    ], { encoding: 'utf8', timeout: 30_000 })
+  }
   // The lane runtime spawns real heartbeat processes; releasing them before the
   // temp tree disappears keeps a failed run from leaving brokers behind.
   rmSync(root, { recursive: true, force: true })
@@ -102,12 +111,14 @@ async function run() {
     '--coordination-mode', 'enforce',
     '--format', 'json',
   ], { encoding: 'utf8' })).data
+  controllerSessionId = controller.id
   const coordination = join(stateDir, 'sessions', controller.id, 'coordination')
   const controllerEnv = {
     ...process.env,
     AGENT_SESSION_STATE_DIR: stateDir,
     AGENT_SESSION_ID: controller.id,
     AGENT_SESSION_RUNTIME_ID: controller.session_incarnation,
+    AGENT_SESSION_COORDINATION_MODE: 'enforce',
     AGENT_SESSION_CAPABILITY_FILE: pick(coordination, 'capability-'),
     AGENT_SESSION_CHECKPOINT_FILE: pick(coordination, 'main-agent-checkpoint-'),
   }
@@ -201,7 +212,7 @@ async function run() {
     { assignment_id: 'lane-one' },
     exec,
   )
-  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v1')
+  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v2')
   assert.equal(typeof supervised.store.classification, 'string')
   assert.equal(supervised.lane.state, 'open')
   assert.equal(supervised.lane.worker_session_id, launchedOne.worker_session_id)
@@ -328,7 +339,7 @@ async function run() {
     if_run_revision: runRevision(),
     idempotency_key: 'e2e-closeout-0001',
   }, exec)
-  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v1')
+  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v2')
   assert.equal(harness.service().laneCount, 0, 'closeout leaves no live lane')
   assert.equal(closed.drained, true)
   harness.dispose()
@@ -675,6 +686,13 @@ function createRuntime(controllerEnv) {
     laneWorktreeRoot: laneRoot,
     workerProvider: 'e2e-provider',
     workerModel: 'e2e-model',
+    managedSessionBridge: {
+      resolve(sessionId) {
+        return sessionId === controllerEnv.AGENT_SESSION_ID
+          ? { sessionId, environment: controllerEnv }
+          : undefined
+      },
+    },
   })
 
   return {
@@ -693,7 +711,7 @@ function createRuntime(controllerEnv) {
         signal: new AbortController().signal,
         agent: {
           options: { provider: 'e2e-provider', model: 'e2e-model' },
-          session: { header: { id: 'e2e-controller', cwd } },
+          session: { header: { id: controllerEnv.AGENT_SESSION_ID, cwd } },
         },
       }
     },

@@ -1,5 +1,5 @@
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 377015feb..b806149fb 100644
+index 377015feb3..60d0a360a7 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -287,6 +287,23 @@ export interface ToolDefinition extends ToolSchema {
@@ -18,7 +18,7 @@ index 377015feb..b806149fb 100644
 + */
 +export interface ToolExecutionPrerequisite {
 +  /** Side-effect-free last-mile verification and its bounded verified context. */
-+  beforeBody(exec: ToolRunContext): Promise<UserMessage[] | void>
++  beforeBody(exec: ToolRunContext, phase: 'dispatch' | 'body'): Promise<UserMessage[] | void>
 +  /** Idempotent durable cache completion after the accepted result linearizes. */
 +  commit(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionSuccess>): Promise<void>
 +}
@@ -292,7 +292,7 @@ index 377015feb..b806149fb 100644
    }
  
    /** Canonical cancellation outcome selected by whether the tool body started. */
-@@ -1524,6 +1685,138 @@ export class ToolRuntime extends Service {
+@@ -1524,6 +1685,142 @@ export class ToolRuntime extends Service {
        : toolAbortedBeforeDispatchResult(prior)
    }
  
@@ -393,16 +393,20 @@ index 377015feb..b806149fb 100644
 +  }
 +
 +  /** Reverify one bound prerequisite and retain only its latest verified context. */
-+  private async verifyExecutionPrerequisite(exec: ToolRunContext, phase: string): Promise<void> {
++  private async verifyExecutionPrerequisite(
++    exec: ToolRunContext,
++    phase: 'dispatch' | 'body',
++  ): Promise<void> {
++    const boundary = phase === 'dispatch' ? 'execute dispatch' : 'tool body'
 +    this.assertExecutionIdentity(exec)
-+    const bound = this.assertPrerequisiteDefinition(exec, phase)
++    const bound = this.assertPrerequisiteDefinition(exec, boundary)
 +    if (bound === undefined) return
-+    const contexts = await bound.prerequisite.beforeBody(exec)
++    const contexts = await bound.prerequisite.beforeBody(exec, phase)
 +    if (this.callerCancelled(exec)) {
 +      throw new Error('dsh-tools: prerequisite verification cancelled')
 +    }
 +    this.assertExecutionIdentity(exec)
-+    this.assertPrerequisiteDefinition(exec, phase)
++    this.assertPrerequisiteDefinition(exec, boundary)
 +    if (contexts !== undefined && !Array.isArray(contexts)) {
 +      throw new TypeError('dsh-tools: prerequisite verification must return contexts or undefined')
 +    }
@@ -431,13 +435,13 @@ index 377015feb..b806149fb 100644
    /**
     * Dispatch the registered body with the original caller signal fused back
     * into any around-wrapper replacement. Cancellation never abandons the body:
-@@ -1543,7 +1836,12 @@ export class ToolRuntime extends Service {
+@@ -1543,7 +1840,12 @@ export class ToolRuntime extends Service {
      }
      exec.signal = signal
      try {
 -      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
 +      this.assertExecutionIdentity(exec)
-+      await this.verifyExecutionPrerequisite(exec, 'tool body')
++      await this.verifyExecutionPrerequisite(exec, 'body')
 +      if (isAborted(signal)) return toolAbortedBeforeDispatchResult()
 +      const bound = this.assertPrerequisiteDefinition(exec, 'tool body dispatch')
 +      const tool = bound?.snapshot
@@ -445,7 +449,7 @@ index 377015feb..b806149fb 100644
        if (!tool) throw new ToolNotFoundError(exec.name)
        state.bodyInvoked = true
        const returned = await tool.execute(exec.arguments, exec)
-@@ -1552,7 +1850,9 @@ export class ToolRuntime extends Service {
+@@ -1552,7 +1854,9 @@ export class ToolRuntime extends Service {
          ? toolAbortedResult(result)
          : result
      } catch (error: unknown) {
@@ -456,7 +460,7 @@ index 377015feb..b806149fb 100644
      } finally {
        fused.dispose()
        exec.signal = wrapperSignal
-@@ -1567,14 +1867,53 @@ export class ToolRuntime extends Service {
+@@ -1567,14 +1871,53 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
@@ -478,7 +482,7 @@ index 377015feb..b806149fb 100644
        const carrier = scopeTarget(this, exec.agent)
 +      this.assertExecutionIdentity(exec)
 +      try {
-+        await this.verifyExecutionPrerequisite(exec, 'execute dispatch')
++        await this.verifyExecutionPrerequisite(exec, 'dispatch')
 +      } catch (error: unknown) {
 +        if (this.callerCancelled(exec)) {
 +          return { kind: 'post-result', result: this.cancellationResult(exec) }
@@ -510,7 +514,7 @@ index 377015feb..b806149fb 100644
        const deferredContexts = this.deferredContexts.get(exec)
        /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
        if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
-@@ -1607,17 +1946,74 @@ export class ToolRuntime extends Service {
+@@ -1607,17 +1950,74 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -593,7 +597,7 @@ index 377015feb..b806149fb 100644
    }
  
    /**
-@@ -1629,6 +2025,28 @@ export class ToolRuntime extends Service {
+@@ -1629,6 +2029,28 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
@@ -622,7 +626,7 @@ index 377015feb..b806149fb 100644
      let materializedResult: ToolExecutionResult
      try {
        materializedResult = this.materializeFinalResult(result)
-@@ -1641,7 +2059,6 @@ export class ToolRuntime extends Service {
+@@ -1641,7 +2063,6 @@ export class ToolRuntime extends Service {
      } catch (error: unknown) {
        finalResult = this.materializeFinalResult(toolErrorResult(error))
      }
@@ -630,7 +634,7 @@ index 377015feb..b806149fb 100644
      return finalResult
    }
  
-@@ -1765,8 +2182,7 @@ export class ToolRuntime extends Service {
+@@ -1765,8 +2186,7 @@ export class ToolRuntime extends Service {
        if (result.isError) {
          throw new TypeError('tools/post-execute cannot replace the value of a failed result')
        }
@@ -640,7 +644,7 @@ index 377015feb..b806149fb 100644
        const replaced = this.createSuccessResult(exec, tool, decision.value)
        return this.markCanonical(exec, {
          ...replaced,
-@@ -1783,6 +2199,14 @@ export class ToolRuntime extends Service {
+@@ -1783,6 +2203,14 @@ export class ToolRuntime extends Service {
    /** Registry-normalized results and the exact dispatch that validated each value. */
    private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
  
@@ -655,7 +659,7 @@ index 377015feb..b806149fb 100644
    /** Mark one registry-normalized result as canonical only for its owning dispatch. */
    private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
      this.canonicalResults.set(result, exec.token)
-@@ -1790,7 +2214,7 @@ export class ToolRuntime extends Service {
+@@ -1790,7 +2218,7 @@ export class ToolRuntime extends Service {
    }
  
    /** Snapshot, validate, render, and optionally project one successful body value. */
@@ -664,7 +668,7 @@ index 377015feb..b806149fb 100644
      const detached = snapshotToolValue(tool.name, candidate)
      const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
      if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
-@@ -1834,8 +2258,7 @@ export class ToolRuntime extends Service {
+@@ -1834,8 +2262,7 @@ export class ToolRuntime extends Service {
          ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
        })
      }
@@ -675,7 +679,7 @@ index 377015feb..b806149fb 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
-index ec770592a..95be1c8ae 100644
+index ec770592a6..2d3baae02b 100644
 --- a/packages/core/tools/tests/tools.spec.ts
 +++ b/packages/core/tools/tests/tools.spec.ts
 @@ -4,9 +4,10 @@ import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@de
@@ -705,8 +709,8 @@ index ec770592a..95be1c8ae 100644
 +    ctx.tools.register(tool)
 +    ctx.on('tools/pre-execute', async (exec, next) => {
 +      ctx.tools.bindPrerequisite(exec, tool, {
-+        async beforeBody() {
-+          order.push('before-body')
++        async beforeBody(_exec, phase) {
++          order.push(`before-${phase}`)
 +          return [createUserMessage({
 +            content: [{ type: 'text', text: 'prerequisite context' }],
 +            source: { kind: 'plugin', plugin: 'prerequisite-test' },
@@ -732,7 +736,7 @@ index ec770592a..95be1c8ae 100644
 +      arguments: {},
 +    })
 +
-+    expect(order).toEqual(['before-body', 'before-body', 'body', 'post-enter', 'post-exit', 'commit'])
++    expect(order).toEqual(['before-dispatch', 'before-body', 'body', 'post-enter', 'post-exit', 'commit'])
 +    expect(result).toMatchObject({
 +      isError: false,
 +      value: 'ok',
@@ -1573,6 +1577,152 @@ index ec770592a..95be1c8ae 100644
    it('replaces a late wrapper success with ABORTED and preserves deferred contexts', async () => {
      const ctx = await setup()
      ctx.tools.register({
+diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
+index 695a9fdfc9..73fabfcc2f 100644
+--- a/packages/fs/tool-fs/src/sandbox.ts
++++ b/packages/fs/tool-fs/src/sandbox.ts
+@@ -13,7 +13,7 @@
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeEscalationArgs, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
+ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+ import { FsError } from '@deepseek-ai/dsh-fs'
+ 
+@@ -85,9 +85,13 @@ export class FsSandboxController {
+    *   unsandboxed backend.
+    */
+   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
+-    validateEscalationArgs(args.sandbox_permissions, args.justification)
+     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
+-    if (args.sandbox_permissions === undefined || args.justification === undefined) {
++    const escalation = normalizeEscalationArgs(
++      args.sandbox_permissions,
++      args.justification,
++      standingPolicy?.mode,
++    )
++    if (escalation === undefined) {
+       return standingPolicy
+     }
+     if (this.escalationModes.length === 0) {
+@@ -95,7 +99,7 @@ export class FsSandboxController {
+     }
+     const policy = standingPolicy as SandboxExecutionPolicy
+     const approvedMode = await approveEscalation(
+-      { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: policy.mode, subject: 'operation' },
++      { requestedMode: escalation.sandboxPermissions, justification: escalation.justification, effectiveMode: policy.mode, subject: 'operation' },
+       {
+         approver: this.ctx.get('approval'),
+         agent: exec.agent,
+diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
+index cad6531766..a688524614 100644
+--- a/packages/fs/tool-fs/tests/tools.spec.ts
++++ b/packages/fs/tool-fs/tests/tools.spec.ts
+@@ -857,6 +857,25 @@ describe('sandbox escalation API (write/edit)', () => {
+     expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
+   })
+ 
++  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
++    const { ctx, fs } = await setupConfining()
++    const agent = escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }])
++    fs.files.set('key:a.txt', 'before')
++    await call(ctx, 'read', { file_path: 'a.txt' }, agent)
++
++    const result = await call(ctx, 'edit', {
++      file_path: 'a.txt',
++      old_string: 'before',
++      new_string: 'after',
++      sandbox_permissions: 'workspace-write',
++      justification: '',
++    }, agent)
++
++    expect(result.isError).toBe(false)
++    expect(fs.files.get('key:a.txt')).toBe('after')
++    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
++  })
++
+   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
+     const { ctx, fs } = await setupConfining()
+     fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
+diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
+index 1aedfe7185..b1047e9fe0 100644
+--- a/packages/goal/goal/src/index.ts
++++ b/packages/goal/goal/src/index.ts
+@@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     goals: GoalService
++    /** Optional deployment-owned synchronous completion evaluator. */
++    dshAcceptance?: DshAcceptanceService
+   }
+ }
+ 
++/** Optional service seam consulted before GoalService mutates completion state. */
++export interface DshAcceptanceService {
++  assertGoalCompletion(agent: Agent, ref: GoalRef): void
++}
++
+ /** Wire payload schema of the `goal` projection (whole current goal or pre-create/cleared null). */
+ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
+   zod.object({
+@@ -335,6 +342,7 @@ export class GoalService extends TypertRemoteService {
+    */
+   @Remote('complete')
+   complete(agent: Agent, ref: GoalRef): GoalView {
++    this.ctx.get('dshAcceptance')?.assertGoalCompletion(agent, ref)
+     return this.transition(
+       agent,
+       ref,
+diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
+index e94e0754a0..fdd267bb9a 100644
+--- a/packages/goal/goal/tests/goal.spec.ts
++++ b/packages/goal/goal/tests/goal.spec.ts
+@@ -297,6 +297,44 @@ describe('GoalService mutations', () => {
+     expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
+   })
+ 
++  it('does not mutate goal state when acceptance denies', async () => {
++    const { ctx, agent, session } = await harness()
++    const goal = ctx.goals.create(agent, { objective: 'require authoritative acceptance' })
++    const eventsBefore = session.events.length
++    let assertions = 0
++    ctx.provide('dshAcceptance', {
++      assertGoalCompletion(candidate, ref) {
++        assertions += 1
++        expect(candidate).toBe(agent)
++        expect(ref).toBe(goal)
++        throw new Error('acceptance denied')
++      },
++    })
++
++    expect(() => ctx.goals.complete(agent, goal)).toThrow('acceptance denied')
++    expect(assertions).toBe(1)
++    expect(session.events).toHaveLength(eventsBefore)
++    expect(ctx.goals.get(agent)).toMatchObject({
++      id: goal.id,
++      revision: goal.revision,
++      phase: 'active',
++      activation: 'armed',
++    })
++  })
++
++  it('preserves completion when no acceptance provider is installed', async () => {
++    const { ctx, agent } = await harness()
++    const goal = ctx.goals.create(agent, { objective: 'remain ungoverned' })
++
++    expect(ctx.get('dshAcceptance')).toBeUndefined()
++    expect(ctx.goals.complete(agent, goal)).toMatchObject({
++      id: goal.id,
++      revision: goal.revision + 1,
++      phase: 'complete',
++      activation: 'disarmed',
++    })
++  })
++
+   it('allows completion from every stopped phase and replacement only after completion', async () => {
+     const phases = ['paused', 'blocked'] as const
+     for (const phase of phases) {
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
 index e87c428d06..61d90a7432 100644
 --- a/packages/llm/llm/src/index.ts
@@ -1653,7 +1803,8 @@ index e87c428d06..61d90a7432 100644
 +  }
 +
    private streamWithRegistration(
-@@ -921,7 +971,7 @@ export class LlmRuntime extends Service {
+@@ -920,9 +970,9 @@ export class LlmRuntime extends Service {
+   ): AsyncIterable<StreamChunk> {
 -    return this.ctx.waterfall(
 +    return this.guardedStream(options, () => this.ctx.waterfall(
        this,
@@ -1666,7 +1817,7 @@ index e87c428d06..61d90a7432 100644
  }
  
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 45f523c129..9ed2f898cc 100644
+index ed7d8d9bf8..8ce3578dca 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
 @@ -457,6 +457,87 @@ describe('LlmRuntime', () => {
@@ -1757,6 +1908,863 @@ index 45f523c129..9ed2f898cc 100644
    it('awaits adapter cleanup on downstream close and leaves cleanup failure thrown', async () => {
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
+diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
+index e0b9a2ce63..a9731e90fd 100644
+--- a/packages/sandbox/sandbox/src/escalation.ts
++++ b/packages/sandbox/sandbox/src/escalation.ts
+@@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
+   }
+ }
+ 
++/** A validated escalation pair, ready for the strictly-wider approval path. */
++export interface EscalationArgs {
++  sandboxPermissions: string
++  justification: string
++}
++
++/** Classify the only schema echoes that cannot widen the effective mode. */
++export function isNonWideningSandboxEcho(
++  sandboxPermissions: string | undefined,
++  effectiveMode: SandboxMode | undefined,
++): boolean {
++  return effectiveMode !== undefined
++    && (sandboxPermissions === effectiveMode
++      || (sandboxPermissions === 'workspace-write' && effectiveMode === 'danger-full-access'))
++}
++
++/**
++ * Normalize model/tool-protocol echoes that cannot widen the current call.
++ * Some callers materialize optional schema fields as the effective mode, or
++ * as the schema's `workspace-write` floor under `danger-full-access`, together
++ * with a concretized blank optional reason. Those shapes request no additional
++ * authority, so treat them as an ordinary call. Every other shape retains the
++ * strict pairing validation and approval choreography.
++ */
++export function normalizeEscalationArgs(
++  sandboxPermissions: string | undefined,
++  justification: string | undefined,
++  effectiveMode: SandboxMode | undefined,
++): EscalationArgs | undefined {
++  if (isNonWideningSandboxEcho(sandboxPermissions, effectiveMode)
++    && justification !== undefined
++    && justification.trim().length === 0) {
++    return undefined
++  }
++  validateEscalationArgs(sandboxPermissions, justification)
++  if (sandboxPermissions === undefined || justification === undefined) return undefined
++  return { sandboxPermissions, justification }
++}
++
+ /**
+  * The model-facing denial marker — the one vocabulary both enforcing families
+  * teach and report, so the model recognizes a policy denial identically
+diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
+index 2d9ee5b91b..28282b03e9 100644
+--- a/packages/sandbox/sandbox/src/index.ts
++++ b/packages/sandbox/sandbox/src/index.ts
+@@ -14,10 +14,12 @@ export {
+   WIDER_MODES,
+   approveEscalation,
+   escalationHintMarker,
++  isNonWideningSandboxEcho,
++  normalizeEscalationArgs,
+   sandboxDenialMarker,
+   validateEscalationArgs,
+ } from './escalation.ts'
+-export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
++export type { EscalationApproval, EscalationApprover, EscalationArgs, EscalationOutcome, EscalationRequest } from './escalation.ts'
+ export { canonicalPath, writableRoots } from './roots.ts'
+ 
+ /**
+diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
+index 15810d09d5..6073180efc 100644
+--- a/packages/sandbox/sandbox/tests/escalation.spec.ts
++++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
+@@ -12,6 +12,8 @@ import {
+   WIDER_MODES,
+   approveEscalation,
+   escalationHintMarker,
++  isNonWideningSandboxEcho,
++  normalizeEscalationArgs,
+   sandboxDenialMarker,
+   validateEscalationArgs,
+ } from '@deepseek-ai/dsh-sandbox'
+@@ -42,6 +44,23 @@ describe('validateEscalationArgs', () => {
+   })
+ })
+ 
++describe('normalizeEscalationArgs', () => {
++  it('normalizes only explicit blank echoes that cannot widen full access', () => {
++    expect(isNonWideningSandboxEcho('danger-full-access', 'danger-full-access')).toBe(true)
++    expect(isNonWideningSandboxEcho('workspace-write', 'danger-full-access')).toBe(true)
++    expect(isNonWideningSandboxEcho('danger-full-access', 'workspace-write')).toBe(false)
++    expect(normalizeEscalationArgs('danger-full-access', '', 'danger-full-access')).toBeUndefined()
++    expect(normalizeEscalationArgs('workspace-write', ' ', 'danger-full-access')).toBeUndefined()
++  })
++
++  it('preserves pairing and nonblank non-widening validation', () => {
++    expect(() => normalizeEscalationArgs('workspace-write', undefined, 'danger-full-access'))
++      .toThrow(/requires a justification/)
++    expect(normalizeEscalationArgs('workspace-write', 'requested explicitly', 'danger-full-access'))
++      .toEqual({ sandboxPermissions: 'workspace-write', justification: 'requested explicitly' })
++  })
++})
++
+ describe('the model-facing markers', () => {
+   it('the denial marker names the mode', () => {
+     expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
+diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
+index 37c4a762e3..f149209c6f 100644
+--- a/packages/shell/tool-bash/src/index.ts
++++ b/packages/shell/tool-bash/src/index.ts
+@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
+ import type {} from '@deepseek-ai/dsh-user-approval'
+ import type {} from '@deepseek-ai/dsh-shell-env'
+ import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, canonicalPath, normalizeEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+ import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
+ import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
+@@ -62,9 +62,6 @@ function validateBashArgs(args: BashToolArgs): void {
+   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
+     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
+   }
+-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
+-  // the shared rule both enforcing families validate identically.
+-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+ }
+ 
+ function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
+@@ -331,8 +328,13 @@ export function apply(ctx: Context, config: Config = {}): void {
+       validateBashArgs(args)
+       // Description is display metadata; workdir defaults to the caller's session.
+       const standingPolicy = resolveSandboxPolicy(exec)
+-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+-        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
++      const escalation = normalizeEscalationArgs(
++        args.sandbox_permissions,
++        args.justification,
++        standingPolicy?.mode,
++      )
++      const approvedMode = escalation !== undefined
++        ? await approveBashEscalation(escalation.sandboxPermissions, escalation.justification, exec, standingPolicy)
+         : undefined
+       const policy = approvedMode === undefined
+         ? standingPolicy
+diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
+index 0f2e4d5a20..aaceb87775 100644
+--- a/packages/shell/tool-bash/tests/tools.spec.ts
++++ b/packages/shell/tool-bash/tests/tools.spec.ts
+@@ -620,6 +620,19 @@ describe('sandbox escalation through the generic task producer', () => {
+     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
+   })
+ 
++  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
++    const { ctx, bash } = await setupSandboxed()
++    const result = await call(ctx, 'bash', {
++      command: 'true',
++      description: 'run ordinary full-access command',
++      sandbox_permissions: 'workspace-write',
++      justification: '',
++    }, sandboxAgent('danger-full-access'))
++
++    expect(result.isError).toBe(false)
++    expect(bash.modes).toEqual(['danger-full-access'])
++  })
++
+   it('fails closed when approval cannot be routed', async () => {
+     const withoutService = await setupSandboxed()
+     expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
+diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
+index 7582338858..93fc2894d2 100644
+--- a/packages/subagent/subagent/src/child-agent.ts
++++ b/packages/subagent/subagent/src/child-agent.ts
+@@ -103,11 +103,14 @@ export function childSessionMeta(
+   parent: Agent,
+   childDepth: number,
+   lineageSeedLength: number,
++  workspaceCwd?: string,
+ ): NonNullable<CreateAgentOptions['meta']> {
+   const parentHeader = parent.session.header
+   const agentPreset = parent.ctx.get('agentPresets')?.composedPreset(parent.ctx)
+   return {
+-    ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
++    ...workspaceCwd !== undefined
++      ? { cwd: workspaceCwd }
++      : parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
+     ...agentPreset === undefined ? {} : { agentPreset },
+     parentSession: parentHeader.id,
+     // Navigation classification only; the descriptor remains the authority
+diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
+index d826efbfdb..3ec4739c02 100644
+--- a/packages/subagent/subagent/src/continuation.ts
++++ b/packages/subagent/subagent/src/continuation.ts
+@@ -49,7 +49,17 @@ import {
+ import type { DelegatedPolicyOverrides } from './child-agent.ts'
+ import { assertSubagentMaxDepth } from './depth.ts'
+ import { seedDescriptorTurn } from './descriptor-seed.ts'
+-import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, SubagentStartRequest } from './types.ts'
++import type {
++  ContinuableCreateRequest,
++  ContinuableCreateSpec,
++  ContinuableWorkspaceActivationRequest,
++  ContinuableWorkspaceDescriptor,
++  ContinuableWorkspacePrepareRequest,
++  ContinuableWorkspacePrepared,
++  ContinuableWorkspaceSelection,
++  SubagentResult,
++  SubagentStartRequest,
++} from './types.ts'
+ import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
+ import { SubagentError } from './error.ts'
+ import type SubagentActivationSetupRegistry from './activation-setup-registry.ts'
+@@ -121,6 +131,8 @@ export interface ContinuableStartSpec {
+   readonly request: Omit<SubagentStartRequest, 'label' | 'signal' | 'outputSchema'>
+   /** Caller cancellation, owning the operation only until inbox acceptance. */
+   readonly signal: AbortSignal
++  /** Trusted host-only workspace selection. Never part of model tool input. */
++  readonly workspace?: ContinuableWorkspaceSelection
+ }
+ 
+ /** Identities returned once a continuable child accepted its initial prompt. */
+@@ -173,6 +185,9 @@ interface ContinuationHost {
+    * @returns the provider's detached creation spec.
+    */
+   prepareContinuable(name: string, request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
++  snapshotWorkspace(selection: ContinuableWorkspaceSelection, parent: Agent): ContinuableWorkspaceDescriptor
++  prepareWorkspace(request: ContinuableWorkspacePrepareRequest): Promise<ContinuableWorkspacePrepared>
++  activateWorkspace(request: ContinuableWorkspaceActivationRequest): Promise<void>
+   /**
+    * Build the lifecycle observer for one Activation's residency epoch.
+    * @param provider - the provider name recorded in the durable descriptor.
+@@ -257,6 +272,7 @@ interface MaterializeInputs {
+   }
+   agentOptions: AgentOptions
+   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
++  workspace?: ContinuableWorkspaceDescriptor
+   signal: AbortSignal
+ }
+ 
+@@ -410,2 +426,5 @@ export class SubagentContinuationManager {
+     const childDepth = resolveChildDepth(parent, request.maxDepth)
++    const workspace = spec.workspace === undefined
++      ? undefined
++      : this.host.snapshotWorkspace(spec.workspace, parent)
+     // Snapshot before any await: invalid descriptor JSON rejects the call
+@@ -420,11 +439,21 @@ export class SubagentContinuationManager {
+       ...agentModel !== undefined ? { agentModel } : {},
+       ...request.persona !== undefined ? { persona: request.persona } : {},
+       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
++      ...workspace !== undefined ? { workspace } : {},
+     })
+     // Capture before the first await: a later parent switch belongs to the
+     // parent's future, not to this child.
+     const delegatedPolicies = captureDelegatedPolicyOverrides(parent)
+ 
++    const preparedWorkspace = workspace === undefined
++      ? undefined
++      : await this.host.prepareWorkspace({
++        sessionId: childId,
++        parent,
++        signal: spec.signal,
++        descriptor: workspace,
++        ref: spec.workspace?.ref,
++      })
+     const prepared = await this.host.prepareContinuable(spec.provider, {
+       sessionId: childId,
+       parent,
+@@ -440,9 +469,14 @@ export class SubagentContinuationManager {
+         childId,
+         provider: spec.provider,
+         parent,
+-        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
++        create: {
++          seed,
++          meta: childSessionMeta(parent, childDepth, lineageSeedLength, preparedWorkspace?.cwd),
++          delegatedPolicies,
++        },
+         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
+         composition: { persona: request.persona, toolFilter: request.toolFilter },
++        ...workspace === undefined ? {} : { workspace },
+         signal: spec.signal,
+       })
+       return this.submitMaterialized(
+@@ -652,6 +686,22 @@ export class SubagentContinuationManager {
+     return message.id
+   }
+ 
++  /**
++   * Terminally release one resident continuable child and its live descendants.
++   * A cold child owns no activation authority and is therefore an accepted no-op.
++   */
++  async close(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
++    signal.throwIfAborted()
++    this.assertAdmitting(parent)
++    await this.locks.run(childId, async () => {
++      signal.throwIfAborted()
++      const activation = this.activations.get(childId)
++      if (activation === undefined) return
++      this.authorizeLineage(parent, childId, activation.parentSession)
++      await this.dispose(activation)
++    })
++  }
++
+   /**
+    * Perform one waking send to a parent, accounted against that parent's own
+    * Activation when it has one. Registering the id before the send is what
+@@ -910,6 +960,32 @@ export class SubagentContinuationManager {
+         'NOT_RESUMABLE',
+       )
+     }
++    if (descriptor.workspace !== undefined) {
++      let prepared: ContinuableWorkspacePrepared
++      try {
++        prepared = await this.host.prepareWorkspace({
++          sessionId: childId,
++          parent,
++          signal: options.signal,
++          descriptor: descriptor.workspace,
++          ...loaded.meta.cwd === undefined ? {} : { persistedCwd: loaded.meta.cwd },
++        })
++      } catch (error: unknown) {
++        options.signal.throwIfAborted()
++        if (error instanceof SubagentError) throw error
++        throw new SubagentError(
++          `subagent "${childId}" workspace is unavailable`,
++          'NOT_RESUMABLE',
++          { cause: error },
++        )
++      }
++      if (loaded.meta.cwd === undefined || prepared.cwd !== loaded.meta.cwd) {
++        throw new SubagentError(
++          `subagent "${childId}" workspace identity does not match its durable session`,
++          'NOT_RESUMABLE',
++        )
++      }
++    }
+     let activation: Activation
+     try {
+       activation = await this.materialize({
+@@ -921,6 +997,7 @@ export class SubagentContinuationManager {
+           ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+         },
+         composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
++        ...descriptor.workspace === undefined ? {} : { workspace: descriptor.workspace },
+         signal: options.signal,
+       })
+     } catch (error: unknown) {
+@@ -1022,6 +1099,19 @@ export class SubagentContinuationManager {
+         setup,
+       })
+ 
++    if (inputs.workspace !== undefined) {
++      try {
++        await this.host.activateWorkspace({
++          agent: handle.agent,
++          descriptor: inputs.workspace,
++          signal: inputs.signal,
++        })
++      } catch (error: unknown) {
++        await handle.dispose().catch(() => undefined)
++        throw error
++      }
++    }
++
+     const activation: Activation = {
+       childId,
+       // The durable lineage, not merely the caller: creation stamps this same
+diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
+index 6d9dedee75..ff5624fbff 100644
+--- a/packages/subagent/subagent/src/descriptor.ts
++++ b/packages/subagent/subagent/src/descriptor.ts
+@@ -24,6 +24,7 @@
+ import { snapshotJsonValue } from '@deepseek-ai/dsh-session'
+ import type { SessionEvent } from '@deepseek-ai/dsh-session'
+ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
++import type { ContinuableWorkspaceDescriptor } from './types.ts'
+ 
+ declare module '@deepseek-ai/dsh-session/types' {
+   interface SessionEventMap {
+@@ -44,7 +45,8 @@ declare module '@deepseek-ai/dsh-session/types' {
+  * Supporting another composition input is a deliberate version change, never
+  * an implicit extra field.
+  */
+-export const SUBAGENT_DESCRIPTOR_VERSION = 2
++export const SUBAGENT_DESCRIPTOR_VERSION = 3
++const LEGACY_SUBAGENT_DESCRIPTOR_VERSION = 2
+ 
+ /** Fields shared by every supported `subagent/descriptor` payload. */
+ interface SubagentDescriptorBase {
+@@ -80,6 +82,8 @@ export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBas
+   readonly persona?: string
+   /** Child tool scoping reapplied on resume. */
+   readonly toolFilter?: ToolRestriction
++  /** Host-only non-bearer identity needed to reauthenticate on cold resume. */
++  readonly workspace?: ContinuableWorkspaceDescriptor
+ }
+ 
+ /** The supported durable subagent identity and optional continuation composition. */
+@@ -115,6 +119,8 @@ export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorIn
+   readonly persona?: string
+   /** Requested child tool scoping. */
+   readonly toolFilter?: ToolRestriction
++  /** Trusted host workspace identity; opaque live refs are never persisted. */
++  readonly workspace?: ContinuableWorkspaceDescriptor
+ }
+ 
+ /** Inputs {@link snapshotSubagentDescriptor} validates and detaches. */
+@@ -135,7 +141,9 @@ const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
+   'agentModel',
+   'persona',
+   'toolFilter',
++  'workspace',
+ ])
++const WORKSPACE_DESCRIPTOR_KEYS = new Set(['provider', 'version'])
+ const TOOL_FILTER_KEYS = new Set(['allow', 'deny'])
+ 
+ /** Whether a persisted JSON value is an object record. */
+@@ -192,6 +200,19 @@ function parseToolFilter(value: unknown): ToolRestriction {
+   }
+ }
+ 
++/** Validate the non-bearer durable identity of one host workspace provider. */
++function parseWorkspace(value: unknown): ContinuableWorkspaceDescriptor {
++  if (!isRecord(value)) throw new Error('persisted subagent descriptor workspace must be an object')
++  assertKnownKeys(value, WORKSPACE_DESCRIPTOR_KEYS, 'workspace')
++  if (typeof value['provider'] !== 'string' || value['provider'].length === 0) {
++    throw new Error('persisted subagent descriptor workspace.provider must be a non-empty string')
++  }
++  if (!Number.isSafeInteger(value['version']) || (value['version'] as number) <= 0) {
++    throw new Error('persisted subagent descriptor workspace.version must be a positive safe integer')
++  }
++  return { provider: value['provider'], version: value['version'] as number }
++}
++
+ /** Validate one persisted descriptor payload for the current runtime. */
+ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undefined {
+   if (!isRecord(value)) {
+@@ -201,7 +222,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
+   if (typeof version !== 'number') {
+     throw new Error('persisted subagent descriptor version must be a number')
+   }
+-  if (version !== SUBAGENT_DESCRIPTOR_VERSION) return undefined
++  if (version !== SUBAGENT_DESCRIPTOR_VERSION && version !== LEGACY_SUBAGENT_DESCRIPTOR_VERSION) return undefined
+ 
+   const mode = value['mode']
+   if (mode !== 'one-shot' && mode !== 'continuable') {
+@@ -209,7 +230,11 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
+   }
+   assertKnownKeys(
+     value,
+-    mode === 'one-shot' ? ONE_SHOT_DESCRIPTOR_KEYS : CONTINUABLE_DESCRIPTOR_KEYS,
++    mode === 'one-shot'
++      ? ONE_SHOT_DESCRIPTOR_KEYS
++      : version === LEGACY_SUBAGENT_DESCRIPTOR_VERSION
++        ? new Set([...CONTINUABLE_DESCRIPTOR_KEYS].filter(key => key !== 'workspace'))
++        : CONTINUABLE_DESCRIPTOR_KEYS,
+     'payload',
+   )
+   const provider = value['provider']
+@@ -235,6 +260,9 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
+   const toolFilter = Object.hasOwn(value, 'toolFilter')
+     ? parseToolFilter(value['toolFilter'])
+     : undefined
++  const workspace = Object.hasOwn(value, 'workspace')
++    ? parseWorkspace(value['workspace'])
++    : undefined
+   return {
+     version: SUBAGENT_DESCRIPTOR_VERSION,
+     mode,
+@@ -244,6 +272,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
+     ...agentModel !== undefined ? { agentModel } : {},
+     ...persona !== undefined ? { persona } : {},
+     ...toolFilter !== undefined ? { toolFilter } : {},
++    ...workspace !== undefined ? { workspace } : {},
+   }
+ }
+ 
+@@ -271,13 +300,15 @@ export function snapshotSubagentDescriptor(
+ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): SubagentDescriptorData {
+   const candidate: SubagentDescriptorData = input.mode === 'one-shot'
+     ? {
+-      version: SUBAGENT_DESCRIPTOR_VERSION,
++      version: LEGACY_SUBAGENT_DESCRIPTOR_VERSION,
+       mode: input.mode,
+       provider: input.provider,
+       ...input.label !== undefined ? { label: input.label } : {},
+     }
+     : {
+-      version: SUBAGENT_DESCRIPTOR_VERSION,
++      version: input.workspace === undefined
++        ? LEGACY_SUBAGENT_DESCRIPTOR_VERSION
++        : SUBAGENT_DESCRIPTOR_VERSION,
+       mode: input.mode,
+       provider: input.provider,
+       label: input.label,
+@@ -285,6 +316,7 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
+       ...input.agentModel !== undefined ? { agentModel: input.agentModel } : {},
+       ...input.persona !== undefined ? { persona: input.persona } : {},
+       ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
++      ...input.workspace !== undefined ? { workspace: input.workspace } : {},
+     }
+   const snapshot = snapshotJsonValue(candidate)
+   if (snapshot === undefined) {
+diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
+index fe270f1b4c..447b5682bb 100644
+--- a/packages/subagent/subagent/src/index.ts
++++ b/packages/subagent/subagent/src/index.ts
+@@ -41,6 +41,12 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
+ import type {
+   ContinuableCreateRequest,
+   ContinuableCreateSpec,
++  ContinuableWorkspaceActivationRequest,
++  ContinuableWorkspaceDescriptor,
++  ContinuableWorkspacePrepareRequest,
++  ContinuableWorkspacePrepared,
++  ContinuableWorkspaceProvider,
++  ContinuableWorkspaceSelection,
+   ResolvedSubagentStartRequest,
+   SubagentCapabilities,
+   SubagentProvider,
+@@ -74,6 +80,12 @@ export { SubagentRunId } from './types.ts'
+ export type {
+   ContinuableCreateRequest,
+   ContinuableCreateSpec,
++  ContinuableWorkspaceActivationRequest,
++  ContinuableWorkspaceDescriptor,
++  ContinuableWorkspacePrepareRequest,
++  ContinuableWorkspacePrepared,
++  ContinuableWorkspaceProvider,
++  ContinuableWorkspaceSelection,
+   ResolvedSubagentStartRequest,
+   SubagentCapabilities,
+   SubagentProvider,
+@@ -170,6 +182,7 @@ declare module '@deepseek-ai/cordis' {
+ /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
+ export class SubagentRuntime extends Service {
+   private providers = new Map<string, SubagentProvider>()
++  private workspaceProviders = new Map<string, ContinuableWorkspaceProvider>()
+   private continuations: SubagentContinuationManager | undefined
+   /** Deployment contributions composed into unpublished continuable children. */
+   private readonly setupRegistry = new SubagentActivationSetupRegistry()
+@@ -186,6 +199,9 @@ export class SubagentRuntime extends Service {
+     ctx.inject(['agents'], (childCtx: Context) => {
+       const manager = new SubagentContinuationManager(childCtx, {
+         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
++        snapshotWorkspace: (selection, parent) => this.snapshotWorkspace(selection, parent),
++        prepareWorkspace: request => this.prepareWorkspace(request),
++        activateWorkspace: request => this.activateWorkspace(request),
+         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
+       }, this.setupRegistry)
+       this.continuations = manager
+@@ -237,6 +253,13 @@ export class SubagentRuntime extends Service {
+     return this.requireContinuations().followup(parent, childId, content, options)
+   }
+ 
++  /** Terminally release one resident continuable child and its descendants. */
++  async closeContinuable(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
++    const manager = this.continuations
++    if (manager === undefined) return
++    await manager.close(parent, childId, signal)
++  }
++
+   /**
+    * Interrupt one live continuable child's current turn under a human parent
+    * address or an exact live ancestor Agent. Fire-and-return: the cancel
+@@ -291,6 +314,56 @@ export class SubagentRuntime extends Service {
+     )
+   }
+ 
++  /** Register one trusted provider for host-issued continuable workspaces. */
++  registerContinuableWorkspaceProvider(provider: ContinuableWorkspaceProvider): () => void {
++    if (provider.name.length === 0 || !Number.isSafeInteger(provider.version) || provider.version <= 0) {
++      throw new SubagentError('invalid continuable workspace provider identity', 'INVALID_REQUEST')
++    }
++    return this.ctx.effect(() => {
++      if (this.workspaceProviders.has(provider.name)) {
++        throw new SubagentError(
++          `a continuable workspace provider named "${provider.name}" is already registered`,
++          'DUPLICATE_PROVIDER',
++        )
++      }
++      this.workspaceProviders.set(provider.name, provider)
++      return () => { this.workspaceProviders.delete(provider.name) }
++    }, 'subagents.registerContinuableWorkspaceProvider()')
++  }
++
++  private snapshotWorkspace(
++    selection: ContinuableWorkspaceSelection,
++    parent: Agent,
++  ): ContinuableWorkspaceDescriptor {
++    const provider = this.workspaceProviders.get(selection.provider)
++    if (provider === undefined) {
++      throw new SubagentError(
++        `continuable workspace provider "${selection.provider}" is not registered`,
++        'UNSUPPORTED_CAPABILITY',
++      )
++    }
++    provider.validate(selection.ref, parent)
++    return { provider: provider.name, version: provider.version }
++  }
++
++  private async prepareWorkspace(
++    request: ContinuableWorkspacePrepareRequest,
++  ): Promise<ContinuableWorkspacePrepared> {
++    const provider = this.workspaceProviders.get(request.descriptor.provider)
++    if (provider === undefined || provider.version !== request.descriptor.version) {
++      throw new SubagentError('continuable workspace capability is unavailable', 'UNSUPPORTED_CAPABILITY')
++    }
++    return provider.prepare(request)
++  }
++
++  private async activateWorkspace(request: ContinuableWorkspaceActivationRequest): Promise<void> {
++    const provider = this.workspaceProviders.get(request.descriptor.provider)
++    if (provider === undefined || provider.version !== request.descriptor.version) {
++      throw new SubagentError('continuable workspace capability is unavailable', 'UNSUPPORTED_CAPABILITY')
++    }
++    await provider.activate(request)
++  }
++
+   /**
+    * Close continuable admission below exact live parent Agents, stop only their
+    * visible descendant Activations synchronously, then await admitted scoped
+diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
+index 2c5209765f..5d26a6f4ae 100644
+--- a/packages/subagent/subagent/src/types.ts
++++ b/packages/subagent/subagent/src/types.ts
+@@ -191,6 +191,56 @@ export interface ContinuableCreateSpec {
+   readonly seed?: readonly SessionEvent[]
+ }
+ 
++/** Host-only selector for one managed continuable workspace. */
++export interface ContinuableWorkspaceSelection {
++  /** Registered trusted workspace provider. */
++  readonly provider: string
++  /** Opaque same-process reference. It is never persisted or exposed to tools. */
++  readonly ref: unknown
++}
++
++/** Non-bearer workspace identity retained in a continuable descriptor. */
++export interface ContinuableWorkspaceDescriptor {
++  readonly provider: string
++  readonly version: number
++}
++
++/** Inputs a trusted workspace provider receives before child materialization. */
++export interface ContinuableWorkspacePrepareRequest {
++  readonly sessionId: SessionId
++  readonly parent: Agent
++  readonly signal: AbortSignal
++  readonly descriptor: ContinuableWorkspaceDescriptor
++  /** Present only for a fresh host-selected child. */
++  readonly ref?: unknown
++  /** Persisted immutable cwd on cold resume. */
++  readonly persistedCwd?: string
++}
++
++/** Exact session metadata resolved from one host-issued workspace. */
++export interface ContinuableWorkspacePrepared {
++  readonly cwd: string
++}
++
++/** Inputs delivered after Agent creation but before prompt admission. */
++export interface ContinuableWorkspaceActivationRequest {
++  readonly agent: Agent
++  readonly descriptor: ContinuableWorkspaceDescriptor
++  readonly signal: AbortSignal
++}
++
++/** Trusted same-process provider for host-issued continuable workspaces. */
++export interface ContinuableWorkspaceProvider {
++  readonly name: string
++  readonly version: number
++  /** Synchronously authenticate a live opaque ref before the first await. */
++  validate(ref: unknown, parent: Agent): void
++  /** Resolve fresh or durable identity before the child Agent is created. */
++  prepare(request: ContinuableWorkspacePrepareRequest): Promise<ContinuableWorkspacePrepared>
++  /** Prove runtime authority before the first inbox message can be accepted. */
++  activate(request: ContinuableWorkspaceActivationRequest): Promise<void>
++}
++
+ /**
+  * Why a subagent run ended. Merge-extensible (a backend may add variants);
+  * consumers branch on the known cases and fall through `default`. The known
+diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
+index 07f497628d..800220d78f 100644
+--- a/packages/subagent/subagent/tests/continuation.spec.ts
++++ b/packages/subagent/subagent/tests/continuation.spec.ts
+@@ -168,6 +168,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
+ }
+ 
+ describe('SubagentRuntime.startContinuable', () => {
++  it('binds and cold-resumes one host-issued workspace without exposing its opaque ref', async () => {
++    const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
++    parkParent(ctx, parent)
++    const ref = Object.freeze(Object.create(null))
++    const calls: unknown[] = []
++    ctx.subagents.registerContinuableWorkspaceProvider({
++      name: 'managed',
++      version: 1,
++      validate(candidate, caller) {
++        expect(candidate).toBe(ref)
++        expect(caller).toBe(parent)
++      },
++      async prepare(request) {
++        calls.push(request)
++        expect(request.descriptor).toEqual({ provider: 'managed', version: 1 })
++        return { cwd: '/managed/worktree' }
++      },
++      async activate({ agent, descriptor }) {
++        expect(agent.session.header.cwd).toBe('/managed/worktree')
++        expect(descriptor).toEqual({ provider: 'managed', version: 1 })
++      },
++    })
++
++    const started = await ctx.subagents.startContinuable({
++      ...startSpec(parent),
++      workspace: { provider: 'managed', ref },
++    })
++    await waitNoActivation(ctx, started.childId)
++    const loaded = await ctx.sessionPersistence.load(started.childId)
++    const descriptor = loaded.events.find(event => event.type === 'subagent/descriptor')
++    expect(descriptor?.data).toMatchObject({
++      version: SUBAGENT_DESCRIPTOR_VERSION,
++      mode: 'continuable',
++      workspace: { provider: 'managed', version: 1 },
++    })
++    expect((descriptor?.data as { workspace?: unknown }).workspace).toEqual({ provider: 'managed', version: 1 })
++    expect((descriptor?.data as { workspace?: unknown }).workspace).not.toHaveProperty('ref')
++
++    await followup(ctx, parent, started.childId, message('again'))
++    await waitNoActivation(ctx, started.childId)
++    expect(calls).toHaveLength(2)
++    expect(calls[1]).toMatchObject({ persistedCwd: '/managed/worktree' })
++    expect(calls[1]).not.toHaveProperty('ref')
++  })
++
++  it('keeps ordinary continuable descriptors on the rollback-readable v2 format', async () => {
++    const { ctx, parent } = await setup([textResponse('ordinary')])
++    parkParent(ctx, parent)
++    const started = await ctx.subagents.startContinuable(startSpec(parent))
++    await waitNoActivation(ctx, started.childId)
++    const loaded = await ctx.sessionPersistence.load(started.childId)
++    const descriptor = loaded.events.find(event => event.type === 'subagent/descriptor')
++    expect(descriptor?.data).toMatchObject({ version: 2, mode: 'continuable' })
++    expect(descriptor?.data).not.toHaveProperty('workspace')
++  })
++
++  it('fails before child creation when a host workspace provider is unavailable', async () => {
++    const { ctx, parent } = await setup([])
++    await expect(ctx.subagents.startContinuable({
++      ...startSpec(parent),
++      workspace: { provider: 'missing', ref: Object.freeze(Object.create(null)) },
++    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
++    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
++  })
++
++  it('rolls back the child when host workspace activation refuses authority', async () => {
++    const { ctx, parent } = await setup([textResponse('unused')])
++    const ref = Object.freeze(Object.create(null))
++    ctx.subagents.registerContinuableWorkspaceProvider({
++      name: 'refusing',
++      version: 1,
++      validate() {},
++      async prepare() { return { cwd: '/managed/worktree' } },
++      async activate() { throw new Error('foreign lease') },
++    })
++    await expect(ctx.subagents.startContinuable({
++      ...startSpec(parent),
++      workspace: { provider: 'refusing', ref },
++    })).rejects.toThrow(/foreign lease/)
++    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
++  })
++
++  it('returns a typed cold-resume refusal when workspace reauthentication fails', async () => {
++    const { ctx, parent } = await setup([textResponse('first')])
++    parkParent(ctx, parent)
++    const ref = Object.freeze(Object.create(null))
++    let preparations = 0
++    ctx.subagents.registerContinuableWorkspaceProvider({
++      name: 'unstable',
++      version: 1,
++      validate() {},
++      async prepare() {
++        preparations += 1
++        if (preparations > 1) throw new Error('lease unavailable')
++        return { cwd: '/managed/worktree' }
++      },
++      async activate() {},
++    })
++    const started = await ctx.subagents.startContinuable({
++      ...startSpec(parent),
++      workspace: { provider: 'unstable', ref },
++    })
++    await waitNoActivation(ctx, started.childId)
++
++    await expect(followup(ctx, parent, started.childId, message('again')))
++      .rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
++    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
++  })
++
++  it('terminally closes one exact child and its descendants', async () => {
++    const releaseChild = Promise.withResolvers<undefined>()
++    const releaseGrandchild = Promise.withResolvers<undefined>()
++    const adapter = new GatedAdapter([
++      { chunks: textResponse('child'), gate: releaseChild.promise },
++      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
++    ])
++    const { ctx, parent } = await setupWith(adapter)
++    const started = await ctx.subagents.startContinuable(startSpec(parent))
++    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
++    const child = ctx.agents.get(started.childId)!
++    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
++    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
++    const childCancel = vi.spyOn(child, 'cancel')
++    const grandchildCancel = vi.spyOn(ctx.agents.get(grandchild.childId)!, 'cancel')
++
++    const closed = ctx.subagents.closeContinuable(parent, started.childId, testSignal)
++    await vi.waitFor(() => {
++      expect(childCancel).toHaveBeenCalledWith({ kind: 'parent' })
++      expect(grandchildCancel).toHaveBeenCalledWith({ kind: 'parent' })
++    })
++    releaseChild.resolve(undefined)
++    releaseGrandchild.resolve(undefined)
++    await closed
++    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
++    expect(ctx.agents.get(started.childId)).toBeUndefined()
++  })
++
+   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
+     const { ctx, parent, adapter } = await setup([textResponse('first answer')])
+     const enqueued: { id: MessageId; loggedYet: boolean }[] = []
+@@ -225,7 +362,7 @@ describe('SubagentRuntime.startContinuable', () => {
+     expect(descriptorIndex).toBeLessThan(turnStartIndex)
+     const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
+     expect(descriptor.data).toEqual({
+-      version: SUBAGENT_DESCRIPTOR_VERSION,
++      version: 2,
+       mode: 'continuable',
+       provider: 'spawn',
+       label: 'child task',
+@@ -321,7 +458,7 @@ describe('SubagentRuntime.startContinuable', () => {
+     const descriptor = child.session.events.find(event => event.type === 'subagent/descriptor')
+ 
+     expect(descriptor?.data).toEqual({
+-      version: SUBAGENT_DESCRIPTOR_VERSION,
++      version: 2,
+       mode: 'continuable',
+       provider: 'spawn',
+       label: 'child task',
+@@ -355,7 +492,7 @@ describe('SubagentRuntime.startContinuable', () => {
+ 
+     expect(child.session.events.find(event => event.type === 'subagent/descriptor')?.data)
+       .toEqual({
+-        version: SUBAGENT_DESCRIPTOR_VERSION,
++        version: 2,
+         mode: 'continuable',
+         provider: 'spawn',
+         label: 'child task',
 diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
 index 261f614fba..2686bec756 100644
 --- a/packages/subprocess/subprocess-local/src/index.ts
@@ -1851,7 +2859,7 @@ index 433ba01791..b7d93c2973 100644
    if (process.platform !== 'win32') return { ...env, ...extra }
    let entries: [string, string | undefined][] = Object.entries(env)
    for (const [key, value] of Object.entries(extra ?? {})) {
-@@ -54,10 +69,17 @@ export interface SpawnInternals {
+@@ -54,10 +73,17 @@ export interface SpawnInternals {
    taskkill?: (pid: number) => void
    /** Host platform override for signalling decisions. */
    platform?: NodeJS.Platform
@@ -1869,7 +2877,7 @@ index 433ba01791..b7d93c2973 100644
  /**
   * Local-only synchronous final termination used by the owning service during
   * host exit and as the last fallback after failed normal disposal. It is
-@@ -314,6 +336,190 @@ function signalTree(
+@@ -314,6 +340,190 @@ function signalTree(
    }
  }
  
@@ -2060,7 +3068,7 @@ index 433ba01791..b7d93c2973 100644
  /**
   * Spawn one isolated detached process tree with the spec's per-stream stdio
   * dispositions. Runtime exits resolve `done` as {@link SubprocessOutcome};
-@@ -323,7 +529,11 @@ function signalTree(
+@@ -323,7 +533,11 @@ function signalTree(
   * @returns live subprocess handle.
   * @throws when `graceMs` cannot be represented by one Node timer.
   */
@@ -2073,7 +3081,7 @@ index 433ba01791..b7d93c2973 100644
    if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
      throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
    }
-@@ -332,6 +542,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -332,6 +546,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
    const taskkill = internals.taskkill ?? taskkillProcessTree
    const linuxGroupHasLiveMembers = internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers
  
@@ -2087,7 +3095,7 @@ index 433ba01791..b7d93c2973 100644
    if (spec.signal?.aborted) {
      throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
    }
-@@ -347,18 +564,42 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -347,18 +568,42 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
    const stdinMode = spec.stdio.stdin
  
    const env = childEnv(spec.env)
@@ -2132,7 +3140,7 @@ index 433ba01791..b7d93c2973 100644
  
    const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
      if (!isCollect(mode) || stream === null) return undefined
-@@ -424,6 +665,10 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -424,6 +669,10 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
      return treeExitObservation
    }
  
@@ -2143,7 +3151,7 @@ index 433ba01791..b7d93c2973 100644
    // The escalation's tier primitive (not on the handle — terminate() is the
    // only consumer-facing termination verb). Guards on TREE liveness, not
    // outcome settlement: a TERM-trapping helper can outlive the settled direct
-@@ -485,6 +730,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -485,6 +734,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
        // No meaningful close outcome follows a spawn failure.
        settled = true
        cleanup()
@@ -2152,7 +3160,7 @@ index 433ba01791..b7d93c2973 100644
      })
      child.on('exit', (exitCode, signal) => {
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfaaa1..02b4977972 100644
+index 1f87fd67cc..d22ace2e8f 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 @@ -1,4 +1,5 @@
@@ -2162,12 +3170,13 @@ index 1f21dfaaa1..02b4977972 100644
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
  import { describe, expect, it, vi } from 'vitest'
-@@ -11,3 +12,4 @@
+@@ -10,4 +11,5 @@ import {
+ } from '../src/spawn.ts'
  import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 +import * as spawnModule from '../src/spawn.ts'
  
-@@ -58,14 +59,35 @@
+@@ -14,4 +16,7 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 -const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
 +const { failNextClose, failNextUnlink, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
    failNextClose: { value: false },
@@ -2176,6 +3185,7 @@ index 1f21dfaaa1..02b4977972 100644
 +  foreignOwnerPath: { value: undefined as string | undefined },
 +  replaceTransientOnClose: { parent: undefined as string | undefined, path: undefined as string | undefined },
  }))
+@@ -18,5 +23,15 @@ const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
  vi.mock('node:fs', async (importOriginal) => {
    const actual = await importOriginal<typeof import('node:fs')>()
    return {
@@ -2191,6 +3201,7 @@ index 1f21dfaaa1..02b4977972 100644
 +      })
 +    },
      closeSync(fd: number): void {
+@@ -23,6 +38,14 @@ vi.mock('node:fs', async (importOriginal) => {
        if (failNextClose.value) {
          failNextClose.value = false
 +        if (replaceTransientOnClose.parent !== undefined) {
@@ -2204,7 +3215,8 @@ index 1f21dfaaa1..02b4977972 100644
          throw Object.assign(new Error('simulated EIO on close'), { code: 'EIO' })
        }
        actual.closeSync(fd)
-@@ -73,6 +95,10 @@ vi.mock('node:fs', async (importOriginal) => {
+     },
+@@ -29,4 +52,8 @@ vi.mock('node:fs', async (importOriginal) => {
      unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]): void {
 +      if (String(path) === failUnlinkPath.value) {
 +        failUnlinkPath.value = undefined
@@ -2213,9 +3225,7 @@ index 1f21dfaaa1..02b4977972 100644
        if (failNextUnlink.value) {
          failNextUnlink.value = false
          throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
-       }
-       actual.unlinkSync(path)
-@@ -179,6 +205,294 @@ describe('spawnSubprocess', () => {
+@@ -135,6 +162,294 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
@@ -2550,826 +3560,3 @@ index a7413159f9..dc41ea2b2b 100644
    /**
     * Allocate a real terminal and start one owned process session. This is the
     * only non-pipe process primitive: implementations own terminal byte I/O,
-diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
-index 695a9fdfc9..73fabfcc2f 100644
---- a/packages/fs/tool-fs/src/sandbox.ts
-+++ b/packages/fs/tool-fs/src/sandbox.ts
-@@ -13,7 +13,7 @@
- import type { Context } from '@deepseek-ai/cordis'
- import type { ToolExecution } from '@deepseek-ai/dsh-tools'
- import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
--import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-+import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeEscalationArgs, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
- import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
- import { FsError } from '@deepseek-ai/dsh-fs'
- 
-@@ -85,9 +85,13 @@ export class FsSandboxController {
-    *   unsandboxed backend.
-    */
-   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
--    validateEscalationArgs(args.sandbox_permissions, args.justification)
-     const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
--    if (args.sandbox_permissions === undefined || args.justification === undefined) {
-+    const escalation = normalizeEscalationArgs(
-+      args.sandbox_permissions,
-+      args.justification,
-+      standingPolicy?.mode,
-+    )
-+    if (escalation === undefined) {
-       return standingPolicy
-     }
-     if (this.escalationModes.length === 0) {
-@@ -95,7 +99,7 @@ export class FsSandboxController {
-     }
-     const policy = standingPolicy as SandboxExecutionPolicy
-     const approvedMode = await approveEscalation(
--      { requestedMode: args.sandbox_permissions, justification: args.justification, effectiveMode: policy.mode, subject: 'operation' },
-+      { requestedMode: escalation.sandboxPermissions, justification: escalation.justification, effectiveMode: policy.mode, subject: 'operation' },
-       {
-         approver: this.ctx.get('approval'),
-         agent: exec.agent,
-diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
-index cad6531766..a688524614 100644
---- a/packages/fs/tool-fs/tests/tools.spec.ts
-+++ b/packages/fs/tool-fs/tests/tools.spec.ts
-@@ -857,6 +857,25 @@ describe('sandbox escalation API (write/edit)', () => {
-     expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
-   })
- 
-+  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
-+    const { ctx, fs } = await setupConfining()
-+    const agent = escalationAgent([{ type: 'sandbox/mode', data: { mode: 'danger-full-access' } }])
-+    fs.files.set('key:a.txt', 'before')
-+    await call(ctx, 'read', { file_path: 'a.txt' }, agent)
-+
-+    const result = await call(ctx, 'edit', {
-+      file_path: 'a.txt',
-+      old_string: 'before',
-+      new_string: 'after',
-+      sandbox_permissions: 'workspace-write',
-+      justification: '',
-+    }, agent)
-+
-+    expect(result.isError).toBe(false)
-+    expect(fs.files.get('key:a.txt')).toBe('after')
-+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
-+  })
-+
-   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
-     const { ctx, fs } = await setupConfining()
-     fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
-diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
-index e0b9a2ce63..a9731e90fd 100644
---- a/packages/sandbox/sandbox/src/escalation.ts
-+++ b/packages/sandbox/sandbox/src/escalation.ts
-@@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
-   }
- }
- 
-+/** A validated escalation pair, ready for the strictly-wider approval path. */
-+export interface EscalationArgs {
-+  sandboxPermissions: string
-+  justification: string
-+}
-+
-+/** Classify the only schema echoes that cannot widen the effective mode. */
-+export function isNonWideningSandboxEcho(
-+  sandboxPermissions: string | undefined,
-+  effectiveMode: SandboxMode | undefined,
-+): boolean {
-+  return effectiveMode !== undefined
-+    && (sandboxPermissions === effectiveMode
-+      || (sandboxPermissions === 'workspace-write' && effectiveMode === 'danger-full-access'))
-+}
-+
-+/**
-+ * Normalize model/tool-protocol echoes that cannot widen the current call.
-+ * Some callers materialize optional schema fields as the effective mode, or
-+ * as the schema's `workspace-write` floor under `danger-full-access`, together
-+ * with a concretized blank optional reason. Those shapes request no additional
-+ * authority, so treat them as an ordinary call. Every other shape retains the
-+ * strict pairing validation and approval choreography.
-+ */
-+export function normalizeEscalationArgs(
-+  sandboxPermissions: string | undefined,
-+  justification: string | undefined,
-+  effectiveMode: SandboxMode | undefined,
-+): EscalationArgs | undefined {
-+  if (isNonWideningSandboxEcho(sandboxPermissions, effectiveMode)
-+    && justification !== undefined
-+    && justification.trim().length === 0) {
-+    return undefined
-+  }
-+  validateEscalationArgs(sandboxPermissions, justification)
-+  if (sandboxPermissions === undefined || justification === undefined) return undefined
-+  return { sandboxPermissions, justification }
-+}
-+
- /**
-  * The model-facing denial marker — the one vocabulary both enforcing families
-  * teach and report, so the model recognizes a policy denial identically
-diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
-index 2d9ee5b91b..28282b03e9 100644
---- a/packages/sandbox/sandbox/src/index.ts
-+++ b/packages/sandbox/sandbox/src/index.ts
-@@ -14,10 +14,12 @@ export {
-   WIDER_MODES,
-   approveEscalation,
-   escalationHintMarker,
-+  isNonWideningSandboxEcho,
-+  normalizeEscalationArgs,
-   sandboxDenialMarker,
-   validateEscalationArgs,
- } from './escalation.ts'
--export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
-+export type { EscalationApproval, EscalationApprover, EscalationArgs, EscalationOutcome, EscalationRequest } from './escalation.ts'
- export { canonicalPath, writableRoots } from './roots.ts'
- 
- /**
-diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
-index 37c4a762e3..f149209c6f 100644
---- a/packages/shell/tool-bash/src/index.ts
-+++ b/packages/shell/tool-bash/src/index.ts
-@@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
- import type {} from '@deepseek-ai/dsh-user-approval'
- import type {} from '@deepseek-ai/dsh-shell-env'
- import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
--import { ESCALATION_TARGETS, approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-+import { ESCALATION_TARGETS, approveEscalation, canonicalPath, normalizeEscalationArgs } from '@deepseek-ai/dsh-sandbox'
- import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
- import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
- import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-@@ -62,9 +62,6 @@ function validateBashArgs(args: BashToolArgs): void {
-   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
-     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
-   }
--  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
--  // the shared rule both enforcing families validate identically.
--  validateEscalationArgs(args.sandbox_permissions, args.justification)
- }
- 
- function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
-@@ -331,8 +328,13 @@ export function apply(ctx: Context, config: Config = {}): void {
-       validateBashArgs(args)
-       // Description is display metadata; workdir defaults to the caller's session.
-       const standingPolicy = resolveSandboxPolicy(exec)
--      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
--        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
-+      const escalation = normalizeEscalationArgs(
-+        args.sandbox_permissions,
-+        args.justification,
-+        standingPolicy?.mode,
-+      )
-+      const approvedMode = escalation !== undefined
-+        ? await approveBashEscalation(escalation.sandboxPermissions, escalation.justification, exec, standingPolicy)
-         : undefined
-       const policy = approvedMode === undefined
-         ? standingPolicy
-diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
-index 0f2e4d5a20..aaceb87775 100644
---- a/packages/shell/tool-bash/tests/tools.spec.ts
-+++ b/packages/shell/tool-bash/tests/tools.spec.ts
-@@ -620,6 +620,19 @@ describe('sandbox escalation through the generic task producer', () => {
-     expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
-   })
- 
-+  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
-+    const { ctx, bash } = await setupSandboxed()
-+    const result = await call(ctx, 'bash', {
-+      command: 'true',
-+      description: 'run ordinary full-access command',
-+      sandbox_permissions: 'workspace-write',
-+      justification: '',
-+    }, sandboxAgent('danger-full-access'))
-+
-+    expect(result.isError).toBe(false)
-+    expect(bash.modes).toEqual(['danger-full-access'])
-+  })
-+
-   it('fails closed when approval cannot be routed', async () => {
-     const withoutService = await setupSandboxed()
-     expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
-diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
-index 15810d09d5752896c81f00e9de1c891ea86792fe..6073180efcedd5917e261bd1c163e5729438222b 100644
---- a/packages/sandbox/sandbox/tests/escalation.spec.ts
-+++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
-@@ -12,6 +12,8 @@ import {
-   WIDER_MODES,
-   approveEscalation,
-   escalationHintMarker,
-+  isNonWideningSandboxEcho,
-+  normalizeEscalationArgs,
-   sandboxDenialMarker,
-   validateEscalationArgs,
- } from '@deepseek-ai/dsh-sandbox'
-@@ -42,6 +44,23 @@ describe('validateEscalationArgs', () => {
-   })
- })
- 
-+describe('normalizeEscalationArgs', () => {
-+  it('normalizes only explicit blank echoes that cannot widen full access', () => {
-+    expect(isNonWideningSandboxEcho('danger-full-access', 'danger-full-access')).toBe(true)
-+    expect(isNonWideningSandboxEcho('workspace-write', 'danger-full-access')).toBe(true)
-+    expect(isNonWideningSandboxEcho('danger-full-access', 'workspace-write')).toBe(false)
-+    expect(normalizeEscalationArgs('danger-full-access', '', 'danger-full-access')).toBeUndefined()
-+    expect(normalizeEscalationArgs('workspace-write', ' ', 'danger-full-access')).toBeUndefined()
-+  })
-+
-+  it('preserves pairing and nonblank non-widening validation', () => {
-+    expect(() => normalizeEscalationArgs('workspace-write', undefined, 'danger-full-access'))
-+      .toThrow(/requires a justification/)
-+    expect(normalizeEscalationArgs('workspace-write', 'requested explicitly', 'danger-full-access'))
-+      .toEqual({ sandboxPermissions: 'workspace-write', justification: 'requested explicitly' })
-+  })
-+})
-+
- describe('the model-facing markers', () => {
-   it('the denial marker names the mode', () => {
-     expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
-diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
-index baf8c921a9..9052ff25d8 100644
---- a/packages/goal/goal/src/index.ts
-+++ b/packages/goal/goal/src/index.ts
-@@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
- declare module '@deepseek-ai/cordis' {
-   interface Context {
-     goals: GoalService
-+    /** Optional deployment-owned synchronous completion evaluator. */
-+    dshAcceptance?: DshAcceptanceService
-   }
- }
- 
-+/** Optional service seam consulted before GoalService mutates completion state. */
-+export interface DshAcceptanceService {
-+  assertGoalCompletion(agent: Agent, ref: GoalRef): void
-+}
-+
- /** Wire payload schema of the `goal` projection (whole current goal or pre-create/cleared null). */
- const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
-   zod.object({
-@@ -335,6 +342,7 @@ export class GoalService extends TypertRemoteService {
-    */
-   @Remote('complete')
-   complete(agent: Agent, ref: GoalRef): GoalView {
-+    this.ctx.get('dshAcceptance')?.assertGoalCompletion(agent, ref)
-     return this.transition(
-       agent,
-       ref,
-diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
-index e94e0754a0..fdd267bb9a 100644
---- a/packages/goal/goal/tests/goal.spec.ts
-+++ b/packages/goal/goal/tests/goal.spec.ts
-@@ -297,6 +297,44 @@ describe('GoalService mutations', () => {
-     expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
-   })
- 
-+  it('does not mutate goal state when acceptance denies', async () => {
-+    const { ctx, agent, session } = await harness()
-+    const goal = ctx.goals.create(agent, { objective: 'require authoritative acceptance' })
-+    const eventsBefore = session.events.length
-+    let assertions = 0
-+    ctx.provide('dshAcceptance', {
-+      assertGoalCompletion(candidate, ref) {
-+        assertions += 1
-+        expect(candidate).toBe(agent)
-+        expect(ref).toBe(goal)
-+        throw new Error('acceptance denied')
-+      },
-+    })
-+
-+    expect(() => ctx.goals.complete(agent, goal)).toThrow('acceptance denied')
-+    expect(assertions).toBe(1)
-+    expect(session.events).toHaveLength(eventsBefore)
-+    expect(ctx.goals.get(agent)).toMatchObject({
-+      id: goal.id,
-+      revision: goal.revision,
-+      phase: 'active',
-+      activation: 'armed',
-+    })
-+  })
-+
-+  it('preserves completion when no acceptance provider is installed', async () => {
-+    const { ctx, agent } = await harness()
-+    const goal = ctx.goals.create(agent, { objective: 'remain ungoverned' })
-+
-+    expect(ctx.get('dshAcceptance')).toBeUndefined()
-+    expect(ctx.goals.complete(agent, goal)).toMatchObject({
-+      id: goal.id,
-+      revision: goal.revision + 1,
-+      phase: 'complete',
-+      activation: 'disarmed',
-+    })
-+  })
-+
-   it('allows completion from every stopped phase and replacement only after completion', async () => {
-     const phases = ['paused', 'blocked'] as const
-     for (const phase of phases) {
-
-diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 7582338858..93fc2894d2 100644
---- a/packages/subagent/subagent/src/child-agent.ts
-+++ b/packages/subagent/subagent/src/child-agent.ts
-@@ -105,2 +105,3 @@ export function childSessionMeta(
-   lineageSeedLength: number,
-+  workspaceCwd?: string,
- ): NonNullable<CreateAgentOptions['meta']> {
-@@ -109,3 +110,5 @@ export function childSessionMeta(
-   return {
--    ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
-+    ...workspaceCwd !== undefined
-+      ? { cwd: workspaceCwd }
-+      : parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
-     ...agentPreset === undefined ? {} : { agentPreset },
-diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index d826efbfdb..88227de94b 100644
---- a/packages/subagent/subagent/src/continuation.ts
-+++ b/packages/subagent/subagent/src/continuation.ts
-@@ -51,3 +51,13 @@ import { assertSubagentMaxDepth } from './depth.ts'
- import { seedDescriptorTurn } from './descriptor-seed.ts'
--import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, SubagentStartRequest } from './types.ts'
-+import type {
-+  ContinuableCreateRequest,
-+  ContinuableCreateSpec,
-+  ContinuableWorkspaceActivationRequest,
-+  ContinuableWorkspaceDescriptor,
-+  ContinuableWorkspacePrepareRequest,
-+  ContinuableWorkspacePrepared,
-+  ContinuableWorkspaceSelection,
-+  SubagentResult,
-+  SubagentStartRequest,
-+} from './types.ts'
- import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
-@@ -123,2 +133,4 @@ export interface ContinuableStartSpec {
-   readonly signal: AbortSignal
-+  /** Trusted host-only workspace selection. Never part of model tool input. */
-+  readonly workspace?: ContinuableWorkspaceSelection
- }
-@@ -175,2 +187,5 @@ interface ContinuationHost {
-   prepareContinuable(name: string, request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
-+  snapshotWorkspace(selection: ContinuableWorkspaceSelection, parent: Agent): ContinuableWorkspaceDescriptor
-+  prepareWorkspace(request: ContinuableWorkspacePrepareRequest): Promise<ContinuableWorkspacePrepared>
-+  activateWorkspace(request: ContinuableWorkspaceActivationRequest): Promise<void>
-   /**
-@@ -259,2 +274,3 @@ interface MaterializeInputs {
-   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
-+  workspace?: ContinuableWorkspaceDescriptor
-   signal: AbortSignal
-@@ -410,2 +426,5 @@ export class SubagentContinuationManager {
-     const childDepth = resolveChildDepth(parent, request.maxDepth)
-+    const workspace = spec.workspace === undefined
-+      ? undefined
-+      : this.host.snapshotWorkspace(spec.workspace, parent)
-     // Snapshot before any await: invalid descriptor JSON rejects the call
-@@ -422,2 +441,3 @@ export class SubagentContinuationManager {
-       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
-+      ...workspace !== undefined ? { workspace } : {},
-     })
-@@ -427,2 +447,11 @@ export class SubagentContinuationManager {
- 
-+    const preparedWorkspace = workspace === undefined
-+      ? undefined
-+      : await this.host.prepareWorkspace({
-+        sessionId: childId,
-+        parent,
-+        signal: spec.signal,
-+        descriptor: workspace,
-+        ref: spec.workspace?.ref,
-+      })
-     const prepared = await this.host.prepareContinuable(spec.provider, {
-@@ -442,5 +471,10 @@ export class SubagentContinuationManager {
-         parent,
--        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength), delegatedPolicies },
-+        create: {
-+          seed,
-+          meta: childSessionMeta(parent, childDepth, lineageSeedLength, preparedWorkspace?.cwd),
-+          delegatedPolicies,
-+        },
-         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
-         composition: { persona: request.persona, toolFilter: request.toolFilter },
-+        ...workspace === undefined ? {} : { workspace },
-         signal: spec.signal,
-@@ -654,2 +688,18 @@ export class SubagentContinuationManager {
- 
-+  /**
-+   * Terminally release one resident continuable child and its live descendants.
-+   * A cold child owns no activation authority and is therefore an accepted no-op.
-+   */
-+  async close(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
-+    signal.throwIfAborted()
-+    this.assertAdmitting(parent)
-+    await this.locks.run(childId, async () => {
-+      signal.throwIfAborted()
-+      const activation = this.activations.get(childId)
-+      if (activation === undefined) return
-+      this.authorizeLineage(parent, childId, activation.parentSession)
-+      await this.dispose(activation)
-+    })
-+  }
-+
-   /**
-@@ -912,2 +962,28 @@ export class SubagentContinuationManager {
-     }
-+    if (descriptor.workspace !== undefined) {
-+      let prepared: ContinuableWorkspacePrepared
-+      try {
-+        prepared = await this.host.prepareWorkspace({
-+          sessionId: childId,
-+          parent,
-+          signal: options.signal,
-+          descriptor: descriptor.workspace,
-+          ...loaded.meta.cwd === undefined ? {} : { persistedCwd: loaded.meta.cwd },
-+        })
-+      } catch (error: unknown) {
-+        options.signal.throwIfAborted()
-+        if (error instanceof SubagentError) throw error
-+        throw new SubagentError(
-+          `subagent "${childId}" workspace is unavailable`,
-+          'NOT_RESUMABLE',
-+          { cause: error },
-+        )
-+      }
-+      if (loaded.meta.cwd === undefined || prepared.cwd !== loaded.meta.cwd) {
-+        throw new SubagentError(
-+          `subagent "${childId}" workspace identity does not match its durable session`,
-+          'NOT_RESUMABLE',
-+        )
-+      }
-+    }
-     let activation: Activation
-@@ -923,2 +999,3 @@ export class SubagentContinuationManager {
-         composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
-+        ...descriptor.workspace === undefined ? {} : { workspace: descriptor.workspace },
-         signal: options.signal,
-@@ -1024,2 +1101,15 @@ export class SubagentContinuationManager {
- 
-+    if (inputs.workspace !== undefined) {
-+      try {
-+        await this.host.activateWorkspace({
-+          agent: handle.agent,
-+          descriptor: inputs.workspace,
-+          signal: inputs.signal,
-+        })
-+      } catch (error: unknown) {
-+        await handle.dispose().catch(() => undefined)
-+        throw error
-+      }
-+    }
-+
-     const activation: Activation = {
-diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
-index 6d9dedee75..1ed5ab1289 100644
---- a/packages/subagent/subagent/src/descriptor.ts
-+++ b/packages/subagent/subagent/src/descriptor.ts
-@@ -26,2 +26,3 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
- import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
-+import type { ContinuableWorkspaceDescriptor } from './types.ts'
- 
-@@ -46,3 +47,4 @@ declare module '@deepseek-ai/dsh-session/types' {
-  */
--export const SUBAGENT_DESCRIPTOR_VERSION = 2
-+export const SUBAGENT_DESCRIPTOR_VERSION = 3
-+const LEGACY_SUBAGENT_DESCRIPTOR_VERSION = 2
- 
-@@ -82,2 +84,4 @@ export interface ContinuableSubagentDescriptorData extends SubagentDescriptorBas
-   readonly toolFilter?: ToolRestriction
-+  /** Host-only non-bearer identity needed to reauthenticate on cold resume. */
-+  readonly workspace?: ContinuableWorkspaceDescriptor
- }
-@@ -117,2 +121,4 @@ export interface ContinuableSubagentDescriptorInput extends SubagentDescriptorIn
-   readonly toolFilter?: ToolRestriction
-+  /** Trusted host workspace identity; opaque live refs are never persisted. */
-+  readonly workspace?: ContinuableWorkspaceDescriptor
- }
-@@ -137,3 +143,5 @@ const CONTINUABLE_DESCRIPTOR_KEYS = new Set([
-   'toolFilter',
-+  'workspace',
- ])
-+const WORKSPACE_DESCRIPTOR_KEYS = new Set(['provider', 'version'])
- const TOOL_FILTER_KEYS = new Set(['allow', 'deny'])
-@@ -194,2 +202,15 @@ function parseToolFilter(value: unknown): ToolRestriction {
- 
-+/** Validate the non-bearer durable identity of one host workspace provider. */
-+function parseWorkspace(value: unknown): ContinuableWorkspaceDescriptor {
-+  if (!isRecord(value)) throw new Error('persisted subagent descriptor workspace must be an object')
-+  assertKnownKeys(value, WORKSPACE_DESCRIPTOR_KEYS, 'workspace')
-+  if (typeof value['provider'] !== 'string' || value['provider'].length === 0) {
-+    throw new Error('persisted subagent descriptor workspace.provider must be a non-empty string')
-+  }
-+  if (!Number.isSafeInteger(value['version']) || (value['version'] as number) <= 0) {
-+    throw new Error('persisted subagent descriptor workspace.version must be a positive safe integer')
-+  }
-+  return { provider: value['provider'], version: value['version'] as number }
-+}
-+
- /** Validate one persisted descriptor payload for the current runtime. */
-@@ -203,3 +224,3 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
-   }
--  if (version !== SUBAGENT_DESCRIPTOR_VERSION) return undefined
-+  if (version !== SUBAGENT_DESCRIPTOR_VERSION && version !== LEGACY_SUBAGENT_DESCRIPTOR_VERSION) return undefined
- 
-@@ -211,3 +232,7 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
-     value,
--    mode === 'one-shot' ? ONE_SHOT_DESCRIPTOR_KEYS : CONTINUABLE_DESCRIPTOR_KEYS,
-+    mode === 'one-shot'
-+      ? ONE_SHOT_DESCRIPTOR_KEYS
-+      : version === LEGACY_SUBAGENT_DESCRIPTOR_VERSION
-+        ? new Set([...CONTINUABLE_DESCRIPTOR_KEYS].filter(key => key !== 'workspace'))
-+        : CONTINUABLE_DESCRIPTOR_KEYS,
-     'payload',
-@@ -237,2 +262,5 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
-     : undefined
-+  const workspace = Object.hasOwn(value, 'workspace')
-+    ? parseWorkspace(value['workspace'])
-+    : undefined
-   return {
-@@ -246,2 +274,3 @@ function parseSubagentDescriptor(value: unknown): SubagentDescriptorData | undef
-     ...toolFilter !== undefined ? { toolFilter } : {},
-+    ...workspace !== undefined ? { workspace } : {},
-   }
-@@ -287,2 +316,3 @@ export function snapshotSubagentDescriptor(input: SubagentDescriptorInput): Suba
-       ...input.toolFilter !== undefined ? { toolFilter: input.toolFilter } : {},
-+      ...input.workspace !== undefined ? { workspace: input.workspace } : {},
-     }
-diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index fe270f1b4c..447b5682bb 100644
---- a/packages/subagent/subagent/src/index.ts
-+++ b/packages/subagent/subagent/src/index.ts
-@@ -43,2 +43,8 @@ import type {
-   ContinuableCreateSpec,
-+  ContinuableWorkspaceActivationRequest,
-+  ContinuableWorkspaceDescriptor,
-+  ContinuableWorkspacePrepareRequest,
-+  ContinuableWorkspacePrepared,
-+  ContinuableWorkspaceProvider,
-+  ContinuableWorkspaceSelection,
-   ResolvedSubagentStartRequest,
-@@ -76,2 +82,8 @@ export type {
-   ContinuableCreateSpec,
-+  ContinuableWorkspaceActivationRequest,
-+  ContinuableWorkspaceDescriptor,
-+  ContinuableWorkspacePrepareRequest,
-+  ContinuableWorkspacePrepared,
-+  ContinuableWorkspaceProvider,
-+  ContinuableWorkspaceSelection,
-   ResolvedSubagentStartRequest,
-@@ -172,2 +184,3 @@ export class SubagentRuntime extends Service {
-   private providers = new Map<string, SubagentProvider>()
-+  private workspaceProviders = new Map<string, ContinuableWorkspaceProvider>()
-   private continuations: SubagentContinuationManager | undefined
-@@ -188,2 +201,5 @@ export class SubagentRuntime extends Service {
-         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
-+        snapshotWorkspace: (selection, parent) => this.snapshotWorkspace(selection, parent),
-+        prepareWorkspace: request => this.prepareWorkspace(request),
-+        activateWorkspace: request => this.activateWorkspace(request),
-         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
-@@ -239,2 +255,9 @@ export class SubagentRuntime extends Service {
- 
-+  /** Terminally release one resident continuable child and its descendants. */
-+  async closeContinuable(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
-+    const manager = this.continuations
-+    if (manager === undefined) return
-+    await manager.close(parent, childId, signal)
-+  }
-+
-   /**
-@@ -293,2 +316,52 @@ export class SubagentRuntime extends Service {
- 
-+  /** Register one trusted provider for host-issued continuable workspaces. */
-+  registerContinuableWorkspaceProvider(provider: ContinuableWorkspaceProvider): () => void {
-+    if (provider.name.length === 0 || !Number.isSafeInteger(provider.version) || provider.version <= 0) {
-+      throw new SubagentError('invalid continuable workspace provider identity', 'INVALID_REQUEST')
-+    }
-+    return this.ctx.effect(() => {
-+      if (this.workspaceProviders.has(provider.name)) {
-+        throw new SubagentError(
-+          `a continuable workspace provider named "${provider.name}" is already registered`,
-+          'DUPLICATE_PROVIDER',
-+        )
-+      }
-+      this.workspaceProviders.set(provider.name, provider)
-+      return () => { this.workspaceProviders.delete(provider.name) }
-+    }, 'subagents.registerContinuableWorkspaceProvider()')
-+  }
-+
-+  private snapshotWorkspace(
-+    selection: ContinuableWorkspaceSelection,
-+    parent: Agent,
-+  ): ContinuableWorkspaceDescriptor {
-+    const provider = this.workspaceProviders.get(selection.provider)
-+    if (provider === undefined) {
-+      throw new SubagentError(
-+        `continuable workspace provider "${selection.provider}" is not registered`,
-+        'UNSUPPORTED_CAPABILITY',
-+      )
-+    }
-+    provider.validate(selection.ref, parent)
-+    return { provider: provider.name, version: provider.version }
-+  }
-+
-+  private async prepareWorkspace(
-+    request: ContinuableWorkspacePrepareRequest,
-+  ): Promise<ContinuableWorkspacePrepared> {
-+    const provider = this.workspaceProviders.get(request.descriptor.provider)
-+    if (provider === undefined || provider.version !== request.descriptor.version) {
-+      throw new SubagentError('continuable workspace capability is unavailable', 'UNSUPPORTED_CAPABILITY')
-+    }
-+    return provider.prepare(request)
-+  }
-+
-+  private async activateWorkspace(request: ContinuableWorkspaceActivationRequest): Promise<void> {
-+    const provider = this.workspaceProviders.get(request.descriptor.provider)
-+    if (provider === undefined || provider.version !== request.descriptor.version) {
-+      throw new SubagentError('continuable workspace capability is unavailable', 'UNSUPPORTED_CAPABILITY')
-+    }
-+    await provider.activate(request)
-+  }
-+
-   /**
-diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
-index 2c5209765f..5d26a6f4ae 100644
---- a/packages/subagent/subagent/src/types.ts
-+++ b/packages/subagent/subagent/src/types.ts
-@@ -193,2 +193,52 @@ export interface ContinuableCreateSpec {
- 
-+/** Host-only selector for one managed continuable workspace. */
-+export interface ContinuableWorkspaceSelection {
-+  /** Registered trusted workspace provider. */
-+  readonly provider: string
-+  /** Opaque same-process reference. It is never persisted or exposed to tools. */
-+  readonly ref: unknown
-+}
-+
-+/** Non-bearer workspace identity retained in a continuable descriptor. */
-+export interface ContinuableWorkspaceDescriptor {
-+  readonly provider: string
-+  readonly version: number
-+}
-+
-+/** Inputs a trusted workspace provider receives before child materialization. */
-+export interface ContinuableWorkspacePrepareRequest {
-+  readonly sessionId: SessionId
-+  readonly parent: Agent
-+  readonly signal: AbortSignal
-+  readonly descriptor: ContinuableWorkspaceDescriptor
-+  /** Present only for a fresh host-selected child. */
-+  readonly ref?: unknown
-+  /** Persisted immutable cwd on cold resume. */
-+  readonly persistedCwd?: string
-+}
-+
-+/** Exact session metadata resolved from one host-issued workspace. */
-+export interface ContinuableWorkspacePrepared {
-+  readonly cwd: string
-+}
-+
-+/** Inputs delivered after Agent creation but before prompt admission. */
-+export interface ContinuableWorkspaceActivationRequest {
-+  readonly agent: Agent
-+  readonly descriptor: ContinuableWorkspaceDescriptor
-+  readonly signal: AbortSignal
-+}
-+
-+/** Trusted same-process provider for host-issued continuable workspaces. */
-+export interface ContinuableWorkspaceProvider {
-+  readonly name: string
-+  readonly version: number
-+  /** Synchronously authenticate a live opaque ref before the first await. */
-+  validate(ref: unknown, parent: Agent): void
-+  /** Resolve fresh or durable identity before the child Agent is created. */
-+  prepare(request: ContinuableWorkspacePrepareRequest): Promise<ContinuableWorkspacePrepared>
-+  /** Prove runtime authority before the first inbox message can be accepted. */
-+  activate(request: ContinuableWorkspaceActivationRequest): Promise<void>
-+}
-+
- /**
-diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index 07f497628d..1840b3a8a1 100644
---- a/packages/subagent/subagent/tests/continuation.spec.ts
-+++ b/packages/subagent/subagent/tests/continuation.spec.ts
-@@ -170,2 +170,126 @@ function observeCancel(agent: Agent, callback: () => void): void {
- describe('SubagentRuntime.startContinuable', () => {
-+  it('binds and cold-resumes one host-issued workspace without exposing its opaque ref', async () => {
-+    const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
-+    parkParent(ctx, parent)
-+    const ref = Object.freeze(Object.create(null))
-+    const calls: unknown[] = []
-+    ctx.subagents.registerContinuableWorkspaceProvider({
-+      name: 'managed',
-+      version: 1,
-+      validate(candidate, caller) {
-+        expect(candidate).toBe(ref)
-+        expect(caller).toBe(parent)
-+      },
-+      async prepare(request) {
-+        calls.push(request)
-+        expect(request.descriptor).toEqual({ provider: 'managed', version: 1 })
-+        return { cwd: '/managed/worktree' }
-+      },
-+      async activate({ agent, descriptor }) {
-+        expect(agent.session.header.cwd).toBe('/managed/worktree')
-+        expect(descriptor).toEqual({ provider: 'managed', version: 1 })
-+      },
-+    })
-+
-+    const started = await ctx.subagents.startContinuable({
-+      ...startSpec(parent),
-+      workspace: { provider: 'managed', ref },
-+    })
-+    await waitNoActivation(ctx, started.childId)
-+    const loaded = await ctx.sessionPersistence.load(started.childId)
-+    const descriptor = loaded.events.find(event => event.type === 'subagent/descriptor')
-+    expect(descriptor?.data).toMatchObject({
-+      mode: 'continuable',
-+      workspace: { provider: 'managed', version: 1 },
-+    })
-+    expect(JSON.stringify(descriptor)).not.toContain('opaque')
-+
-+    await followup(ctx, parent, started.childId, message('again'))
-+    await waitNoActivation(ctx, started.childId)
-+    expect(calls).toHaveLength(2)
-+    expect(calls[1]).toMatchObject({ persistedCwd: '/managed/worktree' })
-+    expect(calls[1]).not.toHaveProperty('ref')
-+  })
-+
-+  it('fails before child creation when a host workspace provider is unavailable', async () => {
-+    const { ctx, parent } = await setup([])
-+    await expect(ctx.subagents.startContinuable({
-+      ...startSpec(parent),
-+      workspace: { provider: 'missing', ref: Object.freeze(Object.create(null)) },
-+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
-+    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
-+  })
-+
-+  it('rolls back the child when host workspace activation refuses authority', async () => {
-+    const { ctx, parent } = await setup([textResponse('unused')])
-+    const ref = Object.freeze(Object.create(null))
-+    ctx.subagents.registerContinuableWorkspaceProvider({
-+      name: 'refusing',
-+      version: 1,
-+      validate() {},
-+      async prepare() { return { cwd: '/managed/worktree' } },
-+      async activate() { throw new Error('foreign lease') },
-+    })
-+    await expect(ctx.subagents.startContinuable({
-+      ...startSpec(parent),
-+      workspace: { provider: 'refusing', ref },
-+    })).rejects.toThrow(/foreign lease/)
-+    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
-+  })
-+
-+  it('returns a typed cold-resume refusal when workspace reauthentication fails', async () => {
-+    const { ctx, parent } = await setup([textResponse('first')])
-+    parkParent(ctx, parent)
-+    const ref = Object.freeze(Object.create(null))
-+    let preparations = 0
-+    ctx.subagents.registerContinuableWorkspaceProvider({
-+      name: 'unstable',
-+      version: 1,
-+      validate() {},
-+      async prepare() {
-+        preparations += 1
-+        if (preparations > 1) throw new Error('lease unavailable')
-+        return { cwd: '/managed/worktree' }
-+      },
-+      async activate() {},
-+    })
-+    const started = await ctx.subagents.startContinuable({
-+      ...startSpec(parent),
-+      workspace: { provider: 'unstable', ref },
-+    })
-+    await waitNoActivation(ctx, started.childId)
-+
-+    await expect(followup(ctx, parent, started.childId, message('again')))
-+      .rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
-+    expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
-+  })
-+
-+  it('terminally closes one exact child and its descendants', async () => {
-+    const releaseChild = Promise.withResolvers<undefined>()
-+    const releaseGrandchild = Promise.withResolvers<undefined>()
-+    const adapter = new GatedAdapter([
-+      { chunks: textResponse('child'), gate: releaseChild.promise },
-+      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-+    ])
-+    const { ctx, parent } = await setupWith(adapter)
-+    const started = await ctx.subagents.startContinuable(startSpec(parent))
-+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-+    const child = ctx.agents.get(started.childId)!
-+    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-+    const childCancel = vi.spyOn(child, 'cancel')
-+    const grandchildCancel = vi.spyOn(ctx.agents.get(grandchild.childId)!, 'cancel')
-+
-+    const closed = ctx.subagents.closeContinuable(parent, started.childId, testSignal)
-+    await vi.waitFor(() => {
-+      expect(childCancel).toHaveBeenCalledWith({ kind: 'parent' })
-+      expect(grandchildCancel).toHaveBeenCalledWith({ kind: 'parent' })
-+    })
-+    releaseChild.resolve(undefined)
-+    releaseGrandchild.resolve(undefined)
-+    await closed
-+    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
-+    expect(ctx.agents.get(started.childId)).toBeUndefined()
-+  })
-+
-   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {

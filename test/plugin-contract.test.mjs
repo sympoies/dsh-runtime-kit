@@ -833,18 +833,18 @@ function harness({
       let verifiedContexts = []
       if (result.kind === 'allow') {
         const bound = prerequisiteBindings.get(prepared.exec)
-        const verifyPrerequisite = async () => {
+        const verifyPrerequisite = async phase => {
           if (bound === undefined) return
           if (bound.definition !== ctx.tools.get(prepared.exec.name, prepared.exec.agent)) {
             throw new Error('dsh-tools: prerequisite definition changed before dispatch')
           }
-          verifiedContexts = await bound.prerequisite.beforeBody(prepared.exec) ?? []
+          verifiedContexts = await bound.prerequisite.beforeBody(prepared.exec, phase) ?? []
           if (bound.definition !== ctx.tools.get(prepared.exec.name, prepared.exec.agent)) {
             throw new Error('dsh-tools: prerequisite definition changed before dispatch')
           }
         }
         try {
-          await verifyPrerequisite()
+          await verifyPrerequisite('dispatch')
           executionResult = await dispatchWaterfall(
             'tools/execute',
             [prepared.exec],
@@ -863,7 +863,7 @@ function harness({
                 if (bound.definition !== definition) {
                   throw new Error('dsh-tools: prerequisite definition changed before body dispatch')
                 }
-                await verifyPrerequisite()
+                await verifyPrerequisite('body')
                 if (prepared.exec.signal.aborted) {
                   return {
                     isError: true,
@@ -1124,7 +1124,7 @@ test('a declared project-dev prerequisite begins before policy and commits only 
   assert.ok(begin)
   assert.ok(commit)
   assert.ok(policy)
-  assert.equal(policies.length, 3)
+  assert.equal(policies.length, 1)
   const ingress = JSON.parse(policy.stdio.stdin.data)
   assert.equal(ingress.schema_version, 'agent-hook.dsh-ingress.v5')
   assert.equal(ingress.call_id, 'prerequisite-call-1')
@@ -1135,6 +1135,29 @@ test('a declared project-dev prerequisite begins before policy and commits only 
   assert.deepEqual(first.postDecision.additionalContexts?.[0]?.content, [
     { type: 'text', text: 'bounded policy\n' },
   ])
+})
+
+test('a body-bound prerequisite preserves an explicit policy denial', async () => {
+  const subject = harness({
+    envelope: decision('block', {
+      reasons: [{
+        rule_id: 'dsh.plus-one',
+        code: 'plus-one-blocked',
+        disposition: 'block',
+      }],
+    }),
+  })
+  subject.service.prerequisites.require(
+    subject.tool('runtime_kit_plus_one'),
+    'project-dev-context',
+  )
+
+  const denied = await subject.invoke({ value: 41 }, { callId: 'prerequisite-policy-block' })
+
+  assert.equal(denied.executionResult.isError, true)
+  assert.match(denied.executionResult.error.message, /agent-hook:plus-one-blocked/)
+  assert.equal(subject.service.plusOneExecutions, 0)
+  assert.equal(subject.service.pendingPrerequisites, 0)
 })
 
 test('all five default mutator names bind the exact visible definition automatically', async () => {
@@ -1200,13 +1223,13 @@ test('all five default mutator names bind the exact visible definition automatic
       name,
     })
     assert.ok(bound, name)
-    const firstContexts = await bound.beforeBody(exec)
-    const secondContexts = await bound.beforeBody(exec)
+    const firstContexts = await bound.beforeBody(exec, 'dispatch')
+    const secondContexts = await bound.beforeBody(exec, 'body')
     await bound.commit(exec, { isError: false, value: null, content: [] })
     coordinator.result(exec)
 
     assert.equal(begins, 3, name)
-    assert.equal(policyChecks, 2, name)
+    assert.equal(policyChecks, 1, name)
     assert.equal(commits, 1, name)
     assert.equal(firstContexts.length, 1, name)
     assert.equal(secondContexts.length, 1, name)
@@ -1238,7 +1261,7 @@ test('a restored wrapper signal cannot impersonate caller cancellation at comple
   )
 })
 
-test('approval wait cannot carry an earlier allow past fresh last-mile policy', async () => {
+test('approval wait is followed by one fresh last-mile policy decision', async () => {
   let preToolChecks = 0
   const subject = harness({
     envelope: (spec) => {
@@ -1246,7 +1269,7 @@ test('approval wait cannot carry an earlier allow past fresh last-mile policy', 
       const ingress = JSON.parse(spec.stdio.stdin.data)
       if (ingress.event !== 'tools/pre-execute') return decision()
       preToolChecks += 1
-      return preToolChecks === 1 ? decision('allow') : decision('block')
+      return decision('block')
     },
   })
   subject.service.prerequisites.require(
@@ -1261,10 +1284,10 @@ test('approval wait cannot carry an earlier allow past fresh last-mile policy', 
   })
 
   assert.equal(result.result.kind, 'allow')
-  assert.equal(result.delegated, false)
+  assert.equal(result.delegated, true)
   assert.equal(result.executionResult.isError, true)
   assert.equal(subject.service.plusOneExecutions, 0)
-  assert.equal(preToolChecks, 2)
+  assert.equal(preToolChecks, 1)
   assert.equal(
     subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
     false,
@@ -1613,8 +1636,7 @@ test('a replaced visible definition cannot reuse or commit an execution prerequi
     .map(spec => JSON.parse(spec.stdio.stdin.data))
     .filter(candidate => candidate.event === 'tools/pre-execute')
     .map(candidate => candidate.tool.definition_id)
-  assert.equal(ingressDefinitions.length, 2)
-  assert.notEqual(ingressDefinitions[0], ingressDefinitions[1])
+  assert.equal(ingressDefinitions.length, 1)
 })
 
 test('approval rejection cancellation and downstream exceptions abandon pending prerequisites', async () => {
