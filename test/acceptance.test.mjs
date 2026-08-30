@@ -1363,39 +1363,46 @@ test('authoritative canary deadline diagnostics accept only a bound allowlisted 
   const { recordScenarioCanaryFailure } = await import('../src/acceptance/contract.js')
   const processInstance = 'sha256:' + 'a'.repeat(64)
   const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
-  const result = {
-    status: 1,
-    error: undefined,
-    signal: null,
-    stdout: 'PRIVATE_STDOUT_SENTINEL',
-    stderr: [
-      'PRIVATE_STDERR_SENTINEL',
-      marker + JSON.stringify({
-        schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
-        phase: 'positive',
-        process_instance_sha256: processInstance,
-        cause_code: 'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
-      }),
-    ].join('\n'),
-  }
-  const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
-  tracker.enterStep('candidate-positive')
-  recordScenarioOperationResult(tracker, result)
-  recordScenarioCanaryFailure(tracker, result, {
-    phase: 'positive',
-    processInstance,
-  })
-  const diagnostic = tracker.take()
+  for (const causeCode of [
+    'DSH_CANARY_DEADLINE_CANARY_TURN_ENDED_AFTER_STOP',
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_IDLE_STATUS_AFTER_STOP',
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_RESTARTED_AFTER_STOP',
+    'DSH_CANARY_DEADLINE_CANARY_NEXT_TURN_STARTED_AFTER_STOP',
+  ]) {
+    const result = {
+      status: 1,
+      error: undefined,
+      signal: null,
+      stdout: 'PRIVATE_STDOUT_SENTINEL',
+      stderr: [
+        'PRIVATE_STDERR_SENTINEL',
+        marker + JSON.stringify({
+          schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary-failure.v1',
+          phase: 'positive',
+          process_instance_sha256: processInstance,
+          cause_code: causeCode,
+        }),
+      ].join('\n'),
+    }
+    const tracker = createScenarioFailureDiagnosticTracker('packed-runtime')
+    tracker.enterStep('candidate-positive')
+    recordScenarioOperationResult(tracker, result)
+    recordScenarioCanaryFailure(tracker, result, {
+      phase: 'positive',
+      processInstance,
+    })
+    const diagnostic = tracker.take()
 
-  assert.deepEqual(diagnostic, {
-    schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
-    ok: false,
-    producer: 'packed-runtime',
-    step: 'candidate-positive',
-    cause_code: 'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
-    operation_exit_status: 1,
-  })
-  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_(?:STDOUT|STDERR)_SENTINEL/u)
+    assert.deepEqual(diagnostic, {
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-diagnostic.v1',
+      ok: false,
+      producer: 'packed-runtime',
+      step: 'candidate-positive',
+      cause_code: causeCode,
+      operation_exit_status: 1,
+    })
+    assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE_(?:STDOUT|STDERR)_SENTINEL/u)
+  }
 })
 
 test('authoritative canary deadline diagnostics reject spoofed or unbounded markers', async () => {

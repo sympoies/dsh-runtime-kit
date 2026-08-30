@@ -200,6 +200,65 @@ test('a repeated tracked stop is distinguished at the listener tail', async () =
   )
 })
 
+test('post-stop settlement progress distinguishes turn end, idle, and a restarted turn', async () => {
+  const {
+    registerScenarioCanaryAgentSettlementProgress,
+    SCENARIO_CANARY_PROGRESS,
+  } = await import('./fixtures/authoritative-acceptance-canary/receipt-output.js')
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_TURN_ENDED_AFTER_STOP,
+    'DSH_CANARY_DEADLINE_CANARY_TURN_ENDED_AFTER_STOP',
+  )
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_AGENT_IDLE_STATUS_AFTER_STOP,
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_IDLE_STATUS_AFTER_STOP',
+  )
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_AGENT_RESTARTED_AFTER_STOP,
+    'DSH_CANARY_DEADLINE_CANARY_AGENT_RESTARTED_AFTER_STOP',
+  )
+  assert.equal(
+    SCENARIO_CANARY_PROGRESS.CANARY_NEXT_TURN_STARTED_AFTER_STOP,
+    'DSH_CANARY_DEADLINE_CANARY_NEXT_TURN_STARTED_AFTER_STOP',
+  )
+
+  const listeners = new Map()
+  const ctx = {
+    on(event, listener) {
+      const registered = listeners.get(event) ?? []
+      listeners.set(event, [...registered, listener])
+    },
+  }
+  const entered = []
+  let completedStops = 0
+  registerScenarioCanaryAgentSettlementProgress(ctx, {
+    phase: 'positive',
+    progress: { enter(code) { entered.push(code) } },
+    isTrackedAgent: agent => agent.id === 'tracked-agent',
+    isTrackedSession: session => session.id === 'tracked-session',
+    hasCompletedStop: () => completedStops > 0,
+  })
+  const emit = async (event, ...args) => {
+    for (const listener of listeners.get(event) ?? []) await listener(...args)
+  }
+
+  await emit('session/event', { id: 'tracked-session' }, { type: 'turn/end' })
+  await emit('agent/status', { agent: { id: 'tracked-agent' }, status: 'idle' })
+  assert.deepEqual(entered, [])
+
+  completedStops = 1
+  await emit('session/event', { id: 'tracked-session' }, { type: 'turn/end' })
+  await emit('agent/status', { agent: { id: 'tracked-agent' }, status: 'idle' })
+  await emit('agent/status', { agent: { id: 'tracked-agent' }, status: 'running' })
+  await emit('session/event', { id: 'tracked-session' }, { type: 'turn/start' })
+  assert.deepEqual(entered, [
+    SCENARIO_CANARY_PROGRESS.CANARY_TURN_ENDED_AFTER_STOP,
+    SCENARIO_CANARY_PROGRESS.CANARY_AGENT_IDLE_STATUS_AFTER_STOP,
+    SCENARIO_CANARY_PROGRESS.CANARY_AGENT_RESTARTED_AFTER_STOP,
+    SCENARIO_CANARY_PROGRESS.CANARY_NEXT_TURN_STARTED_AFTER_STOP,
+  ])
+})
+
 test('pending turn-stopping callbacks retain the preceding deadline boundary', async () => {
   const {
     createScenarioCanaryProgressReporter,
