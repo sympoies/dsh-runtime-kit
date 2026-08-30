@@ -1021,6 +1021,7 @@ export function apply(ctx) {
     AGENT_SESSION_BIN: agentSessionBin,
     AGENT_SESSION_CAPABILITY_FILE: await pickCoordination('capability-'),
     AGENT_SESSION_CHECKPOINT_FILE: await pickCoordination('main-agent-checkpoint-'),
+    DSH_PERMISSION_MODE: 'danger-full-access',
     DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgentBin,
     DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSessionBin,
     DSH_RUNTIME_KIT_NATIVE_CONTROLLER_ID: controller.id,
