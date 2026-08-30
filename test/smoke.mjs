@@ -167,6 +167,7 @@ const nativeFullHostCapabilities = Object.freeze([
 ])
 if (fullHostAuthority) assert.equal(process.platform, 'linux')
 const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+const nativeMainAgentProfile = 'runtime-kit-smoke'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -1611,6 +1612,9 @@ try {
     )
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
+  if (profile !== nativeMainAgentProfile) {
+    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
+  }
 
   const installedProfileManifest = JSON.parse(
     readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
@@ -3445,12 +3449,12 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   const nativeMainAgentReceipt = await runNativeMainAgentSmoke({
     llmModuleUrl,
     sessionModuleUrl,
-    profile,
+    profile: nativeMainAgentProfile,
   })
   const nativeMainAgentLossReceipt = await runNativeMainAgentSmoke({
     llmModuleUrl,
     sessionModuleUrl,
-    profile,
+    profile: nativeMainAgentProfile,
     mode: 'process-loss',
   })
 
