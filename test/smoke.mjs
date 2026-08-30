@@ -650,6 +650,7 @@ let childCalls = 0
 let childId
 let childCwd
 let leaseReadyBeforePrompt = false
+let leaseActivatedByRuntime = false
 let firstSubmissionRevision = 0
 let closeoutRevision = 0
 let listed = []
@@ -844,6 +845,14 @@ export function apply(ctx) {
   void (async () => {
     let handle
     try {
+      const workspaceLeaseRef = ctx.workspaceLease.ref.bind(ctx.workspaceLease)
+      ctx.workspaceLease.ref = async agent => {
+        const ref = await workspaceLeaseRef(agent)
+        if (String(agent.session?.header?.parentSession) === controllerId) {
+          leaseActivatedByRuntime = true
+        }
+        return ref
+      }
       ctx.on('agent/error', ({ agent, error }) => {
         process.stderr.write('native agent error ' + String(agent.id) + ': '
           + String(error?.stack ?? error) + '\\n')
@@ -857,7 +866,9 @@ export function apply(ctx) {
       })
       ctx.on('agent/pre-step', async ({ agent }, next) => {
         if (String(agent.session?.header?.parentSession) === controllerId) {
-          await ctx.workspaceLease.ref(agent)
+          if (!leaseActivatedByRuntime) {
+            throw new Error('native lane reached its first prompt before runtime lease activation')
+          }
           leaseReadyBeforePrompt = true
           writeObservation()
         }
@@ -1161,7 +1172,11 @@ export function apply(ctx) {
   assert.equal(receipt.process_loss.forced, processLoss)
   assert.equal(receipt.process_loss.stale_open_sidecar_observed, processLoss)
   assert.equal(receipt.remaining_assignments, 0)
-  assert.equal(receipt.file, processLoss ? 'baseline\n' : 'reviewed second pass\n')
+  assert.equal(
+    receipt.file,
+    processLoss ? 'baseline\n' : 'reviewed second pass\n',
+    `native lane file mismatch:\n${result.stdout}\n${result.stderr}`,
+  )
   const requiredChildTools = processLoss
     ? ['main_agent_bootstrap']
     : ['main_agent_bootstrap', 'read', 'write', 'bash', 'main_agent_checkpoint']
@@ -2935,7 +2950,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(receipt.tools.includes('runtime_kit_governed_commit'), true)
   assert.equal(
     receipt.mainAgentOrchestration?.apiVersion,
-    1,
+    2,
     'the versioned orchestration service is provided in a real DSH composition',
   )
   const forbiddenRuntimeSurface = /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i

@@ -495,6 +495,8 @@ export function applyMainAgentMode(ctx, config = {}) {
   // distinct assignments cannot all pass a stale registry-size check.
   let reservedLanes = 0
   let closing = false
+  /** @type {string | undefined} */
+  let ambientControllerOwner
 
   /** @param {string} sessionId */
   const resolveSessionPrincipal = sessionId => {
@@ -528,16 +530,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     const pending = authenticatingControllers.get(controllerSessionId)
     if (pending !== undefined) return pending
     const authentication = (async () => {
-      const bridged = /** @type {Record<string, any> | undefined} */ (
-        config.managedSessionBridge?.resolve?.(controllerSessionId)
-      )
-      const candidateEnvironment = bridged !== null
-        && typeof bridged === 'object'
-        && bridged.sessionId === controllerSessionId
-        && bridged.environment !== null
-        && typeof bridged.environment === 'object'
-        ? bridged.environment
-        : undefined
+      const candidateEnvironment = controllerBootstrapEnvironment(exec)
       const readiness = await runEnvelope([
         mainAgentCli,
         'self',
@@ -594,6 +587,7 @@ export function applyMainAgentMode(ctx, config = {}) {
     pendingRunEvents.length = 0
     authenticatingControllers.clear()
     controllers.clear()
+    ambientControllerOwner = undefined
     lanes.clear()
     if (typeof disposeSessionBridge === 'function') disposeSessionBridge()
   }, 'dsh-runtime-kit main-agent lanes')
@@ -936,24 +930,8 @@ export function applyMainAgentMode(ctx, config = {}) {
   const sameControllerPrincipal = (left, right) => left.sessionId === right.sessionId
     && CONTROLLER_PRINCIPAL_ENV_KEYS.every(name => left.environment[name] === right.environment[name])
 
-  /** @param {any} exec */
-  const controllerExecutionEnvironment = (exec) => {
-    const sessionId = requireNonEmptyString(
-      dshRc7SessionHeader(exec?.agent).id,
-      'main-agent-controller-identity-unavailable',
-    )
-    const bound = controllers.get(sessionId)
-    if (bound !== undefined) return bound.environment
-    const bridged = /** @type {Record<string, any> | undefined} */ (
-      config.managedSessionBridge?.resolve?.(sessionId)
-    )
-    const source = bridged !== null
-      && typeof bridged === 'object'
-      && bridged.sessionId === sessionId
-      && bridged.environment !== null
-      && typeof bridged.environment === 'object'
-      ? bridged.environment
-      : process.env
+  /** @param {Record<string, any>} source */
+  const selectControllerEnvironment = (source) => {
     /** @type {Record<string, string>} */
     const selected = {}
     for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
@@ -964,6 +942,55 @@ export function applyMainAgentMode(ctx, config = {}) {
       selected[name] = value
     }
     return Object.freeze(selected)
+  }
+
+  /** @param {any} exec */
+  const exactControllerEnvironment = (exec) => {
+    const sessionId = requireNonEmptyString(
+      dshRc7SessionHeader(exec?.agent).id,
+      'main-agent-controller-identity-unavailable',
+    )
+    const bound = controllers.get(sessionId)
+    if (bound !== undefined) return bound.environment
+    const bridged = /** @type {Record<string, any> | undefined} */ (
+      config.managedSessionBridge?.resolve?.(sessionId)
+    )
+    return bridged !== null
+      && typeof bridged === 'object'
+      && typeof bridged.sessionId === 'string'
+      && bridged.sessionId.length > 0
+      && bridged.environment !== null
+      && typeof bridged.environment === 'object'
+      ? selectControllerEnvironment(bridged.environment)
+      : undefined
+  }
+
+  /**
+   * Only the exact top-level bootstrap path may select the process principal.
+   * Claim it synchronously before the first CLI spawn so two top-level Agents
+   * cannot race to authenticate as the same ambient managed session.
+   *
+   * @param {any} exec
+   */
+  const controllerBootstrapEnvironment = (exec) => {
+    const sessionId = requireTopLevelControllerCaller(exec)
+    const exact = exactControllerEnvironment(exec)
+    if (exact !== undefined) return exact
+    if (ambientControllerOwner === undefined) ambientControllerOwner = sessionId
+    if (ambientControllerOwner !== sessionId) {
+      throw laneError('main-agent-controller-binding-conflict')
+    }
+    return selectControllerEnvironment(process.env)
+  }
+
+  /** @param {any} exec */
+  const controllerExecutionEnvironment = (exec) => {
+    requireControllerCaller(exec)
+    const exact = exactControllerEnvironment(exec)
+    if (exact === undefined) {
+      throw laneError('main-agent-controller-principal-unavailable')
+    }
+    return exact
   }
 
   /**
@@ -1175,7 +1202,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         throw laneError('main-agent-idempotency-key-invalid')
       }
       const cwd = controllerCwd(exec)
-      const candidateEnvironment = controllerExecutionEnvironment(exec)
+      const candidateEnvironment = controllerBootstrapEnvironment(exec)
       const capabilities = await runEnvelope([
         mainAgentCli,
         'capabilities',
@@ -2022,7 +2049,7 @@ export function applyMainAgentMode(ctx, config = {}) {
    * run would be an unlogged second write path onto the same durable state.
    */
   const orchestrationService = Object.freeze({
-    apiVersion: 1,
+    apiVersion: 2,
     get laneCount() { return lanes.size },
     get cliDegraded() { return client.degraded },
     get maxLanes() { return maxLanes },

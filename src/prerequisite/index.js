@@ -145,17 +145,31 @@ export function createPrerequisiteCoordinator(ctx, client, createUserMessage, re
       if (typeof verified.receipt !== 'string') {
         throw new Error('dsh-runtime-kit:prerequisite-decision-invalid')
       }
-      if (phase === 'body') {
+    } catch {
+      pending.delete(exec)
+      throw new Error('dsh-runtime-kit:prerequisite-verification-failed')
+    }
+    // An execute wrapper may return a successful mutation without delegating
+    // to the original body. Dispatch therefore has to prove that the receipt
+    // authorized during pre-execute is still exact. A changed receipt cannot
+    // be authorized twice under nils' one-operation lifecycle, so fail closed;
+    // wrappers that delegate still receive the fresh body policy decision.
+    if (phase === 'dispatch' && verified.receipt !== record.receipt) {
+      pending.delete(exec)
+      throw new Error('dsh-runtime-kit:prerequisite-binding-invalid:receipt-changed')
+    }
+    if (phase === 'body') {
+      try {
         policyDecision = await revalidatePolicy(exec, record.correlation, {
           agentId: record.binding.agentId,
           workspaceGeneration: record.binding.workspaceGeneration,
           definitionId: record.binding.definitionId,
           receipt: verified.receipt,
         })
+      } catch {
+        pending.delete(exec)
+        throw new Error('dsh-runtime-kit:prerequisite-verification-failed')
       }
-    } catch {
-      pending.delete(exec)
-      throw new Error('dsh-runtime-kit:prerequisite-verification-failed')
     }
     if (exec.signal.aborted) {
       pending.delete(exec)

@@ -175,6 +175,10 @@ store's fenced receipt; a service method that mutated the run would be an
 unlogged second write path onto the same durable state. The pre-service name
 `dshRuntimeKitMainAgent` stays bound to the same object.
 
+The service reports `apiVersion: 2`; its `lanes()` and `lane()` projections
+return `dsh-runtime-kit.main-agent-lane.v2`. Service API v1 exposed the removed
+anchor-era lane-v1 projection and is not reused for the new response shape.
+
 ## Acceptance evidence
 
 `npm run test:main-agent-e2e` (with `NILS_BIN_DIR` pointing at a nils-cli build)

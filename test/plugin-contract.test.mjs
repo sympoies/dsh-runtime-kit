@@ -1120,7 +1120,7 @@ test('a declared project-dev prerequisite begins before policy and commits only 
   const commit = subject.spawnSpecs.find(spec => spec.argv.includes('commit-prerequisite'))
   const policies = subject.spawnSpecs.filter(spec => spec.argv.includes('dispatch')
     && JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute')
-  const policy = policies[0]
+  const policy = policies.at(-1)
   assert.ok(begin)
   assert.ok(commit)
   assert.ok(policy)
@@ -1201,7 +1201,7 @@ test('all five default mutator names bind the exact visible definition automatic
         begins += 1
         return {
           reason: 'pending',
-          receipt: `receipt-${begins}`,
+          receipt: 'receipt-stable',
           documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
         }
       },
@@ -1236,6 +1236,71 @@ test('all five default mutator names bind the exact visible definition automatic
     assert.equal(coordinator.pending, 0, name)
     coordinator.dispose()
   }
+})
+
+test('dispatch refuses a changed prerequisite receipt before an execute wrapper can mutate', async () => {
+  const definition = Object.freeze({ name: 'write' })
+  const session = { header: { id: 'session-dispatch-policy', cwd: '/tmp' } }
+  const agent = { id: session.header.id, session }
+  const exec = {
+    token: Symbol('dispatch-policy'),
+    callId: 'dispatch-policy',
+    rootCallId: 'dispatch-policy',
+    name: 'write',
+    arguments: Object.freeze({ file_path: '/tmp/value', content: 'mutated' }),
+    agent,
+    signal: new AbortController().signal,
+  }
+  let bound
+  let begins = 0
+  let policyChecks = 0
+  const coordinator = createPrerequisiteCoordinator({
+    tools: {
+      get(candidateName, candidateAgent) {
+        return candidateName === definition.name && candidateAgent === agent
+          ? definition
+          : undefined
+      },
+      bindPrerequisite(candidateExec, candidateDefinition, prerequisite) {
+        assert.equal(candidateExec, exec)
+        assert.equal(candidateDefinition, definition)
+        bound = prerequisite
+      },
+    },
+  }, {
+    async beginPrerequisite() {
+      begins += 1
+      return {
+        reason: 'pending',
+        receipt: `receipt-${begins}`,
+        documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
+      }
+    },
+    async commitPrerequisite() {
+      assert.fail('a dispatch-denied prerequisite must not commit')
+    },
+  }, createUserMessage, async () => {
+    policyChecks += 1
+    return undefined
+  })
+
+  await coordinator.begin(exec, {
+    sessionId: session.header.id,
+    cwd: session.header.cwd,
+    turn: 1,
+    step: 1,
+    callId: exec.callId,
+    name: exec.name,
+  })
+  assert.ok(bound)
+  await assert.rejects(
+    bound.beforeBody(exec, 'dispatch'),
+    /prerequisite-binding-invalid:receipt-changed/,
+  )
+  assert.equal(begins, 2)
+  assert.equal(policyChecks, 0)
+  assert.equal(coordinator.pending, 0)
+  coordinator.dispose()
 })
 
 test('a restored wrapper signal cannot impersonate caller cancellation at completion', async () => {

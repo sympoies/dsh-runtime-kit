@@ -356,6 +356,7 @@ function controllerExec() {
 test('the owner inventory exactly covers registered controller and lane tools', () => {
   const subject = createContext()
   applyMainAgentMode(subject.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  assert.equal(subject.provided.get('mainAgentOrchestration').apiVersion, 2)
   assert.deepEqual(
     [...subject.registeredTools.keys()].sort(),
     [...MAIN_AGENT_TOOL_INVENTORY.controller].sort(),
@@ -404,6 +405,16 @@ async function withoutControllerEnvironment(run) {
       else process.env[name] = value
     }
   }
+}
+
+function applyBoundMainAgentMode(ctx, config = {}) {
+  const managedSessionBridge = createManagedSessionBridge()
+  managedSessionBridge.bind('controller-one', {
+    sessionId: TEST_CONTROLLER_ENVIRONMENT.AGENT_SESSION_ID,
+    environment: TEST_CONTROLLER_ENVIRONMENT,
+  })
+  applyMainAgentMode(ctx, { ...config, managedSessionBridge })
+  return managedSessionBridge
 }
 
 test('controller initialization is a native readiness-fenced tool', async () => {
@@ -825,12 +836,100 @@ test('controller initialization refuses a foreign non-lane subagent caller', asy
   assert.equal(harness.spawned.length, 0)
 })
 
+test('unbound foreign and second top-level callers cannot borrow ambient controller authority', async () => {
+  await withControllerEnvironment(async () => {
+    const harness = createContext({
+      envelope: {
+        schema_version: 'cli.main-agent.worker-supervise.v1',
+        ok: true,
+        data: {
+          schema_version: 'main-agent.worker-supervise-result.v2',
+          classification: 'healthy_progress',
+          next_action: 'continue bounded supervision',
+        },
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    const supervise = harness.registeredTools.get('main_agent_worker_supervise')
+    const foreignChild = controllerExec()
+    foreignChild.agent.session.header.id = 'foreign-child'
+    foreignChild.agent.session.header.parentSession = 'foreign-parent'
+    const secondTopLevel = controllerExec()
+    secondTopLevel.agent.session.header.id = 'second-controller'
+
+    for (const exec of [foreignChild, secondTopLevel]) {
+      await assert.rejects(
+        supervise.execute({ assignment_id: 'assignment-one' }, exec),
+        /main-agent-controller-principal-unavailable/,
+      )
+    }
+    assert.equal(harness.spawned.length, 0)
+  })
+})
+
+test('ambient controller bootstrap is single-owner before any second top-level CLI spawn', async () => {
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: (spec) => {
+        if (spec.argv.includes('capabilities')) {
+          return {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        }
+        if (spec.argv.includes('readiness')) {
+          return {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.main-agent.init.v1',
+          ok: true,
+          data: { schema_version: 'main-agent.init-result.v1', run: { state: 'active' } },
+        }
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    const initialize = harness.registeredTools.get('main_agent_run_initialize')
+    await initialize.execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-owner-1',
+    }, controllerExec())
+    const spawnedByOwner = harness.spawned.length
+    const second = controllerExec()
+    second.agent.session.header.id = 'second-controller'
+
+    await assert.rejects(
+      initialize.execute({
+        objective_file: '/private/objective.json',
+        idempotency_key: 'initialize-owner-2',
+      }, second),
+      /main-agent-controller-binding-conflict/,
+    )
+    assert.equal(harness.spawned.length, spawnedByOwner)
+  })
+})
+
 test('worker launch executes the external-launch contract without duplicating lanes', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx)
+  applyBoundMainAgentMode(harness.ctx)
 
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   assert.ok(launch, 'launch tool is registered')
@@ -956,7 +1055,7 @@ test('worker launch waits for authenticated broker readiness before starting the
       }
     },
   })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     brokerReadyTimeoutMs: 2_000,
   })
@@ -1005,7 +1104,7 @@ test('worker launch rolls back when authenticated broker readiness never arrives
         }
       : start),
   })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     brokerReadyTimeoutMs: 1,
   })
@@ -1029,7 +1128,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const refused = createContext({
     envelope: { schema_version: 'cli.main-agent.worker-start.v1', ok: false, error: { code: 'claim-not-active', message: 'no claim' } },
   })
-  applyMainAgentMode(refused.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(refused.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     refused.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1042,7 +1141,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const invalid = createContext({
     envelope: workerStartEnvelope(livenessFile, { external_launch: { schema_version: 'main-agent.external-launch.v999' } }),
   })
-  applyMainAgentMode(invalid.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(invalid.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     invalid.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1052,7 +1151,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   )
 
   const relative = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(relative.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(relative.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     relative.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: 'relative/path.json', idempotency_key: 'key-1' },
@@ -1086,7 +1185,7 @@ test('worker launch releases an unadopted incarnation when the worker route is u
   ]
 
   for (const fixture of cases) {
-    applyMainAgentMode(fixture.harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(fixture.harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       fixture.harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: `key-${fixture.name}` },
@@ -1108,7 +1207,7 @@ test('lane children get the deny guard and environment section; foreign children
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     laneDeniedTools: ['custom_tool'],
   })
@@ -1198,6 +1297,10 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
     },
   })
   const managedSessionBridge = createManagedSessionBridge()
+  managedSessionBridge.bind('controller-one', {
+    sessionId: TEST_CONTROLLER_ENVIRONMENT.AGENT_SESSION_ID,
+    environment: TEST_CONTROLLER_ENVIRONMENT,
+  })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1256,7 +1359,7 @@ test('host-bound lanes interrupt, drain, close, and update run-boundary sidecars
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1345,7 +1448,7 @@ test('concurrent launches of one assignment serialize to a single lane', async (
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1378,7 +1481,7 @@ test('a failed launch rolls back completely and terminates its sidecar', async (
       throw new Error('child refused to start')
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     harness.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1408,7 +1511,7 @@ test('a registered lane refuses a foreign launch incarnation', async (t) => {
       external_launch: { launch_id: launchId },
     }),
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1438,7 +1541,7 @@ test('lane capacity is bounded with a typed refusal', async (t) => {
       return envelope
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -1466,7 +1569,7 @@ test('disposal closes the runtime: tools refuse and lane bookkeeping empties', a
     lifecycleEvents,
     closeContinuable: async () => releaseClose.promise,
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1512,7 +1615,7 @@ test('lane close still releases the heartbeat when the interrupt throws', async 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1533,7 +1636,7 @@ test('synchronous run boundaries publish the last transition, not the last renam
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1584,7 +1687,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const harness = createContext({
       envelope: workerStartEnvelope(livenessFile, { external_launch: override }),
     })
-    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1602,7 +1705,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const envelope = workerStartEnvelope(livenessFile)
     envelope.data.external_launch.worker_env.AGENT_SESSION_RUNTIME_ID = hostileValue
     const harness = createContext({ envelope })
-    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1627,7 +1730,7 @@ test('the external-launch envelope accepts the canonical target of the configure
   envelope.data.external_launch.broker_heartbeat_argv[0] = trustedTarget
   envelope.data.external_launch.broker_stop_argv[0] = trustedTarget
   const harness = createContext({ envelope })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: join(bin, 'main-agent') })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: join(bin, 'main-agent') })
 
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1642,7 +1745,10 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
   // A partial override must extend, never replace, the mandatory core.
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, laneDeniedTools: ['custom_tool'] })
+  applyBoundMainAgentMode(harness.ctx, {
+    mainAgentCli: MAIN_AGENT_CLI,
+    laneDeniedTools: ['custom_tool'],
+  })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1708,7 +1814,7 @@ test('run outcomes map onto the sidecar contract vocabulary', async (t) => {
   })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1760,7 +1866,7 @@ test('lane capacity holds across concurrent launches of distinct assignments', a
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -1789,7 +1895,7 @@ test('interrupting a settled lane reports it instead of throwing', async (t) => 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1825,7 +1931,7 @@ async function launchedLane(scratch, options = {}) {
     closeContinuable: options.closeContinuable,
     lifecycleEvents: options.lifecycleEvents,
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
