@@ -2743,6 +2743,71 @@ test('stop policy transport denial steers closed and remains retryable in the sa
   assert.equal(subject.steered[1].content[0].text, 'retry reached authoritative policy')
 })
 
+test('a persistent stop policy failure terminalizes instead of steering the whole turn', async () => {
+  const subject = harness({
+    throwOnSpawn: (spec) => {
+      if (!spec.argv.includes('dispatch')) return false
+      return JSON.parse(spec.stdio.stdin.data).event === 'agent/turn-stopping'
+    },
+    envelope: (spec) => {
+      if (spec.argv.includes('finish-line')) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-stop.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.stop-result.v1',
+            action: 'allow',
+            generation: 0,
+            contract_digest: 'contract-1',
+            correlation_id: 'correlation-1',
+            reason_codes: [],
+            remediation: [],
+          },
+        }
+      }
+      return decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+  const stopping = {
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }
+
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+  await subject.waterfall('agent/turn-stopping', [stopping], async () => undefined)
+  assert.equal(subject.steered.length, 2)
+  await assert.rejects(
+    subject.waterfall('agent/turn-stopping', [stopping], async () => undefined),
+    /stop policy same-turn steering limit reached \(capability-unavailable\)/u,
+  )
+  assert.equal(subject.steered.length, 2)
+
+  await subject.waterfall(
+    'agent/turn-stopping',
+    [{ ...stopping, turn: 2 }],
+    async () => undefined,
+  )
+  assert.equal(subject.steered.length, 3)
+})
+
 test('stop outcome distinguishes provider and transport failure without cross-session replay', async () => {
   const scenarios = [
     {

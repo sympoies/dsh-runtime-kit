@@ -21,6 +21,8 @@ import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-s
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 
 const MAX_LIFECYCLE_PROMPT_BYTES = 64 * 1024
+/** Same-turn steering bound shared with the finish-line and acceptance coordinators. */
+const MAX_SAME_TURN_STOP_STEERS = 2
 
 /**
  * Resolve the exact finish-line command through the active DSH shell provider.
@@ -516,6 +518,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   let evaluatedStops = new WeakMap()
   /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, outcome: 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'}>} */
   let stopPolicyOutcomes = new WeakMap()
+  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, count: number}>} */
+  let stopSteers = new WeakMap()
   let closing = false
 
   /** @param {import('@deepseek-ai/dsh-agent').Agent | undefined} agent */
@@ -544,6 +548,27 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     ...contexts.length === 0 ? {} : { additionalContexts: contexts },
   })
 
+  /**
+   * Steer a failed stop boundary at most `MAX_SAME_TURN_STOP_STEERS` times per
+   * turn. The accepting paths record `evaluatedStops`, so only the fail-closed
+   * paths can repeat; a fault that persists cannot converge by being steered
+   * again, and the bound terminalizes the turn with the classified outcome
+   * instead of leaving the harness deadline as the only limit.
+   * @param {import('@deepseek-ai/dsh-agent').Agent} agent
+   * @param {number} turn
+   * @param {string} outcome
+   * @param {string} text
+   */
+  const steerStop = (agent, turn, outcome, text) => {
+    const tracked = stopSteers.get(agent.session)
+    const steered = tracked !== undefined && tracked.turn === turn ? tracked.count : 0
+    if (steered >= MAX_SAME_TURN_STOP_STEERS) {
+      throw new Error(`dsh-runtime-kit: stop policy same-turn steering limit reached (${outcome})`)
+    }
+    stopSteers.set(agent.session, { turn, count: steered + 1 })
+    agent.steer(policyContextMessage(createUserMessage, text))
+  }
+
   ctx.effect(() => () => {
     closing = true
     authorizations.clear()
@@ -552,6 +577,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     startupEvaluated = new WeakSet()
     evaluatedStops = new WeakMap()
     stopPolicyOutcomes = new WeakMap()
+    stopSteers = new WeakMap()
     compatibility.dispose()
     prerequisites.dispose()
   }, 'dsh-runtime-kit policy state')
@@ -669,9 +695,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         return true
       } catch {
         if (!closing && !payload.signal.aborted) {
-          payload.agent.steer(policyContextMessage(createUserMessage,
+          steerStop(payload.agent, payload.turn, 'reservation-unterminalized',
             'The acceptance reservation could not be terminalized. Restore the runtime boundary and retry.',
-          ))
+          )
         }
         return false
       }
@@ -708,9 +734,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       })
       await cancelReservedStop()
       if (!closing && !payload.signal.aborted) {
-        payload.agent.steer(policyContextMessage(createUserMessage,
+        steerStop(payload.agent, payload.turn, 'transport-failed',
           'The lifecycle policy could not verify the stop boundary. Retry after policy availability is restored.',
-        ))
+        )
       }
       return
     }
@@ -737,16 +763,17 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       })
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else {
+      const outcome = stopPolicyFailureOutcome(policyDecision)
       stopPolicyOutcomes.set(payload.agent.session, {
         turn: payload.turn,
-        outcome: stopPolicyFailureOutcome(policyDecision),
+        outcome,
       })
       if (!await cancelReservedStop()) return
-      payload.agent.steer(policyContextMessage(createUserMessage,
+      steerStop(payload.agent, payload.turn, outcome,
         explicitPolicyDenial(policyDecision)
           ? 'The lifecycle policy blocked this stop boundary. Resolve the reported policy state and retry.'
           : 'The lifecycle policy could not verify the stop boundary. Retry after policy availability is restored.',
-      ))
+      )
     }
   })
 

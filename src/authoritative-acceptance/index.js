@@ -11,6 +11,13 @@ import { z } from 'zod'
 
 const DIGEST = /^sha256:[0-9a-f]{64}$/u
 const IDENTIFIER = /^[\x21-\x7e]{1,256}$/u
+/**
+ * Same-turn steering bound for the stop boundary. Authoritative governance
+ * displaces the finish-line stop evaluator, so this coordinator owns the bound
+ * that `src/finish-line/index.js` applies to the coordinator it replaces.
+ */
+const MAX_SAME_TURN_STOP_STEERS = 2
+const MAX_POISON_DETAIL_BYTES = 512
 const VERDICT_STATUSES = new Set([
   'satisfied',
   'missing',
@@ -47,6 +54,19 @@ function plainRecord(value) {
   return prototype === Object.prototype || prototype === null
     ? /** @type {Record<string, unknown>} */ (value)
     : undefined
+}
+
+/** @param {string} value @param {number} maximum */
+function boundedUtf8(value, maximum) {
+  const bytes = Buffer.from(value, 'utf8')
+  if (bytes.length <= maximum) return value
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  for (let end = maximum; end >= Math.max(0, maximum - 3); end -= 1) {
+    try {
+      return decoder.decode(bytes.subarray(0, end))
+    } catch {}
+  }
+  return ''
 }
 
 /** @param {unknown} error */
@@ -522,6 +542,8 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
   let contract
   /** @type {WeakMap<Agent['session'], SessionState>} */
   let sessions = new WeakMap()
+  /** @type {WeakMap<Agent['session'], {turn: number, count: number}>} */
+  let stopSteers = new WeakMap()
   /** @type {Set<SessionState>} */
   const liveStates = new Set()
   /** @type {Map<Readonly<ToolExecution>, OperationState>} */
@@ -733,10 +755,18 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
     throw new Error('dsh-runtime-kit: acceptance agent publication unavailable')
   }
 
-  /** @param {SessionState} state @param {unknown} error */
+  /**
+   * Retain the first cause. Once a session is poisoned `ensureRegistered`
+   * rethrows the generic unavailability message, so overwriting would replace
+   * the fault that has to be repaired with the symptom of already being
+   * poisoned. A successful refresh clears the retained cause.
+   * @param {SessionState} state @param {unknown} error
+   */
   function poison(state, error) {
     state.revision += 1
-    state.poison = error instanceof Error ? error.message : 'acceptance provider unavailable'
+    if (state.poison === undefined) {
+      state.poison = error instanceof Error ? error.message : 'acceptance provider unavailable'
+    }
     state.verdict = Object.freeze({
       action: /** @type {const} */ ('block'),
       aggregate: 'infrastructure-blocked',
@@ -745,6 +775,25 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       reasonCodes: Object.freeze(['infrastructure-blocked']),
       requirements: state.verdict?.requirements ?? Object.freeze([]),
     })
+  }
+
+  /**
+   * Steer the stopping agent at most `MAX_SAME_TURN_STOP_STEERS` times per
+   * turn. A stop that keeps failing for the same reason cannot converge by
+   * being steered again, so the bound terminalizes the turn with the retained
+   * cause instead of leaving the harness deadline as the only limit.
+   * @param {Agent} agent @param {number} turn @param {string} text
+   */
+  function steerStop(agent, turn, text) {
+    const tracked = stopSteers.get(agent.session)
+    const steered = tracked !== undefined && tracked.turn === turn ? tracked.count : 0
+    if (steered >= MAX_SAME_TURN_STOP_STEERS) {
+      const cause = sessions.get(agent.session)?.poison ?? 'acceptance provider unavailable'
+      throw new Error('dsh-runtime-kit: acceptance same-turn steering limit reached '
+        + `(${boundedUtf8(cause, MAX_POISON_DETAIL_BYTES)})`)
+    }
+    stopSteers.set(agent.session, { turn, count: steered + 1 })
+    agent.steer(createSteeringMessage(text))
   }
 
   /** @param {SessionState} state */
@@ -1528,9 +1577,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         const existing = sessions.get(payload.agent.session)
         if (existing !== undefined && !payload.signal.aborted && open) poison(existing, error)
         if (!payload.signal.aborted) {
-          payload.agent.steer(createSteeringMessage(
+          steerStop(payload.agent, payload.turn,
             'Authoritative acceptance infrastructure is unavailable. Restore it and retry.',
-          ))
+          )
         }
         return false
       }
@@ -1538,9 +1587,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       await coordinator.settle(payload.agent)
       if (hasRepositoryMutation(state.repositoryKey)) {
         if (!payload.signal.aborted) {
-          payload.agent.steer(createSteeringMessage(
+          steerStop(payload.agent, payload.turn,
             'Authoritative acceptance blocked completion: active. Wait for repository mutations to terminalize and retry.',
-          ))
+          )
         }
         return false
       }
@@ -1559,9 +1608,9 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
         && state.completionReservationActive) return true
       if (!payload.signal.aborted) {
         const details = selected?.reasonCodes.join(', ') || 'infrastructure-blocked'
-        payload.agent.steer(createSteeringMessage(
+        steerStop(payload.agent, payload.turn,
           `Authoritative acceptance blocked completion: ${details}. Run the exact required validators and retry.`,
-        ))
+        )
       }
       return false
     },
@@ -1647,6 +1696,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx, options) {
       repositoryPreparations.clear()
       liveStates.clear()
       sessions = new WeakMap()
+      stopSteers = new WeakMap()
     },
 
     get activeOperations() {
