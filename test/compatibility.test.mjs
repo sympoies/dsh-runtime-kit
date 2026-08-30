@@ -753,6 +753,10 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /22\.19\.0/)
   assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
   assert.equal(workflow.match(/Rebuild and authenticate unpatched DSH runtime/g)?.length, 2)
+  assert.match(workflow, /Run released native full-host authority smoke/)
+  assert.match(workflow, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST: '1'/)
+  assert.match(workflow, /DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: '1'/)
+  assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
   assert.equal(workflow.match(/pnpm run build:lib\n/g)?.length, 2)
   assert.match(workflow, /digest-dsh-build-closure\.mjs/)
@@ -815,6 +819,19 @@ test('compatibility workflow keeps selected channels and every patch release blo
     3,
     'every dsh-runtime-kit checkout must retain parity evidence history',
   )
+
+  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  assert.match(runtimeSmoke, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST/)
+  assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
+  for (const capability of [
+    'af-unix',
+    'af-netlink',
+    'localhost',
+    'systemd-user',
+    'docker',
+    'supplementary-groups',
+  ]) assert.match(runtimeSmoke, new RegExp(capability))
+  assert.match(runtimeSmoke, /dsh-runtime-kit-full-host:\\\$\{capability\}:failed/)
 })
 
 test('peer packer requires an absolute trusted pnpm launcher', async () => {
