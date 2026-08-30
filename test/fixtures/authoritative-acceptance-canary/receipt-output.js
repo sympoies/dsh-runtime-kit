@@ -48,7 +48,7 @@ export function scenarioCanaryServices(phase) {
   const observesRuntime = !['provider-mismatch-probe', 'unpatched-smoke'].includes(phase)
   return [
     'agents',
-    ...observesRuntime ? ['dshRuntimeKit'] : [],
+    ...observesRuntime ? ['dshRuntimeKit', 'sessions'] : [],
     'goals',
     'llm',
     'tools',
@@ -325,6 +325,33 @@ export function createScenarioCanaryDeadlineController(options) {
       return postDeadlineCleanup
     },
   })
+}
+
+/**
+ * Create the canary's goal without leaving automatic continuation authority
+ * armed. The canary drives its own exact turn and exercises manual completion
+ * only after the acceptance verdict is observable, so a goal-round driver
+ * must not race that settlement boundary with another round.
+ *
+ * @param {{
+ *   get:(agent:any)=>any,
+ *   create:(agent:any,request:{objective:string})=>any,
+ *   disarm:(agent:any)=>any,
+ * }} goals
+ * @param {any} agent
+ */
+export function prepareScenarioCanaryGoal(goals, agent) {
+  const selected = goals.get(agent)
+    ?? goals.create(agent, { objective: 'prove authoritative acceptance' })
+  const disarmed = goals.disarm(agent)
+  if (disarmed === undefined
+    || disarmed.id !== selected.id
+    || disarmed.revision !== selected.revision
+    || disarmed.phase !== selected.phase
+    || disarmed.activation !== 'disarmed') {
+    throw new Error('scenario canary goal did not disarm')
+  }
+  return disarmed
 }
 
 /**

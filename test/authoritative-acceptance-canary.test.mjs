@@ -21,10 +21,10 @@ test('runtime canary phases activate only after runtime stop listeners are regis
     './fixtures/authoritative-acceptance-canary/receipt-output.js'
   )
   assert.deepEqual(scenarioCanaryServices('positive'), [
-    'agents', 'dshRuntimeKit', 'goals', 'llm', 'tools',
+    'agents', 'dshRuntimeKit', 'sessions', 'goals', 'llm', 'tools',
   ])
   assert.deepEqual(scenarioCanaryServices('candidate-upgrade'), [
-    'agents', 'dshRuntimeKit', 'goals', 'llm', 'tools',
+    'agents', 'dshRuntimeKit', 'sessions', 'goals', 'llm', 'tools',
   ])
   assert.deepEqual(scenarioCanaryServices('unpatched-smoke'), [
     'agents', 'goals', 'llm', 'tools',
@@ -44,6 +44,81 @@ test('the packed canary includes its host-visible child lookup helper', () => {
   assert.equal(manifest.files.includes('observable-child-pid.js'), true)
   assert.equal(manifest.files.includes('body-execution-counter.js'), true)
   assert.equal(manifest.files.includes('receipt-output.js'), true)
+})
+
+test('the canary disarms its goal before waiting for manual completion', async () => {
+  const { prepareScenarioCanaryGoal } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  assert.equal(typeof prepareScenarioCanaryGoal, 'function')
+
+  const agent = Object.freeze({ id: 'acceptance-agent' })
+  const created = Object.freeze({
+    id: 'goal-1',
+    revision: 1,
+    phase: 'active',
+    activation: 'armed',
+  })
+  const disarmed = Object.freeze({ ...created, activation: 'disarmed' })
+  const calls = []
+  const goals = {
+    get(subject) {
+      assert.equal(subject, agent)
+      calls.push('get')
+      return undefined
+    },
+    create(subject, request) {
+      assert.equal(subject, agent)
+      assert.deepEqual(request, { objective: 'prove authoritative acceptance' })
+      calls.push('create')
+      return created
+    },
+    disarm(subject) {
+      assert.equal(subject, agent)
+      calls.push('disarm')
+      return disarmed
+    },
+  }
+
+  assert.equal(prepareScenarioCanaryGoal(goals, agent), disarmed)
+  assert.deepEqual(calls, ['get', 'create', 'disarm'])
+})
+
+test('the canary rejects an inexact goal disarm result', async () => {
+  const { prepareScenarioCanaryGoal } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  const agent = Object.freeze({ id: 'acceptance-agent' })
+  const selected = Object.freeze({
+    id: 'goal-1',
+    revision: 2,
+    phase: 'active',
+    activation: 'armed',
+  })
+  const invalidResults = [
+    undefined,
+    { ...selected, id: 'goal-2', activation: 'disarmed' },
+    { ...selected, revision: 3, activation: 'disarmed' },
+    { ...selected, phase: 'completed', activation: 'disarmed' },
+    { ...selected, activation: 'armed' },
+  ]
+
+  for (const result of invalidResults) {
+    assert.throws(
+      () => prepareScenarioCanaryGoal({
+        get: subject => {
+          assert.equal(subject, agent)
+          return selected
+        },
+        create: () => assert.fail('an existing goal must be reused'),
+        disarm: subject => {
+          assert.equal(subject, agent)
+          return result
+        },
+      }, agent),
+      /scenario canary goal did not disarm/u,
+    )
+  }
 })
 
 test('the positive canary reports bounded validator and stop-request boundaries', async () => {

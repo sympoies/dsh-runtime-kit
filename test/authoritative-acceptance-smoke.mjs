@@ -527,6 +527,8 @@ digest = ${JSON.stringify(policyDigest)}
           denial: positive.denial,
           tool_outcomes: positiveToolOutcomes,
           body_executions: positive.body_executions,
+          turn_stops: positive.turn_stops,
+          goal_round_followups: positive.goal_round_followups,
           verdict: positive.final_verdict,
           completion_settlement: positive.completion_settlement,
         },
@@ -618,6 +620,7 @@ digest = ${JSON.stringify(policyDigest)}
           first_verdict: candidateUpgrade.first_verdict,
           goal_unchanged: JSON.stringify(candidateUpgrade.goal.before)
             === JSON.stringify(candidateUpgrade.goal.after_denial),
+          goal_round_followups: candidateUpgrade.goal_round_followups,
           validation_executions: candidateUpgrade.validation_executions,
           tool_outcome: 'succeeded',
           verdict: candidateUpgrade.final_verdict,
