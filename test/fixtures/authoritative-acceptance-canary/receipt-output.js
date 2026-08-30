@@ -43,6 +43,18 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
 
 const SCENARIO_CANARY_PROGRESS_CODES = new Set(Object.values(SCENARIO_CANARY_PROGRESS))
 
+/** @param {string} phase */
+export function scenarioCanaryServices(phase) {
+  const observesRuntime = !['provider-mismatch-probe', 'unpatched-smoke'].includes(phase)
+  return [
+    'agents',
+    ...observesRuntime ? ['dshRuntimeKit'] : [],
+    'goals',
+    'llm',
+    'tools',
+  ]
+}
+
 function parseScenarioCanaryDeadlineEpoch(deadlineEpoch) {
   if (typeof deadlineEpoch !== 'string' || !/^[1-9][0-9]{12}$/u.test(deadlineEpoch)) {
     throw new Error('scenario canary execution deadline is invalid')
@@ -162,8 +174,10 @@ export function createScenarioCanaryProgressReporter(options) {
 
 /**
  * Mark entry before the existing turn-stopping listeners, callback
- * settlement, and the following canary-owned tail. The observers never
- * return a decision or consume event content.
+ * settlement, and the following canary-owned tail. For phases that exercise
+ * runtime-kit, the canary's runtime service dependency activates this
+ * registration only after runtime-kit has registered its listeners. The
+ * observers never return a decision or consume event content.
  *
  * @param {{on:(event:string,listener:(event:any)=>unknown,options?:{prepend?:boolean})=>unknown}} ctx
  * @param {{

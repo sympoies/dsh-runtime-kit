@@ -16,6 +16,29 @@ import {
 
 const fixtureManifest = new URL('./fixtures/authoritative-acceptance-canary/package.json', import.meta.url)
 
+test('runtime canary phases activate only after runtime stop listeners are registered', async () => {
+  const { scenarioCanaryServices } = await import(
+    './fixtures/authoritative-acceptance-canary/receipt-output.js'
+  )
+  assert.deepEqual(scenarioCanaryServices('positive'), [
+    'agents', 'dshRuntimeKit', 'goals', 'llm', 'tools',
+  ])
+  assert.deepEqual(scenarioCanaryServices('candidate-upgrade'), [
+    'agents', 'dshRuntimeKit', 'goals', 'llm', 'tools',
+  ])
+  assert.deepEqual(scenarioCanaryServices('unpatched-smoke'), [
+    'agents', 'goals', 'llm', 'tools',
+  ])
+  assert.deepEqual(scenarioCanaryServices('provider-mismatch-probe'), [
+    'agents', 'goals', 'llm', 'tools',
+  ])
+  const canary = readFileSync(
+    new URL('./fixtures/authoritative-acceptance-canary/index.js', import.meta.url),
+    'utf8',
+  )
+  assert.match(canary, /export const inject = scenarioCanaryServices\(phase\)/u)
+})
+
 test('the packed canary includes its host-visible child lookup helper', () => {
   const manifest = JSON.parse(readFileSync(fixtureManifest, 'utf8'))
   assert.equal(manifest.files.includes('observable-child-pid.js'), true)

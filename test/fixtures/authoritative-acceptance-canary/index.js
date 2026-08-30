@@ -18,14 +18,15 @@ import {
   SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_MARKER,
   SCENARIO_CANARY_PROGRESS,
+  scenarioCanaryServices,
   startScenarioCanaryWhenReady,
 } from './receipt-output.js'
 
 export const name = 'dsh-authoritative-acceptance-canary'
-export const inject = ['agents', 'goals', 'llm', 'tools']
+const phase = process.env.DSH_ACCEPTANCE_PHASE ?? 'positive'
+export const inject = scenarioCanaryServices(phase)
 
 const marker = SCENARIO_CANARY_MARKER
-const phase = process.env.DSH_ACCEPTANCE_PHASE ?? 'positive'
 const sessionId = process.env.DSH_ACCEPTANCE_SESSION_ID ?? 'authoritative-acceptance-canary'
 const workspace = process.env.DSH_ACCEPTANCE_WORKSPACE
 const processInstance = process.env.DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256

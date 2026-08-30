@@ -23,6 +23,10 @@ import {
 } from '../src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../src/policy/nils-transport.js'
 import { createPrerequisiteCoordinator } from '../src/prerequisite/index.js'
+import {
+  registerScenarioCanaryTurnStoppingProgress,
+  SCENARIO_CANARY_PROGRESS,
+} from './fixtures/authoritative-acceptance-canary/receipt-output.js'
 
 const sha256 = `sha256:${'0'.repeat(64)}`
 const isNonWideningSandboxEcho = (permissions, effectiveMode) => permissions === effectiveMode
@@ -347,6 +351,10 @@ function harness({
   prerequisiteBeginMalformed = false,
   resolutionPending = false,
   config = {},
+  onRuntimeKitProvide,
+  runtimeStopListenerGate,
+  onRuntimeStopListenerRegistered,
+  onRuntimeStopListenerEnter,
 } = {}) {
   const listeners = new Map()
   const effects = []
@@ -444,12 +452,24 @@ function harness({
         prerequisiteBindings.set(exec, { definition, prerequisite })
       },
     },
-    on(event, candidate) {
+    on(event, candidate, options = {}) {
       const candidates = listeners.get(event) ?? []
-      candidates.push(candidate)
+      let registered = candidate
+      if (event === 'agent/turn-stopping'
+          && service === undefined
+          && runtimeStopListenerGate !== undefined) {
+        onRuntimeStopListenerRegistered?.()
+        registered = async (...args) => {
+          onRuntimeStopListenerEnter?.()
+          await runtimeStopListenerGate
+          return candidate(...args)
+        }
+      }
+      if (options.prepend === true) candidates.unshift(registered)
+      else candidates.push(registered)
       listeners.set(event, candidates)
       return () => {
-        const index = candidates.indexOf(candidate)
+        const index = candidates.indexOf(registered)
         if (index >= 0) candidates.splice(index, 1)
       }
     },
@@ -473,7 +493,10 @@ function harness({
       return dispose
     },
     provide(name, value) {
-      if (name === 'dshRuntimeKit') service = value
+      if (name === 'dshRuntimeKit') {
+        service = value
+        onRuntimeKitProvide?.(ctx, value)
+      }
       if (name === 'dshAcceptance') acceptanceService = value
     },
     subprocess: {
@@ -697,6 +720,12 @@ function harness({
     return next()
   }
 
+  async function dispatchSerial(event, args) {
+    for (const candidate of [...(listeners.get(event) ?? [])]) {
+      await candidate(...args)
+    }
+  }
+
   async function prepare(arguments_, {
     callId = 'call-1',
     rootCallId = callId,
@@ -892,6 +921,9 @@ function harness({
     emit(event, ...args) {
       for (const observer of listeners.get(event) ?? []) observer(...args)
     },
+    serial(event, ...args) {
+      return dispatchSerial(event, args)
+    },
     waterfall(event, args, inner) {
       return dispatchWaterfall(event, args, inner)
     },
@@ -917,6 +949,91 @@ function harness({
     get warnings() { return warnings },
   }
 }
+
+test('runtime service activation places canary progress after the real stop listener', async () => {
+  const entered = []
+  let releaseRuntimeStopListener
+  const runtimeStopListenerGate = new Promise(resolve => {
+    releaseRuntimeStopListener = resolve
+  })
+  let runtimeStopListenerEntered
+  const runtimeStopListenerStarted = new Promise(resolve => {
+    runtimeStopListenerEntered = resolve
+  })
+  let runtimeStopListenerRegistrations = 0
+  const subject = harness({
+    envelope: (spec) => {
+      if (spec.argv.includes('finish-line')) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-stop.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.stop-result.v1',
+            action: 'allow',
+            generation: 0,
+            contract_digest: 'contract-1',
+            correlation_id: 'correlation-1',
+            reason_codes: [],
+            remediation: [],
+          },
+        }
+      }
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      return decision('allow', {
+        event: ingress.event === 'agent/turn-stopping' ? 'Stop' : 'UserPromptSubmit',
+      })
+    },
+    runtimeStopListenerGate,
+    onRuntimeStopListenerRegistered() { runtimeStopListenerRegistrations += 1 },
+    onRuntimeStopListenerEnter() { runtimeStopListenerEntered() },
+    onRuntimeKitProvide(ctx) {
+      registerScenarioCanaryTurnStoppingProgress(ctx, {
+        phase: 'positive',
+        progress: { enter(code) { entered.push(code) } },
+        isTrackedAgent: agent => agent.id === 'session-1',
+        onCompleted() { entered.push('callback') },
+      })
+    },
+  })
+  assert.equal(runtimeStopListenerRegistrations, 1)
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  await subject.waterfall(
+    'agent/pre-step',
+    [{
+      agent: subject.agent,
+      messages: [],
+      turn: 1,
+      step: 1,
+      signal: new AbortController().signal,
+    }],
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+    { type: 'step/end', data: { turn: 1, step: 1 } },
+  )
+
+  const stop = subject.serial('agent/turn-stopping', {
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  })
+  try {
+    await runtimeStopListenerStarted
+    assert.deepEqual(entered, [SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED])
+  } finally {
+    releaseRuntimeStopListener()
+  }
+  await stop
+  assert.deepEqual(entered, [
+    SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED,
+    SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED,
+    'callback',
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED,
+    SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED,
+  ])
+})
 
 test('policy ingress resolves a bare agent-hook command before spawning', async () => {
   const subject = harness({ config: { agentHook: 'agent-hook' } })
