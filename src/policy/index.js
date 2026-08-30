@@ -602,6 +602,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         }
     /** @type {{ position: string, promptDigest: string, status: 'pending' | 'accepted', context?: string, settled: Promise<boolean>, resolve: (accepted: boolean) => void } | undefined} */
     let claim
+    /** @type {string | undefined} */
+    let positionContext
     while (claim === undefined) {
       const current = acceptedLifecycleSteps.get(session)
       if (current?.status === 'pending') {
@@ -611,10 +613,11 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         }
         continue
       }
-      if (current?.status === 'accepted'
-          && current.position === position
-          && current.promptDigest === promptDigest) {
-        return withPolicyContext(current.context)
+      if (current?.status === 'accepted' && current.position === position) {
+        if (current.promptDigest === promptDigest) {
+          return withPolicyContext(current.context)
+        }
+        positionContext = current.context
       }
       /** @type {(accepted: boolean) => void} */
       let resolve = () => {}
@@ -654,7 +657,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       return { kind: /** @type {const} */ ('reject') }
     }
     if (includeStartup) startupEvaluated.add(session)
-    const policyContext = policyDecision?.kind === 'context' ? policyDecision.context : undefined
+    const policyContext = policyDecision?.kind === 'context'
+      ? policyDecision.context
+      : positionContext
     claim.context = policyContext
     const accepted = withPolicyContext(policyContext)
     settleClaim(true)

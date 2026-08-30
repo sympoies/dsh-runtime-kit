@@ -2134,12 +2134,122 @@ test('same-position deduplication binds the accepted prompt digest sequentially 
   assert.deepEqual(sequentialPrompts, ['safe accepted text', 'changed accepted text'])
   assert.equal(sequential.spawnCount, 2)
 
+  let retainedCalls = 0
+  const retained = harness({
+    envelope: () => retainedCalls++ === 0
+      ? decision('context', {
+          event: 'UserPromptSubmit',
+          context: 'position-scoped startup context',
+        })
+      : decision('allow', { event: 'UserPromptSubmit' }),
+  })
+  retained.emit('agent/session-start', { agent: retained.agent, source: 'startup' })
+  for (const prompt of ['initial accepted text', 'changed accepted text']) {
+    const result = await retained.waterfall(
+      'agent/pre-step',
+      [payloadFor(retained)],
+      async () => ({ kind: 'enter', messages: [makeMessage(prompt)] }),
+    )
+    assert.equal(result.kind, 'enter')
+    assert.equal(result.messages.at(-1).content[0].text, 'position-scoped startup context')
+  }
+  assert.equal(retained.spawnCount, 2)
+
+  let deniedCalls = 0
+  const denied = harness({
+    envelope: () => {
+      deniedCalls += 1
+      if (deniedCalls === 1) {
+        return decision('context', {
+          event: 'UserPromptSubmit',
+          context: 'context before changed-prompt denial',
+        })
+      }
+      return deniedCalls === 2
+        ? decision('block', { event: 'UserPromptSubmit' })
+        : decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  denied.emit('agent/session-start', { agent: denied.agent, source: 'startup' })
+  const deniedInitial = await denied.waterfall(
+    'agent/pre-step',
+    [payloadFor(denied)],
+    async () => ({ kind: 'enter', messages: [makeMessage('initial allowed text')] }),
+  )
+  assert.equal(deniedInitial.messages.at(-1).content[0].text,
+    'context before changed-prompt denial')
+  const changedDenial = await denied.waterfall(
+    'agent/pre-step',
+    [payloadFor(denied)],
+    async () => ({ kind: 'enter', messages: [makeMessage('changed denied text')] }),
+  )
+  assert.deepEqual(changedDenial, { kind: 'reject' })
+  const afterDenial = await denied.waterfall(
+    'agent/pre-step',
+    [payloadFor(denied)],
+    async () => ({ kind: 'enter', messages: [makeMessage('changed denied text')] }),
+  )
+  assert.deepEqual(afterDenial, {
+    kind: 'enter',
+    messages: [makeMessage('changed denied text')],
+  })
+  assert.equal(denied.spawnCount, 3)
+
+  let abortedCalls = 0
+  const aborted = harness({
+    pending: () => abortedCalls === 2,
+    envelope: () => {
+      abortedCalls += 1
+      return abortedCalls === 1
+        ? decision('context', {
+            event: 'UserPromptSubmit',
+            context: 'context before changed-prompt cancellation',
+          })
+        : decision('allow', { event: 'UserPromptSubmit' })
+    },
+  })
+  aborted.emit('agent/session-start', { agent: aborted.agent, source: 'startup' })
+  const abortedInitial = await aborted.waterfall(
+    'agent/pre-step',
+    [payloadFor(aborted)],
+    async () => ({ kind: 'enter', messages: [makeMessage('initial cancellable text')] }),
+  )
+  assert.equal(abortedInitial.messages.at(-1).content[0].text,
+    'context before changed-prompt cancellation')
+  const abortController = new AbortController()
+  const cancelled = aborted.waterfall(
+    'agent/pre-step',
+    [{ ...payloadFor(aborted), signal: abortController.signal }],
+    async () => ({ kind: 'enter', messages: [makeMessage('changed cancelled text')] }),
+  )
+  await new Promise(resolve => setImmediate(resolve))
+  abortController.abort()
+  assert.deepEqual(await cancelled, {
+    kind: 'enter',
+    messages: [makeMessage('changed cancelled text')],
+  })
+  const afterCancellation = await aborted.waterfall(
+    'agent/pre-step',
+    [payloadFor(aborted)],
+    async () => ({ kind: 'enter', messages: [makeMessage('changed cancelled text')] }),
+  )
+  assert.deepEqual(afterCancellation, {
+    kind: 'enter',
+    messages: [makeMessage('changed cancelled text')],
+  })
+  assert.equal(aborted.spawnCount, 3)
+
   const concurrentPrompts = []
   const concurrent = harness({
     pending: true,
     envelope: (spec) => {
       concurrentPrompts.push(JSON.parse(spec.stdio.stdin.data).prompt)
-      return decision('allow', { event: 'UserPromptSubmit' })
+      return concurrentPrompts.length === 1
+        ? decision('context', {
+            event: 'UserPromptSubmit',
+            context: 'concurrent position context',
+          })
+        : decision('allow', { event: 'UserPromptSubmit' })
     },
   })
   concurrent.emit('agent/session-start', { agent: concurrent.agent, source: 'startup' })
@@ -2157,11 +2267,13 @@ test('same-position deduplication binds the accepted prompt digest sequentially 
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(concurrent.spawnCount, 1)
   concurrent.release(0)
-  await first
+  const firstResult = await first
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(concurrent.spawnCount, 2)
   concurrent.release(1)
-  await second
+  const secondResult = await second
+  assert.equal(firstResult.messages.at(-1).content[0].text, 'concurrent position context')
+  assert.equal(secondResult.messages.at(-1).content[0].text, 'concurrent position context')
   assert.deepEqual(concurrentPrompts, ['concurrent safe', 'concurrent changed'])
 })
 
