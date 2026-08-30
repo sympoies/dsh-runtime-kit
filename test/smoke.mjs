@@ -1063,6 +1063,7 @@ class SmokeAdapter extends LlmAdapter {
   contextVisibility = []
   providerContextVisibility = []
   policyContextVisibility = []
+  userPromptPolicyContextVisibility = []
   healthContextVisibility = []
   healthAuditSentinelVisibility = []
   resolveModel(provider, model) {
@@ -1211,6 +1212,20 @@ class SmokeAdapter extends LlmAdapter {
     this.contextVisibility.push(serializedMessages.includes('# DSH project development'))
     this.providerContextVisibility.push(serializedMessages.includes('ARK_PROVIDER_DOCS_MUST_NOT_LOAD'))
     this.policyContextVisibility.push(serializedMessages.includes('skill-backed workflow'))
+    let userPromptIndex = -1
+    for (const [index, message] of options.messages.entries()) {
+      if (message.source?.kind === 'user'
+        && message.content?.some(block => block.type === 'text'
+          && block.text === 'review and run plus one')) userPromptIndex = index
+    }
+    if (userPromptIndex >= 0) {
+      this.userPromptPolicyContextVisibility.push(options.messages
+        .slice(userPromptIndex + 1)
+        .some(message => message.source?.kind === 'plugin'
+          && message.source.plugin === 'dsh-runtime-kit'
+          && message.content?.some(block => block.type === 'text'
+            && block.text.includes('skill-backed workflow'))))
+    }
     this.healthContextVisibility.push(
       serializedMessages.includes("Session health could not verify this repository's agent-docs catalog")
       || serializedMessages.includes('Session health found an agent-docs catalog problem')
@@ -1733,7 +1748,7 @@ export function apply(ctx) {
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
-        policyDebug: ctx.dshRuntimeKit.policyDebug,
+        userPromptPolicyContextVisibility: adapter.userPromptPolicyContextVisibility,
         healthContextVisibility: adapter.healthContextVisibility,
         healthAuditSentinelVisibility: adapter.healthAuditSentinelVisibility,
         lifecycle,
@@ -2104,9 +2119,8 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
-  process.stderr.write(`POLICY_DEBUG ${JSON.stringify({ policyDebug: receipt.policyDebug, visibility: receipt.policyContextVisibility })}\n`)
-  assert.equal(receipt.policyContextVisibility[0], true,
-    JSON.stringify({ policyDebug: receipt.policyDebug, visibility: receipt.policyContextVisibility }))
+  assert.ok(receipt.userPromptPolicyContextVisibility.length > 0)
+  assert.ok(receipt.userPromptPolicyContextVisibility.every(Boolean))
   assert.ok(receipt.healthContextVisibility.every(value => value === false))
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
