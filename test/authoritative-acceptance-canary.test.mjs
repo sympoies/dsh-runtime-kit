@@ -284,7 +284,7 @@ test('a repeated tracked stop is distinguished at the listener tail', async () =
     phase: 'positive',
     progress: { enter(code) { entered.push(code) } },
     isTrackedAgent: agent => agent.id === 'tracked-agent',
-    stopPolicyOutcome: (_agent, turn) => turn === 1 ? outcome : undefined,
+    stopPipelineOutcome: (_agent, turn) => turn === 1 ? outcome : undefined,
     onCompleted() {},
   })
 
@@ -296,6 +296,11 @@ test('a repeated tracked stop is distinguished at the listener tail', async () =
   await dispatch()
 
   const scenarios = [
+    ['acceptance-denied', 'CANARY_REPEATED_STOP_ACCEPTANCE_DENIED'],
+    ['finish-line-denied', 'CANARY_REPEATED_STOP_FINISH_LINE_DENIED'],
+    ['context-invalid', 'CANARY_REPEATED_STOP_CONTEXT_INVALID'],
+    ['already-evaluated', 'CANARY_REPEATED_STOP_ALREADY_EVALUATED'],
+    ['reservation-unterminalized', 'CANARY_REPEATED_STOP_RESERVATION_UNTERMINALIZED'],
     ['allow', 'CANARY_REPEATED_STOP_POLICY_ALLOWED'],
     ['context', 'CANARY_REPEATED_STOP_POLICY_CONTEXT'],
     ['policy-denied', 'CANARY_REPEATED_STOP_POLICY_DENIED'],

@@ -763,8 +763,9 @@ test('compatibility workflow keeps selected channels and every patch release blo
     /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
   )
   assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
+  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 6)
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
-  assert.equal(workflow.match(/pnpm run build:lib\n/g)?.length, 2)
+  assert.doesNotMatch(workflow, /pnpm run build:lib\n/)
   assert.match(workflow, /digest-dsh-build-closure\.mjs/)
   assert.equal(workflow.match(/pristine-dsh-build-closure\.json/g)?.length, 4)
   assert.equal(workflow.match(/restored-dsh-build-closure\.json/g)?.length, 4)
@@ -800,7 +801,14 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow.match(/packages\/subprocess\/subprocess-local\/tests\/spawn\.spec\.ts/g)?.length,
     2,
   )
-  assert.match(workflow, /Validate patched DSH execution boundary[\s\S]+pnpm run build:lib/)
+  assert.match(
+    workflow,
+    /Validate patched DSH execution boundary[\s\S]{0,800}pnpm run build:lib:host/,
+  )
+  assert.match(
+    macosJob,
+    /Validate Darwin descriptor binding and patched DSH boundary[\s\S]{0,800}pnpm run build:lib:host/,
+  )
   assert.match(workflow, /npm run test:smoke/)
   assert.match(workflow, /--action reverse/)
   assert.match(workflow, /npm ci --ignore-scripts --omit=peer/)

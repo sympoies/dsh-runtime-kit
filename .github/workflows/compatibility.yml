@@ -166,7 +166,7 @@ jobs:
             packages/core/tools/tests/tools.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
-          pnpm run build:lib
+          pnpm run build:lib:host
       - name: Download authenticated nils-cli acceptance binaries
         run: |
           archive="$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu.tar.gz"
@@ -308,7 +308,7 @@ jobs:
             packages/core/tools/tests/tools.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
-          pnpm run build:lib
+          pnpm run build:lib:host
       - name: Download authenticated macOS nils-cli acceptance binaries
         run: |
           archive="$RUNNER_TEMP/nils-cli-v1.27.27-aarch64-apple-darwin.tar.gz"
