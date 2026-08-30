@@ -161,6 +161,15 @@ test('provider review publication uses one canonical App report and metadata-onl
     join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
     'utf8',
   )
+  const specialistContract = readFileSync(
+    join(
+      skillsRoot,
+      'code-review-specialists',
+      'references',
+      'SPECIALIST_REVIEW_CONTRACT.md',
+    ),
+    'utf8',
+  )
   for (const marker of [
     '--profile provider-review',
     '--specialist-report',
@@ -176,6 +185,8 @@ test('provider review publication uses one canonical App report and metadata-onl
     posting,
     /\| Finding \| Severity \| Confidence \| Evidence \| Recommendation \|/u,
   )
+  assert.match(specialistContract, /"actionable": true/u)
+  assert.match(specialistContract, /- `actionable`/u)
   const publisherSection = posting.slice(
     posting.indexOf("The governed publisher's semantic interface is:"),
     posting.indexOf('\n## Command\n'),
@@ -192,6 +203,7 @@ test('provider review publication uses one canonical App report and metadata-onl
     'REVIEW_COMMENT_FILE="$REVIEW_BUNDLE_DIR/provider-review.md"',
     'REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"',
     '--specialist-report',
+    '--check-diff',
     'command -v forge-review-publish',
     'forge-review-publish --provider github',
     'forge-cli --provider "$PROVIDER" pr review',
@@ -199,6 +211,10 @@ test('provider review publication uses one canonical App report and metadata-onl
     assert.match(tracking, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(deliverPr, /governed-vs-portable publication branch/u)
+  assert.match(deliverPr, /forge-cli >=1\.27\.27/u)
+  assert.match(deliverPr, /review-specialists >=1\.27\.27/u)
+  assert.match(tracking, /forge-cli >=1\.27\.27/u)
+  assert.match(tracking, /review-specialists >=1\.27\.27/u)
 })
 
 test('review convergence bounds broad discovery and keeps repair review closed-set', () => {
@@ -484,10 +500,10 @@ test('integration branch delivery surfaces declare protection and exact-base own
 
   assert.match(triage, /--protect-branch <branch>/)
   assert.match(triage, /git-cli sync-branch/)
-  assert.match(delivery, /forge-cli >=1\.27\.16/)
+  assert.match(delivery, /forge-cli >=1\.27\.27/)
   assert.match(delivery, /exact base instead of falling back to the provider default/)
   assert.match(dispatch, /forge-cli >=1\.27\.16/)
-  assert.match(tracking, /forge-cli >=1\.27\.16/)
+  assert.match(tracking, /forge-cli >=1\.27\.27/)
   assert.match(tracking, /--head "\$BRANCH" --base "\$BASE_REF"/)
   assert.doesNotMatch(tracking, /--head "\$BRANCH" --base main/)
   assert.match(policy, /same-head PR targeting another base\s+is not an adoptable substitute/)

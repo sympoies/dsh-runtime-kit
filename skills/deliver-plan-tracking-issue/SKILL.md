@@ -13,7 +13,7 @@ Prereqs:
 
 - Profile: `tracking`.
 - CLI floors: `plan-issue >=1.0.13`, `plan-tooling >=1.0.1`,
-  `forge-cli >=1.27.16`, `git-cli >=1.25.13`, `review-specialists`.
+  `forge-cli >=1.27.27`, `git-cli >=1.25.13`, `review-specialists >=1.27.27`.
 - The tracking issue is absent and ready to open, or open, visible, and
   reconcilable with `run-state.json`; FSM is not blocked or stale.
 - PR delivery runs the generic code-review outcome in pre-merge context with the
@@ -269,14 +269,17 @@ review-specialists bundle \
 REVIEW_COMMENT_FILE="$REVIEW_BUNDLE_DIR/provider-review.md"
 REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"
 THREAD_FILE_ARGS=()
+DIFF_CHECK_ARGS=()
 if [ "$PROVIDER" = github ] &&
   jq -e 'type == "array" and length > 0' "$REVIEW_THREAD_FILE" >/dev/null; then
   THREAD_FILE_ARGS=(--thread-file "$REVIEW_THREAD_FILE")
+  DIFF_CHECK_ARGS=(--check-diff)
 fi
 forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
   pr review validate "$PR_NUMBER" \
   --specialist-report \
   --comment-file "$REVIEW_COMMENT_FILE" \
+  "${DIFF_CHECK_ARGS[@]}" \
   "${THREAD_FILE_ARGS[@]}"
 if [ "$PROVIDER" = github ] && command -v forge-review-publish >/dev/null; then
   forge-review-publish --provider github --repo "$OWNER_REPO" \

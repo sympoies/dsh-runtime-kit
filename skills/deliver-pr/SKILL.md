@@ -10,9 +10,9 @@ description: >
 
 Prereqs:
 
-- `agent-runtime`, `forge-cli >=1.27.16`, `git-cli >=1.25.13`,
-  `plan-issue >=1.1.0`, and `review-specialists` are installed from the released
-  nils-cli package and available on `PATH`. `git-cli` 1.25.13 is the floor for
+- `agent-runtime`, `forge-cli >=1.27.27`, `git-cli >=1.25.13`,
+  `plan-issue >=1.1.0`, and `review-specialists >=1.27.27` are installed from
+  the released nils-cli package and available on `PATH`. `git-cli` 1.25.13 is the floor for
   the `push` and `sync-default` surfaces this workflow publishes and syncs
   through. The generic code-review outcome uses a quick or full
   profile in pre-merge context; native review summaries and observed

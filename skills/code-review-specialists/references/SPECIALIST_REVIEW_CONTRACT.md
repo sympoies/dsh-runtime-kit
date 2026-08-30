@@ -21,6 +21,7 @@ Each specialist finding is one JSON object per line:
   "summary": "Response shape changed without migration guidance.",
   "evidence": "Diff removes `email` from `UserResponse` while callers still read it.",
   "recommendation": "Add compatibility handling or update all callers and tests.",
+  "actionable": true,
   "fingerprint": "optional-stable-id",
   "specialist": "api-contract",
   "test_suggestion": "Add a contract test for legacy response fields."
@@ -35,6 +36,7 @@ Required fields:
 - `summary`
 - `evidence`
 - `recommendation`
+- `actionable`
 - `specialist`
 
 Optional fields:
@@ -43,6 +45,10 @@ Optional fields:
 - `category`
 - `fingerprint`
 - `test_suggestion`
+
+`actionable: true` means the owner must change this PR and GitHub publication may
+create a native line-level or file-level thread. `actionable: false` keeps the
+finding in the canonical summary table without creating a native diff thread.
 
 ## Severity And Aliases
 

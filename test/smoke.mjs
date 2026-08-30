@@ -2103,10 +2103,7 @@ ${agentConsoleTuiOverlay}
   assert.ok(receipt.contextVisibility.length >= 2)
   assert.ok(receipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(receipt.providerContextVisibility.every(value => value === false))
-  assert.ok(
-    receipt.policyContextVisibility.some(Boolean),
-    JSON.stringify(receipt.policyContextVisibility),
-  )
+  assert.equal(receipt.policyContextVisibility[0], true)
   assert.ok(receipt.healthContextVisibility.every(value => value === false))
   assert.equal(editResult.isError, false, JSON.stringify({ editResult, errors: receipt.errors }))
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
@@ -2479,10 +2476,12 @@ ${agentConsoleTuiOverlay}
   )
   const reviewerReportPath = join(reviewerBundleDir, 'provider-review.md')
   const reviewerThreadsPath = join(reviewerBundleDir, 'review-threads.json')
+  const reviewerReport = readFileSync(reviewerReportPath, 'utf8')
   assert.match(
-    readFileSync(reviewerReportPath, 'utf8'),
+    reviewerReport,
     /\| Finding \| Severity \| Confidence \| Evidence \| Recommendation \|/u,
   )
+  assert.match(reviewerReport, /The report also retains a non-actionable observation\./u)
   const reviewerThreads = JSON.parse(readFileSync(reviewerThreadsPath, 'utf8'))
   assert.equal(reviewerThreads.length, 2)
   assert.deepEqual(reviewerThreads.map(thread => thread.path), [
