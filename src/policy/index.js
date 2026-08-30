@@ -225,6 +225,30 @@ function explicitPolicyDenial(decision) {
     && decision.reason.startsWith('agent-hook:')
 }
 
+/**
+ * Collapse a fail-closed lifecycle denial into a content-free operational
+ * class. The public runtime service never exposes provider reasons, rule IDs,
+ * policy context, or subprocess output.
+ *
+ * @param {{kind: string, reason?: string} | undefined} decision
+ */
+function stopPolicyFailureOutcome(decision) {
+  if (explicitPolicyDenial(decision)) return 'policy-denied'
+  if (decision?.reason === 'dsh-runtime-kit:policy-caller-aborted') return 'cancelled'
+  if (decision?.reason === 'dsh-runtime-kit:policy-unavailable'
+      || decision?.reason === 'dsh-runtime-kit:policy-overloaded'
+      || decision?.reason === 'dsh-runtime-kit:policy-disposed') {
+    return 'capability-unavailable'
+  }
+  if (decision?.reason === 'dsh-runtime-kit:policy-output-invalid'
+      || decision?.reason === 'dsh-runtime-kit:policy-exit-mismatch'
+      || decision?.reason === 'dsh-runtime-kit:policy-input-too-complex'
+      || decision?.reason === 'dsh-runtime-kit:policy-input-too-large') {
+    return 'provider-failed'
+  }
+  return 'transport-failed'
+}
+
 /** @param {ToolExecution} exec @param {number} admissionEpoch */
 function authorizationIdentity(exec, admissionEpoch) {
   return {
@@ -487,6 +511,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   let startupEvaluated = new WeakSet()
   /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], number>} */
   let evaluatedStops = new WeakMap()
+  /** @type {WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], {turn: number, outcome: 'allow' | 'context' | 'policy-denied' | 'capability-unavailable' | 'transport-failed' | 'provider-failed' | 'cancelled'}>} */
+  let stopPolicyOutcomes = new WeakMap()
   let closing = false
 
   /** @param {import('@deepseek-ai/dsh-agent').Agent | undefined} agent */
@@ -522,6 +548,7 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     acceptedLifecycleSteps = new WeakMap()
     startupEvaluated = new WeakSet()
     evaluatedStops = new WeakMap()
+    stopPolicyOutcomes = new WeakMap()
     compatibility.dispose()
     prerequisites.dispose()
   }, 'dsh-runtime-kit policy state')
@@ -672,6 +699,10 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         context: stop.context,
       })
     } catch {
+      stopPolicyOutcomes.set(payload.agent.session, {
+        turn: payload.turn,
+        outcome: 'transport-failed',
+      })
       await cancelReservedStop()
       if (!closing && !payload.signal.aborted) {
         payload.agent.steer(policyContextMessage(createUserMessage,
@@ -681,16 +712,32 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       return
     }
     if (closing || payload.signal.aborted) {
+      stopPolicyOutcomes.set(payload.agent.session, {
+        turn: payload.turn,
+        outcome: 'cancelled',
+      })
       await cancelReservedStop()
       return
     }
     if (policyDecision?.kind === 'context') {
+      stopPolicyOutcomes.set(payload.agent.session, {
+        turn: payload.turn,
+        outcome: 'context',
+      })
       if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage, policyDecision.context))
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else if (policyDecision === undefined) {
+      stopPolicyOutcomes.set(payload.agent.session, {
+        turn: payload.turn,
+        outcome: 'allow',
+      })
       evaluatedStops.set(payload.agent.session, payload.turn)
     } else {
+      stopPolicyOutcomes.set(payload.agent.session, {
+        turn: payload.turn,
+        outcome: stopPolicyFailureOutcome(policyDecision),
+      })
       if (!await cancelReservedStop()) return
       payload.agent.steer(policyContextMessage(createUserMessage,
         explicitPolicyDenial(policyDecision)
@@ -911,6 +958,18 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     get activeFinishLineRequests() { return finishLineClient.active },
     get activeFinishLineReservations() { return finishLine.activeReservations },
     get policyTransportDegraded() { return transport.degraded },
+    /**
+     * @param {import('@deepseek-ai/dsh-agent').Agent} agent
+     * @param {number} turn
+     */
+    stopPolicyOutcome(agent, turn) {
+      const observed = agent?.session === undefined
+        ? undefined
+        : stopPolicyOutcomes.get(agent.session)
+      return observed !== undefined && observed.turn === turn
+        ? observed.outcome
+        : undefined
+    },
     get contextTransportDegraded() { return contextClient.degraded },
     get finishLineTransportDegraded() { return finishLineClient.degraded },
     get finishLineDegraded() { return finishLine.degraded },

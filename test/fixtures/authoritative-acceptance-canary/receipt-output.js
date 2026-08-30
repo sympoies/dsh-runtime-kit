@@ -27,6 +27,20 @@ export const SCENARIO_CANARY_PROGRESS = Object.freeze({
     'DSH_CANARY_DEADLINE_CANARY_STOP_LISTENER_TAIL_COMPLETED',
   CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED:
     'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED',
+  CANARY_REPEATED_STOP_POLICY_ALLOWED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_POLICY_ALLOWED',
+  CANARY_REPEATED_STOP_POLICY_CONTEXT:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_POLICY_CONTEXT',
+  CANARY_REPEATED_STOP_POLICY_DENIED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_POLICY_DENIED',
+  CANARY_REPEATED_STOP_CAPABILITY_UNAVAILABLE:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_CAPABILITY_UNAVAILABLE',
+  CANARY_REPEATED_STOP_TRANSPORT_FAILED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_TRANSPORT_FAILED',
+  CANARY_REPEATED_STOP_PROVIDER_FAILED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_PROVIDER_FAILED',
+  CANARY_REPEATED_STOP_CANCELLED:
+    'DSH_CANARY_DEADLINE_CANARY_REPEATED_STOP_CANCELLED',
   CANARY_TURN_ENDED_AFTER_STOP:
     'DSH_CANARY_DEADLINE_CANARY_TURN_ENDED_AFTER_STOP',
   CANARY_AGENT_IDLE_STATUS_AFTER_STOP:
@@ -184,34 +198,49 @@ export function createScenarioCanaryProgressReporter(options) {
  *   phase:string,
  *   progress:{enter:(causeCode:string)=>void},
  *   isTrackedAgent:(agent:any)=>boolean,
- *   onCompleted:(agent:any)=>unknown,
+ *   stopPolicyOutcome?:(agent:any,turn:number)=>string|undefined,
+ *   onCompleted:(agent:any,turn:number)=>unknown,
  * }} options
  */
 export function registerScenarioCanaryTurnStoppingProgress(ctx, options) {
   const reportsProgress = ['positive', 'candidate-upgrade'].includes(options.phase)
+  const repeatedStopProgress = Object.freeze({
+    allow: SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_ALLOWED,
+    context: SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_CONTEXT,
+    'policy-denied': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_POLICY_DENIED,
+    'capability-unavailable':
+      SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_CAPABILITY_UNAVAILABLE,
+    'transport-failed': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_TRANSPORT_FAILED,
+    'provider-failed': SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_PROVIDER_FAILED,
+    cancelled: SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_CANCELLED,
+  })
   let completedStops = 0
-  ctx.on('agent/turn-stopping', ({ agent }) => {
+  ctx.on('agent/turn-stopping', ({ agent, turn }) => {
     if (reportsProgress && options.isTrackedAgent(agent)) {
       options.progress.enter(SCENARIO_CANARY_PROGRESS.TURN_STOPPING_ENTERED)
     }
   }, { prepend: true })
-  ctx.on('agent/turn-stopping', ({ agent }) => {
+  ctx.on('agent/turn-stopping', ({ agent, turn }) => {
     if (!options.isTrackedAgent(agent)) return
     if (reportsProgress) {
       options.progress.enter(SCENARIO_CANARY_PROGRESS.RUNTIME_STOP_LISTENERS_COMPLETED)
     }
-    const completed = options.onCompleted(agent)
+    const completed = options.onCompleted(agent, turn)
     if (!reportsProgress) return completed
     return Promise.resolve(completed).then(() => {
       completedStops += 1
       options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_STOP_CALLBACK_COMPLETED)
     })
   })
-  ctx.on('agent/turn-stopping', ({ agent }) => {
+  ctx.on('agent/turn-stopping', ({ agent, turn }) => {
     if (!reportsProgress || !options.isTrackedAgent(agent)) return
-    options.progress.enter(completedStops > 1
-      ? SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED
-      : SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED)
+    if (completedStops <= 1) {
+      options.progress.enter(SCENARIO_CANARY_PROGRESS.CANARY_STOP_LISTENER_TAIL_COMPLETED)
+      return
+    }
+    const outcome = options.stopPolicyOutcome?.(agent, turn)
+    options.progress.enter(repeatedStopProgress[outcome]
+      ?? SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED)
   })
 }
 
