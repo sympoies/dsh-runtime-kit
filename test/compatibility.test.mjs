@@ -832,11 +832,13 @@ test('compatibility workflow keeps selected channels and every patch release blo
   for (const capability of [
     'af-unix',
     'af-netlink',
+    'host-netns',
     'localhost',
     'systemd-user',
     'docker',
     'supplementary-groups',
   ]) assert.match(runtimeSmoke, new RegExp(capability))
+  assert.match(runtimeSmoke, /readlinkSync\('\/proc\/self\/ns\/net'\)/)
   assert.match(runtimeSmoke, /dsh-runtime-kit-full-host:\\\$\{capability\}:failed/)
 })
 

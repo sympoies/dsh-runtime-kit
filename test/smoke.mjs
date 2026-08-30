@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   rmSync,
   statSync,
@@ -156,6 +157,7 @@ const fullHostAuthority = process.env.DSH_RUNTIME_KIT_SMOKE_FULL_HOST === '1'
 const nativeFullHostCapabilities = Object.freeze([
   'af-unix',
   'af-netlink',
+  'host-netns',
   'localhost',
   'systemd-user',
   'docker',
@@ -168,7 +170,7 @@ const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
 const fullHostProbeFile = '.dsh-full-host-probe.mjs'
 const fullHostProbeSource = `#!/usr/bin/env node
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { spawnSync } from 'node:child_process'
 
@@ -202,6 +204,11 @@ unlinkSocket()
 await listen(net.createServer(), '.git/dsh-full-host.sock', 'af-unix', unlinkSocket)
 await listen(net.createServer(), { host: '127.0.0.1', port: 0 }, 'localhost')
 run('af-netlink', 'ip', ['link', 'show', 'lo'])
+const expectedNetworkNamespace = readFileSync('.git/dsh-host-netns', 'utf8').trim()
+const actualNetworkNamespace = readlinkSync('/proc/self/ns/net')
+if (actualNetworkNamespace !== expectedNetworkNamespace) {
+  fail('host-netns', \`expected \${expectedNetworkNamespace}; received \${actualNetworkNamespace}\`)
+}
 run('systemd-user', 'systemctl', ['--user', 'show-environment'])
 run('docker', 'docker', ['version', '--format', '{{.Server.Version}}'])
 const expectedGroups = readFileSync('.git/dsh-host-groups', 'utf8').trim()
@@ -666,6 +673,11 @@ try {
     writeFileSync(
       join(projectWorkspace, '.git', 'dsh-host-groups'),
       `${hostGroups.stdout.trim()}\n`,
+      { mode: 0o600 },
+    )
+    writeFileSync(
+      join(projectWorkspace, '.git', 'dsh-host-netns'),
+      `${readlinkSync('/proc/self/ns/net')}\n`,
       { mode: 0o600 },
     )
     writeFileSync(
