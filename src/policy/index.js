@@ -433,6 +433,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       if (policy === undefined) {
         runner = { kind: /** @type {const} */ ('unsandboxed') }
       } else if (policy.mode === 'danger-full-access') {
+        // This strict runner kind is the native full-host authority profile.
+        // Nils may supervise its lifecycle, but must not add a second OS-level
+        // permission sandbox around the already selected DSH mode.
         runner = { kind: /** @type {const} */ ('danger-full-access') }
       } else {
         const sandbox = /** @type {{confine(argv: string[], policy: {mode: 'read-only' | 'workspace-write', workspaceRoot: string, sessionId?: unknown}): {argv: string[], enforcement: 'full' | 'partial', denialSignatures: string[], runnerFailureRules: Array<{allowedExitCodes?: number[], fatalSignatures: string[], informationalLines?: string[]}>}} | undefined} */ (ctx.get('sandbox'))

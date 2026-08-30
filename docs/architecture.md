@@ -250,6 +250,21 @@ Requested sandbox escalation remains governed by DSH's own approval service.
 The adapter rejects runtime preparation if command text changes, cwd escapes
 the repository root, or bounds and provider argv are malformed.
 
+The `danger-full-access` descriptor is the explicit native full-host authority
+profile. Nils may place that command in a transient user cgroup for lifecycle,
+timeout, output, cancellation, and descendant cleanup, but it must preserve the
+host user's namespaces, IPC and network families, localhost, supplementary
+groups, user bus, and daemon sockets. Permission restrictions belong only to a
+confined runner. Future isolation for the full agent belongs at a reviewed
+whole-runtime container boundary, not in a second per-command host sandbox.
+Work that a full-host command deliberately delegates to the user manager lives
+outside the command cgroup and is therefore outside finish-line's descendant
+cleanup claim.
+This authority profile describes technical host reachability, not action
+authorization or secret projection: DSH policy and approval still decide which
+actions may run, and the runtime's credential-scrubbed child environment remains
+unchanged.
+
 The second run carries that prepared runtime and its bounded child environment
 to nils. Nils is the sole executor and durable recorder: it invokes the exact
 runner once, classifies the observed exit, signal, timeout, abort, bounded
@@ -767,7 +782,7 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.27.22` archive, authenticates
+helpers. Package CI downloads the exact nils-cli `1.27.27` archive, authenticates
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.

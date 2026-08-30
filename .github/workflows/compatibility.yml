@@ -33,14 +33,14 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.22-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.22/nils-cli-v1.27.22-x86_64-unknown-linux-gnu.tar.gz"
-          echo "06378bd4f9bcfa0041077489d9e1d95bc7bd49d22e0fd52eb62c4f76fcb91706  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.27/nils-cli-v1.27.27-x86_64-unknown-linux-gnu.tar.gz"
+          echo "8c9fc05c37a575e639265ad11608312723d81f8cbaca19452824d995deeee2df  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
       - name: Provision systemd user scope for released Git trust smoke
         run: |
@@ -61,7 +61,7 @@ jobs:
           systemd-run --user --wait --pipe --collect \
             --property=PrivateUsers=yes \
             --working-directory="$probe" \
-            "$RUNNER_TEMP/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-scope-lock" \
+            "$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-scope-lock" \
             create --path . --owner compatibility-private-users-git --format json
           test -f "$probe/.git/agent-scope-lock.json"
 
@@ -169,27 +169,41 @@ jobs:
           pnpm run build:lib
       - name: Download authenticated nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.22-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.22/nils-cli-v1.27.22-x86_64-unknown-linux-gnu.tar.gz"
-          echo "06378bd4f9bcfa0041077489d9e1d95bc7bd49d22e0fd52eb62c4f76fcb91706  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.27/nils-cli-v1.27.27-x86_64-unknown-linux-gnu.tar.gz"
+          echo "8c9fc05c37a575e639265ad11608312723d81f8cbaca19452824d995deeee2df  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
+      - name: Provision native full-host acceptance services
+        if: matrix.channel == 'pinned'
+        run: |
+          uid="$(id -u)"
+          sudo loginctl enable-linger "${USER}"
+          sudo systemctl start "user@${uid}.service"
+          echo "XDG_RUNTIME_DIR=/run/user/${uid}" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/bus" >> "$GITHUB_ENV"
+          test -S "/run/user/${uid}/systemd/private"
+          systemctl --user show-environment >/dev/null
+          command -v ip >/dev/null
+          docker version --format '{{.Server.Version}}' >/dev/null
       - name: Run packed runtime smoke on the patched DSH boundary
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-docs
+          DSH_RUNTIME_KIT_SMOKE_FULL_HOST: ${{ matrix.channel == 'pinned' && '1' || '0' }}
+          DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: ${{ matrix.channel == 'pinned' && '1' || '0' }}
         run: npm run test:smoke
       - name: Run exact Agent Console TUI composition smoke
         if: matrix.channel == 'pinned'
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.9.3'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
@@ -211,6 +225,31 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
+      - name: Run unpatched DSH tools smoke
+        if: success() && matrix.channel == 'pinned'
+        working-directory: dsh-runtime-kit
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin/agent-hook
+        run: |
+          package_name="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+          package="$RUNNER_TEMP/$package_name"
+          package_sha="$(sha256sum "$package" | cut -d ' ' -f 1)"
+          DSH_ACCEPTANCE_CANDIDATE_PACKAGE_TARBALL="$package" \
+          DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
+          DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
+          DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.27-x86_64-unknown-linux-gnu/bin" \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=1e93e23cdf89cc82eac0e81d796fa13136d3782f \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=1e93e23cdf89cc82eac0e81d796fa13136d3782f \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"791ee0bc5cfae83d639a6ebc4eccc13049b47b2967f5d3cfb93706faf40b3381","agent-docs":"8e3beb884efd3c2ca1bbc91f023db2dc246a56b5325b7f73394319f46c10a169"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"791ee0bc5cfae83d639a6ebc4eccc13049b47b2967f5d3cfb93706faf40b3381","agent-docs":"8e3beb884efd3c2ca1bbc91f023db2dc246a56b5325b7f73394319f46c10a169"}' \
+          DSH_ACCEPTANCE_DSH_VERSION="${{ matrix.dsh_version }}" \
+          DSH_ACCEPTANCE_DSH_REVISION="${{ matrix.revision }}" \
+          PNPM_BIN="$(command -v pnpm)" \
+          NPM_BIN="$(command -v npm)" \
+          DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
+          npm run test:authoritative-acceptance-smoke
       - name: Assert upstream checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
@@ -272,19 +311,19 @@ jobs:
           pnpm run build:lib
       - name: Download authenticated macOS nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.27.22-aarch64-apple-darwin.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.27.27-aarch64-apple-darwin.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.22/nils-cli-v1.27.22-aarch64-apple-darwin.tar.gz"
-          echo "852714ad3725cd9ec97aee29bb7e70703cf764d466a1b1ae75e3f73a26e460c6  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.27.27/nils-cli-v1.27.27-aarch64-apple-darwin.tar.gz"
+          echo "962877dac23085859f373770c63641b70346f7181c874cf903a1ea6c215b046f  $archive" \
             | shasum -a 256 --check
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime-health smoke on macOS
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-aarch64-apple-darwin/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.22-aarch64-apple-darwin/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-aarch64-apple-darwin/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-aarch64-apple-darwin/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
@@ -306,6 +345,31 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
+      - name: Run unpatched DSH tools smoke
+        if: success()
+        working-directory: dsh-runtime-kit
+        env:
+          DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.27-aarch64-apple-darwin/bin/agent-hook
+        run: |
+          package_name="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
+          package="$RUNNER_TEMP/$package_name"
+          package_sha="$(shasum -a 256 "$package" | cut -d ' ' -f 1)"
+          DSH_ACCEPTANCE_CANDIDATE_PACKAGE_TARBALL="$package" \
+          DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
+          DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
+          DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.27-aarch64-apple-darwin/bin" \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=1e93e23cdf89cc82eac0e81d796fa13136d3782f \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=1e93e23cdf89cc82eac0e81d796fa13136d3782f \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"0789b82412bad56532f7cf39e99341754a49b577372951cd4a00bb42916a8aaa","agent-docs":"bd90e33f62b6f841b6d4b1c627c6705dd422138ed14e6b176e18d5d48b999ffd"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"0789b82412bad56532f7cf39e99341754a49b577372951cd4a00bb42916a8aaa","agent-docs":"bd90e33f62b6f841b6d4b1c627c6705dd422138ed14e6b176e18d5d48b999ffd"}' \
+          DSH_ACCEPTANCE_DSH_VERSION=0.1.1-rc.2 \
+          DSH_ACCEPTANCE_DSH_REVISION=b150a551b8d465e31e418e1b2eaf5e79bbb7d28e \
+          PNPM_BIN="$(command -v pnpm)" \
+          NPM_BIN="$(command -v npm)" \
+          DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
+          npm run test:authoritative-acceptance-smoke
       - name: Assert macOS DSH checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness

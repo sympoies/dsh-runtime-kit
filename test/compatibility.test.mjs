@@ -753,6 +753,16 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /22\.19\.0/)
   assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
   assert.equal(workflow.match(/Rebuild and authenticate unpatched DSH runtime/g)?.length, 2)
+  assert.doesNotMatch(workflow, /Run released native full-host authority smoke/)
+  assert.match(
+    workflow,
+    /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_FULL_HOST: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
+  )
+  assert.match(
+    workflow,
+    /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
+  )
+  assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
   assert.equal(workflow.match(/pnpm run build:lib\n/g)?.length, 2)
   assert.match(workflow, /digest-dsh-build-closure\.mjs/)
@@ -761,8 +771,8 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.27\.22-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /852714ad3725cd9ec97aee29bb7e70703cf764d466a1b1ae75e3f73a26e460c6/)
+  assert.match(workflow, /nils-cli-v1\.27\.27-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /962877dac23085859f373770c63641b70346f7181c874cf903a1ea6c215b046f/)
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
   assert.match(macosJob, /node-version: 24/)
@@ -815,6 +825,21 @@ test('compatibility workflow keeps selected channels and every patch release blo
     3,
     'every dsh-runtime-kit checkout must retain parity evidence history',
   )
+
+  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  assert.match(runtimeSmoke, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST/)
+  assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
+  for (const capability of [
+    'af-unix',
+    'af-netlink',
+    'host-netns',
+    'localhost',
+    'systemd-user',
+    'docker',
+    'supplementary-groups',
+  ]) assert.match(runtimeSmoke, new RegExp(capability))
+  assert.match(runtimeSmoke, /readlinkSync\('\/proc\/self\/ns\/net'\)/)
+  assert.match(runtimeSmoke, /dsh-runtime-kit-full-host:\\\$\{capability\}:failed/)
 })
 
 test('peer packer requires an absolute trusted pnpm launcher', async () => {

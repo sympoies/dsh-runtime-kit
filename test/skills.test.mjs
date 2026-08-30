@@ -257,7 +257,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.17')
-  assert.equal(manifest.validated_release, '1.27.22')
+  assert.equal(manifest.validated_release, '1.27.27')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -379,7 +379,11 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
         'cli.agent-hook.finish-line-verdict.v1',
         'agent-hook.finish-line.verdict-result.v1',
       ],
-      source_tasks: ['sympoies/nils-cli task 2.3', 'sympoies/nils-cli#1503'],
+      source_tasks: [
+        'sympoies/nils-cli task 2.3',
+        'sympoies/nils-cli#1503',
+        'sympoies/nils-cli#1568',
+      ],
     },
   )
   assert.deepEqual(

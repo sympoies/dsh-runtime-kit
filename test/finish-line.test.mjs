@@ -298,6 +298,7 @@ test('an exact validation transparently runs through nils and becomes a Bash for
   assert.deepEqual(subject.opens, [{ product: 'dsh', sessionId: 'session-1', turnId: '1', cwd: '/workspace/project' }])
   assert.equal(subject.runs[1].command, command)
   assert.equal(subject.runs[1].runnerCapability, 'finish-line-runner:opaque')
+  assert.deepEqual(subject.runs[1].execution.runner, { kind: 'danger-full-access' })
   assert.equal('outcome' in subject.runs[1], false)
   assert.deepEqual(routed.result.value, {
     kind: 'foreground',
@@ -390,6 +391,7 @@ test('a non-contract foreground Bash command is executed once by nils and invali
   assert.equal(subject.runs.length, 2)
   assert.equal(subject.runs[1].command, 'pwd')
   assert.equal(subject.runs[1].execution.kind, 'bash-v1')
+  assert.deepEqual(subject.runs[1].execution.runner, { kind: 'danger-full-access' })
   subject.coordinator.result(exec, routed.result)
   assert.equal(subject.coordinator.degraded, false)
 })

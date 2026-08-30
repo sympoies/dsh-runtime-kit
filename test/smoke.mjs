@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   rmSync,
   statSync,
@@ -82,7 +83,7 @@ assert.equal(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.27.17')
-assert.equal(nilsCompatibility.validated_release, '1.27.22')
+assert.equal(nilsCompatibility.validated_release, '1.27.27')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -152,11 +153,74 @@ const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PAC
 const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
 const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
 const authoritativeAcceptance = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
+const fullHostAuthority = process.env.DSH_RUNTIME_KIT_SMOKE_FULL_HOST === '1'
+const nativeFullHostCapabilities = Object.freeze([
+  'af-unix',
+  'af-netlink',
+  'host-netns',
+  'localhost',
+  'systemd-user',
+  'docker',
+  'supplementary-groups',
+])
+if (fullHostAuthority) assert.equal(process.platform, 'linux')
 const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
-const validationCommand = 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
+const fullHostProbeFile = '.dsh-full-host-probe.mjs'
+const fullHostProbeSource = `#!/usr/bin/env node
+import { existsSync, readFileSync, readlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import net from 'node:net'
+import { spawnSync } from 'node:child_process'
+
+const fail = (capability, detail) => {
+  process.stderr.write(\`dsh-runtime-kit-full-host:\${capability}:failed\\n\`)
+  if (detail) process.stderr.write(String(detail) + '\\n')
+  process.exit(1)
+}
+const unlinkSocket = () => {
+  try { unlinkSync('.git/dsh-full-host.sock') }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+}
+const listen = (server, options, capability, close) => new Promise(resolve => {
+  server.once('error', error => fail(capability, error.code ?? error.message))
+  server.listen(options, () => server.close(() => {
+    try { close?.() } catch (error) { fail(capability, error.message) }
+    resolve()
+  }))
+})
+const run = (capability, command, args) => {
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 10_000 })
+  if (result.status !== 0) fail(capability, result.stderr.trim() || result.error?.message)
+  return result.stdout.trim()
+}
+
+if (process.argv[2] === 'validation' && !existsSync('.dsh-validation-count')) {
+  writeFileSync('.dsh-validation-count', 'validated')
+  process.exit(1)
+}
+unlinkSocket()
+await listen(net.createServer(), '.git/dsh-full-host.sock', 'af-unix', unlinkSocket)
+await listen(net.createServer(), { host: '127.0.0.1', port: 0 }, 'localhost')
+run('af-netlink', 'ip', ['link', 'show', 'lo'])
+const expectedNetworkNamespace = readFileSync('.git/dsh-host-netns', 'utf8').trim()
+const actualNetworkNamespace = readlinkSync('/proc/self/ns/net')
+if (actualNetworkNamespace !== expectedNetworkNamespace) {
+  fail('host-netns', \`expected \${expectedNetworkNamespace}; received \${actualNetworkNamespace}\`)
+}
+run('systemd-user', 'systemctl', ['--user', 'show-environment'])
+run('docker', 'docker', ['version', '--format', '{{.Server.Version}}'])
+const expectedGroups = readFileSync('.git/dsh-host-groups', 'utf8').trim()
+const actualGroups = run('supplementary-groups', 'id', ['-G'])
+if (actualGroups !== expectedGroups) fail('supplementary-groups', \`expected \${expectedGroups}; received \${actualGroups}\`)
+if (process.argv[2] === 'ordinary') {
+  writeFileSync('finish-line-native-mutation.txt', 'ordinary mutation\\n')
+}
+`
+const validationCommand = fullHostAuthority
+  ? `./${fullHostProbeFile} validation`
+  : 'test -f .dsh-validation-count && exit 0; printf validated > .dsh-validation-count; exit 1'
 const projectDocsConfig = `
 [[validation]]
 context = "project-dev"
@@ -164,7 +228,9 @@ product = "dsh"
 commands = [${JSON.stringify(validationCommand)}]
 description = "packed ${dshManifest.version} finish-line smoke"
 `
-const ordinaryCommand = "printf 'ordinary mutation\\n' > finish-line-native-mutation.txt"
+const ordinaryCommand = fullHostAuthority
+  ? `./${fullHostProbeFile} ordinary`
+  : "printf 'ordinary mutation\\n' > finish-line-native-mutation.txt"
 const smokeGitCli = process.env.DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN ?? 'git-cli'
 const smokeSemanticCommit = process.env.DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN ?? 'semantic-commit'
 const managedWorktreeCommand = `${JSON.stringify(smokeGitCli)} worktree add dsh-delivery-rehearsal --from main --format json`
@@ -287,7 +353,7 @@ const environment = {
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
   DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
   DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-primary',
-  DSH_PERMISSION_MODE: 'workspace-write',
+  DSH_PERMISSION_MODE: fullHostAuthority ? 'danger-full-access' : 'workspace-write',
   ...providerSessionFixture,
   GIT_CONFIG_GLOBAL: '/dev/null',
   GIT_CONFIG_NOSYSTEM: '1',
@@ -596,6 +662,30 @@ try {
     timeout: 10_000,
   })
   assert.equal(initializedProject.status, 0, initializedProject.stderr)
+  if (fullHostAuthority) {
+    const hostGroups = spawnSync('/usr/bin/id', ['-G'], {
+      cwd: projectWorkspace,
+      env: environment,
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+    assert.equal(hostGroups.status, 0, hostGroups.stderr)
+    writeFileSync(
+      join(projectWorkspace, '.git', 'dsh-host-groups'),
+      `${hostGroups.stdout.trim()}\n`,
+      { mode: 0o600 },
+    )
+    writeFileSync(
+      join(projectWorkspace, '.git', 'dsh-host-netns'),
+      `${readlinkSync('/proc/self/ns/net')}\n`,
+      { mode: 0o600 },
+    )
+    writeFileSync(
+      join(projectWorkspace, fullHostProbeFile),
+      fullHostProbeSource,
+      { mode: 0o700 },
+    )
+  }
   mkdirSync(agentDocsStateHome, { recursive: true })
   writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
   writeFileSync(join(projectWorkspace, '.gitignore'), '.dsh-validation-count\n')
@@ -1481,6 +1571,14 @@ export function apply(ctx) {
       if (acceptanceEnabled) {
         acceptanceVerdict = ctx.dshAcceptance.verdict(agent)
         acceptanceGoalCompletion = ctx.goals.complete(agent, acceptanceGoal)
+        const settlementDeadline = Date.now() + 10_000
+        while (ctx.dshAcceptance.completionSettlement(agent).status === 'pending'
+          && Date.now() < settlementDeadline) {
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        if (ctx.dshAcceptance.completionSettlement(agent).status !== 'succeeded') {
+          throw new Error('authoritative acceptance completion did not settle')
+        }
       }
 
       if (process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
@@ -1650,6 +1748,12 @@ export function apply(ctx) {
             laneTools: ctx.mainAgentOrchestration.tools.lane,
           },
         userQuestions: ctx.userQuestions !== undefined,
+        permissionMode: process.env.DSH_PERMISSION_MODE,
+        nativeFullHostAuthorityVerified:
+          process.env.DSH_RUNTIME_KIT_SMOKE_FULL_HOST === '1',
+        nativeFullHostCapabilities: process.env.DSH_RUNTIME_KIT_SMOKE_FULL_HOST === '1'
+          ? ${JSON.stringify(nativeFullHostCapabilities)}
+          : [],
       }) + '\\n')
       const expectation = process.env.DSH_RUNTIME_KIT_SMOKE_EXPECT ?? 'allow'
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
@@ -1984,16 +2088,21 @@ ${agentConsoleTuiOverlay}
   assert.equal(validationResults.length, deliveryRehearsal ? 7 : 3)
   assert.ok(validationResults[0].value, JSON.stringify(validationResults[0]))
   assert.notEqual(validationResults[0].value.exitCode, 0)
-  assert.equal(validationResults[1].value.exitCode, 0)
-  assert.equal(validationResults[2].value.exitCode, 0)
+  assert.equal(validationResults[1].value.exitCode, 0, JSON.stringify(validationResults[1]))
+  assert.equal(validationResults[2].value.exitCode, 0, JSON.stringify(validationResults[2]))
   if (deliveryRehearsal) {
     assert.equal(validationResults[3].value.exitCode, 0)
     assert.equal(validationResults[4].value.exitCode, 0)
     assert.equal(validationResults[5].value.exitCode, 0)
     assert.equal(validationResults[6].value.exitCode, 0)
   }
-  assert.equal(ordinaryResult.value.exitCode, 0)
+  assert.equal(ordinaryResult.value.exitCode, 0, JSON.stringify(ordinaryResult))
   assert.equal(ordinaryResult.value.kind, 'foreground')
+  if (fullHostAuthority) {
+    assert.equal(receipt.permissionMode, 'danger-full-access')
+    assert.equal(receipt.nativeFullHostAuthorityVerified, true)
+    assert.deepEqual(receipt.nativeFullHostCapabilities, nativeFullHostCapabilities)
+  }
   if (deliveryRehearsal) {
     assert.equal(managedWorktreeResult.isError, false, JSON.stringify(managedWorktreeResult))
     assert.equal(managedWorktreeResult.value.exitCode, 0, JSON.stringify(managedWorktreeResult))
@@ -2574,6 +2683,8 @@ ${agentConsoleTuiOverlay}
     nativeHealthRecoveryVerified:
       projectHealthRecoveredReceipt.result.value === 42
       && result.value === 42,
+    nativeFullHostAuthorityVerified: fullHostAuthority,
+    nativeFullHostCapabilities: fullHostAuthority ? nativeFullHostCapabilities : [],
     policyBlockVerified: true,
     shortCircuitGuardVerified: true,
     lifecycleCorrelationVerified: true,
@@ -2630,6 +2741,11 @@ ${agentConsoleTuiOverlay}
   if (process.env.DSH_RUNTIME_KIT_SMOKE_KEEP_ROOT === '1') {
     process.stderr.write(`DSH_RUNTIME_KIT_SMOKE_ROOT=${temporaryRoot}\n`)
   } else {
-    rmSync(temporaryRoot, { recursive: true, force: true })
+    rmSync(temporaryRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    })
   }
 }
