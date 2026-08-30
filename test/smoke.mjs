@@ -533,6 +533,7 @@ async function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile
   const nativeWorktrees = join(nativeRoot, 'worktrees')
   const nativeLane = join(nativeWorktrees, 'lane-one')
   const nativeState = join(nativeRoot, 'state')
+  const nativeProvider = join(nativeRoot, 'provider-stub.mjs')
   const nativeDriver = join(nativeRoot, 'driver.mjs')
   const nativeObservation = join(nativeRoot, 'observation.json')
   const nativeOverlay = join(nativeRoot, 'driver.patch.yml')
@@ -545,6 +546,11 @@ async function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile
   mkdirSync(nativeRoot, { recursive: true, mode: 0o700 })
   mkdirSync(nativeWorktrees, { recursive: true, mode: 0o700 })
   mkdirSync(nativeState, { recursive: true, mode: 0o700 })
+  writeFileSync(nativeProvider, `#!/usr/bin/env node
+process.on('SIGINT', () => process.exit(0))
+process.on('SIGTERM', () => process.exit(0))
+setInterval(() => {}, 60_000)
+`, { mode: 0o700 })
   const git = (args, cwd = nativeProject) => {
     const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 })
     assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`)
@@ -580,7 +586,11 @@ description = "packed native Main Agent lane"
     '--cwd', nativeProject,
     '--coordination-mode', 'off',
     '--format', 'json',
-  ], { encoding: 'utf8', timeout: 30_000 })
+  ], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: { ...process.env, AGENT_SESSION_HERMES_BIN: nativeProvider },
+  })
   assert.equal(controllerStart.status, 0, controllerStart.stderr)
   const controller = JSON.parse(controllerStart.stdout).data
   nativeControllerSessions.push({ agentSessionBin, stateDir: nativeState, sessionId: controller.id })
