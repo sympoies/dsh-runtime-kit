@@ -150,10 +150,12 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 ## Released dependency
 
 The implementation requires the independently authenticated nils-cli v1.27.27
-release, which contains the native full-host finish-line authority delivered
-in PR #1568 while retaining permission restrictions for confined runners. The
-exact tag commit, Linux archive, six acceptance binaries, and macOS runtime-
-health companions are recorded in `compatibility/nils-cli.json`; the completed
+release, which contains the canonical provider-review renderer and metadata-only
+personal review projection delivered in PR #1567 plus the native full-host
+finish-line authority delivered in PR #1568 while retaining permission
+restrictions for confined runners. The exact tag commit, Linux archive, six
+acceptance binaries, and macOS runtime-health companions are recorded in
+`compatibility/nils-cli.json`; the completed
 source-candidate record is no longer an activation path. Registering an
 acceptance contract against a nils build without these RPCs fails closed;
 leaving the service unregistered preserves ungoverned DSH behavior.
