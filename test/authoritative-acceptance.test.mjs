@@ -1816,3 +1816,25 @@ test('caller abort and coordinator quiesce fail closed without orphaned operatio
       && error.aggregate === 'infrastructure-blocked',
   )
 })
+
+test('a persistently unavailable provider bounds same-turn stop steering and keeps the first cause', async () => {
+  const value = fixture()
+  value.client.registerAcceptance = async () => {
+    throw new Error('acceptance runner has no usable sandbox backend')
+  }
+  value.service.register(registration(value))
+  const payload = { agent: value.owner, turn: 1, signal: new AbortController().signal }
+
+  assert.equal(await value.coordinator.turnStopping(payload), false)
+  assert.equal(await value.coordinator.turnStopping(payload), false)
+  assert.equal(value.owner.steers.length, 2)
+  await assert.rejects(
+    value.coordinator.turnStopping(payload),
+    /same-turn steering limit reached \(acceptance runner has no usable sandbox backend\)/u,
+  )
+  assert.equal(value.owner.steers.length, 2)
+
+  const later = { agent: value.owner, turn: 2, signal: new AbortController().signal }
+  assert.equal(await value.coordinator.turnStopping(later), false)
+  assert.equal(value.owner.steers.length, 3)
+})
