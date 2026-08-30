@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../src/compat/dsh-patch.js'
@@ -525,7 +526,7 @@ function runDsh(args, options = {}) {
   return result
 }
 
-function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile, mode = 'happy' }) {
+async function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile, mode = 'happy' }) {
   const processLoss = mode === 'process-loss'
   const nativeRoot = join(temporaryRoot, `native-main-agent-${mode}`)
   const nativeProject = join(nativeRoot, 'project')
@@ -584,10 +585,15 @@ description = "packed native Main Agent lane"
   const controller = JSON.parse(controllerStart.stdout).data
   nativeControllerSessions.push({ agentSessionBin, stateDir: nativeState, sessionId: controller.id })
   const coordination = join(nativeState, 'sessions', controller.id, 'coordination')
-  const pickCoordination = prefix => join(
-    coordination,
-    readdirSync(coordination).find(name => name.startsWith(prefix)),
-  )
+  const pickCoordination = async prefix => {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const selected = readdirSync(coordination).find(name => name.startsWith(prefix))
+      if (selected !== undefined) return join(coordination, selected)
+      await delay(50)
+    }
+    assert.fail(`agent-session did not publish ${prefix} coordination authority`)
+  }
   const objectiveFile = join(nativeRoot, 'objective.json')
   const assignmentFile = join(nativeRoot, 'assignment.json')
   const closeoutFile = join(nativeRoot, 'closeout.json')
@@ -1003,8 +1009,8 @@ export function apply(ctx) {
     AGENT_SESSION_RUNTIME_ID: controller.session_incarnation,
     AGENT_SESSION_COORDINATION_MODE: 'off',
     AGENT_SESSION_BIN: agentSessionBin,
-    AGENT_SESSION_CAPABILITY_FILE: pickCoordination('capability-'),
-    AGENT_SESSION_CHECKPOINT_FILE: pickCoordination('main-agent-checkpoint-'),
+    AGENT_SESSION_CAPABILITY_FILE: await pickCoordination('capability-'),
+    AGENT_SESSION_CHECKPOINT_FILE: await pickCoordination('main-agent-checkpoint-'),
     DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgentBin,
     DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSessionBin,
     DSH_RUNTIME_KIT_NATIVE_CONTROLLER_ID: controller.id,
@@ -3425,12 +3431,12 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assertProviderSentinel(codexHome, 'codex')
   assertProviderSentinel(claudeHome, 'claude')
 
-  const nativeMainAgentReceipt = runNativeMainAgentSmoke({
+  const nativeMainAgentReceipt = await runNativeMainAgentSmoke({
     llmModuleUrl,
     sessionModuleUrl,
     profile,
   })
-  const nativeMainAgentLossReceipt = runNativeMainAgentSmoke({
+  const nativeMainAgentLossReceipt = await runNativeMainAgentSmoke({
     llmModuleUrl,
     sessionModuleUrl,
     profile,

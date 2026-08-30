@@ -498,7 +498,7 @@ test('controller initialization creates no run when compatibility is unproven', 
       },
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
 
   await assert.rejects(
     harness.registeredTools.get('main_agent_run_initialize').execute({
