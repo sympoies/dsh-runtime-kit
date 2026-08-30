@@ -13,6 +13,7 @@ import { observableChildPid } from './observable-child-pid.js'
 import {
   createScenarioCanaryDeadlineController,
   createScenarioCanaryProgressReporter,
+  prepareScenarioCanaryGoal,
   registerScenarioCanaryAgentSettlementProgress,
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_DEADLINE_ENV,
@@ -133,6 +134,15 @@ function goalView(goal, events) {
     : { phase: goal.phase, revision: goal.revision, event_count: events.length }
 }
 
+function goalRoundFollowups(agent) {
+  const queued = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
+    .filter(message => message.source?.kind === 'goal' && message.source.round > 0)
+  const admitted = agent.session.events
+    .filter(event => event.type === 'user/message'
+      && event.data.source.kind === 'goal' && event.data.source.round > 0)
+  return queued.length + admitted.length
+}
+
 function resources(ctx) {
   const runtimeKit = ctx.get('dshRuntimeKit')
   return {
@@ -150,6 +160,30 @@ async function waitUntil(predicate, label, timeoutMs = 10_000) {
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   throw new Error('timed out waiting for ' + label)
+}
+
+async function prepareScenarioCanaryGoalAtDriverCheckpoint(ctx, agent) {
+  let entered = false
+  let release
+  const released = new Promise(resolve => { release = resolve })
+  const stopObserving = ctx.on('session/flush', async session => {
+    if (session !== agent.session || entered) return
+    entered = true
+    await released
+  })
+  try {
+    const goal = prepareScenarioCanaryGoal(ctx.goals, agent)
+    await waitUntil(() => entered, 'goal-round driver durability checkpoint')
+    release()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    if (goalRoundFollowups(agent) !== 0) {
+      throw new Error('disarmed canary goal queued an automatic round')
+    }
+    return goal
+  } finally {
+    release()
+    stopObserving()
+  }
 }
 
 function processAlive(pid) {
@@ -324,6 +358,7 @@ export function apply(ctx) {
     let firstVerdict
     let finalVerdict
     let completionSettlement
+    let observedGoalRoundFollowups = 0
     let resumedVerdict
     let disposalPromise
     let acceptanceContract
@@ -628,8 +663,7 @@ export function apply(ctx) {
       }
 
       if (['positive', 'candidate-upgrade'].includes(phase)) {
-        goal = ctx.goals.get(handle.agent)
-          ?? ctx.goals.create(handle.agent, { objective: 'prove authoritative acceptance' })
+        goal = await prepareScenarioCanaryGoalAtDriverCheckpoint(ctx, handle.agent)
         goalBefore = goalView(goal, handle.agent.session.events)
         firstVerdict = verdictView(acceptance?.verdict(handle.agent))
         try {
@@ -888,6 +922,11 @@ export function apply(ctx) {
           throw new Error('completion settlement failed closed')
         }
       }
+      observedGoalRoundFollowups = goalRoundFollowups(handle.agent)
+      if (['positive', 'candidate-upgrade'].includes(phase)
+        && observedGoalRoundFollowups !== 0) {
+        throw new Error('disarmed canary goal produced an automatic round')
+      }
       receipt = {
         schema_version: 'dsh-runtime-kit.authoritative-acceptance-canary.v1',
         phase,
@@ -918,6 +957,7 @@ export function apply(ctx) {
         host_validation_executions: hostValidationExecutions,
         max_concurrent_bodies: maxConcurrentBodies,
         turn_stops: turnStops,
+        goal_round_followups: observedGoalRoundFollowups,
         legacy_steering_observed: legacySteeringObserved,
         abort_observations: abortObservations,
         late_successes: lateSuccesses,

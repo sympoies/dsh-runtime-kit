@@ -351,7 +351,7 @@ function authoritativeMatrix(value) {
         exactRecord(leg, [
           'id', 'process_instance_sha256', 'workspace_sha256', 'resources_after',
           'goal', 'denial', 'tool_outcomes', 'body_executions', 'verdict',
-          'completion_settlement',
+          'turn_stops', 'goal_round_followups', 'completion_settlement',
         ])
         const goal = exactRecord(leg.goal, ['before', 'after_denial', 'after_completion'])
         const before = exactRecord(goal.before, ['phase', 'revision', 'event_count'])
@@ -373,7 +373,8 @@ function authoritativeMatrix(value) {
           || settlement.status !== 'succeeded'
           || settlement.finish_line_degraded !== false
           || JSON.stringify(leg.tool_outcomes) !== '["succeeded","succeeded"]'
-          || leg.body_executions !== 2) invalidAuthoritativeMatrix()
+          || leg.body_executions !== 2 || leg.turn_stops !== 1
+          || leg.goal_round_followups !== 0) invalidAuthoritativeMatrix()
         exactVerdict(leg.verdict, 'allow', 'satisfied')
         break
       }
@@ -502,7 +503,7 @@ function authoritativeMatrix(value) {
           'baseline_seed_mutation_executions', 'baseline_seed_legacy_stop',
           'baseline_seed_steering_observed',
           'baseline_seed_exact_validation_executions', 'baseline_seed_checkout_clean',
-          'first_verdict', 'goal_unchanged',
+          'first_verdict', 'goal_unchanged', 'goal_round_followups',
           'validation_executions', 'tool_outcome', 'verdict',
         ])
         if (leg.installed_runtime_package_sha256 !== candidate.runtime_package_sha256
@@ -514,7 +515,8 @@ function authoritativeMatrix(value) {
           || leg.baseline_seed_steering_observed !== true
           || leg.baseline_seed_exact_validation_executions !== 1
           || leg.baseline_seed_checkout_clean !== true
-          || leg.goal_unchanged !== true || leg.validation_executions !== 1
+          || leg.goal_unchanged !== true || leg.goal_round_followups !== 0
+          || leg.validation_executions !== 1
           || leg.tool_outcome !== 'succeeded') invalidAuthoritativeMatrix()
         exactVerdict(leg.first_verdict, 'block', 'missing')
         exactVerdict(leg.verdict, 'allow', 'satisfied')
