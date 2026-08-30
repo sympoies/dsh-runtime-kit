@@ -25,7 +25,9 @@ Tracking: sympoies/dsh-runtime-kit#6. The nils-cli side of the contract is
 | Worker-side checkpoint                         | this bundle's per-lane `main_agent_checkpoint` tool, which writes the private input and runs the fenced CLI |
 | Review decision (what to change, what to accept) | the controller agent and its review skills |
 | Review-loop transport (record the decision, deliver it into the lane) | this bundle's tools |
-| Lane interrupt/close, run closeout, descendant drain | this bundle's tools; CLI stop verbs refuse dsh lanes |
+| Child session, workspace composition, resume, interrupt, and descendant drain | DSH's continuable-subagent runtime |
+| Workspace mutation lease and managed worker identity | nils-cli `WorkspaceLease` and `main-agent` external launch |
+| Lane close and run closeout ordering | this bundle's tools; CLI stop verbs refuse dsh lanes |
 
 ## Runtime shape
 
@@ -34,23 +36,33 @@ The module mounts as a child plugin fiber gated on `agents`, `subagents`,
 Mode simply never activates and the rest of the bundle is unaffected.
 
 - **Lane child**: an in-process continuable child on the configured subagent
-  provider (default `spawn`), parented to a per-lane anchor agent whose
-  session header carries the lane worktree as `cwd`. The worker's shell
-  workdir and sandbox root both derive from that header. Anchors never run
-  model turns: an `agent/pre-step` listener parks them.
+  provider (default `spawn`), parented directly to the controller. Before DSH
+  creates the Agent, this bundle's trusted workspace provider resolves a
+  process-private opaque reference to the exact nils-issued worktree. DSH uses
+  that result for the child session `cwd`; the existing filesystem and sandbox
+  composition then derive their roots from the same session header. No parked
+  Agent, model-visible cwd argument, or serializable bearer reference exists.
 - **Route inheritance**: absent an explicit reviewed `workerProvider` or
-  `workerModel`, the anchor copies the live controller's provider and model.
+  `workerModel`, the child copies the live controller's provider and model.
   The supported Agent Console composition verifies
   `codex-proxy/gpt-5.6-sol` on both controller and worker; the TUI provider
   picker does not weaken this binding.
 - **Authority**: each lane child gets a monotonic deny-only tool guard for
   delegation and lane-management tools (visibility filtering alone is not
-  authority), installed through `registerContinuableSetup` for children of
-  this registry's anchors only. The rc.7 visibility filter separately hides
+  authority), installed through `registerContinuableSetup` for the exact
+  host-bound root id and its descendants only. The rc.7 visibility filter separately hides
   only bundle-owned global controller tools because rc.7 rejects unknown names;
   legacy, cross-product, and configured names remain in the monotonic execution
   guard, so a later registration cannot grant them. The bundle's process-wide
   nils policy lane applies on top.
+- **Workspace lifecycle**: the workspace provider validates the exact opaque
+  object and controller identity synchronously, binds the DSH-reserved child id
+  to the lane during prepare, and activates nils `WorkspaceLease` before the
+  first prompt is admitted. DSH persists only the provider name and version in
+  its descriptor. A cold resume must resolve that descriptor, reproduce the
+  exact persisted `cwd`, and acquire a fresh lease reference; unavailable,
+  forged, copied, or mismatched bindings fail closed. Ordinary subagents omit
+  the host workspace selection and keep their existing parent-cwd inheritance.
 - **Worker identity bridge**: the exact `AGENT_SESSION_*` environment from the
   CLI's `main-agent.external-launch.v1` payload is bound in memory to that
   lane's DSH child and descendants. Policy, selective context, and finish-line
@@ -95,14 +107,18 @@ Mode simply never activates and the rest of the bundle is unaffected.
   capability material through tool arguments.
 - `main_agent_worker_launch({assignment_file, idempotency_key})` — runs the
   fenced `main-agent worker start --await-ready 0`, validates the
-  external-launch payload, spawns the anchor and lane child, starts the
-  broker heartbeat, publishes the sidecar. Idempotent per assignment and key;
+  external-launch payload, starts the broker heartbeat, then asks DSH to create
+  the direct child with the private host workspace selection. Workspace prepare
+  and lease activation complete before the bootstrap prompt is accepted.
+  Idempotent per assignment and key;
   a different launch incarnation for a registered lane is a typed conflict.
 - `main_agent_worker_interrupt({assignment_id})` — stops the lane's current
   turn (`keepInbox` semantics); the lane resumes on its next message.
 - `main_agent_lane_close({assignment_id})` — terminal lane cleanup after the
-  assignment reached a terminal store state: interrupt, heartbeat stop,
-  best-effort broker stop, sidecar marked `terminated`.
+  assignment reached a terminal store state: DSH terminally closes the exact
+  child and drains its descendants first, then heartbeat stop, best-effort
+  broker stop, and sidecar `terminated` publication release the remaining
+  transport evidence.
 - `main_agent_worker_supervise({assignment_id})` — runs the store-side
   `worker supervise` macro and folds this runtime's lane facts onto it. The
   store's classification and next action pass through untouched; lane facts
@@ -121,9 +137,9 @@ Mode simply never activates and the rest of the bundle is unaffected.
   remain inspectable; closing it is a separate explicit step.
 - `main_agent_run_closeout({summary, next_action, result_summary?,
   if_run_revision, idempotency_key})` — terminates every remaining lane,
-  writes the private final checkpoint, runs the store `closeout` macro, then
-  `drainContinuableDescendants()` on the lane anchors and disposes them. The
-  controller session survives to deliver the final answer.
+  including each lane's child-first DSH close, before it writes the private
+  final checkpoint and runs the store `closeout` macro. The controller session
+  survives to deliver the final answer.
 
 ## Lane tools
 
@@ -176,10 +192,11 @@ transition from the store rather than from this runtime's return values:
   once that beat lapses it reads `stopped` and reconciles, all under a live
   harness.
 
-The subagent seam is the one substituted part: the lane child and anchor are
-doubles there, while `npm run test:smoke` covers the real-DSH half (activation,
-tool surface, provided service). A model-driven lane child issuing its own
-checkpoint inside a live DSH session is not yet covered by either.
+The subagent seam is the one substituted part: the host workspace provider and
+lane child lifecycle are simulated there, while the packed real-DSH acceptance
+covers workspace activation, tool surface, and the provided service. The
+promotion gate additionally runs a model-driven lane through bootstrap, edit,
+validation, checkpoint, review change, acceptance, and closeout.
 
 `dsh-runtime-kit.main-agent-lane.v1` uses `disposition` only for launch results:
 `launched` means this call created the in-process lane, while `reattached` means
@@ -189,10 +206,14 @@ read-only service projections carry neither field.
 
 ## Known limitations (v1)
 
-- A harness restart ends every lane runtime with it. The sidecar's pinned
-  process identity proves the stop, `worker diagnose` classifies it, and the
-  run continues through `worker reconcile-stopped` plus reassignment; live
-  lane re-adoption after restart is future work.
+- A harness restart ends every resident Agent and lease reference with it.
+  Persisted DSH continuation metadata can cold-resume only when the exact
+  workspace provider is available, the recorded cwd matches, and lease
+  activation succeeds. Otherwise nils classifies the expired external runtime
+  deterministically as stopped or blocked and requires the existing reconcile
+  path. The sidecar is corroborating transport evidence, never workspace
+  identity or resume authority; live lane re-adoption after restart remains
+  outside this contract.
 - Broker heartbeat death is detected CLI-side, not by this module: a stale
   capability file makes the worker's next authenticated CLI call fail typed,
   and `worker diagnose` classifies the stale broker. The module only owns

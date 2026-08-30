@@ -12,11 +12,11 @@
  * their capability/checkpoint files, the coordination brokers, the worktrees,
  * the liveness sidecars, and every CLI invocation the tools make.
  *
- * What is substituted: DSH's subagent seam. The lane child and anchor are
- * doubles, because a model-driven lane child inside a live DSH session needs
- * the packed-profile harness that `test/smoke.mjs` owns; that smoke asserts the
- * real-DSH half (activation, tool surface, service). The gap between the two —
- * a real DSH child issuing its own checkpoint — is tracked, not pretended.
+ * What is substituted: DSH's subagent seam. The workspace-provider handshake
+ * and lane child are doubles, because a model-driven lane child inside a live
+ * DSH session needs the packed-profile acceptance harness. Patch lifecycle and
+ * promotion evidence cover that real-DSH half; this driver remains focused on
+ * durable store and broker behavior.
  *
  * Usage:
  *   NILS_BIN_DIR=/path/to/nils-cli/target/debug node test/main-agent-e2e.mjs
@@ -489,17 +489,16 @@ function laneChildExec() {
 /**
  * Mount the lane runtime on a context whose subprocess seam is real and whose
  * subagent seam is a double: the point of this driver is the store contract, so
- * every CLI call, heartbeat, and sidecar write is real while the child and
- * anchor are stand-ins.
+ * every CLI call, heartbeat, and sidecar write is real while the host-issued
+ * child workspace lifecycle is simulated in-process.
  */
 function createRuntime(controllerEnv) {
   const registered = new Map()
   const provided = new Map()
   const disposers = []
-  const anchors = new Map()
   const children = new Map()
   const laneSetups = []
-  let anchorSequence = 0
+  const workspaceProviders = new Map()
   let childSequence = 0
   const spawned = []
   const heartbeats = []
@@ -612,23 +611,43 @@ function createRuntime(controllerEnv) {
         }
       },
     },
-    agents: {
-      async create(options) {
-        anchorSequence += 1
-        const agent = {
-          session: { header: { id: String(options.sessionId), cwd: options.meta?.cwd } },
-          options: options.agentOptions,
-        }
-        anchors.set(agent.session.header.id, agent)
-        return { agent, dispose() { anchors.delete(agent.session.header.id) } }
-      },
+    workspaceLease: {
+      async ref() { return Object.freeze(Object.create(null)) },
     },
     subagents: {
       async startContinuable(spec) {
         childSequence += 1
         const childId = `e2e-child-${childSequence}`
-        children.set(childId, spec)
+        const provider = workspaceProviders.get(spec.workspace.provider)
+        assert.ok(provider, `workspace provider ${spec.workspace.provider} is registered`)
+        provider.validate(spec.workspace.ref, spec.request.parent)
+        const descriptor = { provider: provider.name, version: provider.version }
+        const prepared = await provider.prepare({
+          sessionId: childId,
+          parent: spec.request.parent,
+          signal: spec.signal,
+          descriptor,
+          ref: spec.workspace.ref,
+        })
+        const agent = {
+          session: {
+            header: {
+              id: childId,
+              parentSession: spec.request.parent.session.header.id,
+              cwd: prepared.cwd,
+            },
+          },
+        }
+        await provider.activate({ agent, descriptor, signal: spec.signal })
+        children.set(childId, { spec, agent })
         return { childId, messageId: `e2e-message-${childSequence}` }
+      },
+      registerContinuableWorkspaceProvider(provider) {
+        workspaceProviders.set(provider.name, provider)
+        return () => workspaceProviders.delete(provider.name)
+      },
+      async closeContinuable(_parent, childId) {
+        children.delete(childId)
       },
       interrupt() {},
       registerContinuableSetup(contribution) {
@@ -681,8 +700,10 @@ function createRuntime(controllerEnv) {
     /** Install the per-child contribution for one lane and expose its tools. */
     laneChild(lane) {
       const laneTools = new Map()
+      const child = children.get(lane.child_session_id)
+      assert.ok(child, `lane child ${lane.child_session_id} is active`)
       const childCtx = {
-        agent: { session: { header: { id: `${lane.child_session_id}-probe`, parentSession: lane.anchor_session_id } } },
+        agent: child.agent,
         tools: {
           guard() { return () => {} },
           register(definition) {
@@ -725,9 +746,9 @@ function createRuntime(controllerEnv) {
       }
     },
     laneWorktree(lane) {
-      const spec = [...children.values()].find(candidate => candidate.label?.endsWith(lane.assignment_id))
-      assert.ok(spec, `no lane child for ${lane.assignment_id}`)
-      return anchors.get(lane.anchor_session_id)?.session.header.cwd
+      const child = children.get(lane.child_session_id)
+      assert.ok(child, `no lane child for ${lane.assignment_id}`)
+      return child.agent.session.header.cwd
     },
     dispose() {
       for (const child of heartbeats) child.kill('SIGKILL')

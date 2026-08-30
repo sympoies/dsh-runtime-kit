@@ -34,6 +34,8 @@ const CAPABILITIES_SCHEMA = 'main-agent.capabilities.v1'
 const READINESS_SCHEMA = 'main-agent.runtime-readiness.v1'
 const EXTERNAL_RUNTIME_CAPABILITY = 'main-agent.external-runtime.v1'
 const DEFAULT_WORKER_SUBAGENT_PROVIDER = 'spawn'
+const MANAGED_WORKSPACE_PROVIDER = 'dsh-runtime-kit'
+const MANAGED_WORKSPACE_VERSION = 1
 const LANE_SECTION_ORDER = 118
 const DEFAULT_MAX_LANES = 8
 const HARD_MAX_LANES = 64
@@ -324,7 +326,6 @@ function laneSummary(lane) {
     worker_session_id: lane.workerSessionId,
     launch_id: lane.launchId,
     child_session_id: lane.childId,
-    anchor_session_id: lane.anchorId,
     lane_state: lane.state,
   }
 }
@@ -337,8 +338,8 @@ function launchSummary(lane, disposition) {
 /**
  * Main Agent Mode orchestration for DSH: executes the external-launch
  * contract that `main-agent worker start --launch.agent dsh` returns, spawns
- * each lane as an in-process continuable child anchored to its own worktree
- * cwd, maintains the per-lane broker heartbeat and liveness sidecar, and
+ * each lane as an in-process continuable child bound to one trusted host-issued
+ * worktree, maintains the per-lane broker heartbeat and liveness sidecar, and
  * installs the per-child authority guard plus environment instructions.
  *
  * Contract: nils-cli `main-agent-dsh-external-runtime-v1.md`; tracking
@@ -424,6 +425,58 @@ export function applyMainAgentMode(ctx, config = {}) {
     : DEFAULT_BROKER_READY_TIMEOUT_MS
   const client = createCliClient(ctx, config)
   const lanes = createLaneRegistry()
+  const hostSubagents = /** @type {any} */ (ctx.subagents)
+  /** @type {WeakMap<object, {lane: Lane, parent: any}>} */
+  const workspaceRefs = new WeakMap()
+  if (typeof hostSubagents.registerContinuableWorkspaceProvider !== 'function'
+    || typeof hostSubagents.closeContinuable !== 'function') {
+    throw laneError('main-agent-host-workspace-unavailable')
+  }
+  hostSubagents.registerContinuableWorkspaceProvider({
+    name: MANAGED_WORKSPACE_PROVIDER,
+    version: MANAGED_WORKSPACE_VERSION,
+    validate(/** @type {unknown} */ ref, /** @type {any} */ parent) {
+      if (ref === null || typeof ref !== 'object') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+      const selected = workspaceRefs.get(ref)
+      if (selected === undefined || selected.parent !== parent || selected.lane.state !== 'open') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+    },
+    async prepare(/** @type {any} */ request) {
+      const { sessionId, parent, ref, persistedCwd } = request
+      const selected = ref !== undefined && ref !== null && typeof ref === 'object'
+        ? workspaceRefs.get(ref)
+        : undefined
+      const lane = selected?.lane ?? lanes.byChild(sessionId)
+      if (lane === undefined || lane.parent !== parent || lane.state !== 'open') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+      if (persistedCwd !== undefined && persistedCwd !== lane.worktree) {
+        throw laneError('main-agent-host-workspace-resume-mismatch')
+      }
+      if (lane.childId.length === 0) {
+        lane.childId = sessionId
+        lanes.bindChild(lane)
+      } else if (lane.childId !== sessionId) {
+        throw laneError('main-agent-host-workspace-child-mismatch')
+      }
+      return { cwd: lane.worktree }
+    },
+    async activate(/** @type {any} */ request) {
+      const { agent } = request
+      const lane = lanes.byChild(String(agent?.session?.header?.id ?? ''))
+      if (lane === undefined || agent?.session?.header?.cwd !== lane.worktree) {
+        throw laneError('main-agent-host-workspace-activation-mismatch')
+      }
+      const workspaceLease = /** @type {any} */ (ctx).workspaceLease
+      if (workspaceLease === undefined || typeof workspaceLease.ref !== 'function') {
+        throw laneError('main-agent-host-workspace-lease-unavailable')
+      }
+      await workspaceLease.ref(agent)
+    },
+  })
   /** @type {Map<string, Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>} */
   const controllers = new Map()
   /** @type {Map<string, Promise<Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>>} */
@@ -512,8 +565,12 @@ export function applyMainAgentMode(ctx, config = {}) {
       lane.state = 'terminated'
       lane.turn = undefined
       void publishLivenessSidecar(lane).catch(() => {})
+      void hostSubagents.closeContinuable(
+        /** @type {any} */ (lane.parent),
+        /** @type {any} */ (lane.childId),
+        new AbortController().signal,
+      ).catch(() => {})
       lane.stopHeartbeat?.()
-      lane.disposeAnchor?.()
     }
     pendingRunEvents.length = 0
     authenticatingControllers.clear()
@@ -526,7 +583,7 @@ export function applyMainAgentMode(ctx, config = {}) {
    * Serialize the launch critical section per assignment: concurrent
    * launches of the same assignment (parallel tool calls, retries) queue
    * behind one another instead of racing the registry check, so at most one
-   * anchor, heartbeat, and child ever exist per lane.
+   * workspace binding, heartbeat, and child ever exist per lane.
    *
    * @template T
    * @param {string} assignmentId
@@ -544,16 +601,8 @@ export function applyMainAgentMode(ctx, config = {}) {
     return next
   }
 
-  // Anchor agents exist only to carry a lane's worktree cwd and lineage; they
-  // must never spend model turns on settlement notices.
   ctx.on('agent/pre-step', async (payload, next) => {
     const { id: sessionId, parentSession } = dshRc7SessionHeader(payload?.agent)
-    if (typeof sessionId === 'string' && lanes.byAnchor(sessionId) !== undefined) {
-      return {
-        kind: /** @type {const} */ ('reject'),
-        reason: 'dsh-runtime-kit:main-agent-anchor-parked',
-      }
-    }
     // Partial AGENT_SESSION_* values are also used as subprocess-isolation
     // sentinels. Only the producer's complete principal can claim the
     // managed-controller authentication path; once complete, authentication
@@ -675,20 +724,21 @@ export function applyMainAgentMode(ctx, config = {}) {
   })
 
   // Per-child lane hardening: a monotonic deny-only guard (authority) plus the
-  // environment instruction section (guidance). Applies only to children whose
-  // parent is one of this registry's anchors.
+  // environment instruction section (guidance). The host-issued root child is
+  // bound by its DSH-reserved id; descendants inherit membership by lineage.
   ctx.subagents.registerContinuableSetup((childCtx) => {
     const agent = /** @type {any} */ (childCtx).agent
     const childHeader = dshRc7SessionHeader(agent)
     const parentSession = childHeader.parentSession
-    // Lane membership is transitive: a child of an anchor, of a lane child, or
-    // of any deeper lane descendant is inside that lane and gets the same
+    // Lane membership is transitive: the host-bound root child and every
+    // deeper lane descendant get the same
     // authority guard. Anything else is outside every lane.
-    const lane = typeof parentSession === 'string'
-      ? lanes.byAnchor(parentSession) ?? lanes.byMember(parentSession)
+    const childSession = childHeader.id
+    const lane = typeof childSession === 'string'
+      ? lanes.byChild(childSession)
+        ?? (typeof parentSession === 'string' ? lanes.byMember(parentSession) : undefined)
       : undefined
     if (lane === undefined) return () => {}
-    const childSession = childHeader.id
     if (typeof childSession === 'string' && childSession.length > 0) {
       lanes.bindMember(childSession, lane)
     }
@@ -742,7 +792,7 @@ export function applyMainAgentMode(ctx, config = {}) {
   }
 
   /**
-   * Resolve the route a new lane anchor inherits from its controller. Keeping
+   * Resolve the route a new lane child inherits from its controller. Keeping
    * this as the service's read-only route observation and the launch path's
    * single source prevents compatibility evidence from reimplementing the
    * worker-provider/model fallback.
@@ -769,8 +819,8 @@ export function applyMainAgentMode(ctx, config = {}) {
 
   /**
    * Lane management is a controller-only surface. Tool visibility is not
-   * authority, so refuse any caller that is one of this registry's anchors or
-   * lane children rather than relying on the per-child deny filter alone.
+   * authority, so refuse any caller that is one of this registry's lane
+   * children rather than relying on the per-child deny filter alone.
    *
    * @param {any} exec
    */
@@ -781,12 +831,10 @@ export function applyMainAgentMode(ctx, config = {}) {
       throw laneError('main-agent-controller-identity-unavailable')
     }
     const parentSession = header.parentSession
-    const insideALane = lanes.byAnchor(sessionId) !== undefined
-      || lanes.byMember(sessionId) !== undefined
+    const insideALane = lanes.byMember(sessionId) !== undefined
       || lanes.byChild(sessionId) !== undefined
       || (typeof parentSession === 'string'
-        && (lanes.byAnchor(parentSession) !== undefined
-          || lanes.byMember(parentSession) !== undefined
+        && (lanes.byMember(parentSession) !== undefined
           || lanes.byChild(parentSession) !== undefined))
     if (insideALane) {
       throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
@@ -968,7 +1016,7 @@ export function applyMainAgentMode(ctx, config = {}) {
    * Authenticate a DSH lane without asking a model shell subprocess to retain
    * process-local environment from an earlier export. The launch envelope is
    * the sole source of the worker principal and this tool is installed only in
-   * descendants of that lane's anchor.
+   * descendants of that host-bound lane child.
    *
    * @param {Lane} lane
    * @returns {ToolDefinition}
@@ -1327,52 +1375,38 @@ export function applyMainAgentMode(ctx, config = {}) {
           await releaseRefusedIncarnation()
           throw laneError('main-agent-lane-worktree-invalid', { assignment_id: assignmentId })
         }
-        let anchorCwd
+        let workspaceCwd
         try {
-          anchorCwd = await realpath(worktree)
+          workspaceCwd = await realpath(worktree)
         } catch {
           await releaseRefusedIncarnation()
           throw laneError('main-agent-lane-worktree-unavailable', { assignment_id: assignmentId })
         }
-        if (laneWorktreeRoot !== undefined && !isProperDescendant(anchorCwd, laneWorktreeRoot)) {
+        if (laneWorktreeRoot !== undefined && !isProperDescendant(workspaceCwd, laneWorktreeRoot)) {
           await releaseRefusedIncarnation()
           throw laneError('main-agent-lane-worktree-uncontained', {
             assignment_id: assignmentId,
           })
         }
-        if (resolve(anchorCwd) === resolve(anchorCwd, '..')) {
+        if (resolve(workspaceCwd) === resolve(workspaceCwd, '..')) {
           // The filesystem root is never an isolated lane worktree.
           await releaseRefusedIncarnation()
           throw laneError('main-agent-lane-worktree-uncontained', {
             assignment_id: assignmentId,
           })
         }
-        /** @type {Awaited<ReturnType<typeof ctx.agents.create>> | undefined} */
-        let anchorHandle
         /** @type {Lane | undefined} */
         let lane
         try {
           const route = workerRoute(exec?.agent)
-          anchorHandle = await ctx.agents.create({
-            sessionId: /** @type {any} */ (randomUUID()),
-            meta: { cwd: anchorCwd },
-            agentOptions: route,
-          })
-          const anchor = anchorHandle.agent
-          const anchorId = dshRc7SessionHeader(anchor).id
-          if (typeof anchorId !== 'string' || anchorId.length === 0) {
-            throw laneError('main-agent-anchor-unavailable')
-          }
-
           lane = {
             assignmentId,
             workerSessionId,
             launchId: externalLaunch.launch_id,
             livenessFile: externalLaunch.liveness_file,
             childId: '',
-            anchorId,
-            anchor,
-            worktree: anchorCwd,
+            parent: /** @type {any} */ (exec.agent),
+            worktree: workspaceCwd,
             state: 'open',
             // The bootstrap prompt is submitted as the child's first turn and
             // rc.7 publishes that turn's start edge before startContinuable
@@ -1387,13 +1421,11 @@ export function applyMainAgentMode(ctx, config = {}) {
             workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
             bootstrapKey: /** @type {string} */ (bootstrapKeyFromPrompt(externalLaunch.prompt)),
             brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
-            disposeAnchor: () => {
-              try { anchorHandle?.dispose() } catch {}
-            },
             sidecarChain: Promise.resolve(),
             stopHeartbeat: undefined,
           }
-          lanes.bindAnchor(lane)
+          const workspaceRef = Object.freeze(Object.create(null))
+          workspaceRefs.set(workspaceRef, { lane, parent: /** @type {any} */ (exec.agent) })
           // Publish the sidecar before the heartbeat starts. The heartbeat's
           // first act is to read this lane's runtime evidence, and it is what
           // establishes the lane's broker readiness — so the evidence must
@@ -1416,17 +1448,21 @@ export function applyMainAgentMode(ctx, config = {}) {
             try { heartbeat.terminate() } catch {}
           }
           await waitForBrokerReady(externalLaunch, exec, cwd, assignmentId)
-          const started = await ctx.subagents.startContinuable({
+          const started = await ctx.subagents.startContinuable(/** @type {any} */ ({
             provider: workerSubagentProvider,
             label: `main-agent:${assignmentId}`,
+            workspace: { provider: MANAGED_WORKSPACE_PROVIDER, ref: workspaceRef },
             request: {
               prompt: [{ type: 'text', text: nativeBootstrapPrompt(lane.bootstrapKey) }],
-              parent: anchor,
+              parent: /** @type {any} */ (exec.agent),
+              agentOptions: route,
               toolFilter: { deny: [...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS] },
             },
             signal: exec.signal,
-          })
-          lane.childId = started.childId
+          }))
+          if (lane.childId !== started.childId) {
+            throw laneError('main-agent-host-workspace-child-mismatch')
+          }
           lanes.add(lane)
           // Run boundaries published during materialization arrive before the
           // child id exists, so replay them now: a first turn that already
@@ -1436,7 +1472,7 @@ export function applyMainAgentMode(ctx, config = {}) {
         } catch (error) {
           // Roll every unadopted incarnation back, including failures before
           // the lane object exists. Otherwise a missing route or rejected
-          // anchor would leave the nils-owned broker alive with no DSH lane.
+          // child would leave the nils-owned broker alive with no DSH lane.
           if (lane !== undefined) {
             lanes.remove(lane)
             lane.state = 'terminated'
@@ -1444,7 +1480,6 @@ export function applyMainAgentMode(ctx, config = {}) {
             await publishLivenessSidecar(lane).catch(() => {})
             lane.stopHeartbeat?.()
           }
-          try { anchorHandle?.dispose() } catch {}
           await releaseRefusedIncarnation()
           throw error
         }
@@ -1484,7 +1519,10 @@ export function applyMainAgentMode(ctx, config = {}) {
       // nothing to interrupt, and that is a lane state, not a transport error.
       let interrupted = true
       try {
-        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
+        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), {
+          kind: 'user',
+          parentSessionId: /** @type {any} */ (dshRc7SessionHeader(lane.parent).id),
+        })
       } catch {
         interrupted = false
       }
@@ -1546,34 +1584,26 @@ export function applyMainAgentMode(ctx, config = {}) {
   }
 
   /**
-   * Terminate one lane completely: interrupt the child, publish the terminated
-   * sidecar, release the heartbeat and broker, dispose the anchor, and drop the
-   * registry entry. Shared by explicit lane close and run closeout so both
-   * release in exactly the same order.
-   *
-   * `disposeAnchor: false` keeps the anchor Agent alive for a caller that still
-   * needs it as a drain authority; that caller owns disposing it afterwards.
+   * Terminate one lane completely: DSH first releases the resident child and
+   * descendants child-first, then this runtime publishes termination, releases
+   * the heartbeat and broker, and drops the registry entry.
    *
    * @param {Lane} lane
    * @param {any} exec
    * @param {string} brokerCwd
-   * @param {{ disposeAnchor?: boolean }} [options]
    */
-  const closeLane = async (lane, exec, brokerCwd, options = {}) => {
-    const anchor = lane.anchor
-    const disposeAnchor = lane.disposeAnchor
+  const closeLane = async (lane, exec, brokerCwd) => {
     let published = false
+    await hostSubagents.closeContinuable(
+      /** @type {any} */ (lane.parent),
+      /** @type {any} */ (lane.childId),
+      exec.signal,
+    )
     try {
-      try {
-        ctx.subagents.interrupt(/** @type {any} */ (lane.childId), { kind: 'user', parentSessionId: /** @type {any} */ (lane.anchorId) })
-      } catch {
-        // A settled or already-drained child has nothing to interrupt; close
-        // must still release the heartbeat, sidecar, and anchor.
-      }
       lane.state = 'terminated'
       lane.turn = undefined
       // Publishing the terminated sidecar is best effort: releasing the
-      // heartbeat, broker, and anchor must not depend on a filesystem write,
+      // heartbeat and broker must not depend on a filesystem write,
       // or a failed publish would leave a half-closed lane no retry can fix.
       published = await publishLivenessSidecar(lane).then(() => true, () => false)
       lane.stopHeartbeat?.()
@@ -1589,18 +1619,16 @@ export function applyMainAgentMode(ctx, config = {}) {
       // Release is unconditional once close starts: the lane is terminated,
       // so leaving it registered would report it as live to the controller.
       lane.stopHeartbeat?.()
-      if (options.disposeAnchor !== false) disposeAnchor?.()
       lanes.remove(lane)
     }
     return {
-      anchor,
-      disposeAnchor,
       summary: {
         ...laneSummary(lane),
         operation: 'close',
         closed: true,
         sidecar_published: published,
       },
+      drained: true,
     }
   }
 
@@ -1672,7 +1700,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       if (lane !== undefined) {
         try {
           const entries = await ctx.subagents.listChildren(
-            /** @type {any} */ (lane.anchorId),
+            /** @type {any} */ (dshRc7SessionHeader(lane.parent).id),
             exec.signal,
           )
           childActivity = laneChildActivity(entries, lane.childId)
@@ -1741,7 +1769,7 @@ export function applyMainAgentMode(ctx, config = {}) {
       let deliveryError
       try {
         await ctx.subagents.followup(
-          /** @type {any} */ (lane.anchor),
+          /** @type {any} */ (lane.parent),
           /** @type {any} */ (lane.childId),
           [{
             type: 'text',
@@ -1880,16 +1908,10 @@ export function applyMainAgentMode(ctx, config = {}) {
       // Every lane must be terminal before the store retires its worker: a lane
       // left `open` would keep the pinned harness identity vouching for a
       // runtime the store already considers retired.
-      // Anchors stay alive through the drain: they are the parent authority
-      // `drainContinuableDescendants` needs, so each one is disposed only after
-      // its forest is released.
       const closedLanes = []
       for (const lane of lanes.list()) {
-        closedLanes.push(await closeLane(lane, exec, cwd, { disposeAnchor: false }))
+        closedLanes.push(await closeLane(lane, exec, cwd))
       }
-      const anchors = closedLanes
-        .map(entry => entry.anchor)
-        .filter(anchor => anchor !== undefined)
       const directory = await realpath(
         await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-')),
       )
@@ -1908,23 +1930,11 @@ export function applyMainAgentMode(ctx, config = {}) {
           '--format',
           'json',
         ], exec, cwd)
-        // Drain after the store closed the run: admission below these anchors
-        // is closed and every descendant Activation is released child-first.
-        let drained = true
-        try {
-          await ctx.subagents.drainContinuableDescendants(/** @type {any} */ (anchors))
-        } catch {
-          drained = false
-        } finally {
-          // The anchors have no purpose once their forests are released, and a
-          // failed drain must not leak them either.
-          for (const entry of closedLanes) entry.disposeAnchor?.()
-        }
         return {
           schema_version: CLOSEOUT_SCHEMA,
           store,
           lanes_closed: closedLanes.map(entry => entry.summary),
-          drained,
+          drained: closedLanes.every(entry => entry.drained),
         }
       } finally {
         await rm(directory, { recursive: true, force: true }).catch(() => {})

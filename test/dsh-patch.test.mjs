@@ -41,13 +41,13 @@ test('the checked-in DSH patch preserves the host environment only in danger-ful
   assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
 })
 
-test('the consolidated native patch adds only the synchronous goal acceptance boundary', async () => {
+test('the consolidated native patch adds the bounded goal and host-workspace boundaries', async () => {
   const manifest = JSON.parse(
     await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
   assert.equal(manifest.patches.length, 1)
   const patch = manifest.patches[0]
-  assert.equal(patch.id, 'native-execution-boundaries-v2')
+  assert.equal(patch.id, 'native-execution-boundaries-v3')
   assert.deepEqual(
     Object.keys(patch.targets).filter(path => path.startsWith('packages/goal/goal/')).sort(),
     [
@@ -55,10 +55,24 @@ test('the consolidated native patch adds only the synchronous goal acceptance bo
       'packages/goal/goal/tests/goal.spec.ts',
     ],
   )
+  assert.deepEqual(
+    Object.keys(patch.targets).filter(path => path.startsWith('packages/subagent/subagent/')).sort(),
+    [
+      'packages/subagent/subagent/src/child-agent.ts',
+      'packages/subagent/subagent/src/continuation.ts',
+      'packages/subagent/subagent/src/descriptor.ts',
+      'packages/subagent/subagent/src/index.ts',
+      'packages/subagent/subagent/src/types.ts',
+      'packages/subagent/subagent/tests/continuation.spec.ts',
+    ],
+  )
   const source = await readFile(join(projectRoot, patch.path), 'utf8')
   assert.match(source, /ctx\.get\('dshAcceptance'\)\?\.assertGoalCompletion\(agent, ref\)/u)
   assert.match(source, /does not mutate goal state when acceptance denies/u)
   assert.match(source, /preserves completion when no acceptance provider is installed/u)
+  assert.match(source, /registerContinuableWorkspaceProvider/u)
+  assert.match(source, /workspace identity does not match its durable session/u)
+  assert.match(source, /rolls back the child when host workspace activation refuses authority/u)
 })
 
 async function fixture() {

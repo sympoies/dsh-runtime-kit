@@ -178,7 +178,6 @@ export function supervisionEnvelope(input) {
     worker_session_id: input.lane.workerSessionId,
     launch_id: input.lane.launchId,
     child_session_id: input.lane.childId,
-    anchor_session_id: input.lane.anchorId,
     state: input.lane.state,
     turn_phase: input.lane.turn?.phase ?? null,
     turn_changed_at: input.lane.turn?.phaseChangedAt ?? null,

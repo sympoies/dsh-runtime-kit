@@ -119,7 +119,6 @@ test('the supervision envelope keeps store truth and lane transport facts distin
       workerSessionId: 'worker-one',
       launchId: 'launch-1',
       childId: 'child-1',
-      anchorId: 'anchor-1',
       state: 'open',
       turn: {
         phase: 'working',
@@ -139,6 +138,7 @@ test('the supervision envelope keeps store truth and lane transport facts distin
   assert.equal(envelope.lane.turn_phase, 'working')
   assert.equal(envelope.lane.child_activity, 'running')
   assert.equal(envelope.lane.child_session_id, 'child-1')
+  assert.equal(Object.hasOwn(envelope.lane, 'anchor_session_id'), false)
 
   const lost = supervisionEnvelope({
     assignmentId: 'assignment-one',

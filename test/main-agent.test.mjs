@@ -23,23 +23,22 @@ symlinkSync(process.execPath, MAIN_AGENT_CLI)
 symlinkSync(process.execPath, AGENT_SESSION_CLI)
 test.after(() => { rmSync(testBin, { recursive: true, force: true }) })
 
-test('the lane registry owns anchor and descendant membership indexes', () => {
+test('the lane registry owns host-bound child and descendant membership indexes', () => {
   const lanes = createLaneRegistry()
   const lane = /** @type {any} */ ({
     assignmentId: 'assignment-one',
     childId: 'child-one',
-    anchorId: 'anchor-one',
     workerSessionId: 'worker-one',
     livenessFile: '/tmp/liveness-one.json',
   })
 
-  lanes.bindAnchor(lane)
+  lanes.bindChild(lane)
   lanes.bindMember('grandchild-one', lane)
-  assert.equal(lanes.byAnchor('anchor-one'), lane)
+  assert.equal(lanes.byChild('child-one'), lane)
   assert.equal(lanes.byMember('grandchild-one'), lane)
   lanes.add(lane)
   lanes.remove(lane)
-  assert.equal(lanes.byAnchor('anchor-one'), undefined)
+  assert.equal(lanes.byChild('child-one'), undefined)
   assert.equal(lanes.byMember('grandchild-one'), undefined)
 })
 
@@ -155,8 +154,6 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
 function createContext({
   envelope,
   spawnFailure = false,
-  agentCreateFailure = false,
-  anchorSessionId,
   startContinuable,
   children = [],
   followupFailure = false,
@@ -167,12 +164,14 @@ function createContext({
   const provided = new Map()
   const registeredTools = new Map()
   const spawned = []
-  const anchors = []
   const continuations = []
   const interrupts = []
   const followups = []
   const drains = []
   const listings = []
+  const workspaceProviders = new Map()
+  const workspaceLeaseRefs = []
+  const closedContinuations = []
   let setupContribution
   const ctx = {
     on(event, listener) {
@@ -240,25 +239,44 @@ function createContext({
         }
       },
     },
-    agents: {
-      async create(options) {
-        if (agentCreateFailure) throw new Error('anchor refused to start')
-        const sessionId = anchorSessionId ?? options.sessionId
-        const agent = {
-          id: sessionId,
-          options: options.agentOptions,
-          session: { header: { id: sessionId, cwd: options.meta?.cwd } },
-        }
-        const handle = { agent, dispose() { anchors.pop() } }
-        anchors.push(agent)
-        return handle
+    workspaceLease: {
+      async ref(agent) {
+        workspaceLeaseRefs.push(agent)
+        return Object.freeze(Object.create(null))
       },
     },
     subagents: {
       async startContinuable(spec) {
         continuations.push(spec)
-        if (startContinuable !== undefined) return startContinuable(spec, continuations.length)
-        return { childId: `child-${continuations.length}`, messageId: 'message-1' }
+        const result = startContinuable !== undefined
+          ? await startContinuable(spec, continuations.length)
+          : { childId: `child-${continuations.length}`, messageId: 'message-1' }
+        const childId = result.childId
+        if (spec.workspace !== undefined) {
+          const provider = workspaceProviders.get(spec.workspace.provider)
+          provider.validate(spec.workspace.ref, spec.request.parent)
+          const descriptor = { provider: provider.name, version: provider.version }
+          const prepared = await provider.prepare({
+            sessionId: childId,
+            parent: spec.request.parent,
+            signal: spec.signal,
+            descriptor,
+            ref: spec.workspace.ref,
+          })
+          await provider.activate({
+            agent: { session: { header: { id: childId, cwd: prepared.cwd } } },
+            descriptor,
+            signal: spec.signal,
+          })
+        }
+        return result
+      },
+      registerContinuableWorkspaceProvider(provider) {
+        workspaceProviders.set(provider.name, provider)
+        return () => workspaceProviders.delete(provider.name)
+      },
+      async closeContinuable(parent, childId, signal) {
+        closedContinuations.push({ parent, childId, signal })
       },
       interrupt(target, authority) {
         interrupts.push({ target, authority })
@@ -289,12 +307,14 @@ function createContext({
     provided,
     registeredTools,
     spawned,
-    anchors,
     continuations,
     interrupts,
     followups,
     drains,
     listings,
+    workspaceProviders,
+    workspaceLeaseRefs,
+    closedContinuations,
     setup: () => setupContribution,
   }
 }
@@ -831,22 +851,32 @@ test('worker launch executes the external-launch contract without duplicating la
   assert.deepEqual(heartbeat.spec.argv.slice(1, 3), ['--state-dir', scratch])
   assert.deepEqual(heartbeat.spec.argv.slice(3, 5), ['broker', 'heartbeat'])
 
-  assert.equal(harness.anchors.length, 1, 'one anchor per lane')
-  assert.equal(
-    harness.anchors[0].session.header.cwd,
-    realpathSync(laneWorktree(scratch)),
-    'the anchor cwd is the real lane worktree',
-  )
-  assert.deepEqual(
-    harness.anchors[0].options,
-    { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
-    'the lane anchor inherits the Agent Console high-effort Sol controller route',
-  )
   assert.equal(harness.continuations.length, 1)
   const continuation = harness.continuations[0]
   assert.equal(continuation.label, 'main-agent:assignment-one')
   assert.equal(continuation.provider, 'spawn')
-  assert.equal(continuation.request.parent, harness.anchors[0])
+  assert.equal(continuation.request.parent.session.header.id, 'controller-one')
+  assert.equal(typeof continuation.workspace?.ref, 'object')
+  assert.equal(continuation.workspace?.provider, 'dsh-runtime-kit')
+  const workspaceProvider = harness.workspaceProviders.get('dsh-runtime-kit')
+  assert.ok(workspaceProvider)
+  assert.throws(
+    () => workspaceProvider.validate(Object.freeze(Object.create(null)), continuation.request.parent),
+    /main-agent-host-workspace-ref-invalid/,
+    'a copied opaque reference is never authority',
+  )
+  assert.throws(
+    () => workspaceProvider.validate(continuation.workspace.ref, controllerExec().agent),
+    /main-agent-host-workspace-ref-invalid/,
+    'the valid reference is bound to the exact controller identity',
+  )
+  assert.equal(harness.workspaceLeaseRefs.length, 1)
+  assert.equal(harness.workspaceLeaseRefs[0].session.header.id, result.child_session_id)
+  assert.equal(
+    harness.workspaceLeaseRefs[0].session.header.cwd,
+    realpathSync(laneWorktree(scratch)),
+    'lease activation observes the exact host-issued worktree before launch returns',
+  )
   assert.deepEqual(continuation.request.prompt, [{
     type: 'text',
     text: 'Main Agent Mode is explicitly active for this managed worker assignment. '
@@ -879,14 +909,13 @@ test('worker launch executes the external-launch contract without duplicating la
   )
   assert.equal(replay.disposition, 'reattached')
   assert.equal(harness.continuations.length, 1, 'replay never spawns a second child')
-  assert.equal(harness.anchors.length, 1, 'replay never creates a second anchor')
 
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 1)
   assert.deepEqual(
     service.workerRoute(controllerExec().agent),
     { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
-    'the real orchestration service exposes the inherited route used for lane anchors',
+    'the real orchestration service exposes the inherited route used for lane children',
   )
 })
 
@@ -975,7 +1004,6 @@ test('worker launch rolls back when authenticated broker readiness never arrives
     /main-agent-broker-readiness-timeout.*starting/,
   )
   assert.equal(harness.continuations.length, 0, 'an unusable lane child is never started')
-  assert.equal(harness.anchors.length, 0, 'the half-launched anchor is released')
   assert.equal(harness.spawned.find(record => record.spec.argv.includes('heartbeat')).terminated, true)
 })
 
@@ -1020,7 +1048,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   )
 })
 
-test('worker launch releases an unadopted incarnation when route or anchor creation fails', async (t) => {
+test('worker launch releases an unadopted incarnation when the worker route is unavailable', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const cases = [
@@ -1041,24 +1069,6 @@ test('worker launch releases an unadopted incarnation when route or anchor creat
       },
       error: /main-agent-worker-route-unavailable/,
     },
-    {
-      name: 'anchor creation refusal',
-      harness: createContext({
-        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'create')),
-        agentCreateFailure: true,
-      }),
-      exec: controllerExec(),
-      error: /anchor refused to start/,
-    },
-    {
-      name: 'anchor without a session id',
-      harness: createContext({
-        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'identity')),
-        anchorSessionId: '',
-      }),
-      exec: controllerExec(),
-      error: /main-agent-anchor-unavailable/,
-    },
   ]
 
   for (const fixture of cases) {
@@ -1076,7 +1086,6 @@ test('worker launch releases an unadopted incarnation when route or anchor creat
       true,
       `${fixture.name} releases the refused store-side broker`,
     )
-    assert.equal(fixture.harness.anchors.length, 0, `${fixture.name} leaves no anchor`)
   }
 })
 
@@ -1089,16 +1098,14 @@ test('lane children get the deny guard and environment section; foreign children
     mainAgentCli: MAIN_AGENT_CLI,
     laneDeniedTools: ['custom_tool'],
   })
-  await harness.registeredTools.get('main_agent_worker_launch').execute(
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  const anchorId = harness.anchors[0].session.header.id
-
   const guards = []
   const sections = []
   const laneChildCtx = {
-    agent: { session: { header: { parentSession: anchorId } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard(callback) {
         guards.push(callback)
@@ -1138,7 +1145,7 @@ test('lane children get the deny guard and environment section; foreign children
   assert.equal(sections.length, 0)
 
   const foreignChildCtx = {
-    agent: { session: { header: { parentSession: 'someone-else' } } },
+    agent: { session: { header: { id: 'foreign-child', parentSession: 'someone-else' } } },
     tools: {
       guard() {
         throw new Error('foreign children must not be guarded')
@@ -1178,7 +1185,7 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   })
   const managedSessionBridge = createManagedSessionBridge()
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
-  await harness.registeredTools.get('main_agent_worker_launch').execute(
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
@@ -1187,10 +1194,9 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   assert.match(firstPrompt, /main_agent_bootstrap/)
   assert.doesNotMatch(firstPrompt, /Run exactly .*main-agent bootstrap/)
 
-  const anchorId = harness.anchors[0].session.header.id
   const childTools = new Map()
   const dispose = harness.setup()({
-    agent: { session: { header: { id: 'lane-child-one', parentSession: anchorId } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard() { return () => {} },
       register(definition) {
@@ -1202,7 +1208,7 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   })
   const bootstrap = childTools.get('main_agent_bootstrap')
   assert.ok(bootstrap, 'lane child gets its authenticated bootstrap tool')
-  const principal = managedSessionBridge.resolve('lane-child-one')
+  const principal = managedSessionBridge.resolve(launched.child_session_id)
   assert.equal(principal.sessionId, 'worker-one')
   assert.equal(principal.environment.AGENT_SESSION_ID, 'worker-one')
   assert.equal(managedSessionBridge.resolve('foreign-child'), undefined)
@@ -1231,7 +1237,7 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   dispose()
 })
 
-test('anchors are parked, lanes interrupt and close, and run boundaries update the sidecar', async (t) => {
+test('host-bound lanes interrupt, drain, close, and update run-boundary sidecars', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
@@ -1241,17 +1247,7 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  const anchorId = harness.anchors[0].session.header.id
-
   const preStep = harness.listeners.get('agent/pre-step')
-  const parked = await preStep(
-    { agent: { session: { header: { id: anchorId } } } },
-    async () => ({ kind: 'enter', messages: [] }),
-  )
-  assert.deepEqual(parked, {
-    kind: 'reject',
-    reason: 'dsh-runtime-kit:main-agent-anchor-parked',
-  })
   const passedThrough = await preStep(
     { agent: { session: { header: { id: 'foreign-child', parentSession: 'foreign-parent' } } } },
     async () => ({ kind: 'enter', messages: [] }),
@@ -1290,7 +1286,7 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
   assert.equal(harness.interrupts[0].target, launched.child_session_id)
   assert.deepEqual(harness.interrupts[0].authority, {
     kind: 'user',
-    parentSessionId: anchorId,
+    parentSessionId: 'controller-one',
   })
 
   const closed = await harness.registeredTools.get('main_agent_lane_close').execute(
@@ -1309,7 +1305,8 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     harness.spawned.some(record => record.spec.argv.includes('stop')),
     'lane close runs the broker stop argv',
   )
-  assert.equal(harness.anchors.length, 0, 'lane close disposes the anchor agent')
+  assert.equal(harness.closedContinuations.length, 1)
+  assert.equal(harness.closedContinuations[0].childId, launched.child_session_id)
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 0)
   await assert.rejects(
@@ -1350,7 +1347,6 @@ test('concurrent launches of one assignment serialize to a single lane', async (
   assert.equal(firstResult.disposition, 'launched')
   assert.equal(secondResult.disposition, 'reattached')
   assert.equal(harness.continuations.length, 1, 'exactly one child is spawned')
-  assert.equal(harness.anchors.length, 1, 'exactly one anchor exists')
   assert.equal(
     harness.spawned.filter(record => record.spec.argv.includes('heartbeat')).length,
     1,
@@ -1376,7 +1372,6 @@ test('a failed launch rolls back completely and terminates its sidecar', async (
     ),
     /child refused to start/,
   )
-  assert.equal(harness.anchors.length, 0, 'rollback disposes the anchor')
   const heartbeat = harness.spawned.find(record => record.spec.argv.includes('heartbeat'))
   assert.equal(heartbeat.terminated, true, 'rollback stops the heartbeat')
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
@@ -1414,7 +1409,6 @@ test('a registered lane refuses a foreign launch incarnation', async (t) => {
     /main-agent-lane-incarnation-conflict/,
   )
   assert.equal(harness.continuations.length, 1, 'the conflict spawns nothing')
-  assert.equal(harness.anchors.length, 1)
 })
 
 test('lane capacity is bounded with a typed refusal', async (t) => {
@@ -1642,7 +1636,7 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
     'configured execution-only denies cannot make the strict visibility filter invalid',
   )
 
-  // A lane child (or its anchor) can never drive the lane surface.
+  // A lane child can never drive the controller surface.
   const laneChildExec = {
     signal: new AbortController().signal,
     agent: {
@@ -1651,7 +1645,7 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
         header: {
           id: launched.child_session_id,
           cwd: '/lane/worktree',
-          parentSession: launched.anchor_session_id,
+          parentSession: 'controller-one',
         },
       },
     },
@@ -1806,7 +1800,7 @@ async function launchedLane(scratch, options = {}) {
   )
   const laneTools = new Map()
   const disposeChild = harness.setup()({
-    agent: { session: { header: { id: 'child-1', parentSession: harness.anchors[0].session.header.id } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard() { return () => {} },
       register(definition) {
@@ -1942,7 +1936,7 @@ test('supervision folds lane transport facts onto the store classification', asy
   assert.equal(supervised.store.classification, 'healthy_progress')
   assert.equal(supervised.lane.child_activity, 'running')
   assert.equal(supervised.lane.turn_phase, 'working')
-  assert.equal(harness.listings[0].parentSessionId, harness.anchors[0].session.header.id)
+  assert.equal(harness.listings[0].parentSessionId, 'controller-one')
 })
 
 test('request-changes records the fenced decision first, then delivers it into the lane', async (t) => {
@@ -1990,7 +1984,7 @@ test('request-changes records the fenced decision first, then delivers it into t
   assert.equal(harness.followups.length, 1)
   const delivery = harness.followups[0]
   assert.equal(delivery.childId, 'child-1')
-  assert.equal(delivery.parent, harness.anchors[0])
+  assert.equal(delivery.parent.session.header.id, 'controller-one')
   assert.match(delivery.content[0].text, /the diff misses the regression test/)
   assert.match(delivery.content[0].text, /main_agent_checkpoint/)
   assert.deepEqual(delivery.options.source, { kind: 'plugin', plugin: 'dsh-runtime-kit' })
@@ -2020,7 +2014,7 @@ test('a failed delivery reports the transport gap without unwinding the durable 
   assert.ok(returned.store, 'the recorded store decision is still reported')
 })
 
-test('closeout terminates every lane, fences the final checkpoint, then drains the anchors', async (t) => {
+test('closeout drains host-bound children before fencing the final store checkpoint', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
@@ -2038,9 +2032,6 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
     return start
   }
   const { harness } = await launchedLane(scratch, { envelope })
-  // Capture the anchor before closeout: disposal removes it from the harness.
-  const anchor = harness.anchors[0]
-
   const closed = await harness.registeredTools.get('main_agent_run_closeout').execute(
     {
       summary: 'delivered both lanes',
@@ -2060,9 +2051,8 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
   // The lane is terminal before the store retires it, and its sidecar says so.
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
   assert.equal(sidecar.lane.state, 'terminated')
-  assert.equal(harness.drains.length, 1)
-  assert.deepEqual(harness.drains[0], [anchor])
-  assert.equal(harness.anchors.length, 0, 'anchors are disposed after the drain')
+  assert.equal(harness.closedContinuations.length, 1)
+  assert.equal(harness.drains.length, 0, 'the exact child close seam owns recursive drain')
 
   // The private closeout checkpoint is removed with its temporary directory.
   assert.ok(closeoutFile, 'closeout passed a checkpoint file')
