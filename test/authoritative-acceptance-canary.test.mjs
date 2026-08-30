@@ -279,19 +279,48 @@ test('a repeated tracked stop is distinguished at the listener tail', async () =
     },
   }
   const entered = []
+  let outcome = 'allow'
   registerScenarioCanaryTurnStoppingProgress(ctx, {
     phase: 'positive',
     progress: { enter(code) { entered.push(code) } },
     isTrackedAgent: agent => agent.id === 'tracked-agent',
+    stopPolicyOutcome: (_agent, turn) => turn === 1 ? outcome : undefined,
     onCompleted() {},
   })
 
-  for (let index = 0; index < 2; index += 1) {
+  const dispatch = async () => {
     for (const listener of listeners) {
-      await listener({ agent: { id: 'tracked-agent' } })
+      await listener({ agent: { id: 'tracked-agent' }, turn: 1 })
     }
   }
+  await dispatch()
 
+  const scenarios = [
+    ['allow', 'CANARY_REPEATED_STOP_POLICY_ALLOWED'],
+    ['context', 'CANARY_REPEATED_STOP_POLICY_CONTEXT'],
+    ['policy-denied', 'CANARY_REPEATED_STOP_POLICY_DENIED'],
+    ['capability-unavailable', 'CANARY_REPEATED_STOP_CAPABILITY_UNAVAILABLE'],
+    ['transport-failed', 'CANARY_REPEATED_STOP_TRANSPORT_FAILED'],
+    ['provider-failed', 'CANARY_REPEATED_STOP_PROVIDER_FAILED'],
+    ['cancelled', 'CANARY_REPEATED_STOP_CANCELLED'],
+  ]
+  for (const [nextOutcome, progressName] of scenarios) {
+    outcome = nextOutcome
+    await dispatch()
+    assert.equal(
+      entered.at(-1),
+      SCENARIO_CANARY_PROGRESS[progressName],
+      nextOutcome,
+    )
+    assert.equal(
+      SCENARIO_CANARY_PROGRESS[progressName],
+      `DSH_CANARY_DEADLINE_${progressName}`,
+      nextOutcome,
+    )
+  }
+
+  outcome = undefined
+  await dispatch()
   assert.equal(
     entered.at(-1),
     SCENARIO_CANARY_PROGRESS.CANARY_REPEATED_STOP_LISTENER_TAIL_COMPLETED,

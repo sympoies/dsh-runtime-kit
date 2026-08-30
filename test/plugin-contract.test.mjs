@@ -334,6 +334,30 @@ function acceptanceStopEnvelope(actions, selectStopDecision) {
   }
 }
 
+function lifecycleStopEnvelope(selectStopDecision) {
+  return spec => {
+    if (spec.argv.includes('finish-line')) {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-stop.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.stop-result.v1',
+          action: 'allow',
+          generation: 0,
+          contract_digest: 'contract-1',
+          correlation_id: 'correlation-1',
+          reason_codes: [],
+          remediation: [],
+        },
+      }
+    }
+    const ingress = JSON.parse(spec.stdio.stdin.data)
+    return ingress.event === 'agent/turn-stopping'
+      ? selectStopDecision()
+      : decision('allow', { event: 'UserPromptSubmit' })
+  }
+}
+
 function harness({
   envelope = decision(),
   pending = false,
@@ -2719,7 +2743,73 @@ test('stop policy transport denial steers closed and remains retryable in the sa
   assert.equal(subject.steered[1].content[0].text, 'retry reached authoritative policy')
 })
 
+test('stop outcome distinguishes provider and transport failure without cross-session replay', async () => {
+  const scenarios = [
+    {
+      name: 'provider-failed',
+      options: {
+        envelope: lifecycleStopEnvelope(() => decision('allow', {
+          event: 'Stop',
+          schema_version: undefined,
+        })),
+      },
+    },
+    {
+      name: 'transport-failed',
+      options: {
+        envelope: lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' })),
+        pending: spec => spec.argv.includes('dispatch')
+          && JSON.parse(spec.stdio.stdin.data).event === 'agent/turn-stopping',
+        config: { policyTimeoutMs: 10 },
+      },
+    },
+  ]
+
+  for (const scenario of scenarios) {
+    const subject = harness(scenario.options)
+    subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+    await subject.waterfall(
+      'agent/pre-step',
+      [{
+        agent: subject.agent,
+        messages: [],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      }],
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+    subject.agent.session.events.push(
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'step/start', data: { turn: 1, step: 1 } },
+      { type: 'step/end', data: { turn: 1, step: 1 } },
+    )
+    await subject.waterfall('agent/turn-stopping', [{
+      agent: subject.agent,
+      turn: 1,
+      signal: new AbortController().signal,
+    }], async () => undefined)
+
+    assert.equal(subject.service.stopPolicyOutcome(subject.agent, 1), scenario.name)
+    assert.equal(subject.service.stopPolicyOutcome(subject.agent, 2), undefined)
+    assert.equal(subject.service.stopPolicyOutcome({
+      ...subject.agent,
+      session: {
+        id: 'foreign-session',
+        header: { id: 'foreign-session', cwd: '/tmp' },
+        events: [],
+      },
+    }, 1), undefined)
+  }
+})
+
 test('governed stop cancellation terminalizes policy denials and preserves retry authority', async () => {
+  const expectedFirstOutcome = {
+    context: 'context',
+    block: 'policy-denied',
+    transport: 'capability-unavailable',
+    abort: 'cancelled',
+  }
   for (const scenario of ['context', 'block', 'transport', 'abort']) {
     const actions = []
     let policyCalls = 0
@@ -2793,6 +2883,11 @@ test('governed stop cancellation terminalizes policy denials and preserves retry
       firstController.abort(new Error('caller stopped'))
     }
     await firstStop
+    assert.equal(
+      subject.service.stopPolicyOutcome(subject.agent, 1),
+      expectedFirstOutcome[scenario],
+      scenario,
+    )
     const actionsAfterDenial = [...actions]
 
     await subject.waterfall('agent/turn-stopping', [{
@@ -2800,6 +2895,11 @@ test('governed stop cancellation terminalizes policy denials and preserves retry
       turn: 1,
       signal: new AbortController().signal,
     }], async () => undefined)
+    assert.equal(
+      subject.service.stopPolicyOutcome(subject.agent, 1),
+      scenario === 'context' ? 'context' : 'allow',
+      scenario,
+    )
     try {
       subject.acceptanceService.assertGoalCompletion(
         subject.agent,
