@@ -45,18 +45,18 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.10.0-beta.2',
-    specifier: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.2',
+    version: '0.10.0-beta.3',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.3',
     source: {
       repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
-      tag: 'v0.10.0-beta.2',
+      tag: 'v0.10.0-beta.3',
       tag_ref_type: 'commit',
-      revision: '655c0f16088879890d9c6ce5d160651433223e09',
+      revision: '470997e848a92f0c57aacbc4d05b8f9eda667d94',
     },
     artifact: {
-      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.2.tgz',
-      integrity: 'sha512-qWuTmsjNJp4rUxLePZdKXMp9mHs2wLEtMnED+ayd+fgmppYvf9AU2btNW7Nb4oHN6lvcsx+PqK795nFJ3Sgsyg==',
-      shasum: 'dd5d0cc8233bd9266c3d2ff97d30ad34bc37455e',
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.3.tgz',
+      integrity: 'sha512-V9aB+rAekEHMVGch8s/2epVc1kp8YSceQuxcbhvBmJp3ta/9gLFpFOFOalrmbI7ZpcUEi6qj1B12/l9GZyhVQQ==',
+      shasum: 'f79537b012ffc690f9cc540c29d339aea727eeb3',
     },
   },
   bundles: [
@@ -159,7 +159,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.1-rc.2',
-    tui_version: '0.10.0-beta.2',
+    tui_version: '0.10.0-beta.3',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -187,7 +187,7 @@ test('the Agent Console release and installed-package patch select the same TUI'
   assert.equal(patchManifest.package_name, EXPECTED_CONTRACT.tui.package)
   assert.deepEqual(
     Object.keys(patchManifest.patches[0].validated_releases),
-    [EXPECTED_CONTRACT.tui.version],
+    ['0.10.0-beta.2', EXPECTED_CONTRACT.tui.version],
   )
 })
 

@@ -19,6 +19,9 @@
       "validated_releases": {
         "0.10.0-beta.2": {
           "package_json_sha256": "891163f08025838c173dfdfa085c7739e28a45570d413649e5864ff0c5916cba"
+        },
+        "0.10.0-beta.3": {
+          "package_json_sha256": "3c1d6494ecad4680c7c75b0fe5bb29d140eec89824f6fb3a962f83f80d10c8b3"
         }
       }
     }

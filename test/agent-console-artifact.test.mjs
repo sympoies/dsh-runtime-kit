@@ -9,7 +9,7 @@ import {
 
 const bytes = Buffer.from('authenticated Agent Console TUI archive')
 const artifact = Object.freeze({
-  tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.2.tgz',
+  tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.3.tgz',
   integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
   shasum: createHash('sha1').update(bytes).digest('hex'),
 })
