@@ -157,6 +157,7 @@ test('provider review publication uses one canonical App report and metadata-onl
     'utf8',
   )
   const deliverPr = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
+  const dispatch = readFileSync(join(skillsRoot, 'deliver-dispatch-plan', 'SKILL.md'), 'utf8')
   const tracking = readFileSync(
     join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
     'utf8',
@@ -213,6 +214,8 @@ test('provider review publication uses one canonical App report and metadata-onl
   assert.match(deliverPr, /governed-vs-portable publication branch/u)
   assert.match(deliverPr, /forge-cli >=1\.27\.27/u)
   assert.match(deliverPr, /review-specialists >=1\.27\.29/u)
+  assert.match(dispatch, /forge-cli >=1\.27\.27/u)
+  assert.match(dispatch, /review-specialists >=1\.27\.29/u)
   assert.match(tracking, /forge-cli >=1\.27\.27/u)
   assert.match(tracking, /review-specialists >=1\.27\.29/u)
 })
@@ -502,7 +505,7 @@ test('integration branch delivery surfaces declare protection and exact-base own
   assert.match(triage, /git-cli sync-branch/)
   assert.match(delivery, /forge-cli >=1\.27\.27/)
   assert.match(delivery, /exact base instead of falling back to the provider default/)
-  assert.match(dispatch, /forge-cli >=1\.27\.16/)
+  assert.match(dispatch, /forge-cli >=1\.27\.27/)
   assert.match(tracking, /forge-cli >=1\.27\.27/)
   assert.match(tracking, /--head "\$BRANCH" --base "\$BASE_REF"/)
   assert.doesNotMatch(tracking, /--head "\$BRANCH" --base main/)
