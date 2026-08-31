@@ -156,6 +156,8 @@ for (const name of Object.keys(baseEnvironment)) {
     delete baseEnvironment[name]
   }
 }
+delete baseEnvironment.DSH_RUNTIME_KIT_MAIN_AGENT_BIN
+delete baseEnvironment.DSH_RUNTIME_KIT_AGENT_SESSION_BIN
 Object.assign(baseEnvironment, {
   HOME: home,
   DSH_HOME: dshHome,
@@ -191,6 +193,10 @@ function nilsEnvironment(kind) {
   return {
     DSH_RUNTIME_KIT_AGENT_HOOK_BIN: join(binDir, 'agent-hook'),
     DSH_RUNTIME_KIT_AGENT_DOCS_BIN: join(binDir, 'agent-docs'),
+    ...kind === 'candidate' ? {
+      DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join(binDir, 'main-agent'),
+      DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join(binDir, 'agent-session'),
+    } : {},
     DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: join(binDir, 'semantic-commit'),
     PATH: binDir + ':' + dirname(pnpmBin) + ':' + dirname(process.execPath) + ':/usr/bin:/bin',
     ...nilsCompatibilityCandidateEnvironment(candidateFeature, kind === 'candidate'),
@@ -460,7 +466,7 @@ digest = ${JSON.stringify(policyDigest)}
     const mismatchOutput = `${mismatch.stdout}\n${mismatch.stderr}`
     assert.notEqual(mismatch.status, 0)
     failureDiagnostic.recordOperationExitStatus(0)
-    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
+    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE/u)
     assert.equal(mismatchOutput.includes(marker), false)
     assert.equal(existsSync(providerProbePath), true, 'provider mismatch probe did not load')
     const mismatchProbe = JSON.parse(readFileSync(providerProbePath, 'utf8'))
@@ -601,7 +607,7 @@ digest = ${JSON.stringify(policyDigest)}
           workspace_sha256: positive.workspace_sha256,
           resources_after: zeroResources(positive),
           boot_outcome: 'blocked-before-model',
-          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
           probe_loaded: mismatchProbe.loaded,
           model_calls: mismatchProbe.model_calls,
           session_starts: mismatchProbe.session_starts,

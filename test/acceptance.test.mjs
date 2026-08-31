@@ -246,7 +246,7 @@ function authoritativeMatrix() {
       {
         ...common('candidate-old-provider-mismatch'),
         boot_outcome: 'blocked-before-model',
-        denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+        denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
         probe_loaded: true,
         model_calls: 0,
         session_starts: 0,
@@ -323,7 +323,13 @@ function runtimeReceipt() {
         },
       }),
       scenario('resume', 'packed-runtime'),
-      scenario('subagent', 'packed-runtime'),
+      scenario('subagent', 'packed-runtime', [
+        'reviewer:native-subagent-completed',
+        'main-agent:host-workspace-before-prompt',
+        'main-agent:model-driven-review-loop',
+        'main-agent:no-anchor-agent',
+        'main-agent:forced-harness-loss-converged-without-stale-sidecar-trust',
+      ]),
       scenario('authoritative-acceptance', 'packed-runtime', [
         'acceptance:goal-completion-blocked-pre-mutation',
         'acceptance:exact-provider-verdict-satisfied',
@@ -361,7 +367,7 @@ function dshIdentity() {
     version: '0.1.0-rc.7',
     patch: {
       schema_version: 'dsh-runtime-kit.dsh-patch-receipt.v1',
-      patch_id: 'native-execution-boundaries-v2',
+      patch_id: 'native-execution-boundaries-v3',
       version: '0.1.0-rc.7',
       revision: DSH_REVISION,
       action: 'check',
@@ -379,6 +385,7 @@ function expectedDsh() {
     channel: 'pinned',
     revision: DSH_REVISION,
     version: '0.1.0-rc.7',
+    patch_id: 'native-execution-boundaries-v3',
   }
 }
 
@@ -1863,10 +1870,20 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.mjs'))
   assert.ok(manifest.files.includes('test/fixtures/authoritative-acceptance-canary'))
   const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
+  const authoritativeSmoke = readFileSync(
+    join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs'),
+    'utf8',
+  )
+  const packedSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
   assert.match(runner, /const MINIMUM_NODE_MAJOR = 24/u)
   assert.match(runner, /DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED/u)
   assert.match(runner, /assertSupportedNodeRuntime\(\)\n\s+const input = parseCli\(\)/u)
   assert.match(runner, /'agent-session-bin'/u)
+  assert.match(
+    runner,
+    /trustedExecutable\(resolve\(dirname\(input\.agentHookBin\), 'main-agent'\), 'main-agent'\)/u,
+    'the acceptance runner must authenticate main-agent from the same released tool directory',
+  )
   assert.match(runner, /'semantic-commit-bin'/u)
   assert.match(runner, /'forge-cli-bin'/u)
   assert.match(runner, /'nils-source-commit'/u)
@@ -1905,6 +1922,25 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     finalVerification,
     /\['agent-session', sessionSource, agentSession\]/u,
   )
+  assert.match(
+    finalVerification,
+    /\['main-agent', mainAgentSource, mainAgent\]/u,
+  )
+  assert.match(authoritativeSmoke, /delete baseEnvironment\.DSH_RUNTIME_KIT_MAIN_AGENT_BIN/u)
+  assert.match(authoritativeSmoke, /delete baseEnvironment\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN/u)
+  assert.match(authoritativeSmoke, /kind === 'candidate'\s*\? \{/u)
+  assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join\(binDir, 'main-agent'\)/u)
+  assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join\(binDir, 'agent-session'\)/u)
+  assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE/u)
+  assert.doesNotMatch(packedSmoke, /id: 'native-main-agent-lane'/u)
+  assert.match(packedSmoke, /id: 'subagent'[\s\S]*main-agent:host-workspace-before-prompt/u)
+  assert.doesNotMatch(
+    packedSmoke,
+    /\.\.\.\(authoritativeAcceptance \? \[\{\s*id: 'authoritative-acceptance'/u,
+    'the matrix-producing authoritative scenario is appended only by the acceptance runner',
+  )
+  assert.match(runner, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgent\.path/u)
+  assert.match(runner, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSession\.path/u)
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
@@ -1931,10 +1967,6 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.ok(manifest.files.includes('src'))
   assert.match(runner, /GIT_CONFIG_GLOBAL: gitConfig/u)
   assert.match(runner, /GIT_CONFIG_NOSYSTEM: '1'/u)
-  const authoritativeSmoke = readFileSync(
-    join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs'),
-    'utf8',
-  )
   const unpatchedBranch = authoritativeSmoke.slice(
     authoritativeSmoke.indexOf('if (unpatchedOnly)'),
     authoritativeSmoke.indexOf('} else {', authoritativeSmoke.indexOf('if (unpatchedOnly)')),

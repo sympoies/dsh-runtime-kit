@@ -697,6 +697,7 @@ async function main() {
       hookSource,
       docsSource,
       sessionSource,
+      mainAgentSource,
       gitCliSource,
       reviewSpecialistsSource,
       semanticCommitSource,
@@ -710,6 +711,7 @@ async function main() {
       trustedExecutable(input.agentHookBin, 'agent-hook'),
       trustedExecutable(input.agentDocsBin, 'agent-docs'),
       trustedExecutable(input.agentSessionBin, 'agent-session'),
+      trustedExecutable(resolve(dirname(input.agentHookBin), 'main-agent'), 'main-agent'),
       trustedExecutable(input.gitCliBin, 'git-cli'),
       trustedExecutable(input.reviewSpecialistsBin, 'review-specialists'),
       trustedExecutable(input.semanticCommitBin, 'semantic-commit'),
@@ -857,6 +859,7 @@ async function main() {
       agentHook,
       agentDocs,
       agentSession,
+      mainAgent,
       gitCli,
       reviewSpecialists,
       semanticCommit,
@@ -865,6 +868,7 @@ async function main() {
       snapshotBinary(runRoot, hookSource, 'agent-hook'),
       snapshotBinary(runRoot, docsSource, 'agent-docs'),
       snapshotBinary(runRoot, sessionSource, 'agent-session'),
+      snapshotBinary(runRoot, mainAgentSource, 'main-agent'),
       snapshotBinary(runRoot, gitCliSource, 'git-cli'),
       snapshotBinary(runRoot, reviewSpecialistsSource, 'review-specialists'),
       snapshotBinary(runRoot, semanticCommitSource, 'semantic-commit'),
@@ -884,11 +888,14 @@ async function main() {
       DSH_SOURCE_ROOT: dshSourceRoot,
       AGENT_HOOK_BIN: agentHook.path,
       AGENT_DOCS_BIN: agentDocs.path,
+      DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgent.path,
+      DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSession.path,
     }
     enterPhase('tool-identity')
     const hookIdentity = nilsIdentity(agentHook, 'agent-hook', scenarioBaseEnv)
     const docsIdentity = nilsIdentity(agentDocs, 'agent-docs', scenarioBaseEnv)
     const sessionIdentity = nilsIdentity(agentSession, 'agent-session', scenarioBaseEnv)
+    const mainAgentIdentity = nilsIdentity(mainAgent, 'main-agent', scenarioBaseEnv)
     const gitCliIdentity = nilsIdentity(gitCli, 'git-cli', scenarioBaseEnv)
     const reviewIdentity = nilsIdentity(reviewSpecialists, 'review-specialists', scenarioBaseEnv)
     const semanticCommitIdentity = nilsIdentity(semanticCommit, 'semantic-commit', scenarioBaseEnv)
@@ -897,6 +904,7 @@ async function main() {
       hookIdentity,
       docsIdentity,
       sessionIdentity,
+      mainAgentIdentity,
       gitCliIdentity,
       reviewIdentity,
       semanticCommitIdentity,
@@ -997,6 +1005,7 @@ async function main() {
         agentHook,
         agentDocs,
         agentSession,
+        mainAgent,
         gitCli,
         reviewSpecialists,
         semanticCommit,
@@ -1215,6 +1224,7 @@ async function main() {
       ['agent-hook', hookSource, agentHook],
       ['agent-docs', docsSource, agentDocs],
       ['agent-session', sessionSource, agentSession],
+      ['main-agent', mainAgentSource, mainAgent],
       ['git-cli', gitCliSource, gitCli],
       ['review-specialists', reviewSpecialistsSource, reviewSpecialists],
       ['semantic-commit', semanticCommitSource, semanticCommit],
@@ -1251,6 +1261,7 @@ async function main() {
         channel: 'pinned',
         revision: selected.revision,
         version: selected.version,
+        patch_id: dshPatch.patch_id,
       },
       compatibility,
       nils: nilsEvidence,
