@@ -1083,6 +1083,7 @@ export function apply(ctx) {
     'utf8',
   )).runtime
   let lastCloseoutResult
+  let lastCloseoutAttempt
   let retirement
   let reconciliation
   let staleSidecarObserved = false
@@ -1162,7 +1163,14 @@ export function apply(ctx) {
     ]
     const closeoutDeadline = Date.now() + 60_000
     while (status.run.state !== 'closed' && Date.now() < closeoutDeadline) {
-      lastCloseoutResult = nativeStore(closeoutArgs)
+      const attempt = nativeStoreAttempt(closeoutArgs)
+      lastCloseoutAttempt = attempt
+      if (attempt.status !== 0) {
+        assert.equal(attempt.envelope.error?.code, 'coordination-unauthorized', attempt.output)
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+        continue
+      }
+      lastCloseoutResult = attempt.envelope.data
       if (lastCloseoutResult.run?.state === 'closed') {
         status = { ...status, run: lastCloseoutResult.run }
         break
@@ -1201,7 +1209,11 @@ export function apply(ctx) {
   assert.equal(receipt.accepted_observed, !processLoss)
   assert.equal(receipt.lane_close_observed, !processLoss)
   assert.equal(receipt.final_assignment.state, processLoss ? 'cancelled' : 'released')
-  assert.equal(receipt.run.state, 'closed', JSON.stringify({ status, lastCloseoutResult }))
+  assert.equal(receipt.run.state, 'closed', JSON.stringify({
+    status,
+    lastCloseoutResult,
+    lastCloseoutError: lastCloseoutAttempt?.envelope?.error?.code,
+  }))
   assert.equal(receipt.closeout.handoff_ready, true)
   assert.equal(receipt.process_loss.forced, processLoss)
   assert.equal(receipt.process_loss.stale_open_sidecar_observed, processLoss)

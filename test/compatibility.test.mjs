@@ -889,6 +889,16 @@ test('compatibility workflow keeps selected channels and every patch release blo
     /\.\.\.\(dataPolicyCandidateEnabled\s+\? \[\{\s+id: 'data-policy'/u,
     'only candidate acceptance may report candidate-only data-policy evidence',
   )
+  assert.match(
+    runtimeSmoke,
+    /const attempt = nativeStoreAttempt\(closeoutArgs\)[\s\S]+attempt\.envelope\.error\?\.code, 'coordination-unauthorized'/u,
+    'forced-loss closeout may retry only the exact transient authority observation',
+  )
+  assert.doesNotMatch(
+    runtimeSmoke,
+    /lastCloseoutResult = nativeStore\(closeoutArgs\)/u,
+    'forced-loss closeout must inspect the typed attempt before retrying',
+  )
   for (const capability of [
     'af-unix',
     'af-netlink',
