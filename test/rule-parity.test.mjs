@@ -32,15 +32,15 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'block-direct-git-worktree': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'block-direct-pr-create': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'block-direct-python': ['policy.execution-owner.v1', 'planned', 'nils-cli'],
-  'block-project-memory-write': ['policy.memory-boundary.v1', 'planned', 'nils-cli'],
+  'block-project-memory-write': ['policy.memory-boundary.v1', 'implemented', 'dsh-runtime-kit + nils-cli'],
   'block-unsafe-default-delivery': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'checkout-lease-guard': ['policy.checkout-lease.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'execution.read-only.v1': ['policy.read-only-ingress.v1', 'implemented', 'nils-cli'],
   'finish-line-record': ['finish-line.enforcement.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'forge-label-reminder': ['guidance.forge-label.v1', 'planned', 'nils-cli'],
-  'mcp-secret-scan': ['policy.secret-egress.v1', 'planned', 'nils-cli'],
+  'mcp-secret-scan': ['policy.secret-egress.v1', 'implemented', 'dsh-runtime-kit + nils-cli'],
   'memory-write-principle-reminder': ['guidance.memory-boundary.v1', 'planned', 'nils-cli'],
-  'portable-paths-scan': ['policy.portable-output.v1', 'planned', 'nils-cli'],
+  'portable-paths-scan': ['policy.portable-output.v1', 'implemented', 'dsh-runtime-kit + nils-cli'],
   'pre-edit-intent-gate': ['policy.edit-admission.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'semantic-commit-body-gate': ['policy.git-delivery.v1', 'planned', 'nils-cli'],
   'session-start-healthcheck': ['operations.health.v1', 'implemented', 'dsh-runtime-kit'],
@@ -90,11 +90,11 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
   assert.deepEqual(inventory.test_owner_repositories, {
     'dsh-runtime-kit': {
       identity: 'github.com/sympoies/dsh-runtime-kit',
-      evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
+      evidence_commit: '3b4bb380622631cd6cded8af6af1bebcff21732a',
     },
     'nils-cli': {
       identity: 'github.com/sympoies/nils-cli',
-      evidence_commit: '5937233a87b88f8afa4e00ba550124176be837c2',
+      evidence_commit: '302715e367edb66dee81589357e7c4abdccb7ba2',
     },
   })
   assert.equal(inventory.rules.length, 101)

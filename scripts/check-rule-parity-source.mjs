@@ -31,6 +31,8 @@ function disposition(targetCapability, status, owner, testOwners, retirementEvid
 
 const DSH_POLICY = testOwner(DSH, 'test/policy-parity.test.mjs', PLANNED)
 const NILS_POLICY = testOwner(NILS, 'crates/agent-hook/tests/dsh_policy.rs', PLANNED)
+const DSH_DATA_POLICY = testOwner(DSH, 'test/plugin-contract.test.mjs', ACTIVE)
+const NILS_DATA_POLICY = testOwner(NILS, 'crates/agent-hook/tests/dsh_policy.rs', ACTIVE)
 const DSH_COORDINATION = testOwner(DSH, 'test/coordination.test.mjs', PLANNED)
 const NILS_COORDINATION = testOwner(
   NILS,
@@ -56,11 +58,11 @@ const EXPECTED_SOURCE = {
 const EXPECTED_OWNER_REPOSITORIES = {
   [DSH]: {
     identity: 'github.com/sympoies/dsh-runtime-kit',
-    evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
+    evidence_commit: '3b4bb380622631cd6cded8af6af1bebcff21732a',
   },
   [NILS]: {
     identity: 'github.com/sympoies/nils-cli',
-    evidence_commit: '5937233a87b88f8afa4e00ba550124176be837c2',
+    evidence_commit: '302715e367edb66dee81589357e7c4abdccb7ba2',
   },
 }
 
@@ -91,7 +93,12 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'block-direct-git-worktree': disposition('policy.git-delivery.v1', PLANNED, NILS, [NILS_POLICY]),
   'block-direct-pr-create': disposition('policy.git-delivery.v1', PLANNED, NILS, [NILS_POLICY]),
   'block-direct-python': disposition('policy.execution-owner.v1', PLANNED, NILS, [NILS_POLICY]),
-  'block-project-memory-write': disposition('policy.memory-boundary.v1', PLANNED, NILS, [NILS_POLICY]),
+  'block-project-memory-write': disposition(
+    'policy.memory-boundary.v1',
+    'implemented',
+    `${DSH} + ${NILS}`,
+    [DSH_DATA_POLICY, NILS_DATA_POLICY],
+  ),
   'block-unsafe-default-delivery': disposition('policy.git-delivery.v1', PLANNED, NILS, [NILS_POLICY]),
   'checkout-lease-guard': disposition('policy.checkout-lease.v1', PLANNED, `${DSH} + ${NILS}`, [DSH_POLICY, NILS_POLICY]),
   'execution.read-only.v1': disposition('policy.read-only-ingress.v1', 'implemented', NILS, [
@@ -103,9 +110,19 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
     testOwner(NILS, 'crates/agent-hook/tests/finish_line.rs', PLANNED),
   ]),
   'forge-label-reminder': disposition('guidance.forge-label.v1', PLANNED, NILS, [NILS_POLICY]),
-  'mcp-secret-scan': disposition('policy.secret-egress.v1', PLANNED, NILS, [NILS_POLICY]),
+  'mcp-secret-scan': disposition(
+    'policy.secret-egress.v1',
+    'implemented',
+    `${DSH} + ${NILS}`,
+    [DSH_DATA_POLICY, NILS_DATA_POLICY],
+  ),
   'memory-write-principle-reminder': disposition('guidance.memory-boundary.v1', PLANNED, NILS, [NILS_POLICY]),
-  'portable-paths-scan': disposition('policy.portable-output.v1', PLANNED, NILS, [NILS_POLICY]),
+  'portable-paths-scan': disposition(
+    'policy.portable-output.v1',
+    'implemented',
+    `${DSH} + ${NILS}`,
+    [DSH_DATA_POLICY, NILS_DATA_POLICY],
+  ),
   'pre-edit-intent-gate': disposition('policy.edit-admission.v1', PLANNED, `${DSH} + ${NILS}`, [DSH_POLICY, NILS_POLICY]),
   'semantic-commit-body-gate': disposition('policy.git-delivery.v1', PLANNED, NILS, [NILS_POLICY]),
   'session-start-healthcheck': disposition('operations.health.v1', 'implemented', DSH, [

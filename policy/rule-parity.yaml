@@ -15,10 +15,10 @@ source:
 test_owner_repositories:
   dsh-runtime-kit:
     identity: github.com/sympoies/dsh-runtime-kit
-    evidence_commit: 64bf4388771f3acd13735db0456ebd6ef23f13ab
+    evidence_commit: 3b4bb380622631cd6cded8af6af1bebcff21732a
   nils-cli:
     identity: github.com/sympoies/nils-cli
-    evidence_commit: 5937233a87b88f8afa4e00ba550124176be837c2
+    evidence_commit: 302715e367edb66dee81589357e7c4abdccb7ba2
 
 capabilities:
   - {source_capability: agent-scope-lock-guard, target_capability: policy.edit-scope.v1, status: planned, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/policy-parity.test.mjs, state: planned}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
@@ -31,15 +31,15 @@ capabilities:
   - {source_capability: block-direct-git-worktree, target_capability: policy.git-delivery.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: block-direct-pr-create, target_capability: policy.git-delivery.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: block-direct-python, target_capability: policy.execution-owner.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
-  - {source_capability: block-project-memory-write, target_capability: policy.memory-boundary.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
+  - {source_capability: block-project-memory-write, target_capability: policy.memory-boundary.v1, status: implemented, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/plugin-contract.test.mjs, state: active}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: active}]}
   - {source_capability: block-unsafe-default-delivery, target_capability: policy.git-delivery.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: checkout-lease-guard, target_capability: policy.checkout-lease.v1, status: planned, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/policy-parity.test.mjs, state: planned}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: execution.read-only.v1, target_capability: policy.read-only-ingress.v1, status: implemented, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/read_only_capability.rs, state: active}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_ingress.rs, state: active}]}
   - {source_capability: finish-line-record, target_capability: finish-line.enforcement.v1, status: planned, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/finish-line.test.mjs, state: planned}, {repository: nils-cli, path: crates/agent-hook/tests/finish_line.rs, state: planned}]}
   - {source_capability: forge-label-reminder, target_capability: guidance.forge-label.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
-  - {source_capability: mcp-secret-scan, target_capability: policy.secret-egress.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
+  - {source_capability: mcp-secret-scan, target_capability: policy.secret-egress.v1, status: implemented, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/plugin-contract.test.mjs, state: active}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: active}]}
   - {source_capability: memory-write-principle-reminder, target_capability: guidance.memory-boundary.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
-  - {source_capability: portable-paths-scan, target_capability: policy.portable-output.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
+  - {source_capability: portable-paths-scan, target_capability: policy.portable-output.v1, status: implemented, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/plugin-contract.test.mjs, state: active}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: active}]}
   - {source_capability: pre-edit-intent-gate, target_capability: policy.edit-admission.v1, status: planned, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/policy-parity.test.mjs, state: planned}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: semantic-commit-body-gate, target_capability: policy.git-delivery.v1, status: planned, owner: nils-cli, test_owners: [{repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}
   - {source_capability: session-start-healthcheck, target_capability: operations.health.v1, status: implemented, owner: dsh-runtime-kit, test_owners: [{repository: dsh-runtime-kit, path: test/runtime-health.test.mjs, state: active}, {repository: dsh-runtime-kit, path: test/runtime-health-provider.test.mjs, state: active}]}
