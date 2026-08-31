@@ -1797,13 +1797,17 @@ try {
   const sessionModuleUrl = pathToFileURL(
     join(dshRoot, 'packages', 'core', 'session', 'lib', 'index.js'),
   ).href
-  const scopeModuleUrl = pathToFileURL(
-    join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js'),
-  ).href
+  // The TUI driver runs from the installed profile and must read the scope tag
+  // through that composition's package instance.  Importing the source-tree
+  // copy here creates a second private scope symbol when the hoisted profile
+  // supplies DSH packages, so a genuinely scoped agent appears unscoped.
+  const scopeModuleSpecifier = agentConsoleTuiPackage === undefined
+    ? pathToFileURL(join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js')).href
+    : '@deepseek-ai/dsh-scope'
   writeFileSync(driverPath, `
 import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
 import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
-import { scopeOf } from ${JSON.stringify(scopeModuleUrl)}
+import { scopeOf } from ${JSON.stringify(scopeModuleSpecifier)}
 import { rmSync } from 'node:fs'
 ${agentConsoleTuiPackage === undefined
     ? ''
