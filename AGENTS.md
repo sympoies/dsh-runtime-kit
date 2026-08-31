@@ -10,6 +10,10 @@ DeepSeek Harness (DSH).
   hash-authenticated downstream patch declared in
   `compatibility/dsh-patches.json`; patch apply and reverse must fail closed on
   unknown revisions, content drift, or unrelated checkout changes.
+- Before proposing a change outside this repository, follow
+  `docs/policies/upstream-contribution.md` and exhaust its downstream-first
+  order. Agents may only draft third-party issues or PRs; a human submits them
+  and signs any DCO or CLA. Never publish a security defect or internal data.
 - Keep DSH compatibility code isolated when version-specific adapters become
   necessary. Pin every tested DSH release candidate in compatibility evidence.
 - Keep private skill contents, credentials, machine paths, and personal policy
