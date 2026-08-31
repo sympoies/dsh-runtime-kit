@@ -18,7 +18,7 @@ test_owner_repositories:
     evidence_commit: 3b4bb380622631cd6cded8af6af1bebcff21732a
   nils-cli:
     identity: github.com/sympoies/nils-cli
-    evidence_commit: 302715e367edb66dee81589357e7c4abdccb7ba2
+    evidence_commit: 47c208c8740669d0f421bf6986e8716b6f3f0151
 
 capabilities:
   - {source_capability: agent-scope-lock-guard, target_capability: policy.edit-scope.v1, status: planned, owner: "dsh-runtime-kit + nils-cli", test_owners: [{repository: dsh-runtime-kit, path: test/policy-parity.test.mjs, state: planned}, {repository: nils-cli, path: crates/agent-hook/tests/dsh_policy.rs, state: planned}]}

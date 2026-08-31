@@ -178,15 +178,25 @@ async function benchmarkPackedRuntime() {
     readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
   ))
   const nils = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
-  const contract = manifest.performance.pre_tool_subprocess
+  const candidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+  const candidate = nils.candidate_validation
+  if (candidateFeature !== undefined && candidateFeature !== candidate?.feature) {
+    throw new Error('nils compatibility candidate selector is not the reviewed candidate')
+  }
+  const lifecycleMode = candidateFeature !== undefined
+  const contract = lifecycleMode
+    ? manifest.performance.tool_lifecycle_subprocess
+    : manifest.performance.pre_tool_subprocess
+  const selectedNils = lifecycleMode ? candidate : nils.release
+  const selectedVersion = lifecycleMode ? candidate.version : nils.validated_release
   const agentHook = executable(process.env.AGENT_HOOK_BIN ?? 'agent-hook')
   const observedHash = sha256(readFileSync(agentHook))
-  if (observedHash !== nils.release.artifacts['agent-hook'].sha256) {
-    throw new Error('agent-hook does not match the released compatibility artifact')
+  if (observedHash !== selectedNils.artifacts['agent-hook'].sha256) {
+    throw new Error(`agent-hook does not match the ${lifecycleMode ? 'candidate' : 'released'} compatibility artifact`)
   }
   const version = run(agentHook, ['--version']).trim()
-  if (!version.startsWith(`agent-hook ${nils.validated_release} (`)) {
-    throw new Error('agent-hook version does not match the released compatibility contract')
+  if (!version.startsWith(`agent-hook ${selectedVersion} (`)) {
+    throw new Error(`agent-hook version does not match the ${lifecycleMode ? 'candidate' : 'released'} compatibility contract`)
   }
 
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-real-benchmark-'))
@@ -231,7 +241,7 @@ async function benchmarkPackedRuntime() {
       maxActivePolicyChecks: 1,
     })
     let sequence = 0
-    const evaluate = async () => {
+    const evaluatePreTool = async () => {
       sequence += 1
       const result = await transport.evaluate({
         token: Symbol(`real-benchmark-${sequence}`),
@@ -248,6 +258,65 @@ async function benchmarkPackedRuntime() {
       })
       if (result !== undefined) throw new Error(`released policy did not allow benchmark input: ${JSON.stringify(result)}`)
     }
+    const evaluateLifecycle = async () => {
+      sequence += 1
+      const callId = `real-lifecycle-${randomUUID()}`
+      const signal = new AbortController().signal
+      const exec = {
+        token: Symbol(`real-lifecycle-${sequence}`),
+        callId,
+        rootCallId: callId,
+        name: 'runtime_kit_plus_one',
+        arguments: { value: 41 },
+        signal,
+      }
+      const context = {
+        sessionId: 'real-benchmark-session',
+        cwd: workspace,
+        turn: 1,
+        step: sequence,
+      }
+      const dataRequest = (phase, sinkId, payload) => ({
+        schema_version: 'agent-hook.data-policy.evaluate.v1',
+        phase,
+        source_id: 'tool.native',
+        sink_id: sinkId,
+        identity: {
+          session_id: context.sessionId,
+          workspace_digest: `sha256:${sha256(workspace)}`,
+          workspace_generation: 'generation:real-benchmark',
+          call_id: callId,
+          root_call_id: callId,
+          turn: context.turn,
+          step: context.step,
+        },
+        rules: phase === 'pre-call'
+          ? [
+              { rule_id: 'runtime.data-policy.pre.sensitive-deny', class_id: 'sensitive', action: 'deny' },
+              { rule_id: 'runtime.data-policy.pre.machine-path-allow', class_id: 'machine-local-path', action: 'allow' },
+            ]
+          : [
+              { rule_id: 'runtime.data-policy.final.sensitive-deny', class_id: 'sensitive', action: 'deny' },
+              { rule_id: 'runtime.data-policy.final.machine-path-quarantine', class_id: 'machine-local-path', action: 'quarantine' },
+            ],
+        payload,
+      })
+      const evaluateData = async request => {
+        const outcome = await transport.evaluateData(request, signal, context)
+        if (outcome?.kind !== 'data-policy' || outcome.decision.action !== 'allow') {
+          throw new Error(`candidate data policy did not allow benchmark input: ${JSON.stringify(outcome)}`)
+        }
+      }
+      await evaluateData(dataRequest('pre-call', 'session.persist', exec.arguments))
+      const pre = await transport.evaluate(exec, context)
+      if (pre !== undefined) throw new Error(`candidate pre-tool policy did not allow benchmark input: ${JSON.stringify(pre)}`)
+      await evaluateData(dataRequest('pre-call', 'tool.execute', exec.arguments))
+      const result = { isError: false, value: 42, content: [{ type: 'text', text: '42' }] }
+      const post = await transport.evaluatePost(exec, result, context)
+      if (post !== undefined) throw new Error(`candidate post-tool policy did not allow benchmark input: ${JSON.stringify(post)}`)
+      await evaluateData(dataRequest('final-result', 'session.persist', result))
+    }
+    const evaluate = lifecycleMode ? evaluateLifecycle : evaluatePreTool
     for (let index = 0; index < contract.warmup_iterations; index += 1) await evaluate()
     const samplesMs = []
     for (let index = 0; index < contract.iterations; index += 1) {
@@ -268,9 +337,11 @@ async function benchmarkPackedRuntime() {
       schema_version: 'dsh-runtime-kit.policy-subprocess-performance.v1',
       ok: true,
       runtime: 'packed',
-      agent_hook_version: nils.validated_release,
+      scope: lifecycleMode ? 'candidate-tool-lifecycle' : 'released-pre-tool',
+      agent_hook_version: selectedVersion,
       agent_hook_sha256: observedHash,
       samples: samplesMs.length,
+      subprocesses_per_iteration: lifecycleMode ? contract.subprocesses_per_iteration : 1,
       p95_ms: p95Ms,
       budget_p95_ms: contract.p95_ms,
       active_after: activeAfter,

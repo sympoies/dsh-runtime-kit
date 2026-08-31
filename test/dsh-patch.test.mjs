@@ -85,6 +85,10 @@ test('the consolidated native patch adds the bounded goal and host-workspace bou
     assert.match(source, /cannot write protected root[\s\S]*FS_SANDBOX_DENIED/u)
     assert.match(source, /cannot enforce protected workspace subroots/u)
     assert.match(source, /tools\/pre-persist/u)
+    assert.match(source, /registerTerminalPolicy\(provider: ToolTerminalPolicy\)/u)
+    assert.match(source, /Sole terminal data-policy provider/u)
+    assert.match(source, /for \(const block of content\)[\s\S]*projectForPersistence/u)
+    assert.doesNotMatch(source, /Promise\.all\([\s\S]{0,500}projectForPersistence/u)
   }
 })
 

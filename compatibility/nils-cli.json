@@ -58,30 +58,30 @@
     "feature": "typed-data-policy-protected-roots",
     "status": "reviewed-source-candidate",
     "validation": "exact-reviewed-source",
-    "source_commit": "302715e367edb66dee81589357e7c4abdccb7ba2",
+    "source_commit": "47c208c8740669d0f421bf6986e8716b6f3f0151",
     "version": "1.27.28",
     "platform": "x86_64-unknown-linux-gnu",
     "artifacts": {
       "agent-hook": {
-        "sha256": "4731c2dd6a71dc7104d8d77593ba6bdd4e471ecdd8cdc15979c16999d5dd35f0"
+        "sha256": "34005d5007879a3135008e893503eb43b49a54c5479a0e7ef3b4018cb060055b"
       },
       "agent-docs": {
-        "sha256": "663d1f7d51d81ed58871038444e32b2d1e3e4dea16e20b38985a1108db1b81a1"
+        "sha256": "358a33848c2e4b771e0d6c1d6caa830320c32f47bf3a34973fb87fd62947687a"
       },
       "agent-session": {
-        "sha256": "941202c336ff0d3faf04b82c78be23a53332378dba1f39bd639da06f3e7e01ef"
+        "sha256": "a8f8f1d178013ad511e15f0b72d7f7373a2fab8a85453210e07f046e74cf7584"
       },
       "forge-cli": {
-        "sha256": "523ef6a02955925d704a56e8d9478aeb561796dc85a00441ab78d2ecc5afb34e"
+        "sha256": "d86ee4b281afbb0c245bb9970cbc63c7507cdbcdfe6ca2dcf562bb7187dd13d8"
       },
       "git-cli": {
-        "sha256": "0e852eed62247c6cade24e72b9c22b5913443b7f9d72422fda05ae266d7dffb6"
+        "sha256": "cb73abb893f50ba8f1f867cae1b5818833dda251465e886d90e2068bbc131e50"
       },
       "review-specialists": {
-        "sha256": "fd78235cb0aa8e57db7ccfddfeeff6e0748d2f1a1b347dd0be8eedb88c90c1c9"
+        "sha256": "cae02cd50d990f15596919c903d0e53aeb5e2727c65836c400f9c1b886139d86"
       },
       "semantic-commit": {
-        "sha256": "a60558de901587ee96c0b7fc0db65df487a3a3ffa12d5f63fe9addf712c9f38c"
+        "sha256": "68924c116d46ad07a93669c6fb9a2f87ca1449ef859ac1dfb214ae44d96f4cd4"
       }
     }
   },

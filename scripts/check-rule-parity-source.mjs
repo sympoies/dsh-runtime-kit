@@ -62,7 +62,7 @@ const EXPECTED_OWNER_REPOSITORIES = {
   },
   [NILS]: {
     identity: 'github.com/sympoies/nils-cli',
-    evidence_commit: '302715e367edb66dee81589357e7c4abdccb7ba2',
+    evidence_commit: '47c208c8740669d0f421bf6986e8716b6f3f0151',
   },
 }
 

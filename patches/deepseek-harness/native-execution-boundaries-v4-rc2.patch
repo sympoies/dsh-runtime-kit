@@ -237,7 +237,7 @@ index 81f0d1a..b7bd825 100644
   * Allocate a real terminal and start one owned process session. This is the
   * only non-pipe process primitive: implementations own terminal byte I/O,
 diff --git a/docs/subsystems/tools.i18n.yaml b/docs/subsystems/tools.i18n.yaml
-index ed327e5..2b2997c 100644
+index ed327e5..93fbcbd 100644
 --- a/docs/subsystems/tools.i18n.yaml
 +++ b/docs/subsystems/tools.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -246,13 +246,13 @@ index ed327e5..2b2997c 100644
  #   pnpm run verify-translation-pairing --write docs/subsystems/tools.md
 -tools.md: dd89d40c1401732dd5e6d8dfb5ccb08a89c58405
 -tools.zh.md: 0d3e59bc222527e66dd5bd626203f4e1bb6aad9a
-+tools.md: 68d410c796b67582deb50ae89a274bf1ba6ebca3
-+tools.zh.md: 67c7b2bc87c6addb89062a0601b5d9ece177f594
++tools.md: 44244b7cd8aadd4991432053a52f8a6b61726781
++tools.zh.md: ad253b4d92e94e1a5cf5dacd53e367a31453e837
 diff --git a/docs/subsystems/tools.md b/docs/subsystems/tools.md
-index dd89d40..68d410c 100644
+index dd89d40..44244b7 100644
 --- a/docs/subsystems/tools.md
 +++ b/docs/subsystems/tools.md
-@@ -482,6 +482,15 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
+@@ -482,6 +482,23 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
  Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
  
  ```ts cordis-catalog
@@ -265,10 +265,18 @@ index dd89d40..68d410c 100644
 + */
 +async projectForPersistence(call: ToolPersistenceCall): Promise<ToolPersistenceDecision>
 +
++/**
++ * Register the sole terminal data-policy provider. Its decisions run after
++ * public waterfalls and immediately before durable/result publication.
++ * @param provider - terminal projection implementation.
++ * @returns disposer that removes this exact provider.
++ */
++registerTerminalPolicy(provider: ToolTerminalPolicy): () => void
++
  /**
   * Present the calling scope's tools in `mode` instead of the deployment
   * default. Nearest scope on the chain wins, so a preset's standing
-@@ -524,6 +533,17 @@ restrict(filter: ToolRestriction): () => void
+@@ -524,6 +541,17 @@ restrict(filter: ToolRestriction): () => void
   */
  guard(guard: ToolGuard): () => void
  
@@ -286,7 +294,7 @@ index dd89d40..68d410c 100644
  /**
   * Look up a tool as one scope sees it (scoped
   * shadows global; a restricted-away global reads as absent). Presenters pass
-@@ -697,6 +717,30 @@ Types: [Scoped](scope.md)
+@@ -697,6 +725,30 @@ Types: [Scoped](scope.md)
  
  Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts)
  
@@ -318,10 +326,10 @@ index dd89d40..68d410c 100644
  
  #### `tools/result` — emit
 diff --git a/docs/subsystems/tools.zh.md b/docs/subsystems/tools.zh.md
-index 0d3e59b..67c7b2b 100644
+index 0d3e59b..ad253b4 100644
 --- a/docs/subsystems/tools.zh.md
 +++ b/docs/subsystems/tools.zh.md
-@@ -482,6 +482,15 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
+@@ -482,6 +482,23 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
  Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.
  
  ```ts cordis-catalog
@@ -334,10 +342,18 @@ index 0d3e59b..67c7b2b 100644
 + */
 +async projectForPersistence(call: ToolPersistenceCall): Promise<ToolPersistenceDecision>
 +
++/**
++ * Register the sole terminal data-policy provider. Its decisions run after
++ * public waterfalls and immediately before durable/result publication.
++ * @param provider - terminal projection implementation.
++ * @returns disposer that removes this exact provider.
++ */
++registerTerminalPolicy(provider: ToolTerminalPolicy): () => void
++
  /**
   * Present the calling scope's tools in `mode` instead of the deployment
   * default. Nearest scope on the chain wins, so a preset's standing
-@@ -524,6 +533,17 @@ restrict(filter: ToolRestriction): () => void
+@@ -524,6 +541,17 @@ restrict(filter: ToolRestriction): () => void
   */
  guard(guard: ToolGuard): () => void
  
@@ -355,7 +371,7 @@ index 0d3e59b..67c7b2b 100644
  /**
   * Look up a tool as one scope sees it (scoped
   * shadows global; a restricted-away global reads as absent). Presenters pass
-@@ -697,6 +717,30 @@ Types: [Scoped](scope.zh.md)
+@@ -697,6 +725,30 @@ Types: [Scoped](scope.zh.md)
  
  Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index.ts)
  
@@ -431,7 +447,7 @@ index 76a7315..68f3d2d 100644
  - 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待针对确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
  - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
-index 3ef1ec7..1f729ca 100644
+index 3ef1ec7..60534bf 100644
 --- a/packages/core/agent-loop/src/agent.ts
 +++ b/packages/core/agent-loop/src/agent.ts
 @@ -16,7 +16,7 @@ import type {
@@ -489,14 +505,18 @@ index 3ef1ec7..1f729ca 100644
            assembler.push(chunk)
          }
          signal.throwIfAborted()
-@@ -389,8 +412,28 @@ export class ReactLoopAgent implements Agent {
+@@ -389,8 +412,32 @@ export class ReactLoopAgent implements Agent {
          continue
        }
  
 +      const content = assembler.blocks()
 +      const durableToolCalls: ToolCallBlock[] = []
-+      const durableContent = await Promise.all(content.map(async block => {
-+        if (block.type !== 'tool-call') return block
++      const durableContent = []
++      for (const block of content) {
++        if (block.type !== 'tool-call') {
++          durableContent.push(block)
++          continue
++        }
 +        const decision = await this.loopCtx.tools.projectForPersistence({
 +          callId: block.id,
 +          name: block.name,
@@ -510,8 +530,8 @@ index 3ef1ec7..1f729ca 100644
 +          ? block
 +          : { ...block, arguments: JSON.stringify(decision.arguments) }
 +        durableToolCalls.push(durable)
-+        return durable
-+      }))
++        durableContent.push(durable)
++      }
 +      signal.throwIfAborted()
        const message = createAssistantMessage({
 -        content: assembler.blocks(),
@@ -519,7 +539,7 @@ index 3ef1ec7..1f729ca 100644
          source: {
            provider: request.provider,
            model: request.model,
-@@ -402,7 +445,7 @@ export class ReactLoopAgent implements Agent {
+@@ -402,7 +449,7 @@ export class ReactLoopAgent implements Agent {
          {
            turn,
            step,
@@ -528,7 +548,7 @@ index 3ef1ec7..1f729ca 100644
            ...assembler.usage === undefined ? {} : { usage: assembler.usage },
          },
          { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-@@ -412,7 +455,9 @@ export class ReactLoopAgent implements Agent {
+@@ -412,7 +459,9 @@ export class ReactLoopAgent implements Agent {
        const toolCalls = message.content.filter(block => block.type === 'tool-call')
        if (toolCalls.length === 0) return { kind: 'completed' }
        const { concluded } = await executeToolCalls(
@@ -540,7 +560,7 @@ index 3ef1ec7..1f729ca 100644
        )
        return concluded ? { kind: 'completed' } : null
 diff --git a/packages/core/agent-loop/src/tool-calls.ts b/packages/core/agent-loop/src/tool-calls.ts
-index 3acfe71..d1de0f0 100644
+index 3acfe71..833b51f 100644
 --- a/packages/core/agent-loop/src/tool-calls.ts
 +++ b/packages/core/agent-loop/src/tool-calls.ts
 @@ -19,6 +19,7 @@ import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type ToolExecutio
@@ -591,6 +611,15 @@ index 3acfe71..d1de0f0 100644
        return { concluded }
      }
    }
+@@ -150,7 +158,7 @@ async function runGroup(
+       const call = group[committed]
+       const result = slot.needsPost
+         ? await ctx.tools[TOOL_RUNTIME_SCHEDULER].finalize(slot.exec, slot.result)
+-        : ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result)
++        : await ctx.tools[TOOL_RUNTIME_SCHEDULER].finish(slot.exec, slot.result)
+       // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded index
+       appendToolResult(session, turn, step, call!.block, result, callSeqs[committed]!)
+       for (const context of result.additionalContexts ?? []) acceptContext(context)
 @@ -164,7 +172,7 @@ async function runGroup(
    const startCall = async (index: number): Promise<void> => {
      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded index
@@ -610,9 +639,17 @@ index 3acfe71..d1de0f0 100644
    }
    /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
 diff --git a/packages/core/agent-loop/tests/interception.spec.ts b/packages/core/agent-loop/tests/interception.spec.ts
-index 72e3165..3a16d43 100644
+index 72e3165..9a8cafc 100644
 --- a/packages/core/agent-loop/tests/interception.spec.ts
 +++ b/packages/core/agent-loop/tests/interception.spec.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it, vi } from 'vitest'
+ import { Context } from '@deepseek-ai/cordis'
+-import LlmRuntime, { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
++import LlmRuntime, { createUserMessage, CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+ import SessionStore, {
+   SessionId,
+   type SessionEvent,
 @@ -8,7 +8,12 @@ import SessionStore, {
    type UserMessage,
  } from '@deepseek-ai/dsh-session'
@@ -627,7 +664,7 @@ index 72e3165..3a16d43 100644
  import AgentRegistry, {
    type Agent,
    type PreStepDecision,
-@@ -690,6 +695,47 @@ describe('tool additionalContexts buffering across a step', () => {
+@@ -690,6 +695,97 @@ describe('tool additionalContexts buffering across a step', () => {
  })
  
  describe('tools/pre-execute gate (native-plugin permission pattern, end-to-end through the loop)', () => {
@@ -672,11 +709,61 @@ index 72e3165..3a16d43 100644
 +      .toBe('{"redacted":true,"code":"data-policy-deny-sensitive"}')
 +  })
 +
++  it('projects multi-call persistence in model order without overflowing terminal policy capacity', async () => {
++    const calls = Array.from({ length: 6 }, (_, index) => ({
++      id: CallId(`ordered-${index + 1}`),
++      name: 'ordered',
++      arguments: JSON.stringify({ index: index + 1 }),
++    }))
++    const chunks: StreamChunk[] = calls.flatMap((call, index): StreamChunk[] => [
++      { type: 'block-start', index, blockType: 'tool-call' },
++      { type: 'tool-call-delta', index, id: call.id, name: call.name, argumentsDelta: call.arguments },
++      { type: 'block-end', index, block: { type: 'tool-call', ...call } },
++    ])
++    chunks.push(
++      { type: 'usage', usage: { inputTokens: 10, outputTokens: 10 } },
++      { type: 'finish', reason: { kind: 'tool-calls' } },
++    )
++    const adapter = new MockAdapter([chunks, textResponse('done')])
++    const ctx = await harness(adapter)
++    const bodyArguments: unknown[] = []
++    ctx.tools.register(defineContentToolFixture({
++      name: 'ordered', description: 'ordered', parameters: {},
++      async execute(args) { bodyArguments.push(args); return [{ type: 'text', text: 'ok' }] },
++    }))
++    let active = 0
++    let maxActive = 0
++    const projected: string[] = []
++    ctx.tools.registerTerminalPolicy({
++      async projectPersistence(call) {
++        active += 1
++        maxActive = Math.max(maxActive, active)
++        if (call.callId === calls[0]?.id) await new Promise(resolve => setTimeout(resolve, 10))
++        projected.push(call.callId)
++        active -= 1
++        return { kind: 'replace', arguments: { durable: call.callId } }
++      },
++      async projectResult() { return { kind: 'accept' } },
++    })
++    const agent = ctx.agentLoop.create(SessionId('ordered-agent'), { provider: 'mock', model: 'mock' })
++
++    send(agent, 'go')
++    await waitForIdle(ctx, agent)
++
++    expect(maxActive).toBe(1)
++    expect(projected).toEqual(calls.map(call => call.id))
++    expect(bodyArguments).toEqual(calls.map((_call, index) => ({ index: index + 1 })))
++    const durableCalls = events(agent)
++      .filter(event => event.type === 'tool/call')
++      .map(event => event.type === 'tool/call' ? event.data.arguments : undefined)
++    expect(durableCalls).toEqual(calls.map(call => JSON.stringify({ durable: call.id })))
++  })
++
    it('deny short-circuits dispatch into an isError result the model sees', async () => {
      const adapter = new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('ok')])
      const ctx = await harness(adapter)
 diff --git a/packages/core/tools/README.md b/packages/core/tools/README.md
-index dd20b1b..908e360 100644
+index dd20b1b..1165c98 100644
 --- a/packages/core/tools/README.md
 +++ b/packages/core/tools/README.md
 @@ -43,6 +43,7 @@ The live registry pipeline has three transformable waterfalls, then the definiti
@@ -687,7 +774,7 @@ index dd20b1b..908e360 100644
  - `ToolExecution` — the readonly pipeline view: immutable `{ token, callId, name, arguments, signal, agent?, parent? }`; the registry separately retains and re-fuses the original caller signal. `ToolDispatchExecution` is the `tools/execute`-only view whose required signal is mutable, so a wrapper may replace and restore it but cannot delete it. A nested call's `parent` is a `ToolExecutionToken`, not an execution object.
  - `ToolRunContext` — the execution passed to a tool body, extending `ToolExecution` with `deferContext(context)`. It defers one context until the tool's final result reaches the loop — typically a nested-dispatch context ferried by a composite tool, or a fresh plugin-sourced instruction minted by a leaf tool (`tool-goal`'s wrap-up) — even when the tool later throws or cancellation wins; it never injects immediately.
  - `ToolExecutionResult` — discriminated execution-local outcome. Success is `{ isError:false, value:JsonValue, content, meta?, additionalContexts? }`; failure is `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts? }` and has no value. Call identity stays on the immutable `ToolExecution`. The registry snapshots, validates, and freezes the canonical value before rendering, then materializes the durable presentation fields before final observation. `ToolFailure.info` carries an internal `{ name, code }` for a `HarnessError`; `additionalContexts` preserves every deferred or post-execute identified `UserMessage` for the loop's post-result FIFO.
-@@ -54,6 +55,7 @@ The live registry pipeline has three transformable waterfalls, then the definiti
+@@ -54,9 +55,11 @@ The live registry pipeline has three transformable waterfalls, then the definiti
  ### Extension points
  
  - Tool plugins call `ctx.tools.register()` — schemas flow into the assembly automatically.
@@ -695,8 +782,12 @@ index dd20b1b..908e360 100644
  - `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it.
  - `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration. Each canonical result belongs to one immutable dispatch token, so a cached result from another call or tool is revalidated under the active declaration.
  - `tools/post-execute` may replace presentation content, replace the canonical value, block with feedback, or attach ordered contexts. A definition's optional `finalizeContent` then owns its last content-only invariant across normal results and outer pipeline failures; `tools/result` observes the immutable final outcome. Content replacement is not a confidentiality boundary: block or replace the value when programmatic consumers must not receive it.
++- One data-policy owner may call `ctx.tools.registerTerminalPolicy()` to inspect the complete durable-argument candidate after `tools/pre-persist` and the complete result after the ordinary post waterfall, definition finalizer, prerequisite contexts, and cancellation projection. No later content-bearing transform runs before persistence or `tools/result`; duplicate providers fail closed.
+ - Exact signatures and ordering live in the generated region of [tools.md](../../../docs/subsystems/tools.md#cordis-surface) and [pipeline](../../../docs/tool-execution-pipeline.md).
+ - MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
+ 
 diff --git a/packages/core/tools/README.zh.md b/packages/core/tools/README.zh.md
-index 129bd8d..c8c14d0 100644
+index 129bd8d..14ab64b 100644
 --- a/packages/core/tools/README.zh.md
 +++ b/packages/core/tools/README.zh.md
 @@ -43,6 +43,7 @@ tools:
@@ -707,7 +798,7 @@ index 129bd8d..c8c14d0 100644
  - `ToolExecution`：只读流水线视图：不可变的 `{ token, callId, name, arguments, signal, agent?, parent? }`；注册表会另行保留并重新融合调用方的原始信号。`ToolDispatchExecution` 是仅供 `tools/execute` 使用的视图，其必填信号可变，因此包装层可以替换并还原它，但不能删除它。嵌套调用的 `parent` 是 `ToolExecutionToken`，而不是执行对象。
  - `ToolRunContext`：传给工具主体的执行上下文，在 `ToolExecution` 基础上增加 `deferContext(context)`。它把一条上下文推迟到该工具的最终结果抵达循环时——通常是组合工具转运的嵌套分发上下文，也可以是叶子工具创建的全新插件来源指令（如 `tool-goal` 的收尾注入）——即使工具后来抛出或取消胜出也不例外；该方法绝不会立即注入上下文。
  - `ToolExecutionResult`：带判别标记的执行局部结果。成功形态为 `{ isError:false, value:JsonValue, content, meta?, additionalContexts? }`；失败形态为 `{ isError:true, error:{ message, info? }, content, meta?, additionalContexts? }`，且不含值。调用身份保留在不可变的 `ToolExecution` 上。注册表会在呈现前快照、验证并冻结规范值，随后在最终观测前实体化持久呈现字段。`ToolFailure.info` 携带内部的 `{ name, code }`，用于表示 `HarnessError`；`additionalContexts` 会保留每个通过延迟或 post-execute 加入且带标识的 `UserMessage`，供循环在结果后按 FIFO 顺序处理。
-@@ -56,6 +57,7 @@ tools:
+@@ -56,9 +57,11 @@ tools:
  ### 扩展点
  
  - 工具插件调用 `ctx.tools.register()`：schema 会自动流入组装结果。
@@ -715,8 +806,25 @@ index 129bd8d..c8c14d0 100644
  - `tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略。
  - `tools/execute` 会环绕包装规范化后的规范分发，以支持超时、重试或指标采集。包装层只能替换操作信号；包装层生成的成功结果会根据已解析工具的输出声明进行规范化。每个规范结果属于一个不可变分发 token，因此来自其他调用或工具的缓存结果会根据当前声明重新验证。
  - `tools/post-execute` 可以替换呈现内容、替换规范值、通过反馈阻止，或附加有序上下文。随后，定义可选的 `finalizeContent` 会在普通结果和外层流水线失败中维护其最终、仅涉及内容的不变式；`tools/result` 观测不可变的最终结果。内容替换不是保密边界：当编程消费方不得接收某个值时，应阻止或替换该值。
++- 唯一的数据策略拥有方可以调用 `ctx.tools.registerTerminalPolicy()`：它会在 `tools/pre-persist` 之后检查完整的持久参数候选，并在普通 post waterfall、定义 finalizer、前置条件上下文及取消投影全部完成后检查完整结果。在持久化或 `tools/result` 之前不会再运行任何携带内容的变换；重复提供方会 fail closed。
+ - 确切签名与顺序位于 [tools.md](../../../docs/subsystems/tools.zh.md#cordis-surface) 的生成区块和[流水线](../../../docs/tool-execution-pipeline.zh.md)中。
+ - MCP 服务器：每个服务器使用一个插件；发现工具后，使用服务器的 schema 调用 `ctx.tools.register()`。
+ 
+diff --git a/packages/core/tools/src/code-mode.ts b/packages/core/tools/src/code-mode.ts
+index ad0e59b..0e79a15 100644
+--- a/packages/core/tools/src/code-mode.ts
++++ b/packages/core/tools/src/code-mode.ts
+@@ -560,7 +560,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
+               if (parked === undefined) return
+               const result = parked.kind === 'post-result'
+                 ? await scheduler.finalize(parked.exec, parked.result)
+-                : scheduler.finish(parked.exec, parked.result)
++                : await scheduler.finish(parked.exec, parked.result)
+               if (!result.isError && result.content.some(block => block.type === 'image')) {
+                 exec.deferContext(createUserMessage({
+                   content: result.content,
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 377015f..9f1b4c7 100644
+index 377015f..05019bd 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -140,6 +140,17 @@ declare module '@deepseek-ai/cordis' {
@@ -761,7 +869,7 @@ index 377015f..9f1b4c7 100644
  /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
  export interface ToolResult {
    /** The final model-facing content (or the rendered error text on failure). */
-@@ -337,6 +365,27 @@ export interface ToolExecutionInput {
+@@ -337,6 +365,40 @@ export interface ToolExecutionInput {
    readonly signal: AbortSignal
  }
  
@@ -786,10 +894,34 @@ index 377015f..9f1b4c7 100644
 +  | { kind: 'keep' }
 +  | { kind: 'replace'; arguments: JsonValue }
 +
++/**
++ * Sole terminal data-policy provider for durable arguments and complete tool
++ * outcomes. DSH invokes it only after ordinary extensible waterfalls and
++ * definition/prerequisite projections have settled, and applies no later
++ * content-bearing transform before persistence or `tools/result`.
++ */
++export interface ToolTerminalPolicy {
++  /** Project the final durable argument candidate. */
++  projectPersistence(call: Readonly<ToolPersistenceCall>): Promise<ToolPersistenceDecision>
++  /** Accept, replace, enrich, or block the complete final result candidate. */
++  projectResult(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<PostToolDecision>
++}
++
  /**
   * Scheduling mode for one pending call. `parallel` may overlap with siblings;
   * `exclusive` runs alone and forms an ordering barrier.
-@@ -593,6 +642,8 @@ export type PreToolDecision =
+@@ -455,8 +517,8 @@ export interface ToolRuntimeScheduler {
+   dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>
+   /** Run post-execute and definition-owned content finalization, then materialize and notify. */
+   finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
+-  /** Run definition-owned content finalization, then materialize and notify without post-execute. */
+-  finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult
++  /** Run definition-owned and terminal policy finalization, then materialize and notify without post-execute. */
++  finish(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
+ }
+ 
+ /**
+@@ -593,6 +655,8 @@ export type PreToolDecision =
  /**
   * Post-dispatch decision: accept, replace one projection, attach context for the
   * next request, or block by turning corrective feedback into an error result.
@@ -798,7 +930,7 @@ index 377015f..9f1b4c7 100644
   */
  export type PostToolDecision =
    | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessage[] }
-@@ -763,6 +814,49 @@ interface ToolAskResolution {
+@@ -763,6 +827,49 @@ interface ToolAskResolution {
  interface ToolCancellationState {
    readonly callerSignal: AbortSignal
    bodyInvoked: boolean
@@ -848,7 +980,7 @@ index 377015f..9f1b4c7 100644
  }
  
  /** One dispatch-scoped fused signal plus listener cleanup after the body settles. */
-@@ -808,6 +902,14 @@ export class ToolRuntime extends Service {
+@@ -808,6 +915,16 @@ export class ToolRuntime extends Service {
    private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
    /** Definition-owned final content transform snapshotted before policy begins. */
    private contentFinalizers = new WeakMap<ToolRunContext, ToolDefinition['finalizeContent']>()
@@ -860,10 +992,12 @@ index 377015f..9f1b4c7 100644
 +  private executionStages = new WeakMap<ToolRunContext, ToolExecutionStage>()
 +  /** Runtime attempts to mutate readonly execution identity before result publication. */
 +  private executionIdentityViolations = new WeakSet<ToolRunContext>()
++  /** Sole provider invoked after every other content-bearing transformation. */
++  private terminalPolicy: ToolTerminalPolicy | undefined
    private readonly layers = new ScopedLayers(
      scope => new ToolLayer(scope),
      () => { this.ctx.emit('tools/change') },
-@@ -836,6 +938,43 @@ export class ToolRuntime extends Service {
+@@ -836,6 +953,80 @@ export class ToolRuntime extends Service {
      }
    }
  
@@ -893,9 +1027,23 @@ index 377015f..9f1b4c7 100644
 +      () => Promise.resolve<ToolPersistenceDecision>({ kind: 'keep' }),
 +    )
 +    call.signal.throwIfAborted()
-+    if (decision.kind === 'keep') return decision
++    const ordinary = this.materializePersistenceDecision(decision)
++    const candidate = ordinary.kind === 'keep'
++      ? projected
++      : Object.freeze({ ...projected, arguments: ordinary.arguments })
++    const terminal = this.terminalPolicy
++    if (terminal === undefined) return ordinary
++    const terminalDecision = await terminal.projectPersistence(candidate)
++    call.signal.throwIfAborted()
++    const final = this.materializePersistenceDecision(terminalDecision)
++    return final.kind === 'keep' ? ordinary : final
++  }
++
++  /** Validate and detach one durable projection decision. */
++  private materializePersistenceDecision(decision: ToolPersistenceDecision): ToolPersistenceDecision {
++    if (decision.kind === 'keep') return deepFreeze({ kind: 'keep' })
 +    if (decision.kind !== 'replace') {
-+      throw new TypeError('dsh-tools: pre-persist decision must keep or replace arguments')
++      throw new TypeError('dsh-tools: persistence decision must keep or replace arguments')
 +    }
 +    const replacement = snapshotJsonValue(decision.arguments)
 +    if (replacement === undefined) {
@@ -904,10 +1052,33 @@ index 377015f..9f1b4c7 100644
 +    return deepFreeze({ kind: 'replace', arguments: replacement })
 +  }
 +
++  /**
++   * Register the sole terminal data-policy provider. Its decisions run after
++   * public waterfalls and immediately before durable/result publication.
++   * @param provider - terminal projection implementation.
++   * @returns disposer that removes this exact provider.
++   */
++  registerTerminalPolicy(provider: ToolTerminalPolicy): () => void {
++    if (typeof provider?.projectPersistence !== 'function'
++      || typeof provider?.projectResult !== 'function') {
++      throw new TypeError('tools.registerTerminalPolicy() requires persistence and result projectors')
++    }
++    const dispose = this.ctx.effect(function* (this: ToolRuntime) {
++      if (this.terminalPolicy !== undefined) {
++        throw new Error('a terminal tool policy is already registered')
++      }
++      this.terminalPolicy = provider
++      yield () => {
++        if (this.terminalPolicy === provider) this.terminalPolicy = undefined
++      }
++    }.bind(this), 'tools.registerTerminalPolicy()')
++    return () => void dispose()
++  }
++
    /**
     * The prompt statement of the `code` executor collapse, registered wherever
     * {@link sdkSection} is and rendering empty outside an effective `code`.
-@@ -1115,6 +1254,49 @@ export class ToolRuntime extends Service {
+@@ -1115,6 +1306,49 @@ export class ToolRuntime extends Service {
      )
    }
  
@@ -957,7 +1128,22 @@ index 377015f..9f1b4c7 100644
    /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
    private guardReason(exec: ToolExecution): string | undefined {
      const globalReason = this.layers.global.guardReason(exec)
-@@ -1405,20 +1587,31 @@ export class ToolRuntime extends Service {
+@@ -1349,12 +1583,12 @@ export class ToolRuntime extends Service {
+         const dispatched = await this.dispatchScheduledExecution(prepared.exec)
+         return dispatched.kind === 'post-result'
+           ? await this.finalizeScheduledExecution(prepared.exec, dispatched.result)
+-          : this.finishScheduledExecution(prepared.exec, dispatched.result)
++          : await this.finishScheduledExecution(prepared.exec, dispatched.result)
+       }
+       case 'post-result':
+         return await this.finalizeScheduledExecution(prepared.exec, prepared.result)
+       case 'final-result':
+-        return this.finishScheduledExecution(prepared.exec, prepared.result)
++        return await this.finishScheduledExecution(prepared.exec, prepared.result)
+       /* v8 ignore next -- closed-union exhaustiveness guard */
+       default:
+         return assertNever(prepared, 'scheduled tool preparation')
+@@ -1405,20 +1639,31 @@ export class ToolRuntime extends Service {
      // the same retained path), while the `UNKNOWN_TOOL` denial and the
      // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
      // could never execute).
@@ -992,7 +1178,7 @@ index 377015f..9f1b4c7 100644
        })
        if (collapsed) {
          // The collapse denies the call before the policy pipeline, but a
-@@ -1445,6 +1638,8 @@ export class ToolRuntime extends Service {
+@@ -1445,6 +1690,8 @@ export class ToolRuntime extends Service {
        return { kind: 'ready', exec: execution }
      } catch (error: unknown) {
        const execution: MutableToolRunContext = { ...base, arguments: undefined }
@@ -1001,7 +1187,7 @@ index 377015f..9f1b4c7 100644
        this.contentFinalizers.set(execution, finalizerFor())
        return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
      }
-@@ -1465,29 +1660,41 @@ export class ToolRuntime extends Service {
+@@ -1465,29 +1712,41 @@ export class ToolRuntime extends Service {
      next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
    ): Promise<T> {
      const created = this.createExecution(input)
@@ -1052,7 +1238,7 @@ index 377015f..9f1b4c7 100644
            kind: 'post-result',
            exec,
            result: this.materializeFinalResult({
-@@ -1495,15 +1702,43 @@ export class ToolRuntime extends Service {
+@@ -1495,15 +1754,43 @@ export class ToolRuntime extends Service {
              isError: true,
              error: { message: denialReason },
            }),
@@ -1071,7 +1257,7 @@ index 377015f..9f1b4c7 100644
      } catch (error: unknown) {
 -      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
 +      prepared = { kind: 'final-result', exec, result: toolErrorResult(error) }
-+    }
+     }
 +    this.markPreparedExecution(exec, prepared.kind)
 +    return next(prepared)
 +  }
@@ -1086,7 +1272,7 @@ index 377015f..9f1b4c7 100644
 +    const current = this.executionStages.get(exec)
 +    if (current === undefined || !expected.includes(current)) {
 +      throw new Error(`dsh-tools: scheduler execution cannot ${operation} from its current stage`)
-     }
++    }
 +    this.executionStages.set(exec, next)
 +  }
 +
@@ -1102,7 +1288,7 @@ index 377015f..9f1b4c7 100644
    }
  
    /** Whether the original caller signal is currently aborted. */
-@@ -1511,7 +1746,7 @@ export class ToolRuntime extends Service {
+@@ -1511,7 +1798,7 @@ export class ToolRuntime extends Service {
      const state = this.cancellationStates.get(exec)
      /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
      if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
@@ -1111,7 +1297,7 @@ index 377015f..9f1b4c7 100644
    }
  
    /** Canonical cancellation outcome selected by whether the tool body started. */
-@@ -1524,6 +1759,142 @@ export class ToolRuntime extends Service {
+@@ -1524,6 +1811,142 @@ export class ToolRuntime extends Service {
        : toolAbortedBeforeDispatchResult(prior)
    }
  
@@ -1254,7 +1440,7 @@ index 377015f..9f1b4c7 100644
    /**
     * Dispatch the registered body with the original caller signal fused back
     * into any around-wrapper replacement. Cancellation never abandons the body:
-@@ -1543,7 +1914,12 @@ export class ToolRuntime extends Service {
+@@ -1543,7 +1966,12 @@ export class ToolRuntime extends Service {
      }
      exec.signal = signal
      try {
@@ -1268,7 +1454,7 @@ index 377015f..9f1b4c7 100644
        if (!tool) throw new ToolNotFoundError(exec.name)
        state.bodyInvoked = true
        const returned = await tool.execute(exec.arguments, exec)
-@@ -1552,7 +1928,9 @@ export class ToolRuntime extends Service {
+@@ -1552,7 +1980,9 @@ export class ToolRuntime extends Service {
          ? toolAbortedResult(result)
          : result
      } catch (error: unknown) {
@@ -1279,7 +1465,7 @@ index 377015f..9f1b4c7 100644
      } finally {
        fused.dispose()
        exec.signal = wrapperSignal
-@@ -1567,14 +1945,53 @@ export class ToolRuntime extends Service {
+@@ -1567,14 +1997,53 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
@@ -1333,7 +1519,7 @@ index 377015f..9f1b4c7 100644
        const deferredContexts = this.deferredContexts.get(exec)
        /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
        if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
-@@ -1607,17 +2024,78 @@ export class ToolRuntime extends Service {
+@@ -1607,17 +2076,77 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -1368,20 +1554,16 @@ index 377015f..9f1b4c7 100644
 +      postResult = await this.postExecute(exec, finalizedCandidate)
      } catch (error: unknown) {
 -      return this.finishScheduledExecution(exec, toolErrorResult(error))
-+      return this.finishScheduledResult(exec, toolErrorResult(error))
-     }
++      return await this.finishScheduledResult(exec, toolErrorResult(error))
++    }
 +
 +    const candidate = this.callerCancelled(exec) && !postResult.isError
 +      ? this.cancellationResult(exec, postResult)
 +      : postResult
 +    let finalResult = this.materializeScheduledResult(candidate)
 +    const bound = this.executionPrerequisites.get(exec)
-+    if (bound === undefined || finalResult.isError || this.callerCancelled(exec)) {
-+      this.notifyResult(exec, finalResult)
-+      return finalResult
-+    }
-+
-+    if (bound.verifiedContexts.length > 0) {
++    if (bound !== undefined && !finalResult.isError && !this.callerCancelled(exec)
++      && bound.verifiedContexts.length > 0) {
 +      finalResult = this.materializeFinalResult({
 +        ...finalResult,
 +        additionalContexts: [
@@ -1390,11 +1572,14 @@ index 377015f..9f1b4c7 100644
 +        ],
 +      })
 +    }
-+    if (this.callerCancelled(exec)) {
++    if (this.callerCancelled(exec) && !finalResult.isError) {
 +      finalResult = this.materializeFinalResult(this.cancellationResult(exec, finalResult))
++    }
++    finalResult = await this.projectTerminalResult(exec, finalResult)
++    if (bound === undefined || finalResult.isError || this.callerCancelled(exec)) {
 +      this.notifyResult(exec, finalResult)
 +      return finalResult
-+    }
+     }
 +
 +    const state = this.cancellationStates.get(exec)
 +    /* v8 ignore next -- only registry-minted executions reach finalization */
@@ -1420,10 +1605,12 @@ index 377015f..9f1b4c7 100644
    }
  
    /**
-@@ -1629,6 +2107,28 @@ export class ToolRuntime extends Service {
+@@ -1628,7 +2157,45 @@ export class ToolRuntime extends Service {
+    * @returns the materialized final result.
     * @internal
     */
-   private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
+-  private finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
++  private async finishScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
 +    this.transitionExecution(
 +      exec,
 +      ['prepared-final', 'dispatched-final'],
@@ -1431,17 +1618,33 @@ index 377015f..9f1b4c7 100644
 +      'finish',
 +    )
 +    try {
-+      return this.finishScheduledResult(exec, result)
++      return await this.finishScheduledResult(exec, result)
 +    } finally {
 +      this.transitionExecution(exec, ['finalizing'], 'finished', 'complete finalization')
 +    }
 +  }
 +
 +  /** Finish one already-claimed final-result stage. */
-+  private finishScheduledResult(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
-+    const finalResult = this.prepareScheduledResult(exec, result)
++  private async finishScheduledResult(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
++    const candidate = this.prepareScheduledResult(exec, result)
++    const finalResult = await this.projectTerminalResult(exec, candidate)
 +    this.notifyResult(exec, finalResult)
 +    return finalResult
++  }
++
++  /** Apply the sole terminal provider after every ordinary transform. */
++  private async projectTerminalResult(
++    exec: ToolExecution,
++    result: ToolExecutionResult,
++  ): Promise<ToolExecutionResult> {
++    const terminal = this.terminalPolicy
++    if (terminal === undefined) return result
++    try {
++      const decision = await terminal.projectResult(exec, result)
++      return this.materializeScheduledResult(this.applyPostDecision(exec, result, decision))
++    } catch (error: unknown) {
++      return this.materializeScheduledResult(toolErrorResult(error))
++    }
 +  }
 +
 +  /** Materialize and finalize once without publishing the result yet. */
@@ -1449,7 +1652,7 @@ index 377015f..9f1b4c7 100644
      let materializedResult: ToolExecutionResult
      try {
        materializedResult = this.materializeFinalResult(result)
-@@ -1641,10 +2141,18 @@ export class ToolRuntime extends Service {
+@@ -1641,10 +2208,18 @@ export class ToolRuntime extends Service {
      } catch (error: unknown) {
        finalResult = this.materializeFinalResult(toolErrorResult(error))
      }
@@ -1469,7 +1672,23 @@ index 377015f..9f1b4c7 100644
    /** Apply the snapshotted tool-owned content transform without exposing other result fields. */
    private applyFinalContent(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
      const finalizeContent = this.contentFinalizers.get(exec)
-@@ -1765,8 +2273,7 @@ export class ToolRuntime extends Service {
+@@ -1744,6 +2319,15 @@ export class ToolRuntime extends Service {
+       scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
+       () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
+     )
++    return this.applyPostDecision(exec, result, decision)
++  }
++
++  /** Apply one typed post/terminal decision to its immutable candidate. */
++  private applyPostDecision(
++    exec: ToolExecution,
++    result: ToolExecutionResult,
++    decision: PostToolDecision,
++  ): ToolExecutionResult {
+     const decisionContexts = decision.additionalContexts ?? []
+     if (decision.kind === 'block') {
+       const message = failureMessageFromContent(decision.feedback)
+@@ -1765,8 +2349,7 @@ export class ToolRuntime extends Service {
        if (result.isError) {
          throw new TypeError('tools/post-execute cannot replace the value of a failed result')
        }
@@ -1479,7 +1698,7 @@ index 377015f..9f1b4c7 100644
        const replaced = this.createSuccessResult(exec, tool, decision.value)
        return this.markCanonical(exec, {
          ...replaced,
-@@ -1783,6 +2290,14 @@ export class ToolRuntime extends Service {
+@@ -1783,6 +2366,14 @@ export class ToolRuntime extends Service {
    /** Registry-normalized results and the exact dispatch that validated each value. */
    private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
  
@@ -1494,7 +1713,7 @@ index 377015f..9f1b4c7 100644
    /** Mark one registry-normalized result as canonical only for its owning dispatch. */
    private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
      this.canonicalResults.set(result, exec.token)
-@@ -1790,7 +2305,7 @@ export class ToolRuntime extends Service {
+@@ -1790,7 +2381,7 @@ export class ToolRuntime extends Service {
    }
  
    /** Snapshot, validate, render, and optionally project one successful body value. */
@@ -1503,7 +1722,7 @@ index 377015f..9f1b4c7 100644
      const detached = snapshotToolValue(tool.name, candidate)
      const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
      if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
-@@ -1834,8 +2349,7 @@ export class ToolRuntime extends Service {
+@@ -1834,8 +2425,7 @@ export class ToolRuntime extends Service {
          ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
        })
      }
@@ -1514,7 +1733,7 @@ index 377015f..9f1b4c7 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
-index ec77059..a63b6d4 100644
+index ec77059..1c351dd 100644
 --- a/packages/core/tools/tests/tools.spec.ts
 +++ b/packages/core/tools/tests/tools.spec.ts
 @@ -4,11 +4,13 @@ import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@de
@@ -1532,7 +1751,7 @@ index ec77059..a63b6d4 100644
  } from '@deepseek-ai/dsh-tools'
  
  const testToolSignal = new AbortController().signal
-@@ -34,6 +36,42 @@ const echoTool = defineTool({
+@@ -34,6 +36,163 @@ const echoTool = defineTool({
  })
  
  describe('ToolRuntime', () => {
@@ -1572,10 +1791,131 @@ index ec77059..a63b6d4 100644
 +    })).rejects.toThrow(/replacement arguments must be losslessly JSON-serializable/)
 +  })
 +
++  it('runs the sole terminal policy after ordinary persistence listeners', async () => {
++    const ctx = await setup()
++    let observed: unknown
++    ctx.on('tools/pre-persist', async (): Promise<ToolPersistenceDecision> => ({
++      kind: 'replace',
++      arguments: { stage: 'ordinary-listener' },
++    }))
++    const dispose = ctx.tools.registerTerminalPolicy({
++      async projectPersistence(call) {
++        observed = call.arguments
++        expect(Object.isFrozen(call.arguments)).toBe(true)
++        return { kind: 'replace', arguments: { stage: 'terminal-policy' } }
++      },
++      async projectResult() { return { kind: 'accept' } },
++    })
++
++    await expect(ctx.tools.projectForPersistence({
++      callId: CallId('terminal-persist'), name: 'echo', arguments: { stage: 'raw' },
++      signal: testToolSignal, turn: 1, step: 1,
++    })).resolves.toEqual({ kind: 'replace', arguments: { stage: 'terminal-policy' } })
++    expect(observed).toEqual({ stage: 'ordinary-listener' })
++    expect(() => ctx.tools.registerTerminalPolicy({
++      async projectPersistence() { return { kind: 'keep' } },
++      async projectResult() { return { kind: 'accept' } },
++    })).toThrow('a terminal tool policy is already registered')
++    dispose()
++  })
++
++  it('projects finalized content, downstream contexts, and prerequisite contexts exactly before publication', async () => {
++    const ctx = await setup()
++    const finalizerSentinel = 'finalizer-sensitive'
++    const downstreamSentinel = 'downstream-sensitive'
++    const prerequisiteSentinel = 'prerequisite-sensitive'
++    const tool = {
++      ...echoTool,
++      name: 'terminal-result',
++      finalizeContent(_exec: unknown, result: ToolExecutionResult) {
++        return [...result.content, { type: 'text' as const, text: finalizerSentinel }]
++      },
++    }
++    ctx.tools.register(tool)
++    ctx.on('tools/pre-execute', async (exec, next) => {
++      ctx.tools.bindPrerequisite(exec, tool, {
++        async beforeBody() {
++          return [createUserMessage({
++            content: [{ type: 'text', text: prerequisiteSentinel }],
++            source: { kind: 'plugin', plugin: 'terminal-policy-test' },
++          })]
++        },
++        async commit() {},
++      })
++      return next()
++    })
++    ctx.on('tools/post-execute', async (_exec, result, next) => {
++      await next()
++      return {
++        kind: 'accept',
++        content: [...result.content, { type: 'text', text: downstreamSentinel }],
++      }
++    })
++    let inspected = ''
++    ctx.tools.registerTerminalPolicy({
++      async projectPersistence() { return { kind: 'keep' } },
++      async projectResult(_exec, result) {
++        inspected = JSON.stringify(result)
++        return { kind: 'block', feedback: [{ type: 'text', text: 'terminal policy blocked result' }] }
++      },
++    })
++    let published: ToolExecutionResult | undefined
++    ctx.on('tools/result', (_exec, result) => { published = result })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('terminal-result'),
++      name: tool.name,
++      arguments: { text: 'body' },
++    })
++
++    expect(inspected).toContain(finalizerSentinel)
++    expect(inspected).toContain(downstreamSentinel)
++    expect(inspected).toContain(prerequisiteSentinel)
++    expect(JSON.stringify(result)).not.toMatch(/finalizer-sensitive|downstream-sensitive|prerequisite-sensitive/u)
++    expect(result).toMatchObject({ isError: true, error: { message: 'terminal policy blocked result' } })
++    expect(published).toEqual(result)
++  })
++
++  it('projects finalizer output on failure paths that bypass post-execute', async () => {
++    const ctx = await setup()
++    const sentinel = 'failure-finalizer-sensitive'
++    let postCalls = 0
++    ctx.tools.register({
++      ...echoTool,
++      name: 'terminal-failure-path',
++      finalizeContent() { return [{ type: 'text', text: sentinel }] },
++    })
++    ctx.on('tools/post-execute', async (_exec, _result, next) => {
++      postCalls += 1
++      return next()
++    })
++    let inspected = ''
++    ctx.tools.registerTerminalPolicy({
++      async projectPersistence() { return { kind: 'keep' } },
++      async projectResult(_exec, result) {
++        inspected = JSON.stringify(result)
++        return { kind: 'block', feedback: [{ type: 'text', text: 'terminal failure blocked' }] }
++      },
++    })
++
++    const result = await ctx.tools.execute({
++      signal: testToolSignal,
++      callId: CallId('terminal-failure-path'),
++      name: 'terminal-failure-path',
++      arguments: { invalid: 1n },
++    })
++
++    expect(postCalls).toBe(0)
++    expect(inspected).toContain(sentinel)
++    expect(JSON.stringify(result)).not.toContain(sentinel)
++    expect(result).toMatchObject({ isError: true, error: { message: 'terminal failure blocked' } })
++  })
++
    it('registers tools, exposes schemas, and feeds the system-prompt assembly', async () => {
      const ctx = await setup()
      ctx.tools.register(echoTool)
-@@ -93,6 +131,696 @@ describe('ToolRuntime', () => {
+@@ -93,6 +252,696 @@ describe('ToolRuntime', () => {
      expect(observed).toEqual(result)
    })
  
@@ -2272,7 +2612,7 @@ index ec77059..a63b6d4 100644
    it('projects presentation metadata from the canonical value', async () => {
      const ctx = await setup()
      ctx.tools.register({
-@@ -758,6 +1486,45 @@ describe('ToolRuntime', () => {
+@@ -758,6 +1607,45 @@ describe('ToolRuntime', () => {
        expect(seen[0]?.signal).toBe(controller.signal)
      })
  
@@ -2318,7 +2658,7 @@ index ec77059..a63b6d4 100644
      it('denies with the user-rejection reason on rejected', async () => {
        const ctx = await approvalSetup()
        ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
-@@ -1256,7 +2023,7 @@ describe('ToolRuntime', () => {
+@@ -1256,7 +2144,7 @@ describe('ToolRuntime', () => {
      expect(dispatched).toBe(0)
    })
  
@@ -2327,7 +2667,7 @@ index ec77059..a63b6d4 100644
      const ctx = await setup()
      let dispatched = 0
      ctx.tools.register({
-@@ -1292,14 +2059,127 @@ describe('ToolRuntime', () => {
+@@ -1292,14 +2180,127 @@ describe('ToolRuntime', () => {
      release.resolve(undefined)
  
      await expect(pending).resolves.toMatchObject({
@@ -2379,7 +2719,7 @@ index ec77059..a63b6d4 100644
 +      if (outcome.kind === 'post-result') {
 +        await scheduler.finalize(prepared.exec, outcome.result)
 +      } else {
-+        scheduler.finish(prepared.exec, outcome.result)
++        await scheduler.finish(prepared.exec, outcome.result)
 +      }
 +    },
 +  )
@@ -2458,7 +2798,7 @@ index ec77059..a63b6d4 100644
    it('replaces a late wrapper success with ABORTED and preserves deferred contexts', async () => {
      const ctx = await setup()
      ctx.tools.register({
-@@ -2783,3 +3663,35 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
+@@ -2783,3 +3784,35 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
      expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
    })
  })
@@ -2495,7 +2835,7 @@ index ec77059..a63b6d4 100644
 +  })
 +})
 diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
-index 32e9ccb..08cae39 100644
+index 32e9ccb..e8fcea6 100644
 --- a/packages/extensions/tool-cordis/src/api-catalog.ts
 +++ b/packages/extensions/tool-cordis/src/api-catalog.ts
 @@ -959,6 +959,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
@@ -2585,7 +2925,7 @@ index 32e9ccb..08cae39 100644
        {
          signature: 'abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>',
          description: 'Allocate a real terminal and start one owned process session. This is the only non-pipe process primitive: implementations own terminal byte I/O, foreground groups, signals, and complete session-tree cleanup.',
-@@ -2085,6 +2124,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -2085,6 +2124,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
      summary: 'Tool registry and execution pipeline.',
      description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.',
      methods: [
@@ -2595,10 +2935,16 @@ index 32e9ccb..08cae39 100644
 +        parameters: [{ name: 'call', description: 'complete root call and its durable session position.' }],
 +        returns: 'the accepted keep-or-replace projection.',
 +      },
++      {
++        signature: 'registerTerminalPolicy(provider: ToolTerminalPolicy): () => void',
++        description: 'Register the sole terminal data-policy provider. Its decisions run after public waterfalls and immediately before durable/result publication.',
++        parameters: [{ name: 'provider', description: 'terminal projection implementation.' }],
++        returns: 'disposer that removes this exact provider.',
++      },
        {
          signature: 'presentAs(mode: ToolPresentationMode): () => void',
          description: 'Present the calling scope\'s tools in `mode` instead of the deployment default. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it.\n\nScoped only, and one declaration per scope: this is how an agent preset composes Code Mode agents beside native ones in the same process, and a process-global override would be the `mode` config field instead.',
-@@ -2109,6 +2154,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -2109,6 +2160,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
          parameters: [{ name: 'guard', description: 'synchronous check; a returned string denies the execution.' }],
          returns: 'the exact disposer that unregisters the guard.',
        },
@@ -2610,7 +2956,7 @@ index 32e9ccb..08cae39 100644
        {
          signature: 'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
          description: 'Look up a tool as one scope sees it (scoped shadows global; a restricted-away global reads as absent). Presenters pass the calling agent so the rendered card matches the definition that actually executed.',
-@@ -2773,6 +2823,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
+@@ -2773,6 +2829,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
      description: 'Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.',
      parameters: [{ name: 'exec', description: 'the pending call (name, parsed arguments, caller agent).' }],
    },
@@ -2625,7 +2971,7 @@ index 32e9ccb..08cae39 100644
    {
      name: 'tools/result',
      mode: 'emit',
-@@ -3147,11 +3205,35 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3147,11 +3211,35 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'ContinuableStartSpec',
@@ -2663,7 +3009,7 @@ index 32e9ccb..08cae39 100644
    },
    {
      name: 'CordisDynamicPackageId',
-@@ -3617,6 +3699,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3617,6 +3705,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'LlmFailure',
      declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
    },
@@ -2674,7 +3020,7 @@ index 32e9ccb..08cae39 100644
    {
      name: 'LlmModelContext',
      declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
-@@ -3647,7 +3733,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3647,7 +3739,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'LlmRuntime',
@@ -2683,7 +3029,7 @@ index 32e9ccb..08cae39 100644
    },
    {
      name: 'LspHover',
-@@ -4003,7 +4089,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4003,7 +4095,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'SandboxExecutionPolicy',
@@ -2692,7 +3038,7 @@ index 32e9ccb..08cae39 100644
    },
    {
      name: 'SandboxMode',
-@@ -4515,7 +4601,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4515,7 +4607,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'SubagentRuntime',
@@ -2701,7 +3047,7 @@ index 32e9ccb..08cae39 100644
    },
    {
      name: 'SubagentStartRequest',
-@@ -4781,6 +4867,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4781,6 +4873,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'ToolExecutionMode',
      declaration: 'export type ToolExecutionMode = {\n    kind: \'parallel\';\n} | {\n    kind: \'exclusive\';\n};',
    },
@@ -2712,7 +3058,7 @@ index 32e9ccb..08cae39 100644
    {
      name: 'ToolExecutionResult',
      declaration: 'export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure;',
-@@ -4809,6 +4899,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4809,6 +4905,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'ToolOutputDefinition',
      declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
    },
@@ -2727,15 +3073,29 @@ index 32e9ccb..08cae39 100644
    {
      name: 'ToolPresentationMode',
      declaration: 'export type ToolPresentationMode = \'native\' | \'code\' | \'both\';',
-@@ -4843,7 +4941,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4843,16 +4947,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'ToolRuntime',
 -    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
-+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    async projectForPersistence(call: ToolPersistenceCall): Promise<ToolPersistenceDecision>;\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    bindPrerequisite(exec: ToolExecution, definition: ToolDefinition, prerequisite: ToolExecutionPrerequisite): void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
++    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    async projectForPersistence(call: ToolPersistenceCall): Promise<ToolPersistenceDecision>;\n    registerTerminalPolicy(provider: ToolTerminalPolicy): () => void;\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    bindPrerequisite(exec: ToolExecution, definition: ToolDefinition, prerequisite: ToolExecutionPrerequisite): void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
    },
    {
      name: 'ToolRuntimeScheduler',
+-    declaration: 'export interface ToolRuntimeScheduler {\n    prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>;\n    dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>;\n    finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n    finish(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult;\n}',
++    declaration: 'export interface ToolRuntimeScheduler {\n    prepare(exec: ToolExecutionInput): Promise<ScheduledToolPreparation>;\n    dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>;\n    finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n    finish(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>;\n}',
+   },
+   {
+     name: 'ToolSchema',
+     declaration: 'export interface ToolSchema {\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+   },
++  {
++    name: 'ToolTerminalPolicy',
++    declaration: 'export interface ToolTerminalPolicy {\n    projectPersistence(call: Readonly<ToolPersistenceCall>): Promise<ToolPersistenceDecision>;\n    projectResult(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): Promise<PostToolDecision>;\n}',
++  },
+   {
+     name: 'TurnEndCancelCause',
+     declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
 diff --git a/packages/fs/fs-sandbox/src/index.ts b/packages/fs/fs-sandbox/src/index.ts
 index 17205a8..d124309 100644
 --- a/packages/fs/fs-sandbox/src/index.ts
@@ -5082,7 +5442,7 @@ index a741315..08d9319 100644
     * Allocate a real terminal and start one owned process session. This is the
     * only non-pipe process primitive: implementations own terminal byte I/O,
 diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
-index 522e98d..8b09ee1 100644
+index 522e98d..9a1b197 100644
 --- a/scripts/gen-cordis-catalog.ts
 +++ b/scripts/gen-cordis-catalog.ts
 @@ -138,6 +138,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
@@ -5101,7 +5461,7 @@ index 522e98d..8b09ee1 100644
    PreparedLlmCall: 'llm-streaming.md',
    LlmRuntime: 'llm-streaming.md',
    StreamChunk: 'llm-streaming.md',
-@@ -460,11 +462,15 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
+@@ -460,11 +462,16 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
    ToolExecutionMode: 'tools.md',
    ToolExecutionResult: 'tools.md',
    ToolExecutionToken: 'tools.md',
@@ -5109,6 +5469,7 @@ index 522e98d..8b09ee1 100644
    ToolGuard: 'tools.md',
 +  ToolPersistenceCall: 'tools.md',
 +  ToolPersistenceDecision: 'tools.md',
++  ToolTerminalPolicy: 'tools.md',
    ToolPresentationMode: 'tools.md',
    ToolRuntime: 'tools.md',
    ToolRestriction: 'tools.md',

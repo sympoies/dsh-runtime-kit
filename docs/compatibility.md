@@ -38,9 +38,12 @@ manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
 
 The current `native-execution-boundaries-v4` patch supplies the monotonic
-pre-body guard and prerequisite seams retained from earlier revisions, makes
-the post-tool waterfall authoritative over the finalized result, and adds the
-dynamic protected-root contract used by data policy. Its release-specific
+pre-body guard and prerequisite seams retained from earlier revisions, adds a
+single terminal policy provider after ordinary persistence and result
+materialization, preserves model-order persistence projection, and adds the
+dynamic protected-root sandbox contract. Runtime-kit selects the candidate
+data-policy command only through the exact reviewed-source selector; released
+and selectorless operation never invokes it. Its release-specific
 target hashes bind those seams independently for rc.7, rc.8, and rc.2; an
 unknown or locally drifted checkout remains ineligible.
 
@@ -161,3 +164,8 @@ or provider handles remain active at teardown.
 The packed released-`agent-hook` benchmark performs five warmups and 25 real
 sequential subprocess dispatches. Its p95 budget is 250 ms, and teardown must
 leave both transport admission and live-child counts at zero.
+
+The selected reviewed-source candidate benchmark performs three warmups and
+20 full tool lifecycles. Each lifecycle contains exactly five sequential policy
+subprocesses; its end-to-end p95 budget is 1,000 ms, and teardown has the same
+zero-admission/zero-live-child requirement.

@@ -426,12 +426,14 @@ function harness({
   runtimeStopListenerGate,
   onRuntimeStopListenerRegistered,
   onRuntimeStopListenerEnter,
+  reviewers,
   sessionId = 'session-1',
   workspace = '/tmp',
 } = {}) {
   const listeners = new Map()
   const effects = []
   let guard
+  let terminalPolicy
   let spawnCount = 0
   let terminateCount = 0
   let activeHandles = 0
@@ -535,12 +537,30 @@ function harness({
         }
         prerequisiteBindings.set(exec, { definition, prerequisite })
       },
-      projectForPersistence(call) {
-        return dispatchWaterfall(
+      registerTerminalPolicy(provider) {
+        if (terminalPolicy !== undefined) throw new Error('a terminal tool policy is already registered')
+        terminalPolicy = provider
+        let disposed = false
+        const dispose = async () => {
+          if (disposed) return
+          disposed = true
+          if (terminalPolicy === provider) terminalPolicy = undefined
+        }
+        effects.push(dispose)
+        return dispose
+      },
+      async projectForPersistence(call) {
+        const ordinary = await dispatchWaterfall(
           'tools/pre-persist',
           [call],
           async () => ({ kind: 'keep' }),
         )
+        if (terminalPolicy === undefined) return ordinary
+        const candidate = ordinary.kind === 'keep'
+          ? call
+          : { ...call, arguments: ordinary.arguments }
+        const terminal = await terminalPolicy.projectPersistence(candidate)
+        return terminal.kind === 'keep' ? ordinary : terminal
       },
     },
     on(event, candidate, options = {}) {
@@ -814,8 +834,9 @@ function harness({
     agentHookStateDir: '/runtime/agent-hook/state',
     agentDocsHome: '/runtime/docs',
     agentDocsStateHome: '/runtime/state',
+    nilsCompatibilityCandidate: 'typed-data-policy-protected-roots',
     ...config,
-  }, undefined, dshRuntime)
+  }, reviewers, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
@@ -1005,18 +1026,48 @@ function harness({
           ],
         }
       }
+      const applyDecision = (candidate, decision) => {
+        if (decision.kind === 'block') {
+          return {
+            isError: true,
+            error: { message: decision.feedback[0]?.text ?? 'blocked' },
+            content: decision.feedback,
+            ...decision.additionalContexts === undefined
+              ? {}
+              : { additionalContexts: decision.additionalContexts },
+          }
+        }
+        return {
+          ...candidate,
+          ...Object.hasOwn(decision, 'value') ? { value: decision.value } : {},
+          ...decision.content === undefined ? {} : { content: decision.content },
+          ...decision.additionalContexts === undefined
+            ? {}
+            : {
+                additionalContexts: [
+                  ...candidate.additionalContexts ?? [],
+                  ...decision.additionalContexts,
+                ],
+              },
+        }
+      }
+      let finalResult = applyDecision(executionResult, postDecision)
+      if (terminalPolicy !== undefined) {
+        const terminalDecision = await terminalPolicy.projectResult(prepared.exec, finalResult)
+        finalResult = applyDecision(finalResult, terminalDecision)
+        if (terminalDecision.kind !== 'accept') postDecision = terminalDecision
+      }
       if (bound !== undefined
-        && !executionResult.isError
-        && postDecision.kind === 'accept'
+        && !finalResult.isError
         && !callerSignals.get(prepared.exec).aborted) {
         try {
-          await bound.prerequisite.commit(prepared.exec, executionResult)
+          await bound.prerequisite.commit(prepared.exec, finalResult)
         } catch {}
       }
       for (const observer of listeners.get('tools/result') ?? []) {
-        observer(prepared.exec, executionResult)
+        observer(prepared.exec, finalResult)
       }
-      return { result, delegated, exec: prepared.exec, postDecision, executionResult }
+      return { result, delegated, exec: prepared.exec, postDecision, executionResult, finalResult }
     },
     prepare,
     guard(exec) { return guard?.(exec) },
@@ -1181,6 +1232,103 @@ test('sensitive native arguments fail closed before the tool body without audit 
   assert.equal(subject.service.dataPolicyAuditCount, 2)
 })
 
+test('released nils-cli configuration never invokes the candidate-only data-policy command', async () => {
+  const subject = harness({
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+
+  const result = await subject.invoke({ value: 41 }, { callId: 'released-no-candidate' })
+  assert.equal(result.result.kind, 'allow')
+  assert.equal(result.delegated, true)
+  assert.equal(subject.dataPolicySpecs.length, 0)
+  assert.deepEqual(await subject.ctx.tools.projectForPersistence({
+    callId: 'released-persistence',
+    name: 'ordinary_tool',
+    arguments: { token: 'synthetic' },
+    agent: subject.agent,
+    signal: new AbortController().signal,
+    turn: 1,
+    step: 1,
+  }), { kind: 'keep' })
+})
+
+test('candidate data policy initializes an agent that existed before policy apply', async () => {
+  const subject = harness()
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+  )
+
+  const result = await subject.invoke(
+    { value: 41 },
+    { callId: 'existing-agent', skipLifecycle: true },
+  )
+
+  assert.equal(result.result.kind, 'allow')
+  assert.ok(subject.dataPolicySpecs.some(spec => {
+    const request = JSON.parse(spec.stdio.stdin.data)
+    return request.identity.call_id === 'existing-agent'
+      && request.identity.workspace_generation.startsWith('generation:')
+  }))
+})
+
+test('reviewer-role calls cross persistence, pre-call, and terminal-result data policy', async () => {
+  const sentinel = 'reviewer-sensitive-input'
+  const machinePath = '/home/fixture/reviewer-result.txt'
+  const subject = harness({
+    reviewers: { roleOf: () => 'reviewer-testing' },
+    dataPolicyEnvelope(request) {
+      const payload = JSON.stringify(request.payload)
+      if (request.sink_id === 'session.persist' && payload.includes(sentinel)) {
+        return classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+      }
+      if (request.phase === 'pre-call' && payload.includes(sentinel)) {
+        return classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+      }
+      if (request.phase === 'final-result' && payload.includes(machinePath)) {
+        return classifiedDataPolicyDecision(request, 'quarantine', ['machine-local-path'], {
+          quarantined: true,
+          locator: sha256,
+        })
+      }
+      return dataPolicyDecision(request)
+    },
+  })
+  subject.ctx.tools.register({
+    name: 'reviewer_web',
+    async execute() { return { artifact: machinePath } },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+
+  const persisted = await subject.ctx.tools.projectForPersistence({
+    callId: 'reviewer-persist',
+    name: 'reviewer_web',
+    arguments: { token: sentinel },
+    agent: subject.agent,
+    signal: new AbortController().signal,
+    turn: 1,
+    step: 1,
+  })
+  assert.equal(persisted.kind, 'replace')
+  assert.doesNotMatch(JSON.stringify(persisted), new RegExp(sentinel))
+
+  const denied = await subject.invoke({ token: sentinel }, {
+    name: 'reviewer_web',
+    callId: 'reviewer-pre-call',
+  })
+  assert.equal(denied.result.kind, 'deny')
+  assert.match(denied.result.reason, /data-policy-deny-sensitive/u)
+
+  const quarantined = await subject.invoke({}, {
+    name: 'reviewer_web',
+    callId: 'reviewer-final-result',
+  })
+  assert.equal(quarantined.result.kind, 'allow')
+  assert.equal(quarantined.postDecision.kind, 'block')
+  assert.equal(quarantined.finalResult.isError, true)
+  assert.doesNotMatch(JSON.stringify(quarantined.finalResult), new RegExp(machinePath))
+})
+
 test('sensitive model arguments are projected before durable persistence', async () => {
   const sentinel = 'ghp_issue61_synthetic_sensitive_value'
   const subject = harness({
@@ -1193,9 +1341,7 @@ test('sensitive model arguments are projected before durable persistence', async
   })
   subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
   const signal = new AbortController().signal
-  const projected = await subject.waterfall(
-    'tools/pre-persist',
-    [{
+  const projected = await subject.ctx.tools.projectForPersistence({
       callId: 'sensitive-persistence',
       name: 'ordinary_tool',
       arguments: { token: sentinel },
@@ -1203,9 +1349,7 @@ test('sensitive model arguments are projected before durable persistence', async
       signal,
       turn: 1,
       step: 1,
-    }],
-    async () => ({ kind: 'keep' }),
-  )
+    })
 
   assert.deepEqual(projected, {
     kind: 'replace',
@@ -4281,7 +4425,6 @@ test('the rc.7 compatibility seam wires every required public lifecycle extensio
     'tools/execute',
     'tools/post-execute',
     'tools/pre-execute',
-    'tools/pre-persist',
     'tools/result',
   ])
 

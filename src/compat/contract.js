@@ -90,6 +90,7 @@ export const DSH_RC7_RUNTIME_SURFACE = Object.freeze([
   'tools.get',
   'tools.projectForPersistence',
   'tools.register',
+  'tools.registerTerminalPolicy',
   'tools.guard',
 ])
 
@@ -341,6 +342,29 @@ export function validateDshCompatibilityManifest(input) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
       'DSH real subprocess performance budget is invalid',
+    )
+  }
+  const lifecycleSubprocess = requireRecord(
+    performance.tool_lifecycle_subprocess,
+    'DSH tool lifecycle subprocess performance contract is missing',
+  )
+  requirePositiveInteger(
+    lifecycleSubprocess.warmup_iterations,
+    'tool lifecycle subprocess warmup_iterations must be positive',
+  )
+  if (requirePositiveInteger(
+    lifecycleSubprocess.iterations,
+    'tool lifecycle subprocess iterations must be positive',
+  ) < 20
+    || lifecycleSubprocess.subprocesses_per_iteration !== 5
+    || typeof lifecycleSubprocess.p95_ms !== 'number'
+    || !Number.isFinite(lifecycleSubprocess.p95_ms)
+    || lifecycleSubprocess.p95_ms <= 0
+    || lifecycleSubprocess.max_active_after !== 0
+    || lifecycleSubprocess.max_live_children_after !== 0) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH tool lifecycle subprocess performance budget is invalid',
     )
   }
   return Object.freeze(structuredClone(manifest))

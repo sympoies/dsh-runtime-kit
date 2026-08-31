@@ -25,6 +25,7 @@ import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-s
 const MAX_LIFECYCLE_PROMPT_BYTES = 64 * 1024
 /** Same-turn steering bound shared with the finish-line and acceptance coordinators. */
 const MAX_SAME_TURN_STOP_STEERS = 2
+const DATA_POLICY_CANDIDATE = 'typed-data-policy-protected-roots'
 
 /**
  * Resolve the exact finish-line command through the active DSH shell provider.
@@ -313,7 +314,7 @@ export function normalizeSandboxEscalationRequest({
  * every ingress listener and guard before process-tree draining begins.
  *
  * @param {Context} ctx
- * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} }} config
+ * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} }} config
  * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
  * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
  * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
@@ -334,6 +335,11 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   } = dshRuntime
   if (typeof isNonWideningSandboxEcho !== 'function') {
     throw new TypeError('dsh-runtime-kit: authenticated DSH sandbox echo classifier is required')
+  }
+  const dataPolicyEnabled = config.nilsCompatibilityCandidate === DATA_POLICY_CANDIDATE
+  if (dataPolicyEnabled
+    && typeof /** @type {{registerTerminalPolicy?: unknown}} */ (ctx.tools).registerTerminalPolicy !== 'function') {
+    throw new TypeError('dsh-runtime-kit: authenticated DSH terminal data-policy boundary is required')
   }
   const transport = createNilsTransport(ctx, config)
   const protectedRootConfig = config.protectedRoots ?? []
@@ -592,12 +598,10 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         ? [
             { rule_id: 'runtime.data-policy.pre.sensitive-deny', class_id: 'sensitive', action: 'deny' },
             { rule_id: 'runtime.data-policy.pre.machine-path-allow', class_id: 'machine-local-path', action: 'allow' },
-            { rule_id: 'runtime.data-policy.pre.protected-root-deny', class_id: 'protected-root', action: 'deny' },
           ]
         : [
             { rule_id: 'runtime.data-policy.final.sensitive-deny', class_id: 'sensitive', action: 'deny' },
             { rule_id: 'runtime.data-policy.final.machine-path-quarantine', class_id: 'machine-local-path', action: 'quarantine' },
-            { rule_id: 'runtime.data-policy.final.protected-root-deny', class_id: 'protected-root', action: 'deny' },
           ],
       payload,
     }
@@ -631,6 +635,82 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     }],
     ...contexts.length === 0 ? {} : { additionalContexts: contexts },
   })
+
+  if (dataPolicyEnabled) {
+    /** @type {import('@deepseek-ai/dsh-tools').ToolRuntime} */ (ctx.tools).registerTerminalPolicy({
+      async projectPersistence(call) {
+        const session = call.agent?.session
+        const cwd = session?.header.cwd
+        const generation = session === undefined ? undefined : dataPolicyGenerations.get(session)
+        if (session === undefined || typeof cwd !== 'string' || cwd.length === 0
+          || generation === undefined || closing || call.signal.aborted) {
+          throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
+        }
+        const correlation = {
+          sessionId: session.id,
+          cwd,
+          turn: call.turn,
+          step: call.step,
+          callId: call.callId,
+          rootCallId: call.callId,
+        }
+        let outcome
+        try {
+          outcome = await evaluateDataPolicy(
+            call,
+            correlation,
+            'pre-call',
+            call.arguments,
+            'session.persist',
+          )
+        } catch {
+          throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
+        }
+        if (outcome?.kind !== 'data-policy') {
+          throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
+        }
+        return outcome.decision.action === 'allow'
+          ? { kind: /** @type {const} */ ('keep') }
+          : {
+              kind: /** @type {const} */ ('replace'),
+              arguments: outcome.decision.replacement ?? {
+                redacted: true,
+                code: outcome.decision.code,
+              },
+            }
+      },
+      async projectResult(exec, result) {
+        if (!compatibility.matchesTool(exec)) {
+          return postBlock(denial('data-policy-correlation-invalid').reason, [])
+        }
+        const correlation = compatibility.correlation(exec.token)
+        if (correlation === undefined) {
+          return postBlock(denial('data-policy-correlation-invalid').reason, [])
+        }
+        let dataDecision
+        try {
+          dataDecision = await evaluateDataPolicy(exec, correlation, 'final-result', result)
+        } catch {
+          return postBlock(denial('data-policy-unavailable').reason, [])
+        }
+        if (dataDecision?.kind === 'data-policy'
+          && dataDecision.decision.action === 'allow') {
+          return { kind: /** @type {const} */ ('accept') }
+        }
+        const decision = dataDecision?.kind === 'data-policy' ? dataDecision.decision : undefined
+        const locator = decision?.action === 'quarantine'
+          && typeof decision.replacement?.locator === 'string'
+          && /^sha256:[0-9a-f]{64}$/u.test(decision.replacement.locator)
+          ? ` (${decision.replacement.locator})`
+          : ''
+        const code = decision?.code
+          ?? (dataDecision?.kind === 'deny' ? dataDecision.reason : undefined)
+          ?? 'dsh-runtime-kit:data-policy-unavailable'
+        const reason = code.startsWith('dsh-runtime-kit:') ? code : `dsh-runtime-kit:${code}`
+        return postBlock(`${reason}${locator}`, [])
+      },
+    })
+  }
 
   /**
    * Steer a failed stop boundary at most `MAX_SAME_TURN_STOP_STEERS` times per
@@ -672,8 +752,16 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   ctx.tools.register(createRuntimeContextTool(contextClient))
   ctx.tools.register(createPlusOneTool(() => { plusOneExecutions += 1 }))
 
+  /** @param {import('@deepseek-ai/dsh-agent').Agent} agent */
+  const attachDataPolicyGeneration = (agent) => {
+    if (!dataPolicyGenerations.has(agent.session)) {
+      dataPolicyGenerations.set(agent.session, `generation:${randomUUID()}`)
+    }
+  }
+  for (const agent of ctx.agents.list()) attachDataPolicyGeneration(agent)
+
   ctx.on('agent/session-start', payload => {
-    dataPolicyGenerations.set(payload.agent.session, `generation:${randomUUID()}`)
+    attachDataPolicyGeneration(payload.agent)
     if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
     if (!isReviewer(payload.agent)) {
@@ -681,9 +769,9 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     }
   })
   ctx.on('agent/disposed', ({ agent }) => {
+    dataPolicyGenerations.delete(agent.session)
     if (isReviewer(agent)) return
     prerequisites.detachAgent(agent)
-    dataPolicyGenerations.delete(agent.session)
     void workspaceDisposals.track(agent, async () => {
       try {
         await acceptance.agentDisposed(agent)
@@ -884,52 +972,30 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
     finishLine.observeFs(target, observation, actor)
   })
 
-  const persistenceEvents = /** @type {{on(event:'tools/pre-persist', listener:(call:Readonly<ToolPersistenceCall>, next:()=>Promise<ToolPersistenceDecision>)=>Promise<ToolPersistenceDecision>):unknown}} */ (/** @type {unknown} */ (ctx))
-  persistenceEvents.on('tools/pre-persist', async (call, next) => {
-    if (isReviewer(call.agent)) return next()
-    const session = call.agent?.session
-    const cwd = session?.header.cwd
-    const generation = session === undefined ? undefined : dataPolicyGenerations.get(session)
-    if (session === undefined || typeof cwd !== 'string' || cwd.length === 0
-      || generation === undefined || closing || call.signal.aborted) {
-      throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
-    }
-    const correlation = {
-      sessionId: session.id,
-      cwd,
-      turn: call.turn,
-      step: call.step,
-      callId: call.callId,
-      rootCallId: call.callId,
-    }
-    let outcome
-    try {
-      outcome = await evaluateDataPolicy(
-        call,
-        correlation,
-        'pre-call',
-        call.arguments,
-        'session.persist',
-      )
-    } catch {
-      throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
-    }
-    if (outcome?.kind !== 'data-policy') {
-      throw new Error('dsh-runtime-kit:data-policy-persistence-unavailable')
-    }
-    const { decision } = outcome
-    if (decision.action === 'allow') return next()
-    return {
-      kind: /** @type {const} */ ('replace'),
-      arguments: decision.replacement ?? {
-        redacted: true,
-        code: decision.code,
-      },
-    }
-  })
-
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (isReviewer(exec.agent)) return next()
+    if (isReviewer(exec.agent)) {
+      if (!dataPolicyEnabled) return next()
+      const correlation = compatibility.beginTool(exec)
+      if (!correlation.ok) return { kind: /** @type {const} */ ('deny'), reason: denial(correlation.reason).reason }
+      let dataDecision
+      try {
+        dataDecision = await evaluateDataPolicy(exec, correlation.context, 'pre-call', exec.arguments)
+      } catch {
+        return { kind: /** @type {const} */ ('deny'), reason: denial('data-policy-unavailable').reason }
+      }
+      if (dataDecision?.kind !== 'data-policy' || dataDecision.decision.action !== 'allow') {
+        const code = dataDecision?.kind === 'data-policy'
+          ? dataDecision.decision.code
+          : dataDecision?.kind === 'deny'
+            ? dataDecision.reason
+            : 'dsh-runtime-kit:data-policy-unavailable'
+        return {
+          kind: /** @type {const} */ ('deny'),
+          reason: code.startsWith('dsh-runtime-kit:') ? code : `dsh-runtime-kit:${code}`,
+        }
+      }
+      return next()
+    }
     const identity = authorizationIdentity(exec, transport.admissionEpoch)
     /** @param {string} reason */
     const rememberDenial = (reason) => {
@@ -986,20 +1052,22 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
         appendToolContext(exec, policyContextMessage(createUserMessage, decision.context))
       }
     }
-    let dataDecision
-    try {
-      dataDecision = await evaluateDataPolicy(exec, correlation.context, 'pre-call', exec.arguments)
-    } catch {
-      return rememberDenial(denial('data-policy-unavailable').reason)
-    }
-    if (dataDecision?.kind !== 'data-policy' || dataDecision.decision.action !== 'allow') {
-      const code = dataDecision?.kind === 'data-policy'
-        ? dataDecision.decision.code
-        : dataDecision?.kind === 'deny'
-          ? dataDecision.reason
-          : 'dsh-runtime-kit:data-policy-unavailable'
-      const reason = code.startsWith('dsh-runtime-kit:') ? code : `dsh-runtime-kit:${code}`
-      return rememberDenial(reason)
+    if (dataPolicyEnabled) {
+      let dataDecision
+      try {
+        dataDecision = await evaluateDataPolicy(exec, correlation.context, 'pre-call', exec.arguments)
+      } catch {
+        return rememberDenial(denial('data-policy-unavailable').reason)
+      }
+      if (dataDecision?.kind !== 'data-policy' || dataDecision.decision.action !== 'allow') {
+        const code = dataDecision?.kind === 'data-policy'
+          ? dataDecision.decision.code
+          : dataDecision?.kind === 'deny'
+            ? dataDecision.reason
+            : 'dsh-runtime-kit:data-policy-unavailable'
+        const reason = code.startsWith('dsh-runtime-kit:') ? code : `dsh-runtime-kit:${code}`
+        return rememberDenial(reason)
+      }
     }
     if (exec.signal.aborted) return rememberDenial(denial('policy-caller-aborted').reason)
 
@@ -1078,27 +1146,6 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
           : denial('policy-unavailable').reason
       return postBlock(reason, retainedContexts)
     }
-    let dataDecision
-    try {
-      dataDecision = await evaluateDataPolicy(exec, correlation, 'final-result', result)
-    } catch {
-      toolContexts.delete(exec)
-      return postBlock(denial('data-policy-unavailable').reason, retainedContexts)
-    }
-    if (dataDecision?.kind !== 'data-policy' || dataDecision.decision.action !== 'allow') {
-      toolContexts.delete(exec)
-      const decision = dataDecision?.kind === 'data-policy' ? dataDecision.decision : undefined
-      const locator = decision?.action === 'quarantine'
-        && typeof decision.replacement?.locator === 'string'
-        && /^sha256:[0-9a-f]{64}$/u.test(decision.replacement.locator)
-        ? ` (${decision.replacement.locator})`
-        : ''
-      const code = decision?.code
-        ?? (dataDecision?.kind === 'deny' ? dataDecision.reason : undefined)
-        ?? 'dsh-runtime-kit:data-policy-unavailable'
-      const reason = code.startsWith('dsh-runtime-kit:') ? code : `dsh-runtime-kit:${code}`
-      return postBlock(`${reason}${locator}`, retainedContexts)
-    }
     let downstream
     try {
       downstream = await next()
@@ -1150,7 +1197,10 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   })
 
   ctx.on('tools/result', (exec, result) => {
-    if (isReviewer(exec.agent)) return
+    if (isReviewer(exec.agent)) {
+      compatibility.result(exec)
+      return
+    }
     authorizations.delete(exec)
     toolContexts.delete(exec)
     finishLine.result(exec, result)
