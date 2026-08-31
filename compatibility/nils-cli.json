@@ -86,7 +86,7 @@
     }
   },
   "rollback_validation": {
-    "runtime_package_sha256": "0720c53a156459a1b888689a98815dcd5493ad6736b627507b7cdef6f3edd1b3",
+    "runtime_package_sha256": "ca5d538b6f76b109787a06b7721c489bb9238727e3c2c9c9ebdf8f5d41f5576c",
     "version": "1.27.27",
     "source_revision": "v1.27.27",
     "source_commit": "1e93e23cdf89cc82eac0e81d796fa13136d3782f",

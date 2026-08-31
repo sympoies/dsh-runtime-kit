@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 
-test('issue 60 rollback is pinned to the exact accepted issue 59 baseline', () => {
+test('issue 61 rollback is pinned to the exact accepted issue 60 baseline', () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
@@ -58,9 +58,9 @@ test('issue 60 rollback is pinned to the exact accepted issue 59 baseline', () =
     '81be602378e3790e042aae5000befd78c1d584bc',
   )
   // #66 and Gate 0 select the serial predecessor. This assertion freezes that
-  // reviewed selection for #60; it does not discover a future child baseline.
+  // reviewed selection for #61; it does not discover a future child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: '0720c53a156459a1b888689a98815dcd5493ad6736b627507b7cdef6f3edd1b3',
+    runtime_package_sha256: 'ca5d538b6f76b109787a06b7721c489bb9238727e3c2c9c9ebdf8f5d41f5576c',
     version: '1.27.27',
     source_revision: 'v1.27.27',
     source_commit: '1e93e23cdf89cc82eac0e81d796fa13136d3782f',
