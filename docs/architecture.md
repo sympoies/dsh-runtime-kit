@@ -111,6 +111,38 @@ accepted post-tool decision. Pre-step context is appended only after downstream 
 Per-session step/turn dedupe stores one last position, so lifecycle state is
 constant-space.
 
+Data policy is a separate strict nils boundary,
+`agent-hook.data-policy.evaluate.v1`. Runtime-kit submits the evaluated native
+tool arguments before the body and the exact finalized tool result before DSH
+persists or renders it. Each request is bound to the session, a random
+per-session workspace generation, a digest of the canonical workspace, the
+turn/step/call/root-call chain, and the correlated parent call when present.
+Replay, missing parent correlation, malformed output, timeout, cancellation,
+and companion failure all fail closed. Native tools, MCP tools, web tools,
+shells, Code Mode, and explicitly configured provider-opaque tools retain
+distinct source classes. The opaque exception suppresses only machine-local
+path quarantine; it never permits a detected secret or protected-root value.
+
+Nils owns deterministic classification and returns only a typed action, stable
+code, matched stable rule IDs, digests, bounded replacement metadata, and a
+content-free audit record.
+Runtime-kit never emits the inspected candidate through the audit event or a
+denial. Sensitive data and protected-root references are denied at both
+boundaries. Machine-local paths are allowed in call arguments but quarantined
+from final results with only a SHA-256 locator. The post-tool waterfall runs
+after DSH's ordinary result finalizer, so no later finalization step can
+reintroduce rejected bytes; the data-policy post decision is the final
+authority before the public result event.
+
+Configured `protectedRoots` are also registered with DSH's authenticated
+`sandboxPolicy.protect()` service. DSH canonicalizes the target freshly at the
+filesystem boundary, rejects direct, relative, lexical-alias, and symlink-alias
+writes, and projects the same roots into supported OS sandbox profiles. A host
+whose selected sandbox backend cannot express the restriction fails closed
+instead of silently weakening it. Runtime disposal removes the dynamic
+registration. These native controls complement the nils content decision; the
+JavaScript bundle does not duplicate filesystem or platform policy.
+
 ### Governed policy groups
 
 The packaged policy selects eleven Task 3.2, nine Task 3.3, and two Task 3.4
@@ -481,7 +513,8 @@ seam below binds one registry-owned execution to one exact definition.
 `src/prerequisite/index.js` assigns process-local identities to the exact
 Agent, runtime workspace generation, and visible `ToolDefinition` object. It
 uses the version-scoped `tools.bindPrerequisite` seam supplied by
-`patches/deepseek-harness/native-execution-boundaries-v2.patch`.
+the `native-execution-boundaries-v4` release artifact selected through
+`compatibility/dsh-patches.json`.
 The default mutation surface (`bash`, `write`, `edit`,
 `str_replace_editor`, and `runtime_kit_governed_commit`) requires the named
 `project-dev-context` capability. Another trusted bundle may attach the same

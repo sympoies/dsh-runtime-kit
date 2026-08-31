@@ -88,6 +88,7 @@ export const DSH_RC7_RUNTIME_SURFACE = Object.freeze([
   'subprocess.spawnDescriptor',
   'tools.bindPrerequisite',
   'tools.get',
+  'tools.projectForPersistence',
   'tools.register',
   'tools.guard',
 ])

@@ -72,7 +72,7 @@ function validRuntime() {
     shellEnv: { collect() {} },
     skills: { register() {} },
     subprocess: { resolveExecutable() {}, spawn() {}, spawnDescriptor() {} },
-    tools: { bindPrerequisite() {}, get() {}, register() {}, guard() {} },
+    tools: { bindPrerequisite() {}, get() {}, projectForPersistence() {}, register() {}, guard() {} },
   }
 }
 

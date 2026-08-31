@@ -13,6 +13,7 @@
         agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
         agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
         nilsCompatibilityCandidate: !!js process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+        protectedRoots: !!js JSON.parse(process.env.DSH_RUNTIME_KIT_PROTECTED_ROOTS ?? '[]')
         semanticCommit: !!js process.env.DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN ?? 'semantic-commit'
         privateSkillsDir: !!js process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
         mainAgentCli: !!js process.env.DSH_RUNTIME_KIT_MAIN_AGENT_BIN ?? 'main-agent'

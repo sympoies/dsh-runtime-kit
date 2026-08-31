@@ -2,117 +2,521 @@
   "schema_version": "dsh-runtime-kit.dsh-patches.v1",
   "patches": [
     {
-      "id": "native-execution-boundaries-v3",
-      "path": "patches/deepseek-harness/native-execution-boundaries-v3.patch",
-      "sha256": "e713250c722bef1be8fed9d60c954e6a7be39f50a9d2d8b8ba9dc825603d9ec8",
+      "id": "native-execution-boundaries-v4",
+      "release_artifacts": {
+        "0.1.0-rc.7": {
+          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc7.patch",
+          "sha256": "3cc5f89d1239df0c758f49b9b603569b70bbd8aff735277e2167a91cab4d4eda"
+        },
+        "0.1.0-rc.8": {
+          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc8.patch",
+          "sha256": "26bdbb72401faf460d939e2e115499e584e1b7be7f0efebbac20bf4bd345a6cd"
+        },
+        "0.1.1-rc.2": {
+          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc2.patch",
+          "sha256": "ffa59cfb607900bf91febe9e1dc43f31b4833827a98149b59d3ce82b0c31def0"
+        }
+      },
       "targets": {
-        "packages/subagent/subagent/src/types.ts": {
+        "docs/subsystems/goal.i18n.yaml": {
           "release_hashes": {
             "0.1.0-rc.7": {
-              "before_sha256": "9740ca09ce19bdd62e5abb989099b5a3735845a79a110e9e6405df7ff4d22640",
-              "after_sha256": "ac94a79f5ccd2d95b649e4b278970ada89912ead980db7b4e94f07a1217c658a"
+              "before_sha256": "90b071aba66f3bfae41f56db71557a39cb78f65c7c9ac7129ce21e71c5b80133",
+              "after_sha256": "c9fc26a9835c1c6c0cd1393934c460755d262933981bf1baa80aa1fdd21d422d"
             },
             "0.1.0-rc.8": {
-              "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
-              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
-            },
-            "0.1.1-rc.2": {
-              "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
-              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
+              "before_sha256": "90b071aba66f3bfae41f56db71557a39cb78f65c7c9ac7129ce21e71c5b80133",
+              "after_sha256": "c9fc26a9835c1c6c0cd1393934c460755d262933981bf1baa80aa1fdd21d422d"
             }
           }
         },
-        "packages/subagent/subagent/src/descriptor.ts": {
-          "before_sha256": "ab5886a1dc3bdc97fdb0372f5d7b64ff90c2205079621d5af11c1960babfceb1",
-          "after_sha256": "b7680877eb5ef3db5099bd048cbb7c6edaf16b875b737a000e52f12eed1a3f20"
-        },
-        "packages/subagent/subagent/src/continuation.ts": {
+        "docs/subsystems/goal.md": {
           "release_hashes": {
             "0.1.0-rc.7": {
-              "before_sha256": "20b5ba6b820b514e7e5f74e6f23decf9cd81184a64bcaa17bc0e3f4c0706e619",
-              "after_sha256": "cd62150da4489ff95e6ca90c5fb14a7c11c5385f9d778b6417038a21886450ea"
+              "before_sha256": "0aa99cd1974f479471c17754efcf8077fee45523f169231d0c57ab2a8b5eacf9",
+              "after_sha256": "a0e9dfeacadfda5e849f63117497fc8a42edb7786d4c79c28b1835d5cd7e6546"
             },
             "0.1.0-rc.8": {
-              "before_sha256": "fbcbd65ada6dc1e7262e512269e4b7728fcc093f1eecab97fd77179478b3ca94",
-              "after_sha256": "d8fd13a9f21dba85688f87ff28122ad5561118088704015177a10498f459b35d"
-            },
-            "0.1.1-rc.2": {
-              "before_sha256": "fbcbd65ada6dc1e7262e512269e4b7728fcc093f1eecab97fd77179478b3ca94",
-              "after_sha256": "d8fd13a9f21dba85688f87ff28122ad5561118088704015177a10498f459b35d"
+              "before_sha256": "0aa99cd1974f479471c17754efcf8077fee45523f169231d0c57ab2a8b5eacf9",
+              "after_sha256": "a0e9dfeacadfda5e849f63117497fc8a42edb7786d4c79c28b1835d5cd7e6546"
             }
           }
         },
-        "packages/subagent/subagent/src/child-agent.ts": {
-          "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-          "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
-        },
-        "packages/subagent/subagent/src/index.ts": {
+        "docs/subsystems/goal.zh.md": {
           "release_hashes": {
             "0.1.0-rc.7": {
-              "before_sha256": "24c595fcb2e15f2092fc0fe333fcf74ea22ba8a248d942295654a40cf795c65c",
-              "after_sha256": "40aaedeacb88d694ac7f4979cb4cdbafbb030e4010083e7b060ef3c9816bb4e9"
+              "before_sha256": "900ceed75693f0de45c97ee95d39186dbbb4d1e260f7802ed78ca75ec763e3b2",
+              "after_sha256": "ea9d177621c3235d86032cf5b06d148260666314445ff1f24e1f3ea223742979"
             },
             "0.1.0-rc.8": {
-              "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "3299a716acf3d9fe329d3d5ef4fa99f498ff11b1b0df0fe3dd0028b98c762adb"
-            },
-            "0.1.1-rc.2": {
-              "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "3299a716acf3d9fe329d3d5ef4fa99f498ff11b1b0df0fe3dd0028b98c762adb"
+              "before_sha256": "900ceed75693f0de45c97ee95d39186dbbb4d1e260f7802ed78ca75ec763e3b2",
+              "after_sha256": "ea9d177621c3235d86032cf5b06d148260666314445ff1f24e1f3ea223742979"
             }
           }
         },
-        "packages/subagent/subagent/tests/continuation.spec.ts": {
+        "docs/subsystems/llm-streaming.i18n.yaml": {
           "release_hashes": {
             "0.1.0-rc.7": {
-              "before_sha256": "1a35e1f2159e3414a0e5004fba7910c9b77d375f75484b0bb948138ab9031777",
-              "after_sha256": "a4fee6b41cdd9ca5e98d0284d01e3ac77d2fdafb75ecde8fd567e148489723ea"
+              "before_sha256": "f32285350fe4a25d781da1415c72267bfa766153863bc85e5fa6e0049b503952",
+              "after_sha256": "b233c5c6e180925b3d02f1092e6687843453ccf7232b71cab2fcf804ceba6061"
             },
             "0.1.0-rc.8": {
-              "before_sha256": "75cfd5c88fe340274f9e79a60f34706000650ab04743673f8d2b36c14c539a30",
-              "after_sha256": "f50636ded70ed9b0f0821094be6c4d144c7222d91127e601f65f6975cdc78adb"
+              "before_sha256": "80c1a48d5276dbc1ad17dc917d1154e8a059457ababe75cc7ef9e9572a907d09",
+              "after_sha256": "48c2968d8866f881e356c18d40fc2daf5b4183810b36ca90a0d4518036803f3a"
             },
             "0.1.1-rc.2": {
-              "before_sha256": "012c144242922439987490e5ae223f90f68cba200c1c4fd3aba4b27453da4f3a",
-              "after_sha256": "ecd02cfd85843380dc707803af78bec90acd903fcc8472d0f6b4657b128ace3d"
+              "before_sha256": "6dc0b385b5eb63b552b8cab30ccf2cdcf138e16a30e985afeb27148d92314a3b",
+              "after_sha256": "14d39577a7f142d6c41ca72462b08bf37ab5a4982f9ca2447e6d81c796784efa"
             }
           }
         },
-        "packages/subprocess/subprocess/src/index.ts": {
-          "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
-          "after_sha256": "78882536c81b181b338fab12530615f1b8e8f739224f20e4d1ad8865b0286d30"
-        },
-        "packages/subprocess/subprocess-local/src/index.ts": {
-          "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
-          "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
-        },
-        "packages/subprocess/subprocess-local/src/spawn.ts": {
-          "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
-          "after_sha256": "27a3fde78f52a7a9d1533afaaaec19bf9a47df98480370e70172dbfdefe95bbb"
-        },
-        "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
+        "docs/subsystems/llm-streaming.md": {
           "release_hashes": {
             "0.1.0-rc.7": {
-              "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
-              "after_sha256": "acb90d0086c661ae2ef48d3359eff9d82687f29899c103b9148e6a75d7fa99f7"
+              "before_sha256": "259476c318a26bc504d816f9f11997433d1fb848d45eaf0ced07caaa38afd7e3",
+              "after_sha256": "23c33691a1f31a243e7c33d8398a2794ca03f6a002ae6f842a684b713df0cf32"
             },
             "0.1.0-rc.8": {
-              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "before_sha256": "ade0750e6f7276a2c7aaa5659d125528e53abfa3c4ac4693537bedba904991a7",
+              "after_sha256": "587ff4f20780efdba3d52e39971333890f32639cba3cb86d6bf53cf018102345"
             },
             "0.1.1-rc.2": {
-              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "before_sha256": "2c54e09bc574edb9484f877ab331094629b4b3010c6c5075d799295bdd0b86ed",
+              "after_sha256": "0330f6fb8835f63ac136a5b282d7e867bafe1b8431e043f6b78653d101d9703b"
+            }
+          }
+        },
+        "docs/subsystems/llm-streaming.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "03632a1706b6d83fe5f21cef119925dd1f273ac4aa6444447f7b731cd85f2fb4",
+              "after_sha256": "cabeaab21f21ede7f77547a4973f8d9650d4ada82faf25b6356136f8d2db72c0"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "c354f0674dd2db0bd3955a31269f91f323460a18e7f0659265a026dd0f8ac7ef",
+              "after_sha256": "0ad65e6b61b63d54f5147b1910489b0a600b59905ed3c6147e04958ab4765bf7"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "fa9851ed4e5cb700981f18733342fd4b58a38a416ab174230d12897bc5d15154",
+              "after_sha256": "9822f00e8a329a2a1020fff9661a340f956b8dd0a55d844a809eeb31a8c40bd8"
+            }
+          }
+        },
+        "docs/subsystems/sandbox.i18n.yaml": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "88d702f94030b30aa887104d3c6869fedef6054e1d30b025ad792cbb30b19f49",
+              "after_sha256": "ae8fb9f0265f7983c461ff2936a96a7e623507126eb6a8d70d1f3d4554b754b5"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "88d702f94030b30aa887104d3c6869fedef6054e1d30b025ad792cbb30b19f49",
+              "after_sha256": "ae8fb9f0265f7983c461ff2936a96a7e623507126eb6a8d70d1f3d4554b754b5"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "b402287f443bf53b025111f3b97c4c592f2a2a57e0ec4734ac52ee13ab57d405",
+              "after_sha256": "2685659e42004651b01bbb021ba5b75c397cd7ad5441c7be2c672c9a7a5c1dc3"
+            }
+          }
+        },
+        "docs/subsystems/sandbox.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "d00fa2e0d117c5697ec167422525770294ecefb469d2beb44e4543d60cc64185",
+              "after_sha256": "2fee76ae24647ca80836d11f8739f7d7db2132405b20d8ef8a0bfaf1ae943783"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "d00fa2e0d117c5697ec167422525770294ecefb469d2beb44e4543d60cc64185",
+              "after_sha256": "2fee76ae24647ca80836d11f8739f7d7db2132405b20d8ef8a0bfaf1ae943783"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "5a4511505f96ca5e2c7470878c53d22d58dc801c18b553c45a167b7fff833819",
+              "after_sha256": "b1d16afe18a6772287a9da9c2f1f2e17a1364031906a9af1f5148495a95daa15"
+            }
+          }
+        },
+        "docs/subsystems/sandbox.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "362ee87f3cb94fcad3a6cc3951afb3650bce66fb5db7495fda20a2ebb00e6964",
+              "after_sha256": "5649b289431d351d895775552ab7d550ffd3d990e6c93f495077f94ea3bcddf8"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "362ee87f3cb94fcad3a6cc3951afb3650bce66fb5db7495fda20a2ebb00e6964",
+              "after_sha256": "5649b289431d351d895775552ab7d550ffd3d990e6c93f495077f94ea3bcddf8"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "24483f3541f410510b1d75dc1572b09d1047ff052b579a373fa28fb99a2380f8",
+              "after_sha256": "d95edca76d266b6854b656f182a8f2b8b137ef7529ea9803d2507405f5e537e5"
+            }
+          }
+        },
+        "docs/subsystems/subagent.i18n.yaml": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "1d784329ba7bc02f34bd10cf4698cb129d7889d936bd694b034145696d894460",
+              "after_sha256": "ae59aad9a65f7a34f8bd26a0818275ed3e9d2bf74e3c66ec4796a54db80a18ab"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "3b4aadddf0ff7e18b8fcc55f57cc614982d1a517f98e23d6a179c79076549682",
+              "after_sha256": "dac6c4c06550d4d9265bc854e0f6a042c540c3ba2f0dffac184d3e1219eda0f4"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "abcfbfe163ad500a25295f3e9bf171aeb5f154a83c5d16499cd3f7c2e291a4ec",
+              "after_sha256": "eaa52b0a7a44758a3f4c63ebb6ac3b9a66b1d215bddbc7f8ea4e4da3ecb86204"
+            }
+          }
+        },
+        "docs/subsystems/subagent.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "42113259602c9199e178f4e541e5331278a706be2378a6a5b87a2de98e989de9",
+              "after_sha256": "c9d7cc2eb6584c644a069aeeb0ce5aa7da27515981af321d23031357c23122de"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "b1874f3ed1d25bb20e6b42ba837f93fb3a56b99313c8f6e2647b5384193a44c6",
+              "after_sha256": "de5573a58c7c9b4052226a98bcb2278563c2ff56284589569fee72b3dc59efef"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "0951249af8f3e65cba1b1cdc79ee6cfa57bf3d6f3fb80584eebe6ebdd9ec50c5",
+              "after_sha256": "364165eaadd6b934ac3c2222ac0ee398eef9b59cbf8ddad7cdad7ae4578312f2"
+            }
+          }
+        },
+        "docs/subsystems/subagent.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "e2f89d1a93a03a58facdb54f8d9cc07fe04642c91beec322b095c32f3026717d",
+              "after_sha256": "4ea8c18b2a8b85fad24bc702551f6d0bb09d9cdb8ba11b9c00030a8e5bed13cc"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "3fc4784ba1eb4e4d0c6fc2c1aed4eaaba71ee042b6d83fe7b0bf43ac68d754ec",
+              "after_sha256": "731fd8ceb95f2af306429c3e2f8feb04a3ad59a4e9345d217f40841c164c813b"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "22c201870fab63be580f0ab8a6505fe7a1079c4da2acf3f3c2d31ae3230d14ff",
+              "after_sha256": "cbf6f9b7b4b3cb32bf5bab5f1dd490aeecfb96e2b2062d1b9bc1f8aab98c292b"
+            }
+          }
+        },
+        "docs/subsystems/subprocess.i18n.yaml": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "3171e49322457bf61d613df7fdcd7860ae3278a51d4595af153887d1525da9a4",
+              "after_sha256": "732714837ebebf1fa46330770ee7fe50025529335b6721a97767501a6f09fd4c"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "3171e49322457bf61d613df7fdcd7860ae3278a51d4595af153887d1525da9a4",
+              "after_sha256": "732714837ebebf1fa46330770ee7fe50025529335b6721a97767501a6f09fd4c"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "93886c8c4592b617a658cdd4840366014f975f4d75e5a484dd99877262a3d30a",
+              "after_sha256": "314465e1ff30113f1ec1cde014f6c2ab09ebb8e2615ae9a4e76425bdf232a9ba"
+            }
+          }
+        },
+        "docs/subsystems/subprocess.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "2f3de8a8f05391900a217ae679965a244290f25709bbc35c24850adeb995d8ba",
+              "after_sha256": "98834e9febbfc99e8cbf8737009329a8fd71e90ead39466ab58dee0bb33f3a6e"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "2f3de8a8f05391900a217ae679965a244290f25709bbc35c24850adeb995d8ba",
+              "after_sha256": "98834e9febbfc99e8cbf8737009329a8fd71e90ead39466ab58dee0bb33f3a6e"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "e3a23f6c65b3aae1b027a455791951441806cc8e93296f15f9e60cfe240b67ee",
+              "after_sha256": "e34910fcbc7988cd77507b4039e64cce9ade242885e77a54aed163e1c49569c5"
+            }
+          }
+        },
+        "docs/subsystems/subprocess.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "abc0bbdeacf508b54603da242ba07b5e089505159c46c891ce5cb0afac9f332e",
+              "after_sha256": "7ca29c83914a226f8c215b4f8c67c6609acec4fb80dd08e9841a563d656eb57f"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "abc0bbdeacf508b54603da242ba07b5e089505159c46c891ce5cb0afac9f332e",
+              "after_sha256": "7ca29c83914a226f8c215b4f8c67c6609acec4fb80dd08e9841a563d656eb57f"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "d86ffeeb5a1234fc4d29faf34aacbd690419d5ddc1b1960797d9d01dae580f85",
+              "after_sha256": "06de57acebed0da4bd54220cdbfad6f03a61540709214ddddf4e7f9831e27b54"
+            }
+          }
+        },
+        "docs/subsystems/tools.i18n.yaml": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "8639b33eab83b438808c350fafa60689931d70a7b2fe54f3e911b46d852e4b64",
+              "after_sha256": "7c3c776ceb23b05329bdc9e7cadce5c0d04842724bf7e7c364d5133abe34a2ee"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "8639b33eab83b438808c350fafa60689931d70a7b2fe54f3e911b46d852e4b64",
+              "after_sha256": "7c3c776ceb23b05329bdc9e7cadce5c0d04842724bf7e7c364d5133abe34a2ee"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "f73e070842517455b9cd4e086065f1db373ad7d0bcbb0c257c9287089e991fa5",
+              "after_sha256": "14ea98822564cbc7ba940b2cbb1f2eaa1c142d1865334d3515586b001aaf25bc"
+            }
+          }
+        },
+        "docs/subsystems/tools.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "d6a3b5911eed52ad1707095b5c56b55ff28c19174b834eba07194ff25e565e1d",
+              "after_sha256": "4bc7468911ae957cc504f5d40b0ace100cbfacee924611b6b4423eb1852631bd"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "d6a3b5911eed52ad1707095b5c56b55ff28c19174b834eba07194ff25e565e1d",
+              "after_sha256": "4bc7468911ae957cc504f5d40b0ace100cbfacee924611b6b4423eb1852631bd"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "ce393e73937f05055b591cda2176b970b04c48bd372448471a7bedc434a81ec6",
+              "after_sha256": "bef6b0d33f8c0358ae5104ca0fb5a5b8e6afc38af3c5be5a5c1c7ae1fd132755"
+            }
+          }
+        },
+        "docs/subsystems/tools.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "6b1f52cfd6fa2ed56791bce45e88f4ae5cabd15ae8cd7687b1d3ec5346492a9b",
+              "after_sha256": "47dad3628880d6566375496d10a64783f6399f0765bfae6b2311521953cd123f"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "6b1f52cfd6fa2ed56791bce45e88f4ae5cabd15ae8cd7687b1d3ec5346492a9b",
+              "after_sha256": "47dad3628880d6566375496d10a64783f6399f0765bfae6b2311521953cd123f"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "3140e488b4c80223dd3799ae9f68549ad0cf5c883d525d555e042011490915ac",
+              "after_sha256": "a7087f7a47852fc70218b7184805af4075466a1723fcc29b886f850226e0be12"
+            }
+          }
+        },
+        "packages/core/agent-loop/README.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "e472a412e5c1fe4c7ca8ee9fc7baf27655539c813de862b5ae999a543cb7bed4",
+              "after_sha256": "bcda467440b5d4873f15f094f344f2c17b26e30734e06cf193e0a3748990cd76"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "d3c5d7708c5faf4a7394f67e50cf12510191f4ef0fc2925e789a037e5e5f5390",
+              "after_sha256": "42e08bcb87b339d8a310c2adcbf93f2eb98844800e6c3dbc2e30411176e0da29"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "d3c5d7708c5faf4a7394f67e50cf12510191f4ef0fc2925e789a037e5e5f5390",
+              "after_sha256": "42e08bcb87b339d8a310c2adcbf93f2eb98844800e6c3dbc2e30411176e0da29"
+            }
+          }
+        },
+        "packages/core/agent-loop/README.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "f076dd4abf3280ec77b27d50decc83f4e359d91b080222fdd140343ce87f9f50",
+              "after_sha256": "f4bff9170834b47c00726028eae07a88c5209eb502de2e42ac0578bd2e68c55a"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "366a3d7a7f12e3d5edc6623ec06455f5d9935ea1e85487513175133b62d2fddf",
+              "after_sha256": "f157a2ee8ef4b495b50f70c844ea681968faa74081df7ab6c5d7abe2ad4d0312"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "cf41d84d3be90d1354d407c07e8f5ea36a583236232c56925fb9d1f060ac18d0",
+              "after_sha256": "ae532492e42ed7549beb4b713096e0f18805da603cca22cb03ba061506514680"
+            }
+          }
+        },
+        "packages/core/agent-loop/src/agent.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "e775e59f3761240ee571a9b997d0d29deb97a283b6c2fc3a071091b2743d22b4",
+              "after_sha256": "f8243d946e7c32d877b83236e98d80beb38f419f828af65df5838d7b2d50b1b7"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "8288214410df9e8f611df17768f667eeee67351bfcaf8c5bf92a38f6a5f9117f",
+              "after_sha256": "f2b813ca2ab04f33bdd5176c03182f2af9a626159f3c1632edad5a87c5bf67a8"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "8288214410df9e8f611df17768f667eeee67351bfcaf8c5bf92a38f6a5f9117f",
+              "after_sha256": "f2b813ca2ab04f33bdd5176c03182f2af9a626159f3c1632edad5a87c5bf67a8"
+            }
+          }
+        },
+        "packages/core/agent-loop/src/tool-calls.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "4244af95a61fe509f2849b204c13af4bb61b522c475688b20f01093a8236a754",
+              "after_sha256": "be1158d06ca83554ac88197ef132864d863244d15693c4fdb99de4c82bd752f2"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "4244af95a61fe509f2849b204c13af4bb61b522c475688b20f01093a8236a754",
+              "after_sha256": "be1158d06ca83554ac88197ef132864d863244d15693c4fdb99de4c82bd752f2"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "4244af95a61fe509f2849b204c13af4bb61b522c475688b20f01093a8236a754",
+              "after_sha256": "be1158d06ca83554ac88197ef132864d863244d15693c4fdb99de4c82bd752f2"
+            }
+          }
+        },
+        "packages/core/agent-loop/tests/interception.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "04e979f05ab1d419c46df0fcaacca0b49e66fdb821d3084a5e22a14af6a05e03",
+              "after_sha256": "7035be40f4ff536e374fab25277ece7da8c13eecd98910189ca61c0b4defd228"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "04e979f05ab1d419c46df0fcaacca0b49e66fdb821d3084a5e22a14af6a05e03",
+              "after_sha256": "7035be40f4ff536e374fab25277ece7da8c13eecd98910189ca61c0b4defd228"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "04e979f05ab1d419c46df0fcaacca0b49e66fdb821d3084a5e22a14af6a05e03",
+              "after_sha256": "7035be40f4ff536e374fab25277ece7da8c13eecd98910189ca61c0b4defd228"
+            }
+          }
+        },
+        "packages/core/tools/README.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "695e1f49dc4929133a5bca9da0d1f96601027a2643159efff5b82fb2709aa90d",
+              "after_sha256": "56f1224911120c91e100a872cd75254203a46b99b71d81fcbce2c501a0bea744"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "695e1f49dc4929133a5bca9da0d1f96601027a2643159efff5b82fb2709aa90d",
+              "after_sha256": "56f1224911120c91e100a872cd75254203a46b99b71d81fcbce2c501a0bea744"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "695e1f49dc4929133a5bca9da0d1f96601027a2643159efff5b82fb2709aa90d",
+              "after_sha256": "56f1224911120c91e100a872cd75254203a46b99b71d81fcbce2c501a0bea744"
+            }
+          }
+        },
+        "packages/core/tools/README.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "8f81cc3353bddaf85213f957a1cb0d416cc0f45e9d130a39fa0b89214faa2708",
+              "after_sha256": "38948f259327b166db93e4b24fb2450e00efe9a82ec6c57f02ff2b572e2e2244"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "8f81cc3353bddaf85213f957a1cb0d416cc0f45e9d130a39fa0b89214faa2708",
+              "after_sha256": "38948f259327b166db93e4b24fb2450e00efe9a82ec6c57f02ff2b572e2e2244"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "d5332733078b06540877c4f583a4096ea93b33f04aa70531856af63d12c9d029",
+              "after_sha256": "7d78caf46396cc63c6b3994ab2d31c917f9ef64afcea64c20c005498bf787f40"
             }
           }
         },
         "packages/core/tools/src/index.ts": {
-          "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
-          "after_sha256": "ada65b17551609e94c1284e9ac93dc04f64a69d952ef53be896df6291d7d6331"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
+              "after_sha256": "aaf3be122d94b2b21c32a166c5a87e90dba9a239f7e99123859e6e05bb8295be"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
+              "after_sha256": "aaf3be122d94b2b21c32a166c5a87e90dba9a239f7e99123859e6e05bb8295be"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "22b20afadb31c19512972fed145b0ac67a2c6cc14392bd430763960ebeeb18c9",
+              "after_sha256": "aaf3be122d94b2b21c32a166c5a87e90dba9a239f7e99123859e6e05bb8295be"
+            }
+          }
         },
         "packages/core/tools/tests/tools.spec.ts": {
-          "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
-          "after_sha256": "870e64a2d380d9918e5c7051778b1c2c6ef9a0b3eedc7c1c004a8d95edc59554"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
+              "after_sha256": "58d9f015f6995ba64466078a20dadf02678d91924ca9aed0438d8a9b7bc3fe95"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
+              "after_sha256": "58d9f015f6995ba64466078a20dadf02678d91924ca9aed0438d8a9b7bc3fe95"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "21a5649c2251759362ccc31702cc74e2d14dac1791c33f3590cd462710610894",
+              "after_sha256": "58d9f015f6995ba64466078a20dadf02678d91924ca9aed0438d8a9b7bc3fe95"
+            }
+          }
+        },
+        "packages/extensions/tool-cordis/src/api-catalog.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "00c8fc75ba771e922930601c0dcde0894401aa163b46e6f64cbd29f979c9b822",
+              "after_sha256": "b3a94e36f728aa7e7ac4b9d2bcb477202c52553b33ca0bfba83573989b88249b"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "5abc2adb7e0eb8cd586525e9ccd212152b3b30547a6a6ba7af60a30926d16e10",
+              "after_sha256": "80e97fd58748d22390536da99bf75f25a02bef15c6fdf882f5b8fbb9a9347618"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "20b7a3b0c7aae35534072dd3c9aa11f1156b4a817b23dc4fa53643c0a471e1d2",
+              "after_sha256": "23dd14b49076f23c02a253cbab0bb8d75ec2b1fc72e601e7f97665b8799c43f8"
+            }
+          }
+        },
+        "packages/fs/fs-sandbox/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "ae506c5830ca4098953755e95639ef466eee90b523fa1264d050c719745e2591",
+              "after_sha256": "ba310c07f59f5b0076dd5820f793af185d978c8ce8a17b7ede2f11d02cc29d45"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "ae506c5830ca4098953755e95639ef466eee90b523fa1264d050c719745e2591",
+              "after_sha256": "ba310c07f59f5b0076dd5820f793af185d978c8ce8a17b7ede2f11d02cc29d45"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "ae506c5830ca4098953755e95639ef466eee90b523fa1264d050c719745e2591",
+              "after_sha256": "ba310c07f59f5b0076dd5820f793af185d978c8ce8a17b7ede2f11d02cc29d45"
+            }
+          }
+        },
+        "packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "44e305aaa5f767195a316d015e99f64199afd0fcfd3d5bf773ee21dc5bd7ad7e",
+              "after_sha256": "e379b5dbf90e05892622588bb503fe559ea8c88dceb541634b21f266debd7004"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "44e305aaa5f767195a316d015e99f64199afd0fcfd3d5bf773ee21dc5bd7ad7e",
+              "after_sha256": "e379b5dbf90e05892622588bb503fe559ea8c88dceb541634b21f266debd7004"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "44e305aaa5f767195a316d015e99f64199afd0fcfd3d5bf773ee21dc5bd7ad7e",
+              "after_sha256": "e379b5dbf90e05892622588bb503fe559ea8c88dceb541634b21f266debd7004"
+            }
+          }
+        },
+        "packages/fs/tool-fs/src/sandbox.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
+              "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
+              "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
+              "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+            }
+          }
+        },
+        "packages/fs/tool-fs/tests/tools.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "8032f5051368c9e08888dcaa0de3a5f9c5711fb18efc131dc1ea4a0782ef2d2c",
+              "after_sha256": "979e17bf8ca8952a86a84cacbbc20b7dc453146d0a6dd3a3e73093b02e241d05"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "8032f5051368c9e08888dcaa0de3a5f9c5711fb18efc131dc1ea4a0782ef2d2c",
+              "after_sha256": "979e17bf8ca8952a86a84cacbbc20b7dc453146d0a6dd3a3e73093b02e241d05"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "8032f5051368c9e08888dcaa0de3a5f9c5711fb18efc131dc1ea4a0782ef2d2c",
+              "after_sha256": "979e17bf8ca8952a86a84cacbbc20b7dc453146d0a6dd3a3e73093b02e241d05"
+            }
+          }
         },
         "packages/goal/goal/src/index.ts": {
           "release_hashes": {
@@ -131,22 +535,34 @@
           }
         },
         "packages/goal/goal/tests/goal.spec.ts": {
-          "before_sha256": "5bcfd99e7e52fe4a8067c506fcc2d08ce49e3ee558b7b5d7623a113a4bceec85",
-          "after_sha256": "1c352e6100f718c2cefdfe25302cbf48e42c8ddec3eafd26b83ad89300c202d8"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "5bcfd99e7e52fe4a8067c506fcc2d08ce49e3ee558b7b5d7623a113a4bceec85",
+              "after_sha256": "1c352e6100f718c2cefdfe25302cbf48e42c8ddec3eafd26b83ad89300c202d8"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "5bcfd99e7e52fe4a8067c506fcc2d08ce49e3ee558b7b5d7623a113a4bceec85",
+              "after_sha256": "1c352e6100f718c2cefdfe25302cbf48e42c8ddec3eafd26b83ad89300c202d8"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "5bcfd99e7e52fe4a8067c506fcc2d08ce49e3ee558b7b5d7623a113a4bceec85",
+              "after_sha256": "1c352e6100f718c2cefdfe25302cbf48e42c8ddec3eafd26b83ad89300c202d8"
+            }
+          }
         },
         "packages/llm/llm/src/index.ts": {
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "71c03b10d948a2dc2403db5c544ee9a2d6db7a45eb0b97d2b0bb2f733507526f",
-              "after_sha256": "b9c6cabf129ae9e51a9c0a9d95d94fde02193d5488403c69dade5e946d968e6a"
+              "after_sha256": "aedef50e8af4ee363cd0be120cb5fe554530e922dcc7f9fb010aaf1caaf3a7ca"
             },
             "0.1.0-rc.8": {
               "before_sha256": "71c03b10d948a2dc2403db5c544ee9a2d6db7a45eb0b97d2b0bb2f733507526f",
-              "after_sha256": "b9c6cabf129ae9e51a9c0a9d95d94fde02193d5488403c69dade5e946d968e6a"
+              "after_sha256": "aedef50e8af4ee363cd0be120cb5fe554530e922dcc7f9fb010aaf1caaf3a7ca"
             },
             "0.1.1-rc.2": {
               "before_sha256": "2107297b628bd4a4991297a09fa0d41fae351392f100ba47973383690c97afaf",
-              "after_sha256": "74c9d793744ecfbd03b0bfd7fc3ea7f3d7cdbb7b06baeaf66ded312eb750521c"
+              "after_sha256": "7ab3496d0cb5243a7aab0907b7a76d5b250926be92646e2c66450096cb3b8fe3"
             }
           }
         },
@@ -166,33 +582,357 @@
             }
           }
         },
-        "packages/fs/tool-fs/src/sandbox.ts": {
-          "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
-          "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+        "packages/sandbox/sandbox-local/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "5324e7da5467099d2f821a5b49fc0f988a3d5135fffadcb9d5699def67c47679",
+              "after_sha256": "28544e506740910fa803ed5f23a1aaddbd9898c494c57bac8e9724959f28789f"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "5324e7da5467099d2f821a5b49fc0f988a3d5135fffadcb9d5699def67c47679",
+              "after_sha256": "28544e506740910fa803ed5f23a1aaddbd9898c494c57bac8e9724959f28789f"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "f219da15db3d4c422d27a65cec636ce30d8a73a550a3da3033107774cd7a798b",
+              "after_sha256": "16a3b9fcff910ed1824e5c880d0161bce8a56373db2b7a237b828d2c6ae5f6d0"
+            }
+          }
         },
-        "packages/fs/tool-fs/tests/tools.spec.ts": {
-          "before_sha256": "8032f5051368c9e08888dcaa0de3a5f9c5711fb18efc131dc1ea4a0782ef2d2c",
-          "after_sha256": "979e17bf8ca8952a86a84cacbbc20b7dc453146d0a6dd3a3e73093b02e241d05"
+        "packages/sandbox/sandbox-local/src/profiles.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "e5890e42a72ed6ad45c97f298e860a76bcdb0f231f33434c9c1e8421e0ca5764",
+              "after_sha256": "3d56fab532fd45552a46d67cdc864c0258488983b722a00b0895e802d153458c"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "e5890e42a72ed6ad45c97f298e860a76bcdb0f231f33434c9c1e8421e0ca5764",
+              "after_sha256": "3d56fab532fd45552a46d67cdc864c0258488983b722a00b0895e802d153458c"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "20eddafc9d043f48e4500a6d984ed9782e12d0bfe56f24c169ce0727d525a282",
+              "after_sha256": "65d9cb680db20837a20fbbd670dec2397d326d080adb42e4cf2a975f361309a7"
+            }
+          }
+        },
+        "packages/sandbox/sandbox-local/tests/local.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "ca65ebcce794edd78ee04f3498cd156808be67df63d577dd421d9b7b589d40f7",
+              "after_sha256": "2c1daceef4ca4966ccd4892aeb71e515dd21e5bdd808acd426c14640fe7f5d0e"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "ca65ebcce794edd78ee04f3498cd156808be67df63d577dd421d9b7b589d40f7",
+              "after_sha256": "2c1daceef4ca4966ccd4892aeb71e515dd21e5bdd808acd426c14640fe7f5d0e"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "a3b6462071e6616361cf55e407ff51c962cd1c3ee05a8bd20c53d908de95e495",
+              "after_sha256": "f72211e84501d9eb4ac0acf258658478097c985599ed28dfbcf1aefaaeaf7769"
+            }
+          }
+        },
+        "packages/sandbox/sandbox-policy/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "fc17b83af00368534ff96903ec1cbf6e831ee1237575ee8dc137812f558dd72d",
+              "after_sha256": "d189be7e1366cec289c5c2b77b628be94e498acf1af230693a95874a7c8e4594"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "fc17b83af00368534ff96903ec1cbf6e831ee1237575ee8dc137812f558dd72d",
+              "after_sha256": "d189be7e1366cec289c5c2b77b628be94e498acf1af230693a95874a7c8e4594"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "fc17b83af00368534ff96903ec1cbf6e831ee1237575ee8dc137812f558dd72d",
+              "after_sha256": "d189be7e1366cec289c5c2b77b628be94e498acf1af230693a95874a7c8e4594"
+            }
+          }
+        },
+        "packages/sandbox/sandbox-policy/tests/policy.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "f474872aa36876edf138e621b538bbde4f3d4d75cd23167321a5e8d6c6e068e9",
+              "after_sha256": "3fcff88cb0f9bc07f2d2c963f0aff1b049ecec051fff37fc0cafb6ac08bcc69e"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "f474872aa36876edf138e621b538bbde4f3d4d75cd23167321a5e8d6c6e068e9",
+              "after_sha256": "3fcff88cb0f9bc07f2d2c963f0aff1b049ecec051fff37fc0cafb6ac08bcc69e"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "f474872aa36876edf138e621b538bbde4f3d4d75cd23167321a5e8d6c6e068e9",
+              "after_sha256": "3fcff88cb0f9bc07f2d2c963f0aff1b049ecec051fff37fc0cafb6ac08bcc69e"
+            }
+          }
         },
         "packages/sandbox/sandbox/src/escalation.ts": {
-          "before_sha256": "64c57a474667d3ae991377bc122a18449b059fd84721d7e30ff24f8ba4fd510e",
-          "after_sha256": "cffd9af94c0bf5521cef8ca322dea61430f9013e6a4c73614edbbbef40b29e55"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "64c57a474667d3ae991377bc122a18449b059fd84721d7e30ff24f8ba4fd510e",
+              "after_sha256": "cffd9af94c0bf5521cef8ca322dea61430f9013e6a4c73614edbbbef40b29e55"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "64c57a474667d3ae991377bc122a18449b059fd84721d7e30ff24f8ba4fd510e",
+              "after_sha256": "cffd9af94c0bf5521cef8ca322dea61430f9013e6a4c73614edbbbef40b29e55"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "64c57a474667d3ae991377bc122a18449b059fd84721d7e30ff24f8ba4fd510e",
+              "after_sha256": "cffd9af94c0bf5521cef8ca322dea61430f9013e6a4c73614edbbbef40b29e55"
+            }
+          }
         },
         "packages/sandbox/sandbox/src/index.ts": {
-          "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
-          "after_sha256": "8929893c4b737cb0e8beb99dca9b1ce8c007b6d3611f14ac872fca0165eb97af"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
+              "after_sha256": "5c9756157f8fbb0f677e960667e27423cd71fdbd732557b48020550d31abb0ff"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
+              "after_sha256": "5c9756157f8fbb0f677e960667e27423cd71fdbd732557b48020550d31abb0ff"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
+              "after_sha256": "5c9756157f8fbb0f677e960667e27423cd71fdbd732557b48020550d31abb0ff"
+            }
+          }
+        },
+        "packages/sandbox/sandbox/src/roots.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "8a18e1474012415def8197a4ee493394a91cc739a6ec94eb83c6b4d980b7a23b",
+              "after_sha256": "8e3744788bc1f7bc20150a9419da8455e5706502cc0d0c529e9dbcc3d45f217b"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "8a18e1474012415def8197a4ee493394a91cc739a6ec94eb83c6b4d980b7a23b",
+              "after_sha256": "8e3744788bc1f7bc20150a9419da8455e5706502cc0d0c529e9dbcc3d45f217b"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "8a18e1474012415def8197a4ee493394a91cc739a6ec94eb83c6b4d980b7a23b",
+              "after_sha256": "8e3744788bc1f7bc20150a9419da8455e5706502cc0d0c529e9dbcc3d45f217b"
+            }
+          }
         },
         "packages/sandbox/sandbox/tests/escalation.spec.ts": {
-          "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
-          "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
+              "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
+              "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
+              "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+            }
+          }
         },
         "packages/shell/tool-bash/src/index.ts": {
-          "before_sha256": "e0302d4cc1d835ca4118434afc9913c4236773bbce92349ae7644d540d40c482",
-          "after_sha256": "a3a61ac8adf6c3bf70e5c1df418f155e8c4fab871dc9b68b8e7899550adf3584"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "e0302d4cc1d835ca4118434afc9913c4236773bbce92349ae7644d540d40c482",
+              "after_sha256": "a3a61ac8adf6c3bf70e5c1df418f155e8c4fab871dc9b68b8e7899550adf3584"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "e0302d4cc1d835ca4118434afc9913c4236773bbce92349ae7644d540d40c482",
+              "after_sha256": "a3a61ac8adf6c3bf70e5c1df418f155e8c4fab871dc9b68b8e7899550adf3584"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "e0302d4cc1d835ca4118434afc9913c4236773bbce92349ae7644d540d40c482",
+              "after_sha256": "a3a61ac8adf6c3bf70e5c1df418f155e8c4fab871dc9b68b8e7899550adf3584"
+            }
+          }
         },
         "packages/shell/tool-bash/tests/tools.spec.ts": {
-          "before_sha256": "b6ea441d7527773f9378456025f4ab694a854c95bd07efa031c828fda7b0534d",
-          "after_sha256": "751ce557d2263d26f9342ec0fb0ea603d211adcc17901eb32e0a7bca026cfbae"
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "b6ea441d7527773f9378456025f4ab694a854c95bd07efa031c828fda7b0534d",
+              "after_sha256": "751ce557d2263d26f9342ec0fb0ea603d211adcc17901eb32e0a7bca026cfbae"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "b6ea441d7527773f9378456025f4ab694a854c95bd07efa031c828fda7b0534d",
+              "after_sha256": "751ce557d2263d26f9342ec0fb0ea603d211adcc17901eb32e0a7bca026cfbae"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "b6ea441d7527773f9378456025f4ab694a854c95bd07efa031c828fda7b0534d",
+              "after_sha256": "751ce557d2263d26f9342ec0fb0ea603d211adcc17901eb32e0a7bca026cfbae"
+            }
+          }
+        },
+        "packages/subagent/subagent/src/child-agent.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
+              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
+              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
+              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+            }
+          }
+        },
+        "packages/subagent/subagent/src/continuation.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "20b5ba6b820b514e7e5f74e6f23decf9cd81184a64bcaa17bc0e3f4c0706e619",
+              "after_sha256": "cd62150da4489ff95e6ca90c5fb14a7c11c5385f9d778b6417038a21886450ea"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "fbcbd65ada6dc1e7262e512269e4b7728fcc093f1eecab97fd77179478b3ca94",
+              "after_sha256": "d8fd13a9f21dba85688f87ff28122ad5561118088704015177a10498f459b35d"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "fbcbd65ada6dc1e7262e512269e4b7728fcc093f1eecab97fd77179478b3ca94",
+              "after_sha256": "d8fd13a9f21dba85688f87ff28122ad5561118088704015177a10498f459b35d"
+            }
+          }
+        },
+        "packages/subagent/subagent/src/descriptor.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "ab5886a1dc3bdc97fdb0372f5d7b64ff90c2205079621d5af11c1960babfceb1",
+              "after_sha256": "b7680877eb5ef3db5099bd048cbb7c6edaf16b875b737a000e52f12eed1a3f20"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "ab5886a1dc3bdc97fdb0372f5d7b64ff90c2205079621d5af11c1960babfceb1",
+              "after_sha256": "b7680877eb5ef3db5099bd048cbb7c6edaf16b875b737a000e52f12eed1a3f20"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "ab5886a1dc3bdc97fdb0372f5d7b64ff90c2205079621d5af11c1960babfceb1",
+              "after_sha256": "b7680877eb5ef3db5099bd048cbb7c6edaf16b875b737a000e52f12eed1a3f20"
+            }
+          }
+        },
+        "packages/subagent/subagent/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "24c595fcb2e15f2092fc0fe333fcf74ea22ba8a248d942295654a40cf795c65c",
+              "after_sha256": "b4e17a25c9838803c7d39cb75e2d779fbd3b1490f6c099db4d6b4e534a5bdcdb"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
+              "after_sha256": "a10fe3a4a2595558bad56da36795c8b7bb6eadfed693dce5d3cf02a8101540d7"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
+              "after_sha256": "a10fe3a4a2595558bad56da36795c8b7bb6eadfed693dce5d3cf02a8101540d7"
+            }
+          }
+        },
+        "packages/subagent/subagent/src/types.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "9740ca09ce19bdd62e5abb989099b5a3735845a79a110e9e6405df7ff4d22640",
+              "after_sha256": "ac94a79f5ccd2d95b649e4b278970ada89912ead980db7b4e94f07a1217c658a"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
+              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
+              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
+            }
+          }
+        },
+        "packages/subagent/subagent/tests/continuation.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "1a35e1f2159e3414a0e5004fba7910c9b77d375f75484b0bb948138ab9031777",
+              "after_sha256": "a4fee6b41cdd9ca5e98d0284d01e3ac77d2fdafb75ecde8fd567e148489723ea"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "75cfd5c88fe340274f9e79a60f34706000650ab04743673f8d2b36c14c539a30",
+              "after_sha256": "f50636ded70ed9b0f0821094be6c4d144c7222d91127e601f65f6975cdc78adb"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "012c144242922439987490e5ae223f90f68cba200c1c4fd3aba4b27453da4f3a",
+              "after_sha256": "ecd02cfd85843380dc707803af78bec90acd903fcc8472d0f6b4657b128ace3d"
+            }
+          }
+        },
+        "packages/subprocess/subprocess-local/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
+              "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
+              "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
+              "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
+            }
+          }
+        },
+        "packages/subprocess/subprocess-local/src/spawn.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
+              "after_sha256": "27a3fde78f52a7a9d1533afaaaec19bf9a47df98480370e70172dbfdefe95bbb"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
+              "after_sha256": "27a3fde78f52a7a9d1533afaaaec19bf9a47df98480370e70172dbfdefe95bbb"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
+              "after_sha256": "27a3fde78f52a7a9d1533afaaaec19bf9a47df98480370e70172dbfdefe95bbb"
+            }
+          }
+        },
+        "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "d07b0cb8f1058e6d0961e5473bc3191e8a022761efb3c6f9172807f5d73f08c2",
+              "after_sha256": "acb90d0086c661ae2ef48d3359eff9d82687f29899c103b9148e6a75d7fa99f7"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
+              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+            }
+          }
+        },
+        "packages/subprocess/subprocess/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
+              "after_sha256": "43f1a3dbe8f9e6818988642fd32443b5e90d69577b7add3e2f0c63b8484cedb7"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
+              "after_sha256": "43f1a3dbe8f9e6818988642fd32443b5e90d69577b7add3e2f0c63b8484cedb7"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
+              "after_sha256": "43f1a3dbe8f9e6818988642fd32443b5e90d69577b7add3e2f0c63b8484cedb7"
+            }
+          }
+        },
+        "scripts/gen-cordis-catalog.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "5cb76db1df8eeb781836e943a952dd574a5c508e2bddb1eb6be3d37d723e84d1",
+              "after_sha256": "72bc7f136950a53c17107d3fa3d92802d795858789b0d31e5b853d6518008ae3"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "b8abf7f9f725b21a1a24273d96e548923854b03f1696b1160258d926b3c9c13f",
+              "after_sha256": "b272f44fd8d5e1a8b5775a5ae3074f3edca966b2245d5ae8882b90cdd4896500"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "b31daceead2d82bb3e25e43706904811fe114e752012a7b51a02171e33c62a65",
+              "after_sha256": "31246eec76d41c8c6a89da282191c498465da1191820024e6f6c30a56aaa69d7"
+            }
+          }
         }
       },
       "validated_releases": {

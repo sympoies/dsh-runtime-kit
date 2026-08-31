@@ -153,6 +153,10 @@ const agentConsoleProfileWorkspace = join(
 )
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
+const dataPolicyProtectedRoot = join(projectWorkspace, '.data-policy-protected')
+const dataPolicyProtectedAlias = join(projectWorkspace, 'data-policy-protected-alias')
+const dataPolicySentinel = 'ghp_issue61_synthetic_sensitive_value'
+const dataPolicyMachinePath = '/home/fixture/issue61/result.txt'
 const agentConsoleTuiPackage = process.env.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE
 const deliveryRehearsal = process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1'
 const healthOnly = process.env.DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY === '1'
@@ -357,6 +361,10 @@ const environment = {
   DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL: '0',
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateSkillsRoot,
   DSH_RUNTIME_KIT_SMOKE_PROJECT: projectWorkspace,
+  DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL: dataPolicySentinel,
+  DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_MACHINE_PATH: dataPolicyMachinePath,
+  DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_PROTECTED_ROOT: dataPolicyProtectedRoot,
+  DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_PROTECTED_ALIAS: dataPolicyProtectedAlias,
   DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-primary',
   DSH_PERMISSION_MODE: fullHostAuthority ? 'danger-full-access' : 'workspace-write',
   ...providerSessionFixture,
@@ -1425,6 +1433,8 @@ try {
   rmSync(forbiddenEnvironmentPath)
 
   mkdirSync(projectWorkspace, { recursive: true })
+  mkdirSync(dataPolicyProtectedRoot, { recursive: true })
+  symlinkSync(dataPolicyProtectedRoot, dataPolicyProtectedAlias, 'dir')
   const initializedProject = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], {
     cwd: projectWorkspace,
     env: environment,
@@ -1599,7 +1609,9 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
-    'patches/deepseek-harness/native-execution-boundaries-v3.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v4-rc7.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v4-rc8.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v4-rc2.patch',
     'patches/dsh-tui/beta-2-rc2-compat.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
@@ -1763,15 +1775,16 @@ try {
     : join(profileDirectory, 'smoke-driver.mjs')
   const overlayPath = join(temporaryRoot, 'smoke.patch.yml')
   const codeModeOverlayPath = join(temporaryRoot, 'smoke-code-mode.patch.yml')
+  const dataPolicyOverlayPath = join(temporaryRoot, 'smoke-data-policy.patch.yml')
   const sandboxRunnerPath = join(temporaryRoot, 'smoke-sandbox-runner.sh')
   const llmModuleUrl = pathToFileURL(
-    join(dshRoot, 'packages', 'llm', 'llm', 'src', 'index.ts'),
+    join(dshRoot, 'packages', 'llm', 'llm', 'lib', 'index.js'),
   ).href
   const sessionModuleUrl = pathToFileURL(
-    join(dshRoot, 'packages', 'core', 'session', 'src', 'index.ts'),
+    join(dshRoot, 'packages', 'core', 'session', 'lib', 'index.js'),
   ).href
   const scopeModuleUrl = pathToFileURL(
-    join(dshRoot, 'packages', 'core', 'scope', 'src', 'index.ts'),
+    join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js'),
   ).href
   writeFileSync(driverPath, `
 import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
@@ -2017,15 +2030,58 @@ class SmokeAdapter extends LlmAdapter {
       serializedMessages.includes('private-health-audit-sentinel'),
     )
     const call = this.parentCalls++
-    const sequence = process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
+    const sequence = process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY === '1'
       ? [
+          toolCallResponse('native_sensitive_fixture', {
+            token: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL,
+          }, 'data-native-sensitive'),
+          toolCallResponse('web_fixture', {}, 'data-web-machine-path'),
+          toolCallResponse('mcp__fixture__secret', {}, 'data-mcp-sensitive'),
+          toolCallResponse('bash', {
+            command: "printf 'ghp_%s%s' 'issue61_' 'synthetic_sensitive_value'",
+            description: 'Return a synthetic sensitive value from shell output',
+          }, 'data-shell-sensitive'),
+          toolCallResponse('run_code', {
+            code: 'return await tools.mcp__fixture__secret({})',
+            description: 'Return a synthetic sensitive value through nested Code Mode',
+          }, 'data-code-sensitive'),
+          toolCallResponse('write', {
+            file_path: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_PROTECTED_ROOT
+              + '/direct.txt',
+            content: 'must not be written',
+          }, 'data-protected-direct'),
+          toolCallResponse('write', {
+            file_path: '.data-policy-protected/relative.txt',
+            content: 'must not be written',
+          }, 'data-protected-relative'),
+          toolCallResponse('write', {
+            file_path: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_PROTECTED_ALIAS
+              + '/symlink.txt',
+            content: 'must not be written',
+          }, 'data-protected-symlink'),
+          toolCallResponse('bash', {
+            command: "printf 'must not be written' > .data-policy-protected/shell.txt",
+            description: 'Attempt a delegated protected-root write',
+          }, 'data-protected-shell'),
+          toolCallResponse('bash', {
+            command: ${JSON.stringify(validationCommand)},
+            description: 'Run the declared validation after protected writes',
+          }, 'data-policy-validation-one'),
+          toolCallResponse('bash', {
+            command: ${JSON.stringify(validationCommand)},
+            description: 'Rerun the declared validation after its expected first failure',
+          }, 'data-policy-validation-two'),
+          textResponse('data policy smoke done'),
+        ]
+      : process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
+        ? [
           toolCallResponse('review_specialists', {
             task: 'Inspect the packed smoke fixture without mutating it.',
             roles: ['reviewer-quick'],
           }, 'review-specialists-call'),
           textResponse('review smoke done'),
-        ]
-      : process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE === '1'
+          ]
+        : process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE === '1'
         ? [
             toolCallResponse('run_code', {
               code: 'return await tools.runtime_kit_plus_one({ value: 41 })',
@@ -2064,6 +2120,7 @@ class SmokeAdapter extends LlmAdapter {
       }, 'validation-after-ordinary'),
       ]
     if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1') {
       sequence.push(
         toolCallResponse('bash', {
@@ -2112,6 +2169,7 @@ class SmokeAdapter extends LlmAdapter {
       )
     }
     if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1') {
       sequence.push(
         toolCallResponse('runtime_kit_plus_one', { value: 41 }, 'plus-one-call'),
@@ -2164,10 +2222,18 @@ export function apply(ctx) {
       let acceptanceGoalBlocked
       let acceptanceGoalCompletion
       let acceptanceVerdict
+      let nativeSensitiveExecutions = 0
+      let webFixtureExecutions = 0
+      let mcpFixtureExecutions = 0
       let modelMiddlewareCalls = 0
       const validationResults = []
       const deliveryValidationResults = []
+      const dataPolicyAudits = []
+      const dataPolicyResults = []
       const errors = []
+      ctx.on('dsh-runtime-kit/data-policy-audit', audit => {
+        dataPolicyAudits.push(audit)
+      })
       ctx.on('llm/stream', (options, next) => {
         if (String(options.sessionId ?? '') === targetId) modelMiddlewareCalls += 1
         return next()
@@ -2209,6 +2275,29 @@ export function apply(ctx) {
         }
         if (String(exec.agent?.id) === targetId) {
           lifecycle.push('result')
+          if (process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY === '1') {
+            dataPolicyResults.push({
+              callId: exec.callId,
+              name: exec.name,
+              protectedKind: exec.name === 'write'
+                ? exec.arguments?.file_path === '.data-policy-protected/relative.txt'
+                  ? 'relative'
+                  : exec.arguments?.file_path?.includes('data-policy-protected-alias')
+                    ? 'symlink'
+                    : 'direct'
+                : exec.name === 'bash'
+                    && exec.arguments?.command?.includes('.data-policy-protected/shell.txt')
+                  ? 'delegated-shell'
+                  : undefined,
+              isError: finalResult?.isError === true,
+              sandboxDenied: finalResult?.value?.sandbox?.denied === true,
+              exitCode: Number.isInteger(finalResult?.value?.exitCode)
+                ? finalResult.value.exitCode
+                : undefined,
+              rawPresent: JSON.stringify(finalResult)
+                .includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL),
+            })
+          }
           if (exec.name === 'runtime_context') {
             contextResult = finalResult
           } else if (exec.name === 'write') {
@@ -2280,6 +2369,45 @@ export function apply(ctx) {
 
       const adapter = new SmokeAdapter()
       ctx.llm.registerAdapter([smokeRoute.provider], adapter)
+      const fixtureOutput = {
+        schema: { type: 'object' },
+        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+      }
+      ctx.tools.register({
+        name: 'native_sensitive_fixture',
+        description: 'Synthetic native pre-call data-policy fixture.',
+        parameters: {
+          type: 'object',
+          properties: { token: { type: 'string' } },
+          required: ['token'],
+          additionalProperties: false,
+        },
+        output: fixtureOutput,
+        async execute() {
+          nativeSensitiveExecutions += 1
+          return { executed: true }
+        },
+      })
+      ctx.tools.register({
+        name: 'web_fixture',
+        description: 'Synthetic web result data-policy fixture.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        output: fixtureOutput,
+        async execute() {
+          webFixtureExecutions += 1
+          return { artifact: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_MACHINE_PATH }
+        },
+      })
+      ctx.tools.register({
+        name: 'mcp__fixture__secret',
+        description: 'Synthetic MCP result data-policy fixture.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        output: fixtureOutput,
+        async execute() {
+          mcpFixtureExecutions += 1
+          return { token: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL }
+        },
+      })
       const plusOneDefinition = ctx.tools.get('runtime_kit_plus_one')
       if (plusOneDefinition === undefined) {
         throw new Error('runtime_kit_plus_one definition missing before prerequisite registration')
@@ -2287,6 +2415,7 @@ export function apply(ctx) {
       ctx.dshRuntimeKit.prerequisites.require(plusOneDefinition, 'project-dev-context')
       const acceptanceEnabled = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
         && process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID === 'dsh-runtime-kit-smoke-primary'
+      const dataPolicyEnabled = process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY === '1'
       if (acceptanceEnabled) {
         const bashDefinition = ctx.tools.get('bash')
         const writeDefinition = ctx.tools.get('write')
@@ -2527,6 +2656,19 @@ export function apply(ctx) {
           .map(error => error.code)
           .filter(code => /^DSH_RUNTIME_HEALTH_[A-Z0-9_]+$/u.test(code ?? '')))],
         validationResults,
+        dataPolicyEnabled,
+        dataPolicyResults,
+        dataPolicyAudits,
+        dataPolicyAuditCount: ctx.dshRuntimeKit.dataPolicyAuditCount,
+        dataPolicyNativeSensitiveExecutions: nativeSensitiveExecutions,
+        dataPolicyWebFixtureExecutions: webFixtureExecutions,
+        dataPolicyMcpFixtureExecutions: mcpFixtureExecutions,
+        dataPolicyRawAbsent: !JSON.stringify({
+          dataPolicyResults,
+          dataPolicyAudits,
+          errors,
+          sessionEvents: agent.session.events,
+        }).includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL),
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
@@ -2580,6 +2722,7 @@ export function apply(ctx) {
         if (reviewerMutationResult?.isError !== true) process.exitCode = 1
       } else if (expectation !== 'health-block'
         && expectation !== 'health-recovery'
+        && !dataPolicyEnabled
         && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1'
         && (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
           ? !adapter.contextVisibility.every(Boolean)
@@ -2589,8 +2732,41 @@ export function apply(ctx) {
         process.exitCode = 1
       }
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
+        && !dataPolicyEnabled
         && (expectation === 'allow' || expectation === 'health-recovery')
         && result?.value !== 42) process.exitCode = 1
+      if (dataPolicyEnabled
+        && (nativeSensitiveExecutions !== 0
+          || webFixtureExecutions !== 1
+          || mcpFixtureExecutions < 2
+          || dataPolicyResults.length < 11
+          || dataPolicyResults.some(candidate => candidate.rawPresent)
+          || !['direct', 'relative', 'symlink'].every(kind =>
+            dataPolicyResults.some(candidate => candidate.protectedKind === kind
+              && candidate.isError === true))
+          || !dataPolicyResults.some(candidate => candidate.protectedKind === 'delegated-shell'
+            && candidate.isError === false
+            && candidate.sandboxDenied === true
+            && candidate.exitCode !== 0)
+          || dataPolicyResults.filter(candidate =>
+            candidate.callId?.includes('data-policy-validation-')).length !== 2
+          || dataPolicyResults.find(candidate =>
+            candidate.callId?.endsWith('data-policy-validation-one'))?.exitCode === 0
+          || dataPolicyResults.find(candidate =>
+            candidate.callId?.endsWith('data-policy-validation-two'))?.exitCode !== 0
+          || dataPolicyResults.filter(candidate =>
+            candidate.callId?.includes('data-policy-validation-')).some(candidate =>
+              candidate.isError === true)
+          || dataPolicyResults.filter(candidate =>
+            !candidate.callId?.includes('data-policy-validation-')
+              && candidate.protectedKind !== 'delegated-shell').some(candidate =>
+                candidate.isError !== true)
+          || dataPolicyAudits.length < 9
+          || dataPolicyAudits.some(audit => !Array.isArray(audit.matched_rule_ids))
+          || JSON.stringify({ dataPolicyAudits, errors, sessionEvents: agent.session.events })
+            .includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL))) {
+        process.exitCode = 1
+      }
       if (expectation === 'health-block'
         && (adapter.sessionCalls !== 0
           || modelMiddlewareCalls !== 0
@@ -2668,6 +2844,17 @@ ${agentConsoleCodeRuntimeOverlay}
       - ${JSON.stringify(sandboxRunnerPath)}
     runnerFailureSignatures:
       - 'dsh-runtime-kit-smoke-runner:'
+- insert:
+    - id: code-runtime
+      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}
+    - id: dsh-runtime-kit-smoke-driver
+      name: ${JSON.stringify(driverPath)}
+`)
+  writeFileSync(dataPolicyOverlayPath, `
+${agentConsoleTuiOverlay}
+- id: tools
+  config:
+    mode: both
 - insert:
     - id: code-runtime
       name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}
@@ -3490,6 +3677,65 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(codeModeReceipt.pendingCorrelations, 0)
 
   resetCheckoutLease()
+  const dataPolicyBoot = runDsh(
+    ['--profile', profile, '--patch', dataPolicyOverlayPath],
+    {
+      env: {
+        ...environment,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-data-policy',
+        DSH_RUNTIME_KIT_SMOKE_DATA_POLICY: '1',
+        DSH_RUNTIME_KIT_PROTECTED_ROOTS: JSON.stringify([dataPolicyProtectedRoot]),
+      },
+    },
+  )
+  const dataPolicyOutput = `${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`
+  assert.doesNotMatch(dataPolicyOutput, new RegExp(dataPolicySentinel, 'u'))
+  const dataPolicyLine = dataPolicyBoot.stdout
+    .split('\n')
+    .find(candidate => candidate.startsWith(marker))
+  assert.ok(
+    dataPolicyLine,
+    `missing data-policy ${marker} output:\n${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`,
+  )
+  const dataPolicyReceipt = JSON.parse(dataPolicyLine.slice(marker.length))
+  assert.equal(dataPolicyReceipt.dataPolicyEnabled, true)
+  assert.equal(dataPolicyReceipt.dataPolicyNativeSensitiveExecutions, 0)
+  assert.equal(dataPolicyReceipt.dataPolicyWebFixtureExecutions, 1)
+  assert.ok(dataPolicyReceipt.dataPolicyMcpFixtureExecutions >= 2)
+  assert.equal(dataPolicyReceipt.dataPolicyRawAbsent, true)
+  assert.equal(dataPolicyReceipt.dataPolicyAuditCount, dataPolicyReceipt.dataPolicyAudits.length)
+  assert.ok(dataPolicyReceipt.dataPolicyResults.length >= 11)
+  assert.ok(dataPolicyReceipt.dataPolicyResults.every(candidate => candidate.rawPresent === false))
+  assert.ok(['direct', 'relative', 'symlink'].every(kind =>
+    dataPolicyReceipt.dataPolicyResults.some(candidate =>
+      candidate.protectedKind === kind && candidate.isError === true)))
+  assert.ok(dataPolicyReceipt.dataPolicyResults.some(candidate =>
+    candidate.protectedKind === 'delegated-shell'
+      && candidate.isError === false
+      && candidate.sandboxDenied === true
+      && candidate.exitCode !== 0))
+  const dataPolicyValidations = dataPolicyReceipt.dataPolicyResults.filter(candidate =>
+    candidate.callId?.includes('data-policy-validation-'))
+  assert.equal(dataPolicyValidations.length, 2)
+  assert.ok(dataPolicyValidations.every(candidate => candidate.isError === false))
+  assert.notEqual(dataPolicyValidations[0].exitCode, 0)
+  assert.equal(dataPolicyValidations[1].exitCode, 0)
+  assert.deepEqual(
+    [...new Set(dataPolicyReceipt.dataPolicyAudits.map(audit => audit.source_id))].sort(),
+    ['tool.code', 'tool.mcp', 'tool.native', 'tool.shell', 'tool.web'],
+  )
+  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+    audit.matched_rule_ids.includes('runtime.data-policy.pre.sensitive-deny')))
+  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+    audit.matched_rule_ids.includes('runtime.data-policy.final.sensitive-deny')))
+  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+    audit.matched_rule_ids.includes('runtime.data-policy.final.machine-path-quarantine')))
+  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'direct.txt')), false)
+  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'relative.txt')), false)
+  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'symlink.txt')), false)
+  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'shell.txt')), false)
+
+  resetCheckoutLease()
   installPolicy('block')
   const blockedBoot = runDsh(
     ['--profile', profile, '--patch', overlayPath],
@@ -3599,6 +3845,17 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       { id: 'edit', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:edit-generation-recorded'] },
       { id: 'validate', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:exact-validation-executed'] },
       { id: 'review', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:mutation-denied-before-body'] },
+      {
+        id: 'data-policy',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'data-policy:native-pre-call-denied-before-body',
+          'data-policy:mcp-web-shell-code-final-result-contained',
+          'data-policy:content-free-audit-rule-bound',
+          'protected-root:direct-relative-symlink-shell-denied',
+        ],
+      },
       {
         id: 'private-project-skill',
         status: 'passed',

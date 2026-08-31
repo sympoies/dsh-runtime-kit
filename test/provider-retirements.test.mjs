@@ -93,6 +93,7 @@ test('the shipped DSH runtime has no Claude provider or automatic Claude coautho
       'agents',
       'invariants',
       'llm',
+      'sandboxPolicy',
       'sessions',
       'shell',
       'shellEnv',

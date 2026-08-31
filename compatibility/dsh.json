@@ -321,6 +321,7 @@
     "subprocess.spawnDescriptor",
     "tools.bindPrerequisite",
     "tools.get",
+    "tools.projectForPersistence",
     "tools.register",
     "tools.guard"
   ],
