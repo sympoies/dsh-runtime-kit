@@ -1,11 +1,12 @@
-# Plan: Promote dsh-TUI 0.10.0-beta.2 Through Agent Console
+# Plan: Promote dsh-TUI 0.10.0-beta.3 Through Agent Console
 
 ## Overview
 
-Promote the exact dsh-TUI 0.10.0-beta.2 npm artifact through the runtime-kit
+Promote the exact dsh-TUI 0.10.0-beta.3 npm artifact through the runtime-kit
 compatibility owner, then update and deploy the Agent Console infra contract in
 strict serial order. Preserve the authenticated nonblocking history-lock
-repair and the upstream private data-file modes, keep DSH 0.1.1-rc.2 and all
+repair first established for beta.2 and the upstream private data-file modes,
+keep DSH 0.1.1-rc.2 and all
 other runtime inputs unchanged, and close only after sympoies, m4, and rollback
 evidence are complete.
 
@@ -16,12 +17,12 @@ evidence are complete.
 - Source type: discussion-to-implementation-doc
 - Runtime compatibility owner: `sympoies/dsh-runtime-kit`
 - Deployment owner: `serenvia/sympoies-infra`
-- Upstream package: `@deepseek-harness-tui/dsh-tui@0.10.0-beta.2`
+- Upstream package: `@deepseek-harness-tui/dsh-tui@0.10.0-beta.3`
 - Open questions carried into execution: none
 
 ## Scope
 
-- In scope: exact source and npm artifact identity, refreshed installed-package
+- In scope: exact source and npm artifact identity, retained installed-package
   patch, test-first compatibility evidence, exact DSH rc.2 composition smoke,
   runtime-kit review and merge, infra pin and graph update, serial sympoies/m4
   deployment, live smoke, rollback, and strict issue closeout.
@@ -37,19 +38,20 @@ identity. Both PRs receive independent review and governed delivery. The owner
 tracker remains open through live sympoies and m4 acceptance and rollback
 proof. No deployment step may consume an unmerged runtime-kit source head.
 
-## Sprint 1: Authenticate and promote beta.2 in runtime-kit
+## Sprint 1: Authenticate beta.2 and promote its beta.3 successor in runtime-kit
 
 **PR grouping intent**: `group`
 **Execution Profile**: `serial`
 
 **Goal**: replace the exact 0.9.3 compatibility boundary with an authenticated,
-patched, and fully smoke-tested beta.2 boundary.
+patched, and fully smoke-tested beta.3 boundary while retaining beta.2 for
+rollback.
 
 **Demo/Validation**:
 
 - Command: focused profile/patch tests plus the exact Agent Console TUI
   composition smoke against DSH 0.1.1-rc.2
-- Verify: beta.2 installs from authenticated npm bytes, the patch is reversible,
+- Verify: beta.3 installs from authenticated npm bytes, the patch is reversible,
   held history locks do not block input dispatch, the TUI stays live, and all
   runtime-kit surfaces remain present
 
@@ -75,10 +77,10 @@ patched, and fully smoke-tested beta.2 boundary.
 - **Location**: `compatibility/agent-console.json`,
   `compatibility/dsh-tui-patches.json`, `patches/dsh-tui/`, focused tests, and
   exact smoke inputs
-- **Description**: first prove the old 0.9.3 owner rejects beta.2, then record
+- **Description**: first prove the old 0.9.3 owner rejects beta.2, record
   beta.2's real lightweight-tag commit and npm identities, rebase the
-  nonblocking history repair onto the upstream 0600/0700 changes, and update
-  every exact test and workflow input.
+  nonblocking history repair onto the upstream 0600/0700 changes, then promote
+  the byte-compatible beta.3 successor across every exact test and workflow input.
 - **Dependencies**: Task 1.1
 - **Complexity**: 7
 - **Acceptance criteria**:
@@ -86,7 +88,7 @@ patched, and fully smoke-tested beta.2 boundary.
   - Package, source commit, tag shape, tarball, SRI, shasum, manifest digest,
     patch digest, and target before/after hashes are exact.
   - Patch apply/check/reverse and drift failures remain typed and fail closed.
-  - Patched beta.2 preserves the private data directory/file modes and returns
+  - Patched beta.3 preserves the private data directory/file modes and returns
     promptly when the history lock is held.
 - **Validation**:
   - focused Agent Console profile, artifact, and TUI patch tests
@@ -130,20 +132,20 @@ Console deployment graph, and roll it out safely across both live hosts.
 
 - Command: infra contract validation, clean/idempotent provision, live
   sympoies smoke, live m4 smoke, and rollback/read-back
-- Verify: both surfaces report beta.2 and the merged runtime-kit identity while
+- Verify: both surfaces report beta.3 and the merged runtime-kit identity while
   existing sessions and unrelated profile state survive rollout and rollback
 
 ### Task 2.1: Update and deliver the infra Agent Console contract
 
 - **Location**: `serenvia/sympoies-infra` Agent Console runtime contract,
   package graph, provision tests, and runbook
-- **Description**: select the merged runtime-kit commit and beta.2, regenerate
+- **Description**: select the merged runtime-kit commit and beta.3, regenerate
   the exact pnpm graph through the repo-owned provision path, update contract
   tests and documentation, validate, review, deliver, and merge the infra PR.
 - **Dependencies**: Task 1.3
 - **Complexity**: 7
 - **Acceptance criteria**:
-  - Infra pins the merged runtime-kit identity and exact beta.2 version.
+  - Infra pins the merged runtime-kit identity and exact beta.3 version.
   - The lock digest and contract tests bind the resulting exact package graph.
   - Clean install and second-run idempotency pass without deleting unrelated
     profile, session, provider, or credential state.
@@ -158,7 +160,7 @@ Console deployment graph, and roll it out safely across both live hosts.
 - **Location**: live sympoies and m4 Agent Console DSH profiles; owner tracker
 - **Description**: provision and smoke sympoies first, then m4; verify exact
   runtime and TUI read-back, session preservation, and bounded live startup;
-  prove rollback to the prior 0.9.3 contract; record immutable evidence and
+  prove rollback to the authenticated beta.2 contract; record immutable evidence and
   close through strict tracking readiness and provider audit.
 - **Dependencies**: Task 2.1
 - **Complexity**: 8
@@ -167,8 +169,8 @@ Console deployment graph, and roll it out safely across both live hosts.
     live smoke before m4 begins.
   - m4 passes the same exact read-back and live smoke.
   - Existing sessions survive the bounded serve/profile refresh.
-  - Rollback/read-back proves 0.9.3 remains recoverable without deleting any
-    profile home or unrelated state, after which the promoted beta.2 contract
+  - Rollback/read-back proves beta.2 remains recoverable without deleting any
+    profile home or unrelated state, after which the promoted beta.3 contract
     is restored and healthy.
   - Every ledger row is done, close-ready reports no blocker, and the closed
     issue passes provider read-back audit.
@@ -184,8 +186,8 @@ Console deployment graph, and roll it out safely across both live hosts.
 - All five task-ledger rows are done with immutable evidence.
 - Runtime-kit and infra changes are independently reviewed and merged through
   their protected workflows.
-- The exact beta.2 artifact is healthy on sympoies and m4, and the prior 0.9.3
-  contract has a proven rollback path.
+- The exact beta.3 artifact is healthy on sympoies and m4, and the authenticated
+  beta.2 contract has a proven rollback path.
 - The tracking issue is closed through the tracking controller and audited
   provider-visible; terminal worktree cleanup is either safely complete or
   explicitly retained with recovery evidence.
