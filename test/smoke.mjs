@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -9,6 +10,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -71,15 +73,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.9.3',
+  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.2',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  'a3439a3c7d7e7b3c9cfc505e833525376e8558d0',
+  '655c0f16088879890d9c6ce5d160651433223e09',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-8AR+/EO+5iBlS9a8OWFqPHtmRXa1EFM8L/0rlTvgLn1YVa2sKIqECfOpuBLxWRQ1ABUb+iSkoyJ1p0bsCC0FTA==',
+  'sha512-qWuTmsjNJp4rUxLePZdKXMp9mHs2wLEtMnED+ayd+fgmppYvf9AU2btNW7Nb4oHN6lvcsx+PqK795nFJ3Sgsyg==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -1283,6 +1285,90 @@ process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '
   const receipt = JSON.parse(result.stdout)
   assert.equal(receipt.accepted, true)
   assert.ok(receipt.elapsed_ms <= 100)
+
+  const privateHome = join(temporaryRoot, 'tui-private-history-home')
+  const privateHistoryDir = join(privateHome, '.dsh-tui')
+  const privateHistoryFile = join(privateHistoryDir, 'history.jsonl')
+  mkdirSync(privateHome, { mode: 0o700 })
+  mkdirSync(privateHistoryDir, { mode: 0o755 })
+  writeFileSync(privateHistoryFile, '{"text":"legacy history sentinel","ts":1}\n', { mode: 0o644 })
+  chmodSync(privateHistoryDir, 0o755)
+  chmodSync(privateHistoryFile, 0o644)
+  const privacyResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+ import { existsSync, statSync } from 'node:fs'
+ import { readFile } from 'node:fs/promises'
+ import { setTimeout as delay } from 'node:timers/promises'
+const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
+const beforeAppend = loadHistory()
+if (beforeAppend.length !== 1 || beforeAppend[0].text !== 'legacy history sentinel') {
+  throw new Error('legacy history read did not preserve the sentinel')
+}
+const read_first_directory_mode = statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777
+const read_first_file_mode = statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777
+appendHistory('dsh-runtime-kit private history mode smoke')
+let history = ''
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (existsSync(${JSON.stringify(privateHistoryFile)})) {
+    history = await readFile(${JSON.stringify(privateHistoryFile)}, 'utf8')
+    if (history.includes('dsh-runtime-kit private history mode smoke')) break
+  }
+  await delay(10)
+ }
+ if (!history.includes('dsh-runtime-kit private history mode smoke')) throw new Error('history append did not persist')
+process.stdout.write(JSON.stringify({
+  directory_mode: statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777,
+  file_mode: statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777,
+  read_first_directory_mode,
+  read_first_file_mode,
+  preserved_legacy_entry: history.includes('legacy history sentinel'),
+}) + '\\n')
+`], {
+    cwd: packageRoot,
+    env: { ...environment, HOME: privateHome },
+    encoding: 'utf8',
+    timeout: 2_000,
+  })
+  assert.equal(privacyResult.status, 0, privacyResult.stderr)
+  assert.deepEqual(JSON.parse(privacyResult.stdout), {
+    directory_mode: 0o700,
+    file_mode: 0o600,
+    read_first_directory_mode: 0o700,
+    read_first_file_mode: 0o600,
+    preserved_legacy_entry: true,
+  })
+
+  const symlinkHome = join(temporaryRoot, 'tui-symlink-history-home')
+  const symlinkHistoryDir = join(symlinkHome, '.dsh-tui')
+  const symlinkHistoryFile = join(symlinkHistoryDir, 'history.jsonl')
+  const symlinkTarget = join(symlinkHome, 'outside-history.jsonl')
+  mkdirSync(symlinkHistoryDir, { recursive: true, mode: 0o700 })
+  writeFileSync(symlinkTarget, '{"text":"outside sentinel","ts":1}\n', { mode: 0o644 })
+  chmodSync(symlinkTarget, 0o644)
+  symlinkSync(symlinkTarget, symlinkHistoryFile)
+  const symlinkResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+import { readFile, stat } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
+const loaded = loadHistory()
+if (loaded.length !== 0) throw new Error('history symlink was read')
+appendHistory('must not follow history symlink')
+await delay(100)
+const content = await readFile(${JSON.stringify(symlinkTarget)}, 'utf8')
+process.stdout.write(JSON.stringify({
+  content,
+  mode: (await stat(${JSON.stringify(symlinkTarget)})).mode & 0o777,
+}) + '\\n')
+`], {
+    cwd: packageRoot,
+    env: { ...environment, HOME: symlinkHome },
+    encoding: 'utf8',
+    timeout: 2_000,
+  })
+  assert.equal(symlinkResult.status, 0, symlinkResult.stderr)
+  assert.deepEqual(JSON.parse(symlinkResult.stdout), {
+    content: '{"text":"outside sentinel","ts":1}\n',
+    mode: 0o644,
+  })
   return true
 }
 
@@ -2546,6 +2632,9 @@ exec "$@"
   const agentConsoleTuiOverlay = agentConsoleTuiPackage === undefined
     ? ''
     : '- id: dsh-tui\n  disabled: true\n'
+  const agentConsoleCodeRuntimeOverlay = agentConsoleTuiPackage === undefined
+    ? ''
+    : '- id: dsh-tui-code-runtime\n  disabled: true\n'
   writeFileSync(overlayPath, `
 ${agentConsoleTuiOverlay}
 - id: sandbox
@@ -2560,6 +2649,7 @@ ${agentConsoleTuiOverlay}
 `)
   writeFileSync(codeModeOverlayPath, `
 ${agentConsoleTuiOverlay}
+${agentConsoleCodeRuntimeOverlay}
 - id: tools
   config:
     mode: both

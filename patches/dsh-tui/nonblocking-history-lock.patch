@@ -1,16 +1,16 @@
 diff --git a/lib/types/history.js b/lib/types/history.js
-index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc32e2f606a 100644
+index e27ae99..ff30cb3 100644
 --- a/lib/types/history.js
 +++ b/lib/types/history.js
 @@ -1,5 +1,6 @@
  import { createHash } from 'node:crypto';
 -import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-+import { mkdir, rm, stat } from 'node:fs/promises';
++import { chmodSync, existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs';
++import { chmod, lstat, mkdir, rm, stat } from 'node:fs/promises';
  import { join } from 'node:path';
  import { DATA_DIR } from './utils/paths.js';
  const HISTORY_DIR = DATA_DIR;
-@@ -9,15 +10,18 @@ const HISTORY_LIMIT = 200;
+@@ -9,15 +10,62 @@ const HISTORY_LIMIT = 200;
  const LOCK_RETRY_LIMIT = 500;
  const LOCK_RETRY_DELAY_MS = 5;
  const STALE_LOCK_MS = 30_000;
@@ -23,9 +23,53 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
 +    });
  }
 -function removeStaleHistoryLock() {
-+async function removeStaleHistoryLock() {
++async function restrictHistoryPath(path, expectedType, mode, optional = false) {
++    let metadata;
      try {
 -        const ageMs = Date.now() - statSync(HISTORY_LOCK).mtimeMs;
++        metadata = await lstat(path);
++    }
++    catch (error) {
++        if (optional && error.code === 'ENOENT')
++            return;
++        throw error;
++    }
++    const expected = expectedType === 'directory' ? metadata.isDirectory() : metadata.isFile();
++    const ownerUid = typeof process.getuid === 'function' ? process.getuid() : undefined;
++    if (!expected || (ownerUid !== undefined && metadata.uid !== ownerUid))
++        throw new Error(`unsafe history ${expectedType}`);
++    await chmod(path, mode);
++    const secured = await lstat(path);
++    if (secured.dev !== metadata.dev || secured.ino !== metadata.ino || (secured.mode & 0o777) !== mode)
++        throw new Error(`history ${expectedType} permission migration failed`);
++}
++async function prepareHistoryStorage() {
++    await mkdir(HISTORY_DIR, { recursive: true, mode: 0o700 });
++    await restrictHistoryPath(HISTORY_DIR, 'directory', 0o700);
++    await restrictHistoryPath(HISTORY_FILE, 'file', 0o600, true);
++}
++function restrictHistoryPathSync(path, expectedType, mode) {
++    const metadata = lstatSync(path);
++    const expected = expectedType === 'directory' ? metadata.isDirectory() : metadata.isFile();
++    const ownerUid = typeof process.getuid === 'function' ? process.getuid() : undefined;
++    if (!expected || (ownerUid !== undefined && metadata.uid !== ownerUid))
++        throw new Error(`unsafe history ${expectedType}`);
++    chmodSync(path, mode);
++    const secured = lstatSync(path);
++    if (secured.dev !== metadata.dev || secured.ino !== metadata.ino || (secured.mode & 0o777) !== mode)
++        throw new Error(`history ${expectedType} permission migration failed`);
++}
++function prepareHistoryStorageSync() {
++    if (!existsSync(HISTORY_DIR))
++        return false;
++    restrictHistoryPathSync(HISTORY_DIR, 'directory', 0o700);
++    if (!existsSync(HISTORY_FILE))
++        return false;
++    restrictHistoryPathSync(HISTORY_FILE, 'file', 0o600);
++    return true;
++}
++async function removeStaleHistoryLock() {
++    try {
 +        const ageMs = Date.now() - (await stat(HISTORY_LOCK)).mtimeMs;
          if (ageMs < STALE_LOCK_MS)
              return false;
@@ -34,14 +78,19 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
          return true;
      }
      catch (error) {
-@@ -27,16 +31,16 @@ function removeStaleHistoryLock() {
+@@ -27,19 +75,18 @@ function removeStaleHistoryLock() {
          throw error;
      }
  }
 -function withHistoryLock(write) {
--    mkdirSync(HISTORY_DIR, { recursive: true });
+-    // 0700: history.jsonl holds the user's raw inputs (incl. pasted secrets),
+-    // so the directory must not be group/world-readable. Mode applies to the
+-    // creation only; pre-existing dirs are left as-is (no migration chmod).
+-    mkdirSync(HISTORY_DIR, { recursive: true, mode: 0o700 });
 +async function withHistoryLock(write) {
-+    await mkdir(HISTORY_DIR, { recursive: true });
++    // History carries raw inputs (including pasted secrets). New and legacy
++    // owner-owned paths are restricted before any persisted content is read.
++    await prepareHistoryStorage();
      for (let attempt = 0; attempt < LOCK_RETRY_LIMIT; attempt += 1) {
          try {
 -            mkdirSync(HISTORY_LOCK);
@@ -55,7 +104,7 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
              }
              return;
          }
-@@ -44,9 +48,9 @@ function withHistoryLock(write) {
+@@ -47,9 +94,9 @@ function withHistoryLock(write) {
              const code = error.code;
              if (code !== 'EEXIST')
                  throw error;
@@ -67,7 +116,7 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
          }
      }
      throw new Error('history lock busy');
-@@ -85,25 +89,22 @@ export function appendHistory(text) {
+@@ -88,34 +135,36 @@ export function appendHistory(text) {
      const trimmed = text.trim();
      if (!trimmed)
          return;
@@ -84,7 +133,9 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
 -                entries.push({ text: trimmed, ts: Date.now() });
 -            }
 -            const sliced = entries.slice(-HISTORY_LIMIT);
--            writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+-            writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 
+-            // 0600 on creation: entries carry the full user input text
+-            { encoding: 'utf8', mode: 0o600 });
 -        });
 -    }
 -    catch {
@@ -100,7 +151,9 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
 +            entries.push({ text: trimmed, ts: Date.now() });
 +        }
 +        const sliced = entries.slice(-HISTORY_LIMIT);
-+        writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
++        writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n',
++        // 0600 on creation: entries carry the full user input text
++        { encoding: 'utf8', mode: 0o600 });
 +    }).catch(() => {
          // Best-effort persistence; history still works for the session.
 -    }
@@ -108,3 +161,16 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
  }
  /**
   * Read the persisted history, newest first.
+  * @returns The persisted entries in reverse-chronological order.
+  */
+ export function loadHistory() {
+-    return loadRaw().reverse();
++    try {
++        return prepareHistoryStorageSync() ? loadRaw().reverse() : [];
++    }
++    catch {
++        return [];
++    }
+ }
+ /**
+  * Stable id for a history entry (keeps React keys distinct across identical texts).
