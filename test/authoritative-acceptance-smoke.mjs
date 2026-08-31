@@ -466,7 +466,7 @@ digest = ${JSON.stringify(policyDigest)}
     const mismatchOutput = `${mismatch.stdout}\n${mismatch.stderr}`
     assert.notEqual(mismatch.status, 0)
     failureDiagnostic.recordOperationExitStatus(0)
-    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE/u)
+    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
     assert.equal(mismatchOutput.includes(marker), false)
     assert.equal(existsSync(providerProbePath), true, 'provider mismatch probe did not load')
     const mismatchProbe = JSON.parse(readFileSync(providerProbePath, 'utf8'))
@@ -607,7 +607,7 @@ digest = ${JSON.stringify(policyDigest)}
           workspace_sha256: positive.workspace_sha256,
           resources_after: zeroResources(positive),
           boot_outcome: 'blocked-before-model',
-          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
+          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
           probe_loaded: mismatchProbe.loaded,
           model_calls: mismatchProbe.model_calls,
           session_starts: mismatchProbe.session_starts,

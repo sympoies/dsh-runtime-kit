@@ -517,7 +517,7 @@ function authoritativeMatrix(value) {
           'boot_outcome', 'denial_code', 'probe_loaded', 'model_calls', 'session_starts',
         ])
         if (leg.boot_outcome !== 'blocked-before-model'
-          || leg.denial_code !== 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE'
+          || leg.denial_code !== 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'
           || leg.probe_loaded !== true || leg.model_calls !== 0
           || leg.session_starts !== 0) invalidAuthoritativeMatrix()
         break
