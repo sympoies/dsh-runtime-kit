@@ -11,7 +11,7 @@ description: >
 Prereqs:
 
 - `agent-runtime`, `forge-cli >=1.27.27`, `git-cli >=1.25.13`,
-  `plan-issue >=1.1.0`, and `review-specialists >=1.27.27` are installed from
+  `plan-issue >=1.1.0`, and `review-specialists >=1.27.29` are installed from
   the released nils-cli package and available on `PATH`. `git-cli` 1.25.13 is the floor for
   the `push` and `sync-default` surfaces this workflow publishes and syncs
   through. The generic code-review outcome uses a quick or full
@@ -25,7 +25,10 @@ Prereqs:
   `pr merge` fails closed with
   `review_state_conflict` ("bounded review delivery requires an explicit genesis
   ledger observation") unless the loop was recorded, so the Workflow below
-  cannot merge without it. Linked issue closeout
+  cannot merge without it. `review-specialists` 1.27.29 is the floor that
+  rejects delivery findings without an explicit boolean `actionable`
+  classification, keeping owner-thread and summary-only outcomes deliberate.
+  Linked issue closeout
   relies on the unified terminal task-row contract in `plan-issue` 1.1.0.
 - Shared provider, branch, body, and label rules in
   `references/pr-lifecycle.md` are satisfied.

@@ -212,9 +212,9 @@ test('provider review publication uses one canonical App report and metadata-onl
   }
   assert.match(deliverPr, /governed-vs-portable publication branch/u)
   assert.match(deliverPr, /forge-cli >=1\.27\.27/u)
-  assert.match(deliverPr, /review-specialists >=1\.27\.27/u)
+  assert.match(deliverPr, /review-specialists >=1\.27\.29/u)
   assert.match(tracking, /forge-cli >=1\.27\.27/u)
-  assert.match(tracking, /review-specialists >=1\.27\.27/u)
+  assert.match(tracking, /review-specialists >=1\.27\.29/u)
 })
 
 test('review convergence bounds broad discovery and keeps repair review closed-set', () => {
@@ -328,7 +328,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.17')
-  assert.equal(manifest.validated_release, '1.27.27')
+  assert.equal(manifest.validated_release, '1.27.29')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
