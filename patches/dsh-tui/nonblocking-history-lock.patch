@@ -174,3 +174,19 @@ index e27ae99..ff30cb3 100644
  }
  /**
   * Stable id for a history entry (keeps React keys distinct across identical texts).
+diff --git a/cordis.patch.yml b/cordis.patch.yml
+index 64415bc..f231b9a 100644
+--- a/cordis.patch.yml
++++ b/cordis.patch.yml
+@@ -55,11 +55,6 @@
+       maxExportBatchSize: 2048
+       exportTimeoutMillis: 1500
+ 
+-# The alpha base sends the active Loader package inventory on official
+-# DeepSeek requests by default. TUI keeps that diagnostic metadata opt-in.
+-- id: plugin-package-inventory-deepseek
+-  config:
+-    enabled: false
+ 
+ # ── agent presets (issue #8) ────────────────────────────────────────────────
+ #
