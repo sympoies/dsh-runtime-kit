@@ -210,6 +210,13 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
       'acceptance:exact-provider-verdict-satisfied',
       'acceptance:goal-completion-allowed-post-evidence',
     ]),
+    subagent: Object.freeze([
+      'reviewer:native-subagent-completed',
+      'main-agent:host-workspace-before-prompt',
+      'main-agent:model-driven-review-loop',
+      'main-agent:no-anchor-agent',
+      'main-agent:forced-harness-loss-converged-without-stale-sidecar-trust',
+    ]),
     'private-project-skill': Object.freeze([
       'coexistence:no-cross-loaded-hooks-skills-session-state',
       'coexistence:dsh-hook-docs-state-isolated',
@@ -510,7 +517,7 @@ function authoritativeMatrix(value) {
           'boot_outcome', 'denial_code', 'probe_loaded', 'model_calls', 'session_starts',
         ])
         if (leg.boot_outcome !== 'blocked-before-model'
-          || leg.denial_code !== 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'
+          || leg.denial_code !== 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE'
           || leg.probe_loaded !== true || leg.model_calls !== 0
           || leg.session_starts !== 0) invalidAuthoritativeMatrix()
         break
@@ -635,6 +642,9 @@ function requiredScenarioEvidence(producer, id) {
   }
   if (producer === 'packed-runtime' && id === 'authoritative-acceptance') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['authoritative-acceptance']
+  }
+  if (producer === 'packed-runtime' && id === 'subagent') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime'].subagent
   }
   return []
 }
@@ -1248,7 +1258,8 @@ function dshAccepted(actual, expected) {
     && typeof expected.version === 'string'
     && EXACT_VERSION.test(expected.version)
     && patch?.schema_version === 'dsh-runtime-kit.dsh-patch-receipt.v1'
-    && patch.patch_id === 'native-execution-boundaries-v2'
+    && typeof expected.patch_id === 'string'
+    && patch.patch_id === expected.patch_id
     && patch.version === actual.version
     && patch.revision === actual.revision
     && patch.action === 'check'

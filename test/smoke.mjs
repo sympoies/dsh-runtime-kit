@@ -3499,28 +3499,18 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
         },
       },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
-      { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
       {
-        id: 'native-main-agent-lane',
+        id: 'subagent',
         status: 'passed',
         producer: 'packed-runtime',
         evidence: [
+          'reviewer:native-subagent-completed',
           'main-agent:host-workspace-before-prompt',
           'main-agent:model-driven-review-loop',
           'main-agent:no-anchor-agent',
           'main-agent:forced-harness-loss-converged-without-stale-sidecar-trust',
         ],
       },
-      ...(authoritativeAcceptance ? [{
-        id: 'authoritative-acceptance',
-        status: 'passed',
-        producer: 'packed-runtime',
-        evidence: [
-          'acceptance:goal-completion-blocked-pre-mutation',
-          'acceptance:exact-provider-verdict-satisfied',
-          'acceptance:goal-completion-allowed-post-evidence',
-        ],
-      }] : []),
       {
         id: 'automatic-prerequisite',
         status: 'passed',

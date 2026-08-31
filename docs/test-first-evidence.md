@@ -1773,3 +1773,42 @@ authenticated DSH sandbox helper while explicit wrapper tests preserve the
 intentional missing-versus-blank pairing difference.
 Patch check/apply state is authenticated for rc.7, rc.8, and rc.2; provider
 delivery, deployment, and a new live DSH acceptance remain separate gates.
+
+## Issue #60 acceptance companion repair evidence
+
+The first hosted #60 acceptance failed closed in the packed-runtime phase after
+artifact preparation succeeded. A focused static regression then began RED
+because `scripts/run-acceptance.mjs` neither authenticated nor snapshotted the
+released `main-agent` companion. The repair resolves it only as a sibling of the
+already authenticated `agent-hook`, snapshots it into the private run root,
+passes its path explicitly, validates its nils-cli identity, and rechecks both
+source and snapshot digests during final verification. `main-agent` remains an
+execution companion rather than an eighth candidate receipt artifact.
+
+The first full replay exposed a second meaningful RED: the rollback process
+inherited candidate `main-agent` and `agent-session` paths. Supplying a baseline
+`agent-session` from the same release caused the intended old-provider negative
+row to wait instead of proving a mismatch. The authoritative smoke now deletes
+both ambient paths and adds them only to the candidate environment. The #60
+candidate therefore remains exact-seven while the accepted #59 rollback
+remains exact-six; absence of the new companion in that negative row produces
+the exact fail-closed `DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE` result before
+model or session startup.
+
+A scenario-registry RED rejected an extra native Main Agent row. The five
+host-workspace observations now strengthen the existing `subagent` scenario,
+so the Gate 4 receipt remains exactly 14 scenarios and the authoritative matrix
+remains exactly 10 legs. A final receipt RED passed 33 and failed 9 acceptance
+tests because the summary validator still required the retired
+`native-execution-boundaries-v2` identifier while the authenticated manifest
+selected v3. The validator now compares the patch receipt with the selected
+expected patch identity supplied by the acceptance runner.
+
+The repaired acceptance contract suite passes 42/42, strict typechecking
+passes, and the complete package suite passes 739/739. A released nils-cli
+1.27.27 source rehearsal against pristine DSH 0.1.1-rc.2 produced an `ok: true`
+receipt with 12 passed scenarios, two live-delivery scenarios explicitly
+pending, candidate exact-seven, rollback exact-six, a 10-leg authoritative
+matrix, authenticated apply/reverse, pristine rebuild, and successful unpatched
+smoke. Provider delivery and post-merge Gate 4 acceptance remain separate gates
+and are not claimed by this record.
