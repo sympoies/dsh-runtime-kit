@@ -173,6 +173,8 @@ const nativeFullHostCapabilities = Object.freeze([
 ])
 if (fullHostAuthority) assert.equal(process.platform, 'linux')
 const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+const dataPolicyCandidateEnabled = nilsCandidateFeature !== undefined
+  && nilsCandidateFeature === nilsCompatibility.candidate_validation?.feature
 const nativeMainAgentProfile = 'runtime-kit-smoke'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
@@ -3676,64 +3678,66 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(codeModeReceipt.pendingPolicyMarkers, 0)
   assert.equal(codeModeReceipt.pendingCorrelations, 0)
 
-  resetCheckoutLease()
-  const dataPolicyBoot = runDsh(
-    ['--profile', profile, '--patch', dataPolicyOverlayPath],
-    {
-      env: {
-        ...environment,
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-data-policy',
-        DSH_RUNTIME_KIT_SMOKE_DATA_POLICY: '1',
-        DSH_RUNTIME_KIT_PROTECTED_ROOTS: JSON.stringify([dataPolicyProtectedRoot]),
+  if (dataPolicyCandidateEnabled) {
+    resetCheckoutLease()
+    const dataPolicyBoot = runDsh(
+      ['--profile', profile, '--patch', dataPolicyOverlayPath],
+      {
+        env: {
+          ...environment,
+          DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-data-policy',
+          DSH_RUNTIME_KIT_SMOKE_DATA_POLICY: '1',
+          DSH_RUNTIME_KIT_PROTECTED_ROOTS: JSON.stringify([dataPolicyProtectedRoot]),
+        },
       },
-    },
-  )
-  const dataPolicyOutput = `${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`
-  assert.doesNotMatch(dataPolicyOutput, new RegExp(dataPolicySentinel, 'u'))
-  const dataPolicyLine = dataPolicyBoot.stdout
-    .split('\n')
-    .find(candidate => candidate.startsWith(marker))
-  assert.ok(
-    dataPolicyLine,
-    `missing data-policy ${marker} output:\n${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`,
-  )
-  const dataPolicyReceipt = JSON.parse(dataPolicyLine.slice(marker.length))
-  assert.equal(dataPolicyReceipt.dataPolicyEnabled, true)
-  assert.equal(dataPolicyReceipt.dataPolicyNativeSensitiveExecutions, 0)
-  assert.equal(dataPolicyReceipt.dataPolicyWebFixtureExecutions, 1)
-  assert.ok(dataPolicyReceipt.dataPolicyMcpFixtureExecutions >= 2)
-  assert.equal(dataPolicyReceipt.dataPolicyRawAbsent, true)
-  assert.equal(dataPolicyReceipt.dataPolicyAuditCount, dataPolicyReceipt.dataPolicyAudits.length)
-  assert.ok(dataPolicyReceipt.dataPolicyResults.length >= 11)
-  assert.ok(dataPolicyReceipt.dataPolicyResults.every(candidate => candidate.rawPresent === false))
-  assert.ok(['direct', 'relative', 'symlink'].every(kind =>
-    dataPolicyReceipt.dataPolicyResults.some(candidate =>
-      candidate.protectedKind === kind && candidate.isError === true)))
-  assert.ok(dataPolicyReceipt.dataPolicyResults.some(candidate =>
-    candidate.protectedKind === 'delegated-shell'
-      && candidate.isError === false
-      && candidate.sandboxDenied === true
-      && candidate.exitCode !== 0))
-  const dataPolicyValidations = dataPolicyReceipt.dataPolicyResults.filter(candidate =>
-    candidate.callId?.includes('data-policy-validation-'))
-  assert.equal(dataPolicyValidations.length, 2)
-  assert.ok(dataPolicyValidations.every(candidate => candidate.isError === false))
-  assert.notEqual(dataPolicyValidations[0].exitCode, 0)
-  assert.equal(dataPolicyValidations[1].exitCode, 0)
-  assert.deepEqual(
-    [...new Set(dataPolicyReceipt.dataPolicyAudits.map(audit => audit.source_id))].sort(),
-    ['tool.code', 'tool.mcp', 'tool.native', 'tool.shell', 'tool.web'],
-  )
-  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
-    audit.matched_rule_ids.includes('runtime.data-policy.pre.sensitive-deny')))
-  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
-    audit.matched_rule_ids.includes('runtime.data-policy.final.sensitive-deny')))
-  assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
-    audit.matched_rule_ids.includes('runtime.data-policy.final.machine-path-quarantine')))
-  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'direct.txt')), false)
-  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'relative.txt')), false)
-  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'symlink.txt')), false)
-  assert.equal(existsSync(join(dataPolicyProtectedRoot, 'shell.txt')), false)
+    )
+    const dataPolicyOutput = `${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`
+    assert.doesNotMatch(dataPolicyOutput, new RegExp(dataPolicySentinel, 'u'))
+    const dataPolicyLine = dataPolicyBoot.stdout
+      .split('\n')
+      .find(candidate => candidate.startsWith(marker))
+    assert.ok(
+      dataPolicyLine,
+      `missing data-policy ${marker} output:\n${dataPolicyBoot.stdout}\n${dataPolicyBoot.stderr}`,
+    )
+    const dataPolicyReceipt = JSON.parse(dataPolicyLine.slice(marker.length))
+    assert.equal(dataPolicyReceipt.dataPolicyEnabled, true)
+    assert.equal(dataPolicyReceipt.dataPolicyNativeSensitiveExecutions, 0)
+    assert.equal(dataPolicyReceipt.dataPolicyWebFixtureExecutions, 1)
+    assert.ok(dataPolicyReceipt.dataPolicyMcpFixtureExecutions >= 2)
+    assert.equal(dataPolicyReceipt.dataPolicyRawAbsent, true)
+    assert.equal(dataPolicyReceipt.dataPolicyAuditCount, dataPolicyReceipt.dataPolicyAudits.length)
+    assert.ok(dataPolicyReceipt.dataPolicyResults.length >= 11)
+    assert.ok(dataPolicyReceipt.dataPolicyResults.every(candidate => candidate.rawPresent === false))
+    assert.ok(['direct', 'relative', 'symlink'].every(kind =>
+      dataPolicyReceipt.dataPolicyResults.some(candidate =>
+        candidate.protectedKind === kind && candidate.isError === true)))
+    assert.ok(dataPolicyReceipt.dataPolicyResults.some(candidate =>
+      candidate.protectedKind === 'delegated-shell'
+        && candidate.isError === false
+        && candidate.sandboxDenied === true
+        && candidate.exitCode !== 0))
+    const dataPolicyValidations = dataPolicyReceipt.dataPolicyResults.filter(candidate =>
+      candidate.callId?.includes('data-policy-validation-'))
+    assert.equal(dataPolicyValidations.length, 2)
+    assert.ok(dataPolicyValidations.every(candidate => candidate.isError === false))
+    assert.notEqual(dataPolicyValidations[0].exitCode, 0)
+    assert.equal(dataPolicyValidations[1].exitCode, 0)
+    assert.deepEqual(
+      [...new Set(dataPolicyReceipt.dataPolicyAudits.map(audit => audit.source_id))].sort(),
+      ['tool.code', 'tool.mcp', 'tool.native', 'tool.shell', 'tool.web'],
+    )
+    assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+      audit.matched_rule_ids.includes('runtime.data-policy.pre.sensitive-deny')))
+    assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+      audit.matched_rule_ids.includes('runtime.data-policy.final.sensitive-deny')))
+    assert.ok(dataPolicyReceipt.dataPolicyAudits.some(audit =>
+      audit.matched_rule_ids.includes('runtime.data-policy.final.machine-path-quarantine')))
+    assert.equal(existsSync(join(dataPolicyProtectedRoot, 'direct.txt')), false)
+    assert.equal(existsSync(join(dataPolicyProtectedRoot, 'relative.txt')), false)
+    assert.equal(existsSync(join(dataPolicyProtectedRoot, 'symlink.txt')), false)
+    assert.equal(existsSync(join(dataPolicyProtectedRoot, 'shell.txt')), false)
+  }
 
   resetCheckoutLease()
   installPolicy('block')
@@ -3845,17 +3849,19 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       { id: 'edit', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:edit-generation-recorded'] },
       { id: 'validate', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:exact-validation-executed'] },
       { id: 'review', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:mutation-denied-before-body'] },
-      {
-        id: 'data-policy',
-        status: 'passed',
-        producer: 'packed-runtime',
-        evidence: [
-          'data-policy:native-pre-call-denied-before-body',
-          'data-policy:mcp-web-shell-code-final-result-contained',
-          'data-policy:content-free-audit-rule-bound',
-          'protected-root:direct-relative-symlink-shell-denied',
-        ],
-      },
+      ...(dataPolicyCandidateEnabled
+        ? [{
+            id: 'data-policy',
+            status: 'passed',
+            producer: 'packed-runtime',
+            evidence: [
+              'data-policy:native-pre-call-denied-before-body',
+              'data-policy:mcp-web-shell-code-final-result-contained',
+              'data-policy:content-free-audit-rule-bound',
+              'protected-root:direct-relative-symlink-shell-denied',
+            ],
+          }]
+        : []),
       {
         id: 'private-project-skill',
         status: 'passed',

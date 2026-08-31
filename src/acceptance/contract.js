@@ -59,6 +59,7 @@ const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
 const REPOSITORY = /^https:\/\/github\.com\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)$/iu
 const ARCHIVE_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u
 const CANDIDATE_FEATURE = /^[a-z][a-z0-9-]{0,63}$/u
+const DATA_POLICY_CANDIDATE = 'typed-data-policy-protected-roots'
 const CANDIDATE_NILS_ARTIFACTS = Object.freeze([
   'agent-docs',
   'agent-hook',
@@ -1219,10 +1220,13 @@ export function resolveSourceCandidateAcceptance(compatibilityValue, nilsValue) 
 /**
  * @param {unknown} input
  * @param {'operations'|'packed-runtime'} producer
+ * @param {boolean} [dataPolicyCandidateEnabled]
  */
-function scenariosFrom(input, producer) {
+function scenariosFrom(input, producer, dataPolicyCandidateEnabled = false) {
   const receipt = record(input, producer + ' scenarios')
-  const expected = PRODUCERS[producer]
+  const expected = producer === 'packed-runtime' && !dataPolicyCandidateEnabled
+    ? PRODUCERS[producer].filter(id => id !== 'data-policy')
+    : PRODUCERS[producer]
   if (receipt.schema_version !== SCENARIO_SCHEMA
     || receipt.ok !== true
     || receipt.producer !== producer
@@ -1440,17 +1444,12 @@ function prDeliveryAccepted(delivery, runId, expected) {
  * }} input
  */
 export function buildAcceptanceSummary(input) {
-  const runtimeScenarios = scenariosFrom(input.runtime, 'packed-runtime')
-  const operationScenarios = scenariosFrom(input.operations, 'operations')
   const dsh = record(input.dsh, 'DSH identity')
   const expectedDsh = record(input.expected_dsh, 'expected DSH identity')
   const compatibility = record(input.compatibility, 'nils compatibility')
   const nils = record(input.nils, 'nils identity')
   const environment = record(input.environment, 'acceptance environment')
   const expectedDelivery = record(input.expected_delivery, 'expected delivery')
-  const authoritative = runtimeScenarios.find(item => item.id === 'authoritative-acceptance')
-  const authoritativeAcceptance = authoritative?.matrix
-
   if (!dshAccepted(dsh, expectedDsh)
     || typeof nils.version !== 'string'
     || !EXACT_VERSION.test(nils.version)
@@ -1467,8 +1466,27 @@ export function buildAcceptanceSummary(input) {
     || typeof environment.mode !== 'string'
     || typeof environment.isolated !== 'boolean'
     || typeof input.run_id !== 'string'
-    || !RUN_ID.test(input.run_id)
-    || authoritativeAcceptance?.dsh.version !== dsh.version
+    || !RUN_ID.test(input.run_id)) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      'acceptance runtime evidence is invalid',
+    )
+  }
+  const releaseReady = releaseAccepted(compatibility, nils)
+  const sourceCandidate = !releaseReady && input.allow_source_nils === true
+    ? resolveSourceCandidateAcceptance(compatibility, nils)
+    : undefined
+  const dataPolicyCandidateEnabled = sourceCandidate?.feature === DATA_POLICY_CANDIDATE
+  const runtimeScenarios = scenariosFrom(
+    input.runtime,
+    'packed-runtime',
+    dataPolicyCandidateEnabled,
+  )
+  const operationScenarios = scenariosFrom(input.operations, 'operations')
+  const authoritative = runtimeScenarios.find(item => item.id === 'authoritative-acceptance')
+  const authoritativeAcceptance = authoritative?.matrix
+
+  if (authoritativeAcceptance?.dsh.version !== dsh.version
     || authoritativeAcceptance?.dsh.revision !== dsh.revision
     || authoritativeAcceptance?.candidate.runtime_package_sha256 !== input.package_sha256
     || authoritativeAcceptance?.candidate.nils_source_commit !== nils.source_commit
@@ -1481,11 +1499,7 @@ export function buildAcceptanceSummary(input) {
       'acceptance runtime evidence is invalid',
     )
   }
-
-  const releaseReady = releaseAccepted(compatibility, nils)
-  if (!releaseReady && input.allow_source_nils === true) {
-    resolveSourceCandidateAcceptance(compatibility, nils)
-  } else if (!releaseReady) {
+  if (!releaseReady && sourceCandidate === undefined) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
       'final acceptance requires exact validated nils release artifacts',
@@ -1535,8 +1549,11 @@ export function buildAcceptanceSummary(input) {
     semantic,
     pr,
   ].map(item => [item.id, item]))
-  const scenarios = SCENARIO_ORDER.map(id => byId.get(id))
-  if (scenarios.some(item => item === undefined) || byId.size !== SCENARIO_ORDER.length) {
+  const scenarioOrder = dataPolicyCandidateEnabled
+    ? SCENARIO_ORDER
+    : SCENARIO_ORDER.filter(id => id !== 'data-policy')
+  const scenarios = scenarioOrder.map(id => byId.get(id))
+  if (scenarios.some(item => item === undefined) || byId.size !== scenarioOrder.length) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
       'acceptance scenario registry is incomplete',

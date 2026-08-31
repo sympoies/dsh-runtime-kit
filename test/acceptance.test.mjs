@@ -304,7 +304,7 @@ function scenario(id, producer, evidence = [id + ':verified'], extra = {}) {
   return { id, status: 'passed', producer, evidence, ...extra }
 }
 
-function runtimeReceipt() {
+function runtimeReceipt({ dataPolicy = true } = {}) {
   return {
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
     ok: true,
@@ -318,12 +318,14 @@ function runtimeReceipt() {
       ]),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
-      scenario('data-policy', 'packed-runtime', [
-        'data-policy:native-pre-call-denied-before-body',
-        'data-policy:mcp-web-shell-code-final-result-contained',
-        'data-policy:content-free-audit-rule-bound',
-        'protected-root:direct-relative-symlink-shell-denied',
-      ]),
+      ...(dataPolicy
+        ? [scenario('data-policy', 'packed-runtime', [
+            'data-policy:native-pre-call-denied-before-body',
+            'data-policy:mcp-web-shell-code-final-result-contained',
+            'data-policy:content-free-audit-rule-bound',
+            'protected-root:direct-relative-symlink-shell-denied',
+          ])]
+        : []),
       scenario('private-project-skill', 'packed-runtime', [
         'skills:private-project-precedence',
         'coexistence:no-cross-loaded-hooks-skills-session-state',
@@ -439,7 +441,7 @@ function pendingCompatibility() {
     validated_release: null,
     release: null,
     candidate_validation: {
-      feature: 'authoritative-finish-line-acceptance',
+      feature: 'typed-data-policy-protected-roots',
       status: 'reviewed-source-candidate',
       validation: 'exact-reviewed-source',
       source_commit: nils.source_commit,
@@ -562,6 +564,10 @@ function baseInput() {
   }
 }
 
+function releasedInput(input = baseInput()) {
+  return { ...input, runtime: runtimeReceipt({ dataPolicy: false }) }
+}
+
 test('authoritative scenario scopes explicit candidate selection to intended processes', () => {
   const candidateFeature = 'future-reviewed-source-candidate'
   const ambient = {
@@ -617,7 +623,7 @@ test('source rehearsal selects only the exact reviewed nils candidate', () => {
   assert.deepEqual(
     resolveSourceCandidateAcceptance(input.compatibility, input.nils),
     {
-      feature: 'authoritative-finish-line-acceptance',
+      feature: 'typed-data-policy-protected-roots',
       source_commit: SOURCE_COMMIT,
       version: '1.26.4',
     },
@@ -727,6 +733,30 @@ test('data-policy acceptance requires every native containment marker', () => {
   }
 })
 
+test('candidate-only data-policy evidence is exact for source and released modes', () => {
+  const missingCandidateEvidence = baseInput()
+  missingCandidateEvidence.runtime = runtimeReceipt({ dataPolicy: false })
+  assert.throws(
+    () => buildAcceptanceSummary(missingCandidateEvidence),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'the authenticated source candidate must provide data-policy evidence',
+  )
+
+  const unexpectedReleasedEvidence = baseInput()
+  assert.throws(
+    () => buildAcceptanceSummary({
+      ...unexpectedReleasedEvidence,
+      compatibility: releasedCompatibility(),
+      nils: nilsIdentity('v1.26.4'),
+      allow_source_nils: false,
+    }),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'released acceptance must reject candidate-only evidence it did not execute',
+  )
+})
+
 test('authoritative acceptance requires both synchronous goal decisions and the exact verdict', () => {
   const required = [
     'acceptance:goal-completion-blocked-pre-mutation',
@@ -829,7 +859,7 @@ test('authoritative acceptance rejects fabricated matrix identities and observat
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
-    ...input,
+    ...releasedInput(input),
     compatibility: releasedCompatibility(),
     nils: nilsIdentity('v1.26.4'),
     environment: { mode: 'disposable-ci', isolated: true },
@@ -839,13 +869,13 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 
   assert.equal(summary.status, 'pass')
   assert.equal(summary.mode, 'released')
-  assert.deepEqual(summary.counts, { passed: 15, pending: 0, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 14, pending: 0, failed: 0 })
 })
 
 test('a newer exact release may retain an older supported minimum', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
-    ...input,
+    ...releasedInput(input),
     compatibility: releasedCompatibility('1.27.0', '1.26.4'),
     nils: nilsIdentity('v1.27.0', '1.27.0'),
     environment: { mode: 'disposable-ci', isolated: true },
@@ -856,7 +886,7 @@ test('a newer exact release may retain an older supported minimum', () => {
 
   assert.throws(
     () => buildAcceptanceSummary({
-      ...input,
+      ...releasedInput(input),
       compatibility: releasedCompatibility('1.26.4', '1.27.0'),
       nils: nilsIdentity('v1.26.4'),
       allow_source_nils: false,
@@ -868,7 +898,7 @@ test('a newer exact release may retain an older supported minimum', () => {
   const prerelease = baseInput()
   assert.throws(
     () => buildAcceptanceSummary({
-      ...prerelease,
+      ...releasedInput(prerelease),
       compatibility: releasedCompatibility('1.27.0-alpha', '1.27.0-alpha.1'),
       nils: nilsIdentity('v1.27.0-alpha', '1.27.0-alpha'),
       allow_source_nils: false,
@@ -877,7 +907,7 @@ test('a newer exact release may retain an older supported minimum', () => {
       && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
   )
   assert.doesNotThrow(() => buildAcceptanceSummary({
-    ...prerelease,
+    ...releasedInput(prerelease),
     compatibility: releasedCompatibility('1.27.0-alpha.1', '1.27.0-alpha'),
     nils: nilsIdentity('v1.27.0-alpha.1', '1.27.0-alpha.1'),
     allow_source_nils: false,
@@ -894,7 +924,7 @@ test('release gate rejects source or archive substitution for the nils bundle', 
     mutate(nils)
     assert.throws(
       () => buildAcceptanceSummary({
-        ...baseInput(),
+        ...releasedInput(),
         compatibility: releasedCompatibility('1.27.0'),
         nils,
         allow_source_nils: false,
@@ -920,7 +950,7 @@ test('release gate rejects unknown revisions and version-only substitute binarie
   ]) {
     assert.throws(
       () => buildAcceptanceSummary({
-        ...input,
+        ...releasedInput(input),
         compatibility: releasedCompatibility(),
         nils,
         allow_source_nils: false,
@@ -950,7 +980,7 @@ test('DSH evidence binds pristine provenance to the reviewed downstream patch', 
 
 test('delivery rejects replay, cross-repository URLs, mismatched heads, and partial chains', () => {
   const input = {
-    ...baseInput(),
+    ...releasedInput(),
     compatibility: releasedCompatibility(),
     nils: nilsIdentity('v1.26.4'),
     environment: { mode: 'disposable-ci', isolated: true },
