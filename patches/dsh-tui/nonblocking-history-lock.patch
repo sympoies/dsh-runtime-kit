@@ -1,5 +1,5 @@
 diff --git a/lib/types/history.js b/lib/types/history.js
-index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc32e2f606a 100644
+index e27ae99..c8821b1 100644
 --- a/lib/types/history.js
 +++ b/lib/types/history.js
 @@ -1,5 +1,6 @@
@@ -34,14 +34,17 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
          return true;
      }
      catch (error) {
-@@ -27,16 +31,16 @@ function removeStaleHistoryLock() {
+@@ -27,19 +31,19 @@ function removeStaleHistoryLock() {
          throw error;
      }
  }
 -function withHistoryLock(write) {
--    mkdirSync(HISTORY_DIR, { recursive: true });
 +async function withHistoryLock(write) {
-+    await mkdir(HISTORY_DIR, { recursive: true });
+     // 0700: history.jsonl holds the user's raw inputs (incl. pasted secrets),
+     // so the directory must not be group/world-readable. Mode applies to the
+     // creation only; pre-existing dirs are left as-is (no migration chmod).
+-    mkdirSync(HISTORY_DIR, { recursive: true, mode: 0o700 });
++    await mkdir(HISTORY_DIR, { recursive: true, mode: 0o700 });
      for (let attempt = 0; attempt < LOCK_RETRY_LIMIT; attempt += 1) {
          try {
 -            mkdirSync(HISTORY_LOCK);
@@ -55,7 +58,7 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
              }
              return;
          }
-@@ -44,9 +48,9 @@ function withHistoryLock(write) {
+@@ -47,9 +51,9 @@ function withHistoryLock(write) {
              const code = error.code;
              if (code !== 'EEXIST')
                  throw error;
@@ -67,7 +70,7 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
          }
      }
      throw new Error('history lock busy');
-@@ -85,25 +89,22 @@ export function appendHistory(text) {
+@@ -88,27 +92,24 @@ export function appendHistory(text) {
      const trimmed = text.trim();
      if (!trimmed)
          return;
@@ -84,7 +87,9 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
 -                entries.push({ text: trimmed, ts: Date.now() });
 -            }
 -            const sliced = entries.slice(-HISTORY_LIMIT);
--            writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+-            writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 
+-            // 0600 on creation: entries carry the full user input text
+-            { encoding: 'utf8', mode: 0o600 });
 -        });
 -    }
 -    catch {
@@ -100,7 +105,9 @@ index fe575cad0fb99514dc2a460ce1161d72339a913d..c78890eb099789f8c3a1c0b9d099ccc3
 +            entries.push({ text: trimmed, ts: Date.now() });
 +        }
 +        const sliced = entries.slice(-HISTORY_LIMIT);
-+        writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
++        writeFileSync(HISTORY_FILE, sliced.map(e => JSON.stringify(e)).join('\n') + '\n',
++        // 0600 on creation: entries carry the full user input text
++        { encoding: 'utf8', mode: 0o600 });
 +    }).catch(() => {
          // Best-effort persistence; history still works for the session.
 -    }

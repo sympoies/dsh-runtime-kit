@@ -11,7 +11,7 @@ Use DSH's native `headless` profile, or the exact Agent Console `dsh-tui`
 profile. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
-created the ordered base + `@deepseek-harness-tui/dsh-tui@0.9.3` profile before
+created the ordered base + `@deepseek-harness-tui/dsh-tui@0.10.0-beta.2` profile before
 runtime-kit is added as its final bundle. Save the complete pre-activation
 profile and the owner-only runtime root as the rollback point.
 
@@ -172,13 +172,20 @@ pairs are `workspace-write` + `ask`, or the currently required
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
-The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui `0.9.3`, and the
+The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui
+`0.10.0-beta.2`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
 contract. Managed continuation metadata can reconstruct an exact host-issued
 workspace only when its registered provider reauthenticates the same persisted
 cwd and renews the nils workspace lease; stale liveness sidecars never grant
 that authority.
+
+The TUI is an explicit prerelease promotion. Do not replace the exact specifier
+with npm's moving `latest` tag. Keep the previous 0.9.3 profile receipt and
+package identity until beta.2 startup, profile inspection, and live smoke have
+passed on every deployed surface; rollback restores that exact prior contract
+without deleting profile homes or unrelated session state.
 
 Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils

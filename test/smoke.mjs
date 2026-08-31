@@ -71,15 +71,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.9.3',
+  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.2',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  'a3439a3c7d7e7b3c9cfc505e833525376e8558d0',
+  '655c0f16088879890d9c6ce5d160651433223e09',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-8AR+/EO+5iBlS9a8OWFqPHtmRXa1EFM8L/0rlTvgLn1YVa2sKIqECfOpuBLxWRQ1ABUb+iSkoyJ1p0bsCC0FTA==',
+  'sha512-qWuTmsjNJp4rUxLePZdKXMp9mHs2wLEtMnED+ayd+fgmppYvf9AU2btNW7Nb4oHN6lvcsx+PqK795nFJ3Sgsyg==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -1283,6 +1283,35 @@ process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '
   const receipt = JSON.parse(result.stdout)
   assert.equal(receipt.accepted, true)
   assert.ok(receipt.elapsed_ms <= 100)
+
+  const privateHome = join(temporaryRoot, 'tui-private-history-home')
+  const privateHistoryDir = join(privateHome, '.dsh-tui')
+  const privateHistoryFile = join(privateHistoryDir, 'history.jsonl')
+  mkdirSync(privateHome, { mode: 0o700 })
+  const privacyResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+import { existsSync, statSync } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
+const { appendHistory } = await import(${JSON.stringify(historyModule)})
+appendHistory('dsh-runtime-kit private history mode smoke')
+for (let attempt = 0; attempt < 100 && !existsSync(${JSON.stringify(privateHistoryFile)}); attempt += 1) {
+  await delay(10)
+}
+if (!existsSync(${JSON.stringify(privateHistoryFile)})) throw new Error('history append did not persist')
+process.stdout.write(JSON.stringify({
+  directory_mode: statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777,
+  file_mode: statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777,
+}) + '\\n')
+`], {
+    cwd: packageRoot,
+    env: { ...environment, HOME: privateHome },
+    encoding: 'utf8',
+    timeout: 2_000,
+  })
+  assert.equal(privacyResult.status, 0, privacyResult.stderr)
+  assert.deepEqual(JSON.parse(privacyResult.stdout), {
+    directory_mode: 0o700,
+    file_mode: 0o600,
+  })
   return true
 }
 
@@ -2546,6 +2575,9 @@ exec "$@"
   const agentConsoleTuiOverlay = agentConsoleTuiPackage === undefined
     ? ''
     : '- id: dsh-tui\n  disabled: true\n'
+  const agentConsoleCodeRuntimeOverlay = agentConsoleTuiPackage === undefined
+    ? ''
+    : '- id: dsh-tui-code-runtime\n  disabled: true\n'
   writeFileSync(overlayPath, `
 ${agentConsoleTuiOverlay}
 - id: sandbox
@@ -2560,6 +2592,7 @@ ${agentConsoleTuiOverlay}
 `)
   writeFileSync(codeModeOverlayPath, `
 ${agentConsoleTuiOverlay}
+${agentConsoleCodeRuntimeOverlay}
 - id: tools
   config:
     mode: both
