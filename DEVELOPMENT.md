@@ -226,6 +226,7 @@ npm run acceptance -- \
   --dsh-source-root /absolute/path/to/deepseek-harness \
   --agent-hook-bin /absolute/path/to/nils-cli/bin/agent-hook \
   --agent-docs-bin /absolute/path/to/nils-cli/bin/agent-docs \
+  --agent-session-bin /absolute/path/to/nils-cli/bin/agent-session \
   --git-cli-bin /absolute/path/to/nils-cli/bin/git-cli \
   --review-specialists-bin /absolute/path/to/nils-cli/bin/review-specialists \
   --semantic-commit-bin /absolute/path/to/nils-cli/bin/semantic-commit \

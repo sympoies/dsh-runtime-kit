@@ -42,6 +42,7 @@ const DSH_REVISION = '9'.repeat(40)
 const HEAD = '1'.repeat(40)
 const HOOK_SHA = 'a'.repeat(64)
 const DOCS_SHA = 'b'.repeat(64)
+const AGENT_SESSION_SHA = '6'.repeat(64)
 const GIT_CLI_SHA = 'c'.repeat(64)
 const REVIEW_SHA = 'd'.repeat(64)
 const SEMANTIC_COMMIT_SHA = 'e'.repeat(64)
@@ -137,6 +138,7 @@ function authoritativeMatrix() {
       nils_artifacts: {
         'agent-hook': HOOK_SHA,
         'agent-docs': DOCS_SHA,
+        'agent-session': AGENT_SESSION_SHA,
         'forge-cli': FORGE_CLI_SHA,
         'git-cli': GIT_CLI_SHA,
         'review-specialists': REVIEW_SHA,
@@ -395,6 +397,7 @@ function nilsIdentity(
     artifacts: {
       'agent-hook': { sha256: HOOK_SHA },
       'agent-docs': { sha256: DOCS_SHA },
+      'agent-session': { sha256: AGENT_SESSION_SHA },
       'git-cli': { sha256: GIT_CLI_SHA },
       'review-specialists': { sha256: REVIEW_SHA },
       'semantic-commit': { sha256: SEMANTIC_COMMIT_SHA },
@@ -440,6 +443,7 @@ function releasedCompatibility(version = '1.26.4', minimum = '1.26.4') {
       artifacts: {
         'agent-hook': { sha256: HOOK_SHA },
         'agent-docs': { sha256: DOCS_SHA },
+        'agent-session': { sha256: AGENT_SESSION_SHA },
         'git-cli': { sha256: GIT_CLI_SHA },
         'review-specialists': { sha256: REVIEW_SHA },
         'semantic-commit': { sha256: SEMANTIC_COMMIT_SHA },
@@ -1862,6 +1866,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /const MINIMUM_NODE_MAJOR = 24/u)
   assert.match(runner, /DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED/u)
   assert.match(runner, /assertSupportedNodeRuntime\(\)\n\s+const input = parseCli\(\)/u)
+  assert.match(runner, /'agent-session-bin'/u)
   assert.match(runner, /'semantic-commit-bin'/u)
   assert.match(runner, /'forge-cli-bin'/u)
   assert.match(runner, /'nils-source-commit'/u)
@@ -1892,6 +1897,14 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(controlPlane, /manageDshPatch/u)
   assert.match(controlPlane, /digestDshBuildClosure/u)
   assert.doesNotMatch(controlPlane, /inspectSelectedDshCheckout\(/u)
+  const finalVerification = runner.slice(
+    runner.indexOf("enterPhase('final-verification')"),
+    runner.indexOf('const head = runChecked', runner.indexOf("enterPhase('final-verification')")),
+  )
+  assert.match(
+    finalVerification,
+    /\['agent-session', sessionSource, agentSession\]/u,
+  )
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
@@ -1989,6 +2002,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
       '--agent-docs-bin', '/bin/true',
+      '--agent-session-bin', '/bin/true',
       '--git-cli-bin', '/bin/true',
       '--review-specialists-bin', '/bin/true',
       '--semantic-commit-bin', '/bin/true',
@@ -2012,6 +2026,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
       '--agent-docs-bin', '/bin/true',
+      '--agent-session-bin', '/bin/true',
       '--git-cli-bin', '/bin/true',
       '--review-specialists-bin', '/bin/true',
       '--semantic-commit-bin', '/bin/true',
@@ -2044,6 +2059,7 @@ test('acceptance runner reports a sanitized phase for unexpected workspace failu
         '--dsh-source-root', '/tmp',
         '--agent-hook-bin', '/bin/true',
         '--agent-docs-bin', '/bin/true',
+        '--agent-session-bin', '/bin/true',
         '--git-cli-bin', '/bin/true',
         '--review-specialists-bin', '/bin/true',
         '--semantic-commit-bin', '/bin/true',
