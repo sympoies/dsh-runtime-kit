@@ -5,11 +5,11 @@
     {
       "id": "nonblocking-history-lock-v1",
       "path": "patches/dsh-tui/nonblocking-history-lock.patch",
-      "sha256": "d2b0e19d1d0fb91b8a9d46768fbcdba765a91591ed20838bd214082f415f3cf7",
+      "sha256": "23abfb9a30b4fc44fb7436b7ebf100d367ae421e74f53711c7794052ffd5775b",
       "targets": {
         "lib/types/history.js": {
           "before_sha256": "186202e336a880509133baf71ff462b83c3deaf442c15e62f9fb1c08f6bbb033",
-          "after_sha256": "6129662f8bc5b3d59d18b70874b51faa263cffc675bb06c0f50b53051d846135"
+          "after_sha256": "62c4c6c17ba8c7ad1dd61c55aa36f295967fe0f3ffd7d5032c1f2cd0382bf36b"
         }
       },
       "validated_releases": {

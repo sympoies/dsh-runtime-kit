@@ -42,7 +42,9 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
 
 The required receipt state is `after: "patched"`. Check it before service
 start. Reverse the same patch before replacing the package; never edit the
-installed history module by hand.
+installed history module by hand. On first history append, the patch preserves
+legacy entries while restricting owner-owned data paths to 0700/0600; an
+unexpected type, owner, or symlink is refused without following it.
 
 Runtime-kit also requires one authenticated source patch in the selected DSH
 checkout. This is an operator/deployment action, never an agent-authored shell

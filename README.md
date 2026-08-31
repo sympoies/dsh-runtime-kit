@@ -126,7 +126,9 @@ patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
 Unknown or partially patched packages fail closed. This repair moves lock
 retries off the prompt submission stack, so history persistence remains
-best-effort without delaying command dispatch.
+best-effort without delaying command dispatch. Before reading history, it also
+restricts owner-owned legacy data directories and files to 0700/0600 and
+refuses unexpected or symlinked paths.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

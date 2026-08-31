@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -9,6 +10,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1288,18 +1290,37 @@ process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '
   const privateHistoryDir = join(privateHome, '.dsh-tui')
   const privateHistoryFile = join(privateHistoryDir, 'history.jsonl')
   mkdirSync(privateHome, { mode: 0o700 })
+  mkdirSync(privateHistoryDir, { mode: 0o755 })
+  writeFileSync(privateHistoryFile, '{"text":"legacy history sentinel","ts":1}\n', { mode: 0o644 })
+  chmodSync(privateHistoryDir, 0o755)
+  chmodSync(privateHistoryFile, 0o644)
   const privacyResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
-import { existsSync, statSync } from 'node:fs'
-import { setTimeout as delay } from 'node:timers/promises'
-const { appendHistory } = await import(${JSON.stringify(historyModule)})
-appendHistory('dsh-runtime-kit private history mode smoke')
-for (let attempt = 0; attempt < 100 && !existsSync(${JSON.stringify(privateHistoryFile)}); attempt += 1) {
-  await delay(10)
+ import { existsSync, statSync } from 'node:fs'
+ import { readFile } from 'node:fs/promises'
+ import { setTimeout as delay } from 'node:timers/promises'
+const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
+const beforeAppend = loadHistory()
+if (beforeAppend.length !== 1 || beforeAppend[0].text !== 'legacy history sentinel') {
+  throw new Error('legacy history read did not preserve the sentinel')
 }
-if (!existsSync(${JSON.stringify(privateHistoryFile)})) throw new Error('history append did not persist')
+const read_first_directory_mode = statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777
+const read_first_file_mode = statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777
+appendHistory('dsh-runtime-kit private history mode smoke')
+let history = ''
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (existsSync(${JSON.stringify(privateHistoryFile)})) {
+    history = await readFile(${JSON.stringify(privateHistoryFile)}, 'utf8')
+    if (history.includes('dsh-runtime-kit private history mode smoke')) break
+  }
+  await delay(10)
+ }
+ if (!history.includes('dsh-runtime-kit private history mode smoke')) throw new Error('history append did not persist')
 process.stdout.write(JSON.stringify({
   directory_mode: statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777,
   file_mode: statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777,
+  read_first_directory_mode,
+  read_first_file_mode,
+  preserved_legacy_entry: history.includes('legacy history sentinel'),
 }) + '\\n')
 `], {
     cwd: packageRoot,
@@ -1311,6 +1332,42 @@ process.stdout.write(JSON.stringify({
   assert.deepEqual(JSON.parse(privacyResult.stdout), {
     directory_mode: 0o700,
     file_mode: 0o600,
+    read_first_directory_mode: 0o700,
+    read_first_file_mode: 0o600,
+    preserved_legacy_entry: true,
+  })
+
+  const symlinkHome = join(temporaryRoot, 'tui-symlink-history-home')
+  const symlinkHistoryDir = join(symlinkHome, '.dsh-tui')
+  const symlinkHistoryFile = join(symlinkHistoryDir, 'history.jsonl')
+  const symlinkTarget = join(symlinkHome, 'outside-history.jsonl')
+  mkdirSync(symlinkHistoryDir, { recursive: true, mode: 0o700 })
+  writeFileSync(symlinkTarget, '{"text":"outside sentinel","ts":1}\n', { mode: 0o644 })
+  chmodSync(symlinkTarget, 0o644)
+  symlinkSync(symlinkTarget, symlinkHistoryFile)
+  const symlinkResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+import { readFile, stat } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
+const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
+const loaded = loadHistory()
+if (loaded.length !== 0) throw new Error('history symlink was read')
+appendHistory('must not follow history symlink')
+await delay(100)
+const content = await readFile(${JSON.stringify(symlinkTarget)}, 'utf8')
+process.stdout.write(JSON.stringify({
+  content,
+  mode: (await stat(${JSON.stringify(symlinkTarget)})).mode & 0o777,
+}) + '\\n')
+`], {
+    cwd: packageRoot,
+    env: { ...environment, HOME: symlinkHome },
+    encoding: 'utf8',
+    timeout: 2_000,
+  })
+  assert.equal(symlinkResult.status, 0, symlinkResult.stderr)
+  assert.deepEqual(JSON.parse(symlinkResult.stdout), {
+    content: '{"text":"outside sentinel","ts":1}\n',
+    mode: 0o644,
   })
   return true
 }

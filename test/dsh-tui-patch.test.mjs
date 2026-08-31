@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and preserves private modes', async () => {
+test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and migrates private modes', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -145,8 +145,14 @@ test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and preserves
     .join('\n')
   assert.match(additions, /setTimeout/u)
   assert.match(additions, /\.unref\?\.\(\)/u)
+  assert.match(additions, /lstat/u)
+  assert.match(additions, /chmod/u)
+  assert.match(additions, /lstatSync/u)
+  assert.match(additions, /chmodSync/u)
+  assert.match(additions, /prepareHistoryStorageSync/u)
+  assert.match(additions, /process\.getuid/u)
   assert.match(additions, /mode: 0o700/u)
   assert.match(additions, /mode: 0o600/u)
   assert.doesNotMatch(additions, /Atomics\.wait/u)
-  assert.doesNotMatch(additions, /(?:mkdir|rm|stat)Sync/u)
+  assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
 })

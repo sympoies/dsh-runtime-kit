@@ -80,7 +80,9 @@ the 0.10 interaction and plugin surfaces and repairs beta.1's startup failure;
 these remain upstream TUI behaviors rather than runtime-kit patches. The
 history-lock repair is the explicit exception recorded in
 `compatibility/dsh-tui-patches.json`, rebased without removing beta.2's private
-data-directory and history-file modes.
+data-directory and history-file modes. The patch also migrates retained,
+owner-owned 0.9.3 history paths to those modes before reading them and refuses
+unexpected or symlinked paths.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.
