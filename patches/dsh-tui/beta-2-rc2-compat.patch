@@ -1,5 +1,5 @@
 diff --git a/lib/types/history.js b/lib/types/history.js
-index e27ae99..ff30cb3 100644
+index e27ae990..ff30cb30 100644
 --- a/lib/types/history.js
 +++ b/lib/types/history.js
 @@ -1,5 +1,6 @@

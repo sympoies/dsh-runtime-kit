@@ -4,8 +4,8 @@
   "patches": [
     {
       "id": "beta-2-rc2-compat-v1",
-      "path": "patches/dsh-tui/nonblocking-history-lock.patch",
-      "sha256": "afce43a4ad25d6ef7aec95b142a43753f3cb3491c9d7b33c5994a6acd6017391",
+      "path": "patches/dsh-tui/beta-2-rc2-compat.patch",
+      "sha256": "71247550c1bdb10808ad570cf08ce88538533b259ebb686666da706605d57049",
       "targets": {
         "cordis.patch.yml": {
           "before_sha256": "64415bc91615b5bf66a7b0d99a1bf3bf892b8b9b9f8c7999237d1b6f1f0aa0ac",
