@@ -68,9 +68,7 @@ const CANDIDATE_NILS_ARTIFACTS = Object.freeze([
   'review-specialists',
   'semantic-commit',
 ])
-const BASELINE_NILS_ARTIFACTS = Object.freeze(
-  CANDIDATE_NILS_ARTIFACTS.filter(name => name !== 'agent-session'),
-)
+const BASELINE_NILS_ARTIFACTS = CANDIDATE_NILS_ARTIFACTS
 const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
   'activation-asset-inventory-invalid',
   'activation-asset-retention-limit',
@@ -526,7 +524,10 @@ function authoritativeMatrix(value) {
           'id', 'process_instance_sha256', 'workspace_sha256', 'resources_after',
           'installed_runtime_package_sha256', 'nils_source_commit',
           'baseline_seed_runtime_package_sha256', 'baseline_seed_acceptance_mode',
-          'baseline_seed_mutation_executions', 'baseline_seed_legacy_stop',
+          'baseline_seed_mutation_executions', 'baseline_seed_process_instance_sha256',
+          'baseline_seed_validation_process_instance_sha256',
+          'baseline_seed_session_sha256',
+          'baseline_seed_validation_session_sha256', 'baseline_seed_legacy_stop',
           'baseline_seed_steering_observed',
           'baseline_seed_exact_validation_executions', 'baseline_seed_checkout_clean',
           'first_verdict', 'goal_unchanged', 'goal_round_followups',
@@ -537,6 +538,20 @@ function authoritativeMatrix(value) {
           || leg.baseline_seed_runtime_package_sha256 !== baseline.runtime_package_sha256
           || leg.baseline_seed_acceptance_mode !== 'absent'
           || leg.baseline_seed_mutation_executions !== 1
+          || !/^sha256:[0-9a-f]{64}$/u.test(
+            leg.baseline_seed_process_instance_sha256,
+          )
+          || !/^sha256:[0-9a-f]{64}$/u.test(
+            leg.baseline_seed_validation_process_instance_sha256,
+          )
+          || leg.baseline_seed_process_instance_sha256
+            === leg.baseline_seed_validation_process_instance_sha256
+          || !/^sha256:[0-9a-f]{64}$/u.test(leg.baseline_seed_session_sha256)
+          || !/^sha256:[0-9a-f]{64}$/u.test(
+            leg.baseline_seed_validation_session_sha256,
+          )
+          || leg.baseline_seed_session_sha256
+            === leg.baseline_seed_validation_session_sha256
           || leg.baseline_seed_legacy_stop !== 'blocked'
           || leg.baseline_seed_steering_observed !== true
           || leg.baseline_seed_exact_validation_executions !== 1
@@ -550,13 +565,16 @@ function authoritativeMatrix(value) {
       case 'baseline-rollback':
         exactRecord(leg, [
           'id', 'process_instance_sha256', 'workspace_sha256', 'resources_after',
-          'rollback_session_sha256', 'validation_session_sha256',
+          'rollback_session_sha256', 'validation_process_instance_sha256',
+          'validation_session_sha256',
           'installed_runtime_package_sha256', 'nils_source_commit',
           'tool_outcome', 'acceptance_mode', 'legacy_stop',
           'legacy_steering_observed',
           'mutation_body_executions', 'exact_validation_executions', 'rollback_checkout_clean',
         ])
         if (!/^sha256:[0-9a-f]{64}$/u.test(leg.rollback_session_sha256)
+          || !/^sha256:[0-9a-f]{64}$/u.test(leg.validation_process_instance_sha256)
+          || leg.process_instance_sha256 === leg.validation_process_instance_sha256
           || !/^sha256:[0-9a-f]{64}$/u.test(leg.validation_session_sha256)
           || leg.rollback_session_sha256 === leg.validation_session_sha256
           || leg.installed_runtime_package_sha256 !== baseline.runtime_package_sha256

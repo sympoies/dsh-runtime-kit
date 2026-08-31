@@ -224,8 +224,13 @@ export function apply(ctx) {
     })
     return
   }
-  const acceptanceRequired = !['baseline-seed', 'baseline-rollback', 'unpatched-smoke']
-    .includes(phase)
+  const acceptanceRequired = ![
+    'baseline-seed',
+    'baseline-seed-validation',
+    'baseline-rollback',
+    'baseline-rollback-validation',
+    'unpatched-smoke',
+  ].includes(phase)
   rmSync(required(validationMarker, 'validation marker'), { force: true })
   let handle
   let resumedHandle
@@ -378,10 +383,8 @@ export function apply(ctx) {
     let validationExecutions = 0
     let recoveryAgentReady = false
     let recoveryTransitionRequested = false
-    let legacyValidationReady = false
     let legacySteeringObserved = false
     let recoverySessionSha
-    let legacyValidationSessionSha
     let failure
     let resolveRecoveryTransition
     const recoveryTransition = new Promise(resolve => { resolveRecoveryTransition = resolve })
@@ -473,15 +476,15 @@ export function apply(ctx) {
         case 'baseline-seed':
         case 'baseline-rollback':
           if (!settled('write')) return mutation('legacy-mutation')
-          if (!legacyValidationReady) {
-            if (turnStops === 0) return stop('legacy stop must block before validation')
-            if (!legacySteeringObserved) {
-              legacySteeringObserved = true
-              handle.agent.cancel({ kind: 'user' })
-              resolveLegacySteering()
-            }
-            return stop('switching to a fresh validation turn')
+          if (turnStops === 0) return stop('legacy stop must block before validation')
+          if (!legacySteeringObserved) {
+            legacySteeringObserved = true
+            handle.agent.cancel({ kind: 'user' })
+            resolveLegacySteering()
           }
+          return stop('legacy mutation remains blocked before validation')
+        case 'baseline-seed-validation':
+        case 'baseline-rollback-validation':
           if (!settled('bash')) return validation('legacy-validation')
           return stop('legacy validation complete')
         case 'unpatched-smoke':
@@ -809,30 +812,17 @@ export function apply(ctx) {
       if (phase === 'baseline-seed' || phase === 'baseline-rollback') {
         await legacySteering
         await handle.agent.whenIdle()
-        if (phase === 'baseline-rollback') {
-          const rollbackHandle = handle
-          await rollbackHandle.dispose()
-          rmSync(join(workspace, '.authoritative-acceptance-mutation'), { force: true })
-          const validationSessionId = sessionId + '-validation'
-          handle = await ctx.agents.create({
-            sessionId: validationSessionId,
-            agentOptions: { provider: 'authoritative-acceptance-canary', model: 'scripted' },
-            meta: { cwd: workspace },
-          })
-          legacyValidationSessionSha = digest(validationSessionId)
-        }
-        legacyValidationReady = true
-        handle.agent.followup(createUserMessage({
-          content: [{ type: 'text', text: 'run the exact legacy validation in a fresh turn' }],
-          source: { kind: 'user' },
-        }))
+      }
+
+      if (phase === 'baseline-seed-validation'
+        || phase === 'baseline-rollback-validation') {
         try {
           await waitUntil(
-            () => succeeded('write') && succeeded('bash') && turnStops >= 2,
-            'legacy mutation denial and exact validation',
+            () => succeeded('bash') && turnStops >= 1,
+            'exact legacy validation in a fresh process',
           )
         } catch {
-          throw new Error('legacy lifecycle unavailable: ' + JSON.stringify({
+          throw new Error('legacy validation unavailable: ' + JSON.stringify({
             results,
             turn_stops: turnStops,
             events: handle.agent.session.events.flatMap(event => {
@@ -937,7 +927,6 @@ export function apply(ctx) {
         workspace_sha256: workspaceSha,
         session_sha256: digest(sessionId),
         recovery_session_sha256: recoverySessionSha,
-        legacy_validation_session_sha256: legacyValidationSessionSha,
         acceptance_mode: acceptanceEnabled ? 'present' : 'absent',
         model_calls: adapter.modelCalls,
         sequence,

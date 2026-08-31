@@ -58,6 +58,7 @@ const BASELINE_SOURCE_COMMIT = '3'.repeat(40)
 const BASELINE_NILS_ARTIFACTS = Object.freeze({
   'agent-hook': '0'.repeat(64),
   'agent-docs': '1'.repeat(64),
+  'agent-session': '6'.repeat(64),
   'forge-cli': '2'.repeat(64),
   'git-cli': '3'.repeat(64),
   'review-specialists': '4'.repeat(64),
@@ -258,6 +259,14 @@ function authoritativeMatrix() {
         baseline_seed_runtime_package_sha256: BASELINE_PACKAGE_SHA,
         baseline_seed_acceptance_mode: 'absent',
         baseline_seed_mutation_executions: 1,
+        baseline_seed_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-process').digest('hex'),
+        baseline_seed_validation_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-validation-process').digest('hex'),
+        baseline_seed_session_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-session').digest('hex'),
+        baseline_seed_validation_session_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-validation-session').digest('hex'),
         baseline_seed_legacy_stop: 'blocked',
         baseline_seed_steering_observed: true,
         baseline_seed_exact_validation_executions: 1,
@@ -273,6 +282,8 @@ function authoritativeMatrix() {
         ...common('baseline-rollback'),
         rollback_session_sha256: 'sha256:'
           + createHash('sha256').update('baseline-rollback-session').digest('hex'),
+        validation_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-rollback-validation-process').digest('hex'),
         validation_session_sha256: 'sha256:'
           + createHash('sha256').update('baseline-rollback-validation-session').digest('hex'),
         installed_runtime_package_sha256: BASELINE_PACKAGE_SHA,
@@ -1893,6 +1904,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'baseline-package-sha256'/u)
   assert.match(runner, /'baseline-nils-bin-dir'/u)
   assert.match(runner, /'baseline-nils-source-commit'/u)
+  assert.match(
+    runner,
+    /'agent-hook',\s*'agent-docs',\s*'agent-session',\s*'forge-cli'/u,
+    'the rollback snapshot must include the baseline runtime health companion',
+  )
   assert.match(runner, /DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS/u)
   assert.match(runner, /rollback_validation/u)
   assert.match(runner, /AUTHORITATIVE_SCENARIO_TIMEOUT_MS/u)

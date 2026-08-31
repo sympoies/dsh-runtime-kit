@@ -72,6 +72,7 @@ test('issue 61 rollback is pinned to the exact accepted issue 60 baseline', () =
     artifacts: {
       'agent-hook': { sha256: '791ee0bc5cfae83d639a6ebc4eccc13049b47b2967f5d3cfb93706faf40b3381' },
       'agent-docs': { sha256: '8e3beb884efd3c2ca1bbc91f023db2dc246a56b5325b7f73394319f46c10a169' },
+      'agent-session': { sha256: '073a8089c864b1566a5c7ddbbfc44973766cbdcc0c944b99b0d02e0aa797ccdf' },
       'forge-cli': { sha256: '3940bc6c8be3983b8221d5287aba2e8affe41a539c5586ea00e1cb3ac5949528' },
       'git-cli': { sha256: '5a0ae9be1e7e2f0c7d383ace6fc08c7834d39112657ce4c9949e745f1365b569' },
       'review-specialists': { sha256: '6991a6926de1c9e3453321ce4725461464b14977a5add5c21ab5adf466e92992' },

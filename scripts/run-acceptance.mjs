@@ -311,6 +311,7 @@ async function trustedNilsBinDirectory(path) {
   return Object.freeze(Object.fromEntries(await Promise.all([
     'agent-hook',
     'agent-docs',
+    'agent-session',
     'forge-cli',
     'git-cli',
     'review-specialists',
