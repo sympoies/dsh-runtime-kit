@@ -58,7 +58,7 @@ const EXPECTED_SOURCE = {
 const EXPECTED_OWNER_REPOSITORIES = {
   [DSH]: {
     identity: 'github.com/sympoies/dsh-runtime-kit',
-    evidence_commit: '3b4bb380622631cd6cded8af6af1bebcff21732a',
+    evidence_commit: '4dbb6e8a5e6d3a62be497ee597d11bc450cde597',
   },
   [NILS]: {
     identity: 'github.com/sympoies/nils-cli',

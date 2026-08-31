@@ -90,7 +90,7 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
   assert.deepEqual(inventory.test_owner_repositories, {
     'dsh-runtime-kit': {
       identity: 'github.com/sympoies/dsh-runtime-kit',
-      evidence_commit: '3b4bb380622631cd6cded8af6af1bebcff21732a',
+      evidence_commit: '4dbb6e8a5e6d3a62be497ee597d11bc450cde597',
     },
     'nils-cli': {
       identity: 'github.com/sympoies/nils-cli',

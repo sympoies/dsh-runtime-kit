@@ -44,7 +44,7 @@ async function portableDshCheckout(parent) {
   ])
   await run('git', [
     '-C', checkout,
-    'cat-file', '-e', '3b4bb380622631cd6cded8af6af1bebcff21732a^{commit}',
+    'cat-file', '-e', '4dbb6e8a5e6d3a62be497ee597d11bc450cde597^{commit}',
   ])
   return checkout
 }

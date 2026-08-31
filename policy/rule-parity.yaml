@@ -15,7 +15,7 @@ source:
 test_owner_repositories:
   dsh-runtime-kit:
     identity: github.com/sympoies/dsh-runtime-kit
-    evidence_commit: 3b4bb380622631cd6cded8af6af1bebcff21732a
+    evidence_commit: 4dbb6e8a5e6d3a62be497ee597d11bc450cde597
   nils-cli:
     identity: github.com/sympoies/nils-cli
     evidence_commit: 47c208c8740669d0f421bf6986e8716b6f3f0151
