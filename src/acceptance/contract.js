@@ -181,6 +181,7 @@ const PRODUCERS = Object.freeze({
     'automatic-prerequisite',
     'validate',
     'review',
+    'data-policy',
     'private-project-skill',
     'resume',
     'subagent',
@@ -202,6 +203,12 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
       'prerequisite:mutating-tool-body-gated',
       'prerequisite:code-mode-nested-dispatch-gated',
       'prerequisite:context-ferried-through-run-code',
+    ]),
+    'data-policy': Object.freeze([
+      'data-policy:native-pre-call-denied-before-body',
+      'data-policy:mcp-web-shell-code-final-result-contained',
+      'data-policy:content-free-audit-rule-bound',
+      'protected-root:direct-relative-symlink-shell-denied',
     ]),
     'authoritative-acceptance': Object.freeze([
       'acceptance:goal-completion-blocked-pre-mutation',
@@ -658,6 +665,9 @@ function requiredScenarioEvidence(producer, id) {
   if (producer === 'packed-runtime' && id === 'automatic-prerequisite') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['automatic-prerequisite']
   }
+  if (producer === 'packed-runtime' && id === 'data-policy') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['data-policy']
+  }
   if (producer === 'packed-runtime' && id === 'authoritative-acceptance') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['authoritative-acceptance']
   }
@@ -674,6 +684,7 @@ const SCENARIO_ORDER = Object.freeze([
   'automatic-prerequisite',
   'validate',
   'review',
+  'data-policy',
   'private-project-skill',
   'semantic-commit',
   'pr-delivery',

@@ -318,6 +318,12 @@ function runtimeReceipt() {
       ]),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
+      scenario('data-policy', 'packed-runtime', [
+        'data-policy:native-pre-call-denied-before-body',
+        'data-policy:mcp-web-shell-code-final-result-contained',
+        'data-policy:content-free-audit-rule-bound',
+        'protected-root:direct-relative-symlink-shell-denied',
+      ]),
       scenario('private-project-skill', 'packed-runtime', [
         'skills:private-project-precedence',
         'coexistence:no-cross-loaded-hooks-skills-session-state',
@@ -597,7 +603,7 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-summary.v2')
   assert.equal(summary.status, 'incomplete')
   assert.equal(summary.mode, 'source-rehearsal')
-  assert.deepEqual(summary.counts, { passed: 12, pending: 2, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 13, pending: 2, failed: 0 })
   assert.deepEqual(
     summary.scenarios.filter(item => item.status === 'pending-authorization').map(item => item.id),
     ['semantic-commit', 'pr-delivery'],
@@ -691,6 +697,27 @@ test('automatic prerequisite acceptance requires every native gating marker', ()
     const input = baseInput()
     const automatic = input.runtime.scenarios.find(item => item.id === 'automatic-prerequisite')
     automatic.evidence = automatic.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+})
+
+test('data-policy acceptance requires every native containment marker', () => {
+  const required = [
+    'data-policy:native-pre-call-denied-before-body',
+    'data-policy:mcp-web-shell-code-final-result-contained',
+    'data-policy:content-free-audit-rule-bound',
+    'protected-root:direct-relative-symlink-shell-denied',
+  ]
+  assert.doesNotThrow(() => buildAcceptanceSummary(baseInput()))
+  for (const missing of required) {
+    const input = baseInput()
+    const dataPolicy = input.runtime.scenarios.find(item => item.id === 'data-policy')
+    dataPolicy.evidence = dataPolicy.evidence.filter(value => value !== missing)
     assert.throws(
       () => buildAcceptanceSummary(input),
       error => error instanceof AcceptanceError
@@ -812,7 +839,7 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 
   assert.equal(summary.status, 'pass')
   assert.equal(summary.mode, 'released')
-  assert.deepEqual(summary.counts, { passed: 14, pending: 0, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 15, pending: 0, failed: 0 })
 })
 
 test('a newer exact release may retain an older supported minimum', () => {
