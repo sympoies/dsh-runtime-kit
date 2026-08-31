@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and migrates private modes', async () => {
+test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and the alpha-only inventory row', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -139,7 +139,10 @@ test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and migrates 
   const bytes = await readFile(join(projectRoot, patch.path))
   assert.equal(sha256(bytes), patch.sha256)
   assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.0-beta.2'])
-  assert.deepEqual(Object.keys(patch.targets), ['lib/types/history.js'])
+  assert.deepEqual(Object.keys(patch.targets), [
+    'cordis.patch.yml',
+    'lib/types/history.js',
+  ])
   const additions = bytes.toString('utf8').split('\n')
     .filter(line => line.startsWith('+') && !line.startsWith('+++'))
     .join('\n')
@@ -155,4 +158,8 @@ test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and migrates 
   assert.match(additions, /mode: 0o600/u)
   assert.doesNotMatch(additions, /Atomics\.wait/u)
   assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
+  const removals = bytes.toString('utf8').split('\n')
+    .filter(line => line.startsWith('-') && !line.startsWith('---'))
+    .join('\n')
+  assert.match(removals, /plugin-package-inventory-deepseek/u)
 })

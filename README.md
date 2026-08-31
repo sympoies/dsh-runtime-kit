@@ -113,8 +113,7 @@ profile linker and peer settings while recording the TUI release's explicit
 the agent's host CLI or `PATH`.
 
 After installing the authenticated 0.10.0-beta.2 archive and before starting
-the TUI,
-apply the package-level history-lock repair:
+the TUI, apply the exact beta.2-on-DSH-rc.2 compatibility repair:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
@@ -124,11 +123,13 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
 The command accepts only the exact package name, version, `package.json` bytes,
 patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
-Unknown or partially patched packages fail closed. This repair moves lock
-retries off the prompt submission stack, so history persistence remains
-best-effort without delaying command dispatch. Before reading history, it also
-restricts owner-owned legacy data directories and files to 0700/0600 and
-refuses unexpected or symlinked paths.
+Unknown or partially patched packages fail closed. The repair removes beta.2's
+alpha-only package-inventory override, which the selected DSH rc.2 base bundle
+does not provide, and moves lock retries off the prompt submission stack so
+history persistence remains best-effort without delaying command dispatch.
+Before reading history, it also restricts owner-owned legacy data directories
+and files to 0700/0600 and refuses unexpected or symlinked paths. Apply, check,
+and reverse always authenticate and move both package targets together.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

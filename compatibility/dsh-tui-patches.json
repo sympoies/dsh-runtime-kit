@@ -3,10 +3,14 @@
   "package_name": "@deepseek-harness-tui/dsh-tui",
   "patches": [
     {
-      "id": "nonblocking-history-lock-v1",
-      "path": "patches/dsh-tui/nonblocking-history-lock.patch",
-      "sha256": "23abfb9a30b4fc44fb7436b7ebf100d367ae421e74f53711c7794052ffd5775b",
+      "id": "beta-2-rc2-compat-v1",
+      "path": "patches/dsh-tui/beta-2-rc2-compat.patch",
+      "sha256": "71247550c1bdb10808ad570cf08ce88538533b259ebb686666da706605d57049",
       "targets": {
+        "cordis.patch.yml": {
+          "before_sha256": "64415bc91615b5bf66a7b0d99a1bf3bf892b8b9b9f8c7999237d1b6f1f0aa0ac",
+          "after_sha256": "f231b9a54829b2d965004e4a2a3f2e7e58fefd6fd8c361c3304f51597ab6ba25"
+        },
         "lib/types/history.js": {
           "before_sha256": "186202e336a880509133baf71ff462b83c3deaf442c15e62f9fb1c08f6bbb033",
           "after_sha256": "62c4c6c17ba8c7ad1dd61c55aa36f295967fe0f3ffd7d5032c1f2cd0382bf36b"

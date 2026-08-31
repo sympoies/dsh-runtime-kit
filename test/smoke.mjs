@@ -1600,7 +1600,7 @@ try {
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
     'patches/deepseek-harness/native-execution-boundaries-v3.patch',
-    'patches/dsh-tui/nonblocking-history-lock.patch',
+    'patches/dsh-tui/beta-2-rc2-compat.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -1696,7 +1696,16 @@ try {
     })
     assert.equal(appliedTuiPatch.before, 'pristine')
     assert.equal(appliedTuiPatch.after, 'patched')
-    agentConsoleTuiPatchVerified = true
+    const checkedTuiPatch = await manageDshTuiPatch({
+      action: 'check',
+      packageRoot: agentConsoleTuiPackageRoot,
+      patchRoot: projectRoot,
+      manifest: dshTuiPatchManifest,
+      gitBin: '/usr/bin/git',
+    })
+    assert.equal(checkedTuiPatch.before, 'patched')
+    assert.equal(checkedTuiPatch.after, 'patched')
+    assert.equal(checkedTuiPatch.changed, false)
     agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
       agentConsoleTuiPackageRoot,
     )
@@ -3551,6 +3560,27 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     profile: nativeMainAgentProfile,
     mode: 'process-loss',
   })
+
+  if (agentConsoleTuiPackage !== undefined) {
+    const reversedTuiPatch = await manageDshTuiPatch({
+      action: 'reverse',
+      packageRoot: agentConsoleTuiPackageRoot,
+      patchRoot: projectRoot,
+      manifest: dshTuiPatchManifest,
+      gitBin: '/usr/bin/git',
+    })
+    assert.equal(reversedTuiPatch.before, 'patched')
+    assert.equal(reversedTuiPatch.after, 'pristine')
+    assert.equal(reversedTuiPatch.changed, true)
+    const tuiPatchTargets = dshTuiPatchManifest.patches[0].targets
+    for (const [relative, target] of Object.entries(tuiPatchTargets)) {
+      const actual = createHash('sha256')
+        .update(readFileSync(join(agentConsoleTuiPackageRoot, relative)))
+        .digest('hex')
+      assert.equal(actual, target.before_sha256, `${relative} did not reverse to pristine bytes`)
+    }
+    agentConsoleTuiPatchVerified = true
+  }
 
   const finalDshCheckout = await manageDshPatch({
     action: 'check',
