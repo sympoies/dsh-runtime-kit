@@ -59,14 +59,18 @@ const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
 const REPOSITORY = /^https:\/\/github\.com\/([a-z0-9_.-]+)\/([a-z0-9_.-]+)$/iu
 const ARCHIVE_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u
 const CANDIDATE_FEATURE = /^[a-z][a-z0-9-]{0,63}$/u
-const NILS_ARTIFACTS = Object.freeze([
+const CANDIDATE_NILS_ARTIFACTS = Object.freeze([
   'agent-docs',
   'agent-hook',
+  'agent-session',
   'forge-cli',
   'git-cli',
   'review-specialists',
   'semantic-commit',
 ])
+const BASELINE_NILS_ARTIFACTS = Object.freeze(
+  CANDIDATE_NILS_ARTIFACTS.filter(name => name !== 'agent-session'),
+)
 const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
   'activation-asset-inventory-invalid',
   'activation-asset-retention-limit',
@@ -335,8 +339,11 @@ function authoritativeMatrix(value) {
   const baseline = exactRecord(matrix.baseline, [
     'runtime_package_sha256', 'nils_source_commit', 'nils_artifacts',
   ])
-  const nilsArtifacts = exactRecord(candidate.nils_artifacts, NILS_ARTIFACTS)
-  const baselineNilsArtifacts = exactRecord(baseline.nils_artifacts, NILS_ARTIFACTS)
+  const nilsArtifacts = exactRecord(candidate.nils_artifacts, CANDIDATE_NILS_ARTIFACTS)
+  const baselineNilsArtifacts = exactRecord(
+    baseline.nils_artifacts,
+    BASELINE_NILS_ARTIFACTS,
+  )
   if (matrix.schema_version !== AUTHORITATIVE_MATRIX_SCHEMA
     || typeof dsh.version !== 'string' || !EXACT_VERSION.test(dsh.version)
     || typeof dsh.revision !== 'string' || !COMMIT_SHA.test(dsh.revision)
@@ -1117,21 +1124,25 @@ function versionAtLeast(current, minimum) {
   return true
 }
 
-/** @param {Record<string, any>} artifacts */
-function exactArtifacts(artifacts) {
+/** @param {Record<string, any>} artifacts @param {ReadonlyArray<string>} names */
+function exactArtifacts(artifacts, names = CANDIDATE_NILS_ARTIFACTS) {
   if (artifacts === null || typeof artifacts !== 'object' || Array.isArray(artifacts)) {
     return false
   }
-  const names = Object.keys(artifacts).sort()
-  return names.join('\0') === NILS_ARTIFACTS.join('\0')
-    && names.every(name => sha256(artifacts[name]?.sha256))
+  const artifactNames = Object.keys(artifacts).sort()
+  return artifactNames.join('\0') === names.join('\0')
+    && artifactNames.every(name => sha256(artifacts[name]?.sha256))
 }
 
-/** @param {Record<string, any>} left @param {Record<string, any>} right */
-function sameArtifacts(left, right) {
-  return exactArtifacts(left)
-    && exactArtifacts(right)
-    && NILS_ARTIFACTS.every(name => left[name].sha256 === right[name].sha256)
+/**
+ * @param {Record<string, any>} left
+ * @param {Record<string, any>} right
+ * @param {ReadonlyArray<string>} names
+ */
+function sameArtifacts(left, right, names = CANDIDATE_NILS_ARTIFACTS) {
+  return exactArtifacts(left, names)
+    && exactArtifacts(right, names)
+    && names.every(name => left[name].sha256 === right[name].sha256)
 }
 
 /** @param {unknown} compatibilityValue @param {unknown} nilsValue */
@@ -1421,7 +1432,7 @@ export function buildAcceptanceSummary(input) {
     || authoritativeAcceptance?.dsh.revision !== dsh.revision
     || authoritativeAcceptance?.candidate.runtime_package_sha256 !== input.package_sha256
     || authoritativeAcceptance?.candidate.nils_source_commit !== nils.source_commit
-    || NILS_ARTIFACTS.some(name => (
+    || CANDIDATE_NILS_ARTIFACTS.some(name => (
       authoritativeAcceptance?.candidate.nils_artifacts[name]
         !== nils.artifacts[name].sha256
     ))) {
@@ -1533,6 +1544,7 @@ export function buildAcceptanceSummary(input) {
       artifacts: Object.freeze({
         'agent-hook': Object.freeze({ sha256: nils.artifacts['agent-hook'].sha256 }),
         'agent-docs': Object.freeze({ sha256: nils.artifacts['agent-docs'].sha256 }),
+        'agent-session': Object.freeze({ sha256: nils.artifacts['agent-session'].sha256 }),
         'forge-cli': Object.freeze({ sha256: nils.artifacts['forge-cli'].sha256 }),
         'git-cli': Object.freeze({ sha256: nils.artifacts['git-cli'].sha256 }),
         'review-specialists': Object.freeze({ sha256: nils.artifacts['review-specialists'].sha256 }),
