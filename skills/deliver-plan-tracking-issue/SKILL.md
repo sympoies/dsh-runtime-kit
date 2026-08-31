@@ -13,7 +13,7 @@ Prereqs:
 
 - Profile: `tracking`.
 - CLI floors: `plan-issue >=1.0.13`, `plan-tooling >=1.0.1`,
-  `forge-cli >=1.27.27`, `git-cli >=1.25.13`, `review-specialists >=1.27.27`.
+  `forge-cli >=1.27.27`, `git-cli >=1.25.13`, `review-specialists >=1.27.29`.
 - The tracking issue is absent and ready to open, or open, visible, and
   reconcilable with `run-state.json`; FSM is not blocked or stale.
 - PR delivery runs the generic code-review outcome in pre-merge context with the

@@ -149,11 +149,12 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 ## Released dependency
 
-The implementation requires the independently authenticated nils-cli v1.27.27
-release, which contains the canonical provider-review renderer and metadata-only
-personal review projection delivered in PR #1567 plus the native full-host
-finish-line authority delivered in PR #1568 while retaining permission
-restrictions for confined runners. The exact tag commit, Linux archive, six
+The implementation requires the independently authenticated nils-cli v1.27.29
+release. It contains strict delivery-mode review actionability from PR #1582,
+so every finding explicitly selects either a native owner thread or a
+summary-only observation. The release retains the canonical provider-review
+renderer and metadata-only projection from PR #1567 plus the native full-host
+finish-line authority from PR #1568. The exact tag commit, Linux archive, seven
 acceptance binaries, and macOS runtime-health companions are recorded in
 `compatibility/nils-cli.json`; the completed
 source-candidate record is no longer an activation path. Registering an
