@@ -1151,6 +1151,10 @@ export function apply(ctx) {
     const closeoutDeadline = Date.now() + 60_000
     while (status.run.state !== 'closed' && Date.now() < closeoutDeadline) {
       lastCloseoutResult = nativeStore(closeoutArgs)
+      if (lastCloseoutResult.run?.state === 'closed') {
+        status = { ...status, run: lastCloseoutResult.run }
+        break
+      }
       status = nativeStore(['status'])
       if (status.run.state !== 'closed') {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
