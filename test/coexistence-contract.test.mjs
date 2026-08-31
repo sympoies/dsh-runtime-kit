@@ -55,7 +55,7 @@ test('issue 60 rollback is pinned to the exact accepted issue 59 baseline', () =
   assert.equal(manifest.candidate_validation?.validation, 'exact-reviewed-source')
   assert.equal(
     manifest.candidate_validation?.source_commit,
-    '47c208c8740669d0f421bf6986e8716b6f3f0151',
+    '3784a1f6252aa0e83f046297ee729c1c394083ce',
   )
   // #66 and Gate 0 select the serial predecessor. This assertion freezes that
   // reviewed selection for #60; it does not discover a future child baseline.
