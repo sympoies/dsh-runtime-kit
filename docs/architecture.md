@@ -111,6 +111,49 @@ accepted post-tool decision. Pre-step context is appended only after downstream 
 Per-session step/turn dedupe stores one last position, so lifecycle state is
 constant-space.
 
+Data policy is a separate strict nils boundary,
+`agent-hook.data-policy.evaluate.v1`, enabled only by the exact
+`typed-data-policy-protected-roots` reviewed-source selector. A released or
+selectorless runtime never invokes this candidate command. In candidate mode,
+runtime-kit submits every native and reviewer tool's arguments before the body
+and the exact fully materialized result before DSH persists or renders it. Each
+request is bound to the session, a random
+per-session workspace generation, a digest of the canonical workspace, the
+turn/step/call/root-call chain, and the correlated parent call when present.
+Replay, missing parent correlation, malformed output, timeout, cancellation,
+and companion failure all fail closed. Native tools, MCP tools, web tools,
+shells, Code Mode, and explicitly configured provider-opaque tools retain
+distinct source classes. The opaque exception suppresses only machine-local
+path quarantine; it never permits a detected secret.
+
+Nils owns deterministic classification and returns only a typed action, stable
+code, matched stable rule IDs, digests, bounded replacement metadata, and a
+content-free audit record.
+Runtime-kit never emits the inspected candidate through the audit event or a
+denial. Sensitive data is denied at both boundaries. Machine-local paths are
+allowed in call arguments but quarantined from final results with only a
+SHA-256 locator. The nils protected-root classifier remains available to typed
+callers that explicitly supply a canonical target digest and protected-root
+rule; ordinary runtime request and result payloads do not claim to derive that
+filesystem classification.
+
+DSH first completes its ordinary persistence/result waterfalls, definition
+finalizer, downstream listeners, prerequisite contexts, and cancellation
+projection. It then invokes the one registered `ToolTerminalPolicy`; no later
+content-bearing transform runs before durable persistence or the public result
+event. This terminal provider, rather than runtime listener order, is the final
+candidate data-policy authority.
+
+Configured `protectedRoots` are also registered with DSH's authenticated
+`sandboxPolicy.protect()` service. DSH canonicalizes the target freshly at the
+filesystem boundary, rejects direct, relative, lexical-alias, and symlink-alias
+writes, and projects the same roots into supported OS sandbox profiles. A host
+whose selected sandbox backend cannot express the restriction fails closed
+instead of silently weakening it. Runtime disposal removes the dynamic
+registration. These native controls are the ordinary runtime authority for
+protected-root writes. The JavaScript bundle does not duplicate filesystem or
+platform policy.
+
 ### Governed policy groups
 
 The packaged policy selects eleven Task 3.2, nine Task 3.3, and two Task 3.4
@@ -481,7 +524,8 @@ seam below binds one registry-owned execution to one exact definition.
 `src/prerequisite/index.js` assigns process-local identities to the exact
 Agent, runtime workspace generation, and visible `ToolDefinition` object. It
 uses the version-scoped `tools.bindPrerequisite` seam supplied by
-`patches/deepseek-harness/native-execution-boundaries-v2.patch`.
+the `native-execution-boundaries-v4` release artifact selected through
+`compatibility/dsh-patches.json`.
 The default mutation surface (`bash`, `write`, `edit`,
 `str_replace_editor`, and `runtime_kit_governed_commit`) requires the named
 `project-dev-context` capability. Another trusted bundle may attach the same
@@ -786,6 +830,12 @@ helpers. Package CI downloads the exact nils-cli `1.27.29` archive, authenticate
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.
+The reviewed-source candidate additionally runs a packed end-to-end tool
+lifecycle benchmark against the exact candidate `agent-hook`. Each measured
+iteration performs the persistence data decision, generic pre-tool decision,
+pre-call data decision, generic post-tool decision, and terminal final-result
+data decision in production order. Promotion requires all five subprocesses,
+p95 at or below 1,000 ms, and zero transport admission or live-child leakage.
 Each receipt artifact is bounded to 128 MiB compressed, 256 MiB expanded,
 16,384 regular-file entries, and 64 MiB per entry. Staging authenticates the
 whole closure first but retains only paths and digests; extraction rereads and

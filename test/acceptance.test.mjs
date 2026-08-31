@@ -367,7 +367,7 @@ function dshIdentity() {
     version: '0.1.0-rc.7',
     patch: {
       schema_version: 'dsh-runtime-kit.dsh-patch-receipt.v1',
-      patch_id: 'native-execution-boundaries-v3',
+      patch_id: 'native-execution-boundaries-v4',
       version: '0.1.0-rc.7',
       revision: DSH_REVISION,
       action: 'check',
@@ -385,7 +385,7 @@ function expectedDsh() {
     channel: 'pinned',
     revision: DSH_REVISION,
     version: '0.1.0-rc.7',
-    patch_id: 'native-execution-boundaries-v3',
+    patch_id: 'native-execution-boundaries-v4',
   }
 }
 

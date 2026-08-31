@@ -17,14 +17,19 @@ import {
 const run = promisify(execFile)
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+const patchArtifacts = patch => patch.release_artifacts === undefined
+  ? [patch]
+  : Object.values(patch.release_artifacts)
 
 test('the checked-in manifest authenticates the checked-in patch artifact', async () => {
   const manifest = JSON.parse(
     await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
   for (const patch of manifest.patches) {
-    const bytes = await readFile(join(projectRoot, patch.path))
-    assert.equal(sha256(bytes), patch.sha256, patch.id)
+    for (const artifact of patchArtifacts(patch)) {
+      const bytes = await readFile(join(projectRoot, artifact.path))
+      assert.equal(sha256(bytes), artifact.sha256, `${patch.id}:${artifact.path}`)
+    }
   }
 })
 
@@ -32,13 +37,15 @@ test('the checked-in DSH patch preserves the host environment only in danger-ful
   const manifest = JSON.parse(
     await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
-  const artifact = await readFile(join(projectRoot, manifest.patches[0].path), 'utf8')
-  assert.match(
-    artifact,
-    /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/,
-  )
-  assert.match(artifact, /inherits the ambient host environment in danger-full-access mode/)
-  assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
+  for (const selected of patchArtifacts(manifest.patches[0])) {
+    const artifact = await readFile(join(projectRoot, selected.path), 'utf8')
+    assert.match(
+      artifact,
+      /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/,
+    )
+    assert.match(artifact, /inherits the ambient host environment in danger-full-access mode/)
+    assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
+  }
 })
 
 test('the consolidated native patch adds the bounded goal and host-workspace boundaries', async () => {
@@ -47,7 +54,7 @@ test('the consolidated native patch adds the bounded goal and host-workspace bou
   )
   assert.equal(manifest.patches.length, 1)
   const patch = manifest.patches[0]
-  assert.equal(patch.id, 'native-execution-boundaries-v3')
+  assert.equal(patch.id, 'native-execution-boundaries-v4')
   assert.deepEqual(
     Object.keys(patch.targets).filter(path => path.startsWith('packages/goal/goal/')).sort(),
     [
@@ -66,13 +73,23 @@ test('the consolidated native patch adds the bounded goal and host-workspace bou
       'packages/subagent/subagent/tests/continuation.spec.ts',
     ],
   )
-  const source = await readFile(join(projectRoot, patch.path), 'utf8')
-  assert.match(source, /ctx\.get\('dshAcceptance'\)\?\.assertGoalCompletion\(agent, ref\)/u)
-  assert.match(source, /does not mutate goal state when acceptance denies/u)
-  assert.match(source, /preserves completion when no acceptance provider is installed/u)
-  assert.match(source, /registerContinuableWorkspaceProvider/u)
-  assert.match(source, /workspace identity does not match its durable session/u)
-  assert.match(source, /rolls back the child when host workspace activation refuses authority/u)
+  for (const selected of patchArtifacts(patch)) {
+    const source = await readFile(join(projectRoot, selected.path), 'utf8')
+    assert.match(source, /ctx\.get\('dshAcceptance'\)\?\.assertGoalCompletion\(agent, ref\)/u)
+    assert.match(source, /does not mutate goal state when acceptance denies/u)
+    assert.match(source, /preserves completion when no acceptance provider is installed/u)
+    assert.match(source, /registerContinuableWorkspaceProvider/u)
+    assert.match(source, /workspace identity does not match its durable session/u)
+    assert.match(source, /rolls back the child when host workspace activation refuses authority/u)
+    assert.match(source, /The waterfall runs after definition-owned content finalization/u)
+    assert.match(source, /cannot write protected root[\s\S]*FS_SANDBOX_DENIED/u)
+    assert.match(source, /cannot enforce protected workspace subroots/u)
+    assert.match(source, /tools\/pre-persist/u)
+    assert.match(source, /registerTerminalPolicy\(provider: ToolTerminalPolicy\)/u)
+    assert.match(source, /Sole terminal data-policy provider/u)
+    assert.match(source, /for \(const block of content\)[\s\S]*projectForPersistence/u)
+    assert.doesNotMatch(source, /Promise\.all\([\s\S]{0,500}projectForPersistence/u)
+  }
 })
 
 async function fixture() {
@@ -217,6 +234,33 @@ test('the patch manifest can bind one target to release-specific before and afte
     }
     assert.throws(
       () => validateDshPatchManifest(missingRelease),
+      error => error instanceof DshPatchError
+        && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+    )
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
+test('the patch manager selects a release-scoped authenticated artifact', async () => {
+  const value = await fixture()
+  try {
+    const patch = value.manifest.patches[0]
+    patch.release_artifacts = {
+      '0.0.0-test': { path: patch.path, sha256: patch.sha256 },
+    }
+    delete patch.path
+    delete patch.sha256
+    assert.doesNotThrow(() => validateDshPatchManifest(value.manifest))
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    const missing = structuredClone(value.manifest)
+    missing.patches[0].release_artifacts = {
+      '0.0.1-foreign': Object.values(patch.release_artifacts)[0],
+    }
+    assert.throws(
+      () => validateDshPatchManifest(missing),
       error => error instanceof DshPatchError
         && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
     )

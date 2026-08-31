@@ -72,7 +72,14 @@ function validRuntime() {
     shellEnv: { collect() {} },
     skills: { register() {} },
     subprocess: { resolveExecutable() {}, spawn() {}, spawnDescriptor() {} },
-    tools: { bindPrerequisite() {}, get() {}, register() {}, guard() {} },
+    tools: {
+      bindPrerequisite() {},
+      get() {},
+      projectForPersistence() {},
+      register() {},
+      registerTerminalPolicy() {},
+      guard() {},
+    },
   }
 }
 
@@ -121,6 +128,12 @@ test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8'
   assert.equal(manifest.performance.pre_tool_subprocess.p95_ms > 0, true)
   assert.equal(manifest.performance.pre_tool_subprocess.max_active_after, 0)
   assert.equal(manifest.performance.pre_tool_subprocess.max_live_children_after, 0)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.warmup_iterations > 0, true)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.iterations >= 20, true)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.subprocesses_per_iteration, 5)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.p95_ms > 0, true)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.max_active_after, 0)
+  assert.equal(manifest.performance.tool_lifecycle_subprocess.max_live_children_after, 0)
   assert.deepEqual(manifest.runtime_surface, DSH_RC7_RUNTIME_SURFACE)
   assert.deepEqual(manifest.optional_runtime_surface, DSH_RC7_OPTIONAL_RUNTIME_SURFACE)
 
@@ -166,6 +179,22 @@ test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8'
   insufficientRealSamples.performance.pre_tool_subprocess.iterations = 19
   assert.throws(
     () => validateDshCompatibilityManifest(insufficientRealSamples),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+
+  const missingLifecycleSubprocess = structuredClone(manifest)
+  delete missingLifecycleSubprocess.performance.tool_lifecycle_subprocess
+  assert.throws(
+    () => validateDshCompatibilityManifest(missingLifecycleSubprocess),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
+
+  const incompleteLifecycle = structuredClone(manifest)
+  incompleteLifecycle.performance.tool_lifecycle_subprocess.subprocesses_per_iteration = 4
+  assert.throws(
+    () => validateDshCompatibilityManifest(incompleteLifecycle),
     error => error instanceof DshCompatibilityError
       && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
   )

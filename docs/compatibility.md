@@ -30,11 +30,22 @@ surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets.
 
 [`compatibility/dsh-patches.json`](../compatibility/dsh-patches.json) is
-authoritative for the only downstream DSH patch: its artifact digest, exact
-target before/after hashes, and the three reviewed release revisions. The
+authoritative for the only logical downstream DSH patch: each reviewed
+release's artifact digest, its exact target before/after hashes, and the three
+reviewed release revisions. The
 package does not fork, vendor, or propose this integration upstream. The patch
 manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
+
+The current `native-execution-boundaries-v4` patch supplies the monotonic
+pre-body guard and prerequisite seams retained from earlier revisions, adds a
+single terminal policy provider after ordinary persistence and result
+materialization, preserves model-order persistence projection, and adds the
+dynamic protected-root sandbox contract. Runtime-kit selects the candidate
+data-policy command only through the exact reviewed-source selector; released
+and selectorless operation never invokes it. Its release-specific
+target hashes bind those seams independently for rc.7, rc.8, and rc.2; an
+unknown or locally drifted checkout remains ineligible.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
 owns the temporary installed-package repair for the exact 0.10.0-beta.2 and
@@ -68,8 +79,9 @@ That record does not change `status`, `validated_release`, release archive
 identity, or operator compatibility. It exists only to bind pre-merge
 cross-repository integration to one reviewed nils source tree; promotion still
 requires merge, release, artifact authentication, and a new released row. The
-v1.27.15 promotion removes the completed source-candidate record so normal
-runtime and smoke paths authenticate only the released artifacts.
+candidate selector is explicit and scoped to source rehearsal, so normal
+runtime and smoke paths continue to authenticate only the released artifacts.
+Promotion removes the completed source-candidate record.
 
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
 the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
@@ -152,3 +164,8 @@ or provider handles remain active at teardown.
 The packed released-`agent-hook` benchmark performs five warmups and 25 real
 sequential subprocess dispatches. Its p95 budget is 250 ms, and teardown must
 leave both transport admission and live-child counts at zero.
+
+The selected reviewed-source candidate benchmark performs three warmups and
+20 full tool lifecycles. Each lifecycle contains exactly five sequential policy
+subprocesses; its end-to-end p95 budget is 1,000 ms, and teardown has the same
+zero-admission/zero-live-child requirement.

@@ -63,12 +63,34 @@ export function validateDshPatchManifest(/** @type {unknown} */ value) {
     )
   }
   const patch = record(manifest.patches[0], 'DSH patch entry is invalid')
-  if (typeof patch.id !== 'string' || !SAFE_ID.test(patch.id)
-    || typeof patch.path !== 'string' || !relativePath(patch.path)
-    || typeof patch.sha256 !== 'string' || !SHA256.test(patch.sha256)) {
+  if (typeof patch.id !== 'string' || !SAFE_ID.test(patch.id)) {
     throw new DshPatchError(
       'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
       'DSH patch identity is invalid',
+    )
+  }
+  const directArtifact = typeof patch.path === 'string' && relativePath(patch.path)
+    && typeof patch.sha256 === 'string' && SHA256.test(patch.sha256)
+  const releaseArtifacts = patch.release_artifacts === undefined
+    ? undefined
+    : record(patch.release_artifacts, 'DSH release patch artifacts are invalid')
+  const versionedArtifacts = releaseArtifacts !== undefined
+    && Object.keys(releaseArtifacts).length > 0
+    && Object.values(releaseArtifacts).every(value => {
+      const artifact = value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? /** @type {Record<string, unknown>} */ (value)
+        : undefined
+      return artifact !== undefined
+        && typeof artifact.path === 'string' && relativePath(artifact.path)
+        && typeof artifact.sha256 === 'string' && SHA256.test(artifact.sha256)
+        && Object.keys(artifact).length === 2
+    })
+  if (directArtifact === versionedArtifacts
+    || (versionedArtifacts && new Set(Object.values(releaseArtifacts).map(value => value.path)).size
+      !== Object.keys(releaseArtifacts).length)) {
+    throw new DshPatchError(
+      'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+      'DSH patch artifact identity is invalid',
     )
   }
   const targets = record(patch.targets, 'DSH patch targets are invalid')
@@ -117,12 +139,28 @@ export function validateDshPatchManifest(/** @type {unknown} */ value) {
     revisions.add(release.revision)
   }
   const releaseNames = Object.keys(releases).sort().join('\0')
+  if (releaseArtifacts !== undefined
+    && Object.keys(releaseArtifacts).sort().join('\0') !== releaseNames) {
+    throw new DshPatchError(
+      'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+      'DSH release patch artifacts do not match the validated release set',
+    )
+  }
   for (const [path, target] of Object.entries(targets)) {
     if (target.release_hashes !== undefined
-      && Object.keys(target.release_hashes).sort().join('\0') !== releaseNames) {
+      && Object.keys(target.release_hashes).some(version => releases[version] === undefined)) {
       throw new DshPatchError(
         'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
-        `DSH patch target ${path} release hashes do not match the validated release set`,
+        `DSH patch target ${path} names an unknown validated release`,
+      )
+    }
+  }
+  for (const version of Object.keys(releases)) {
+    if (!Object.values(targets).some(target => target.release_hashes?.[version] !== undefined
+      || target.release_hashes === undefined)) {
+      throw new DshPatchError(
+        'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+        `DSH patch release ${version} has no authenticated targets`,
       )
     }
   }
@@ -578,21 +616,24 @@ export async function manageDshPatch(input) {
     )
   }
   const selectedTargets = Object.fromEntries(
-    Object.entries(patch.targets).map(([path, target]) => [
-      path,
-      targetHashes(target, release[0]),
-    ]),
+    Object.entries(patch.targets).flatMap(([path, target]) => {
+      if (target.release_hashes !== undefined && target.release_hashes[release[0]] === undefined) {
+        return []
+      }
+      return [[path, targetHashes(target, release[0])]]
+    }),
   )
-  const patchFile = contained(patchRoot, patch.path)
+  const artifact = patch.release_artifacts?.[release[0]] ?? patch
+  const patchFile = contained(patchRoot, artifact.path)
   const patchBytes = await readFile(patchFile)
-  if (digest(patchBytes) !== patch.sha256) {
+  if (digest(patchBytes) !== artifact.sha256) {
     throw new DshPatchError(
       'DSH_RUNTIME_KIT_DSH_PATCH_ARTIFACT_INVALID',
       'DSH patch artifact hash does not match its manifest',
       { patch_id: patch.id },
     )
   }
-  validatePatchTargets(patchBytes, Object.keys(patch.targets))
+  validatePatchTargets(patchBytes, Object.keys(selectedTargets))
 
   const inspect = async () => {
     const states = await Promise.all(Object.entries(selectedTargets).map(async ([path, hashes]) => {

@@ -54,6 +54,37 @@
       }
     }
   },
+  "candidate_validation": {
+    "feature": "typed-data-policy-protected-roots",
+    "status": "reviewed-source-candidate",
+    "validation": "exact-reviewed-source",
+    "source_commit": "81be602378e3790e042aae5000befd78c1d584bc",
+    "version": "1.27.28",
+    "platform": "x86_64-unknown-linux-gnu",
+    "artifacts": {
+      "agent-hook": {
+        "sha256": "8bf6001fbacf3aeea56144876b97d269cb5ba8b32e0e7ed036a3913607a455be"
+      },
+      "agent-docs": {
+        "sha256": "cb43d2c2c972f8b380f13809a52ecc0d11d9b4dfbd035b6902bbd923a39d0e7b"
+      },
+      "agent-session": {
+        "sha256": "209d39d21d08ea4602112c70d217c7bdd81e6800001bfe60024d9fc4532f841b"
+      },
+      "forge-cli": {
+        "sha256": "4c8f1992bc677cf0730b682bebff480c5d0c76ee0712d813ff9a51381686d957"
+      },
+      "git-cli": {
+        "sha256": "23b439076eee765da0bae1966b9f517c60b79fbf47e3aced83d3240173be6414"
+      },
+      "review-specialists": {
+        "sha256": "901402ba3d5a7635cb4ce2d03c521c618152425b7666d41fc628aeb993927b42"
+      },
+      "semantic-commit": {
+        "sha256": "0454be78dcde78d06e751d5e72aa5ba8f395557e61a128adc26a315b5ccb0222"
+      }
+    }
+  },
   "rollback_validation": {
     "runtime_package_sha256": "0720c53a156459a1b888689a98815dcd5493ad6736b627507b7cdef6f3edd1b3",
     "version": "1.27.27",

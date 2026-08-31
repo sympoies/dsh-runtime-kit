@@ -262,6 +262,52 @@ function decision(action = 'allow', overrides = {}) {
   }
 }
 
+function dataPolicyDecision(request, action = 'allow', overrides = {}) {
+  const payload = JSON.stringify(request)
+  return {
+    schema_version: 'cli.agent-hook.data-policy-evaluate.v1',
+    ok: true,
+    data: {
+      schema_version: 'agent-hook.data-policy.decision.v1',
+      request_id: `request:${createHash('sha256').update(payload).digest('hex').slice(0, 32)}`,
+      action,
+      code: `data-policy-${action}`,
+      audit: {
+        action,
+        code: `data-policy-${action}`,
+        source_id: request.source_id,
+        sink_id: request.sink_id,
+        classes: [],
+        matched_rule_ids: [],
+        payload_digest: sha256,
+        binding_digest: sha256,
+      },
+      ...overrides,
+    },
+  }
+}
+
+function classifiedDataPolicyDecision(request, action, classes, replacement) {
+  const code = `data-policy-${action}-${classes.join('+')}`
+  return dataPolicyDecision(request, action, {
+    code,
+    ...replacement === undefined ? {} : { replacement },
+    audit: {
+      action,
+      code,
+      source_id: request.source_id,
+      sink_id: request.sink_id,
+      classes,
+      matched_rule_ids: request.rules
+        .filter(rule => classes.includes(rule.class_id))
+        .map(rule => rule.rule_id)
+        .sort(),
+      payload_digest: sha256,
+      binding_digest: sha256,
+    },
+  })
+}
+
 function acceptanceStopEnvelope(actions, selectStopDecision) {
   return spec => {
     const finishLineIndex = spec.argv.indexOf('finish-line')
@@ -360,6 +406,7 @@ function lifecycleStopEnvelope(selectStopDecision) {
 
 function harness({
   envelope = decision(),
+  dataPolicyEnvelope = request => dataPolicyDecision(request),
   pending = false,
   outcome,
   stdout,
@@ -379,10 +426,14 @@ function harness({
   runtimeStopListenerGate,
   onRuntimeStopListenerRegistered,
   onRuntimeStopListenerEnter,
+  reviewers,
+  sessionId = 'session-1',
+  workspace = '/tmp',
 } = {}) {
   const listeners = new Map()
   const effects = []
   let guard
+  let terminalPolicy
   let spawnCount = 0
   let terminateCount = 0
   let activeHandles = 0
@@ -398,16 +449,19 @@ function harness({
   const scopedTools = new WeakMap()
   const handles = []
   const spawnSpecs = []
+  const dataPolicySpecs = []
   const resolutions = []
   const warnings = []
+  const emitted = []
+  const protectedRegistrations = []
   const session = {
-    id: 'session-1',
-    header: { id: 'session-1', cwd: '/tmp' },
+    id: sessionId,
+    header: { id: sessionId, cwd: workspace },
     events: [],
   }
   const steered = []
   const agent = {
-    id: 'session-1',
+    id: sessionId,
     session,
     steer(message) { steered.push(message) },
   }
@@ -442,6 +496,14 @@ function harness({
             mode: 'danger-full-access',
             workspaceRoot: session.header.cwd,
           }),
+          protect(roots) {
+            const registration = [...roots]
+            protectedRegistrations.push(registration)
+            return () => {
+              const index = protectedRegistrations.indexOf(registration)
+              if (index >= 0) protectedRegistrations.splice(index, 1)
+            }
+          },
         }
       }
       return undefined
@@ -475,6 +537,31 @@ function harness({
         }
         prerequisiteBindings.set(exec, { definition, prerequisite })
       },
+      registerTerminalPolicy(provider) {
+        if (terminalPolicy !== undefined) throw new Error('a terminal tool policy is already registered')
+        terminalPolicy = provider
+        let disposed = false
+        const dispose = async () => {
+          if (disposed) return
+          disposed = true
+          if (terminalPolicy === provider) terminalPolicy = undefined
+        }
+        effects.push(dispose)
+        return dispose
+      },
+      async projectForPersistence(call) {
+        const ordinary = await dispatchWaterfall(
+          'tools/pre-persist',
+          [call],
+          async () => ({ kind: 'keep' }),
+        )
+        if (terminalPolicy === undefined) return ordinary
+        const candidate = ordinary.kind === 'keep'
+          ? call
+          : { ...call, arguments: ordinary.arguments }
+        const terminal = await terminalPolicy.projectPersistence(candidate)
+        return terminal.kind === 'keep' ? ordinary : terminal
+      },
     },
     on(event, candidate, options = {}) {
       const candidates = listeners.get(event) ?? []
@@ -496,6 +583,10 @@ function harness({
         const index = candidates.indexOf(registered)
         if (index >= 0) candidates.splice(index, 1)
       }
+    },
+    emit(event, ...args) {
+      emitted.push([event, ...args])
+      for (const observer of listeners.get(event) ?? []) observer(...args)
     },
     effect(execute) {
       const yielded = execute()
@@ -543,6 +634,19 @@ function harness({
         const dispatchIngress = spec.argv.includes('dispatch')
           ? JSON.parse(spec.stdio.stdin.data)
           : undefined
+        if (spec.argv.includes('data-policy')) {
+          const request = JSON.parse(spec.stdio.stdin.data)
+          const response = structuredClone(dataPolicyEnvelope(request, spec))
+          dataPolicySpecs.push(spec)
+          return {
+            done: Promise.resolve({ exitCode: 0, signal: null }),
+            terminate() {},
+            collected: {
+              stdout: { readFrom: () => ({ text: JSON.stringify(response), lossy: false }) },
+            },
+            async waitForExit() { return true },
+          }
+        }
         const prerequisiteBegin = spec.argv.includes('prerequisite')
           && !spec.argv.includes('commit-prerequisite')
         const prerequisiteCommit = spec.argv.includes('commit-prerequisite')
@@ -730,8 +834,9 @@ function harness({
     agentHookStateDir: '/runtime/agent-hook/state',
     agentDocsHome: '/runtime/docs',
     agentDocsStateHome: '/runtime/state',
+    nilsCompatibilityCandidate: 'typed-data-policy-protected-roots',
     ...config,
-  }, undefined, dshRuntime)
+  }, reviewers, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
@@ -921,18 +1026,48 @@ function harness({
           ],
         }
       }
+      const applyDecision = (candidate, decision) => {
+        if (decision.kind === 'block') {
+          return {
+            isError: true,
+            error: { message: decision.feedback[0]?.text ?? 'blocked' },
+            content: decision.feedback,
+            ...decision.additionalContexts === undefined
+              ? {}
+              : { additionalContexts: decision.additionalContexts },
+          }
+        }
+        return {
+          ...candidate,
+          ...Object.hasOwn(decision, 'value') ? { value: decision.value } : {},
+          ...decision.content === undefined ? {} : { content: decision.content },
+          ...decision.additionalContexts === undefined
+            ? {}
+            : {
+                additionalContexts: [
+                  ...candidate.additionalContexts ?? [],
+                  ...decision.additionalContexts,
+                ],
+              },
+        }
+      }
+      let finalResult = applyDecision(executionResult, postDecision)
+      if (terminalPolicy !== undefined) {
+        const terminalDecision = await terminalPolicy.projectResult(prepared.exec, finalResult)
+        finalResult = applyDecision(finalResult, terminalDecision)
+        if (terminalDecision.kind !== 'accept') postDecision = terminalDecision
+      }
       if (bound !== undefined
-        && !executionResult.isError
-        && postDecision.kind === 'accept'
+        && !finalResult.isError
         && !callerSignals.get(prepared.exec).aborted) {
         try {
-          await bound.prerequisite.commit(prepared.exec, executionResult)
+          await bound.prerequisite.commit(prepared.exec, finalResult)
         } catch {}
       }
       for (const observer of listeners.get('tools/result') ?? []) {
-        observer(prepared.exec, executionResult)
+        observer(prepared.exec, finalResult)
       }
-      return { result, delegated, exec: prepared.exec, postDecision, executionResult }
+      return { result, delegated, exec: prepared.exec, postDecision, executionResult, finalResult }
     },
     prepare,
     guard(exec) { return guard?.(exec) },
@@ -969,8 +1104,11 @@ function harness({
     get service() { return service },
     get acceptanceService() { return acceptanceService },
     get spawnSpecs() { return spawnSpecs },
+    get dataPolicySpecs() { return dataPolicySpecs },
+    get emitted() { return emitted },
     get resolutions() { return resolutions },
     get warnings() { return warnings },
+    get protectedRegistrations() { return protectedRegistrations },
   }
 }
 
@@ -1068,6 +1206,281 @@ test('policy ingress resolves a bare agent-hook command before spawning', async 
   assert.ok(subject.resolutions.every(candidate => candidate.command === 'agent-hook'))
   assert.ok(subject.resolutions.every(candidate => candidate.env === undefined))
   assert.equal(subject.spawnSpecs[0].argv[0], '/resolved/agent-hook')
+})
+
+test('sensitive native arguments fail closed before the tool body without audit echo', async () => {
+  const sentinel = 'synthetic-sensitive-value-never-visible'
+  const subject = harness({
+    dataPolicyEnvelope(request) {
+      return request.phase === 'pre-call' && JSON.stringify(request.payload).includes(sentinel)
+        ? classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+        : dataPolicyDecision(request)
+    },
+  })
+
+  const denied = await subject.invoke({ token: sentinel }, { callId: 'sensitive-native' })
+  assert.equal(denied.result.kind, 'deny')
+  assert.equal(denied.delegated, false)
+  assert.match(denied.result.reason, /data-policy-deny-sensitive/)
+  assert.doesNotMatch(denied.result.reason, new RegExp(sentinel))
+  const audits = subject.emitted.filter(([event]) => event === 'dsh-runtime-kit/data-policy-audit')
+  assert.equal(audits.filter(([, audit]) => audit.classes.includes('sensitive')).length, 1)
+  assert.deepEqual(audits.find(([, audit]) => audit.classes.includes('sensitive'))[1].matched_rule_ids, [
+    'runtime.data-policy.pre.sensitive-deny',
+  ])
+  assert.doesNotMatch(JSON.stringify(audits), new RegExp(sentinel))
+  assert.equal(subject.service.dataPolicyAuditCount, 2)
+})
+
+test('released nils-cli configuration never invokes the candidate-only data-policy command', async () => {
+  const subject = harness({
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+
+  const result = await subject.invoke({ value: 41 }, { callId: 'released-no-candidate' })
+  assert.equal(result.result.kind, 'allow')
+  assert.equal(result.delegated, true)
+  assert.equal(subject.dataPolicySpecs.length, 0)
+  assert.deepEqual(await subject.ctx.tools.projectForPersistence({
+    callId: 'released-persistence',
+    name: 'ordinary_tool',
+    arguments: { token: 'synthetic' },
+    agent: subject.agent,
+    signal: new AbortController().signal,
+    turn: 1,
+    step: 1,
+  }), { kind: 'keep' })
+})
+
+test('candidate data policy initializes an agent that existed before policy apply', async () => {
+  const subject = harness()
+  subject.agent.session.events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+  )
+
+  const result = await subject.invoke(
+    { value: 41 },
+    { callId: 'existing-agent', skipLifecycle: true },
+  )
+
+  assert.equal(result.result.kind, 'allow')
+  assert.ok(subject.dataPolicySpecs.some(spec => {
+    const request = JSON.parse(spec.stdio.stdin.data)
+    return request.identity.call_id === 'existing-agent'
+      && request.identity.workspace_generation.startsWith('generation:')
+  }))
+})
+
+test('reviewer-role calls cross persistence, pre-call, and terminal-result data policy', async () => {
+  const sentinel = 'reviewer-sensitive-input'
+  const machinePath = '/home/fixture/reviewer-result.txt'
+  const subject = harness({
+    reviewers: { roleOf: () => 'reviewer-testing' },
+    dataPolicyEnvelope(request) {
+      const payload = JSON.stringify(request.payload)
+      if (request.sink_id === 'session.persist' && payload.includes(sentinel)) {
+        return classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+      }
+      if (request.phase === 'pre-call' && payload.includes(sentinel)) {
+        return classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+      }
+      if (request.phase === 'final-result' && payload.includes(machinePath)) {
+        return classifiedDataPolicyDecision(request, 'quarantine', ['machine-local-path'], {
+          quarantined: true,
+          locator: sha256,
+        })
+      }
+      return dataPolicyDecision(request)
+    },
+  })
+  subject.ctx.tools.register({
+    name: 'reviewer_web',
+    async execute() { return { artifact: machinePath } },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+
+  const persisted = await subject.ctx.tools.projectForPersistence({
+    callId: 'reviewer-persist',
+    name: 'reviewer_web',
+    arguments: { token: sentinel },
+    agent: subject.agent,
+    signal: new AbortController().signal,
+    turn: 1,
+    step: 1,
+  })
+  assert.equal(persisted.kind, 'replace')
+  assert.doesNotMatch(JSON.stringify(persisted), new RegExp(sentinel))
+
+  const denied = await subject.invoke({ token: sentinel }, {
+    name: 'reviewer_web',
+    callId: 'reviewer-pre-call',
+  })
+  assert.equal(denied.result.kind, 'deny')
+  assert.match(denied.result.reason, /data-policy-deny-sensitive/u)
+
+  const quarantined = await subject.invoke({}, {
+    name: 'reviewer_web',
+    callId: 'reviewer-final-result',
+  })
+  assert.equal(quarantined.result.kind, 'allow')
+  assert.equal(quarantined.postDecision.kind, 'block')
+  assert.equal(quarantined.finalResult.isError, true)
+  assert.doesNotMatch(JSON.stringify(quarantined.finalResult), new RegExp(machinePath))
+})
+
+test('sensitive model arguments are projected before durable persistence', async () => {
+  const sentinel = 'ghp_issue61_synthetic_sensitive_value'
+  const subject = harness({
+    dataPolicyEnvelope(request) {
+      return request.sink_id === 'session.persist'
+        && JSON.stringify(request.payload).includes(sentinel)
+        ? classifiedDataPolicyDecision(request, 'deny', ['sensitive'])
+        : dataPolicyDecision(request)
+    },
+  })
+  subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
+  const signal = new AbortController().signal
+  const projected = await subject.ctx.tools.projectForPersistence({
+      callId: 'sensitive-persistence',
+      name: 'ordinary_tool',
+      arguments: { token: sentinel },
+      agent: subject.agent,
+      signal,
+      turn: 1,
+      step: 1,
+    })
+
+  assert.deepEqual(projected, {
+    kind: 'replace',
+    arguments: {
+      redacted: true,
+      code: 'data-policy-deny-sensitive',
+    },
+  })
+  assert.doesNotMatch(JSON.stringify(projected), new RegExp(sentinel))
+  const request = subject.dataPolicySpecs
+    .map(spec => JSON.parse(spec.stdio.stdin.data))
+    .find(candidate => candidate.sink_id === 'session.persist')
+  assert.equal(request.source_id, 'tool.native')
+  assert.equal(request.identity.root_call_id, 'sensitive-persistence')
+  const audit = subject.emitted
+    .find(([event, candidate]) => event === 'dsh-runtime-kit/data-policy-audit'
+      && candidate.sink_id === 'session.persist')?.[1]
+  assert.deepEqual(audit.matched_rule_ids, ['runtime.data-policy.pre.sensitive-deny'])
+  assert.doesNotMatch(JSON.stringify(audit), new RegExp(sentinel))
+})
+
+test('machine-local web results quarantine before persistence with only a digest locator', async () => {
+  const machinePath = '/home/fixture/private/result.txt'
+  const subject = harness({
+    dataPolicyEnvelope(request) {
+      return request.phase === 'final-result' && JSON.stringify(request.payload).includes(machinePath)
+        ? classifiedDataPolicyDecision(request, 'quarantine', ['machine-local-path'], {
+            quarantined: true,
+            locator: sha256,
+          })
+        : dataPolicyDecision(request)
+    },
+  })
+  subject.ctx.tools.register({
+    name: 'web_fetch',
+    async execute() { return { artifact: machinePath } },
+  })
+
+  const quarantined = await subject.invoke({}, { name: 'web_fetch', callId: 'web-quarantine' })
+  assert.equal(quarantined.result.kind, 'allow')
+  assert.equal(quarantined.delegated, true)
+  assert.equal(quarantined.postDecision.kind, 'block')
+  assert.match(quarantined.postDecision.feedback[0].text, /data-policy-quarantine-machine-local-path/)
+  assert.match(quarantined.postDecision.feedback[0].text, /sha256:[0-9a-f]{64}/)
+  assert.doesNotMatch(JSON.stringify(quarantined.postDecision), new RegExp(machinePath))
+  const finalRequest = subject.dataPolicySpecs
+    .map(spec => JSON.parse(spec.stdio.stdin.data))
+    .find(request => request.phase === 'final-result')
+  assert.equal(finalRequest.source_id, 'tool.web')
+  const audits = subject.emitted.filter(([event]) => event === 'dsh-runtime-kit/data-policy-audit')
+  assert.doesNotMatch(JSON.stringify(audits), new RegExp(machinePath))
+})
+
+test('data-policy source composition covers native MCP web shell Code Mode and opaque references', async () => {
+  const subject = harness({
+    envelope: bashFinishLineEnvelope(),
+    config: { dataPolicyOpaqueTools: ['provider_reference'] },
+  })
+  const cases = [
+    ['ordinary_tool', {}, 'tool.native'],
+    ['mcp__server__fetch', {}, 'tool.mcp'],
+    ['web_search', {}, 'tool.web'],
+    ['bash', { command: 'true', description: 'Run a no-op command' }, 'tool.shell'],
+    ['run_code', { code: 'return 1' }, 'tool.code'],
+    ['provider_reference', {}, 'provider.opaque-reference'],
+  ]
+  for (const [name, arguments_, source] of cases) {
+    const result = await subject.invoke(arguments_, { name, callId: `source-${name}` })
+    assert.equal(result.result.kind, 'allow', `${name}: ${result.result.reason ?? 'no reason'}`)
+    const request = subject.dataPolicySpecs
+      .map(spec => JSON.parse(spec.stdio.stdin.data))
+      .find(candidate => candidate.phase === 'pre-call'
+        && candidate.identity.call_id === `source-${name}`)
+    assert.equal(request.source_id, source)
+  }
+})
+
+test('a data-policy decision cannot be replayed across tool-call identity', async () => {
+  let firstPreCall
+  const subject = harness({
+    dataPolicyEnvelope(request) {
+      if (request.phase === 'final-result') return dataPolicyDecision(request)
+      if (firstPreCall === undefined) firstPreCall = dataPolicyDecision(request)
+      return firstPreCall
+    },
+  })
+
+  assert.equal((await subject.invoke({ value: 1 }, { callId: 'replay-first' })).result.kind, 'allow')
+  const replayed = await subject.invoke({ value: 2 }, { callId: 'replay-second' })
+  assert.equal(replayed.result.kind, 'deny')
+  assert.match(replayed.result.reason, /policy-output-invalid/)
+  assert.equal(replayed.delegated, false)
+})
+
+test('a captured data-policy decision cannot cross session workspace or generation', async () => {
+  let captured
+  const first = harness({
+    sessionId: 'session-replay-source',
+    workspace: '/workspace/replay-source',
+    dataPolicyEnvelope(request) {
+      const current = dataPolicyDecision(request)
+      if (request.phase === 'pre-call') captured = current
+      return current
+    },
+  })
+  assert.equal((await first.invoke({ value: 1 }, { callId: 'shared-call' })).result.kind, 'allow')
+  assert.ok(captured)
+
+  const second = harness({
+    sessionId: 'session-replay-target',
+    workspace: '/workspace/replay-target',
+    dataPolicyEnvelope(request) {
+      return request.phase === 'pre-call' ? captured : dataPolicyDecision(request)
+    },
+  })
+  const replayed = await second.invoke({ value: 1 }, { callId: 'shared-call' })
+  assert.equal(replayed.result.kind, 'deny')
+  assert.match(replayed.result.reason, /policy-output-invalid/)
+  assert.equal(replayed.delegated, false)
+})
+
+test('protected-root composition registers one generation-scoped sandbox policy', async () => {
+  const subject = harness({ config: { protectedRoots: ['.runtime/private'] } })
+  assert.deepEqual(subject.protectedRegistrations, [['.runtime/private']])
+  await subject.dispose()
+  assert.deepEqual(subject.protectedRegistrations, [])
+})
+
+test('data-policy composition rejects malformed public source and root configuration', () => {
+  assert.throws(() => harness({ config: { protectedRoots: [''] } }), /protectedRoots/)
+  assert.throws(() => harness({ config: { dataPolicyOpaqueTools: [''] } }), /dataPolicyOpaqueTools/)
 })
 
 test('policy holds its authenticated descriptor lease across delayed resolution and HMR disposal', async () => {
@@ -1527,19 +1940,22 @@ test('nested and code-mode-shaped calls use the same execution-bound prerequisit
     subject.tool('runtime_kit_plus_one'),
     'project-dev-context',
   )
-  const parent = Symbol('code-mode-parent')
+  const parent = await subject.prepare({ value: 40 }, {
+    callId: 'code-mode-parent',
+    rootCallId: 'code-mode-root',
+  })
 
   const nested = await subject.invoke({ value: 41 }, {
     callId: 'nested-call',
     rootCallId: 'code-mode-root',
-    parent,
+    parent: parent.exec.token,
   })
 
   assert.equal(nested.delegated, true)
   assert.equal(
     subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
       && !spec.argv.includes('commit-prerequisite')).length,
-    3,
+    4,
   )
   assert.equal(
     subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
@@ -1551,6 +1967,12 @@ test('nested and code-mode-shaped calls use the same execution-bound prerequisit
     .find(candidate => candidate.event === 'tools/pre-execute')
   assert.equal(ingress.schema_version, 'agent-hook.dsh-ingress.v5')
   assert.equal(ingress.call_id, 'nested-call')
+  const nestedDataRequest = subject.dataPolicySpecs
+    .map(spec => JSON.parse(spec.stdio.stdin.data))
+    .find(candidate => candidate.phase === 'pre-call'
+      && candidate.identity.call_id === 'nested-call')
+  assert.equal(nestedDataRequest.identity.parent_call_id, 'code-mode-parent')
+  assert.equal(nestedDataRequest.identity.root_call_id, 'code-mode-root')
 })
 
 test('prerequisite registration disposers cannot remove a newer declaration', async () => {

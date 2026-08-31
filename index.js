@@ -45,6 +45,7 @@ export const inject = [
   'agents',
   'invariants',
   'llm',
+  'sandboxPolicy',
   'sessions',
   'shell',
   'shellEnv',

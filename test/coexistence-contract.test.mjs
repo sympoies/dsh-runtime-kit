@@ -50,7 +50,13 @@ test('issue 60 rollback is pinned to the exact accepted issue 59 baseline', () =
       .find(command => command.id === 'agent-hook.dispatch.dsh')
       ?.source_tasks.includes('sympoies/nils-cli#1541'),
   )
-  assert.equal(manifest.candidate_validation, undefined)
+  assert.equal(manifest.candidate_validation?.feature, 'typed-data-policy-protected-roots')
+  assert.equal(manifest.candidate_validation?.status, 'reviewed-source-candidate')
+  assert.equal(manifest.candidate_validation?.validation, 'exact-reviewed-source')
+  assert.equal(
+    manifest.candidate_validation?.source_commit,
+    '81be602378e3790e042aae5000befd78c1d584bc',
+  )
   // #66 and Gate 0 select the serial predecessor. This assertion freezes that
   // reviewed selection for #60; it does not discover a future child baseline.
   assert.deepEqual(manifest.rollback_validation, {

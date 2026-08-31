@@ -42,10 +42,10 @@ async function portableDshCheckout(parent) {
     '-C', checkout,
     'remote', 'set-url', 'origin', 'https://github.com/sympoies/dsh-runtime-kit',
   ])
-  await assert.rejects(run('git', [
+  await run('git', [
     '-C', checkout,
-    'cat-file', '-e', '64bf4388771f3acd13735db0456ebd6ef23f13ab^{commit}',
-  ]))
+    'cat-file', '-e', '3b4bb380622631cd6cded8af6af1bebcff21732a^{commit}',
+  ])
   return checkout
 }
 

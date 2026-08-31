@@ -358,6 +358,40 @@ function validDecision(decision, expectedRequestId, expectedEvent) {
   return reasonRank === expectedRank
 }
 
+/** @param {any} decision @param {string} expectedRequestId @param {string} sourceId @param {string} sinkId */
+function validDataPolicyDecision(decision, expectedRequestId, sourceId, sinkId) {
+  if (!(decision !== null
+    && typeof decision === 'object'
+    && decision.schema_version === 'agent-hook.data-policy.decision.v1'
+    && decision.request_id === expectedRequestId
+    && ['allow', 'deny', 'redact', 'quarantine'].includes(decision.action)
+    && typeof decision.code === 'string'
+    && decision.code.length > 0
+    && decision.code.length <= 256
+    && decision.audit !== null
+    && typeof decision.audit === 'object'
+    && decision.audit.action === decision.action
+    && decision.audit.code === decision.code
+    && decision.audit.source_id === sourceId
+    && decision.audit.sink_id === sinkId
+    && Array.isArray(decision.audit.classes)
+    && decision.audit.classes.every((/** @type {unknown} */ classId) => typeof classId === 'string'
+      && ['sensitive', 'machine-local-path', 'protected-root'].includes(classId))
+    && Array.isArray(decision.audit.matched_rule_ids)
+    && decision.audit.matched_rule_ids.every((/** @type {unknown} */ ruleId) => typeof ruleId === 'string'
+      && ruleId.length > 0
+      && ruleId.length <= 256
+      && !/[\u0000-\u001f\u007f]/u.test(ruleId))
+    && new Set(decision.audit.matched_rule_ids).size === decision.audit.matched_rule_ids.length
+    && SHA256_PATTERN.test(decision.audit.payload_digest)
+    && SHA256_PATTERN.test(decision.audit.binding_digest)
+    && ((decision.action === 'redact' || decision.action === 'quarantine')
+      ? Object.hasOwn(decision, 'replacement')
+      : decision.replacement === undefined))) return false
+  return decision.replacement === undefined
+    || boundedJsonMeasurement(decision.replacement, MAX_POLICY_INPUT_BYTES).ok
+}
+
 /** @param {unknown} value */
 function policyTimeout(value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -477,9 +511,10 @@ export function createNilsTransport(ctx, config = {}) {
    * @param {Record<string, unknown>} ingress
    * @param {AbortSignal} signal
    * @param {string} cwd
-   * @param {'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'UserPromptSubmit' | 'Stop'} expectedEvent
+   * @param {'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'UserPromptSubmit' | 'Stop' | 'DataPolicy'} expectedEvent
    * @param {{sessionId:string, environment:Readonly<Record<string,string>>} | undefined} principal
    * @param {string} providerSessionId
+   * @param {'dispatch' | 'data-policy'} [contract]
    */
   async function evaluateIngress(
     ingress,
@@ -488,6 +523,7 @@ export function createNilsTransport(ctx, config = {}) {
     expectedEvent,
     principal,
     providerSessionId,
+    contract = 'dispatch',
   ) {
     const measurement = boundedJsonMeasurement(ingress, MAX_POLICY_INPUT_BYTES)
     if (!measurement.ok) return denial(`policy-input-${measurement.reason}`)
@@ -557,7 +593,9 @@ export function createNilsTransport(ctx, config = {}) {
             }
         const argv = await resolveSubprocessArgv(
           ctx,
-          agentHook.argv(['dispatch', '--product', 'dsh', '--format', 'json']),
+          agentHook.argv(contract === 'data-policy'
+            ? ['data-policy', 'evaluate', '--format', 'json']
+            : ['dispatch', '--product', 'dsh', '--format', 'json']),
           executionSignal,
         )
         operation.handle = executionLease.spawn({
@@ -610,6 +648,19 @@ export function createNilsTransport(ctx, config = {}) {
         envelope = JSON.parse(stdout.text)
       } catch {
         return denial('policy-output-invalid')
+      }
+      if (contract === 'data-policy') {
+        const sourceId = typeof ingress.source_id === 'string' ? ingress.source_id : ''
+        const sinkId = typeof ingress.sink_id === 'string' ? ingress.sink_id : ''
+        if (envelope?.schema_version !== 'cli.agent-hook.data-policy-evaluate.v1'
+          || envelope.ok !== true
+          || !validDataPolicyDecision(envelope.data, expectedRequestId, sourceId, sinkId)) {
+          return denial('policy-output-invalid')
+        }
+        if (outcome.exitCode !== 0 || outcome.signal !== null) {
+          return denial('policy-exit-mismatch')
+        }
+        return { kind: /** @type {const} */ ('data-policy'), decision: envelope.data }
       }
       if (envelope?.schema_version !== 'cli.agent-hook.dispatch.v1'
         || envelope.ok !== true
@@ -708,6 +759,25 @@ export function createNilsTransport(ctx, config = {}) {
         },
         result: { is_error: result.isError === true },
       }, new AbortController().signal, context.cwd, result.isError ? 'PostToolUseFailure' : 'PostToolUse', principal, context.sessionId)
+    },
+
+    /**
+     * Evaluate a typed candidate through nils without provider-native adaptation.
+     * @param {Record<string, unknown>} request
+     * @param {AbortSignal} signal
+     * @param {{sessionId: string, cwd: string}} context
+     */
+    async evaluateData(request, signal, context) {
+      const principal = resolveManagedSessionPrincipal(ctx, context.sessionId, managedSessionBridge)
+      return evaluateIngress(
+        request,
+        signal,
+        context.cwd,
+        'DataPolicy',
+        principal,
+        context.sessionId,
+        'data-policy',
+      )
     },
 
     /**
