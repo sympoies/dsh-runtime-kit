@@ -335,10 +335,51 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
   assert.match(agentPolicy, /Agents may only draft third-party issues or PRs/u)
   assert.match(agentPolicy, /a human submits them\s+and signs any DCO or CLA/u)
   assert.match(agentPolicy, /Never publish a security defect or internal data\./u)
-  assert.match(upstreamPolicy, /If only this runtime kit needs the boundary, it stays downstream\./u)
+  assert.match(upstreamPolicy, /If only this runtime kit needs the boundary,\s+it stays downstream\./u)
   assert.match(upstreamPolicy, /must not submit\s+the issue, open the PR, or sign a DCO or CLA/u)
   assert.match(upstreamPolicy, /security defect is never reported publicly/u)
-  assert.match(upstreamPolicy, /Never publish credentials, private content, machine paths/u)
+  assert.match(upstreamPolicy, /Never publish credentials,\s+private content,\s+machine paths/u)
+  assert.doesNotMatch(upstreamPolicy, /agent-runtime-kit|github\.com\/sympoies\/agent-runtime-kit/iu)
+  assert.match(upstreamPolicy, /^## Authorization boundary$/mu)
+  assert.match(upstreamPolicy, /^## Escalation order$/mu)
+  assert.match(upstreamPolicy, /^## Issue or pull request$/mu)
+  assert.match(upstreamPolicy, /^## Contribution rules are a blocking gate$/mu)
+  assert.match(upstreamPolicy, /^## Public evidence and disclosure$/mu)
+  assert.match(upstreamPolicy, /^## Identity, licensing, and attribution$/mu)
+  assert.match(upstreamPolicy, /^## Aftercare$/mu)
+  assert.doesNotMatch(
+    upstreamPolicy,
+    /Follow the full .*policy|canonical policy.*https?:\/\//iu,
+  )
+
+  const requiredUpstreamPolicyBoundaries = [
+    /another repository owned by the same organization continues through\s+that repository's normal governed issue and delivery workflows when the user\s+has authorized it/u,
+    /must not submit\s+the issue, open the PR, or sign a DCO or CLA/u,
+    /human maintainer performs those publicly attributed or legally significant\s+actions and chooses the account and email/u,
+    /Configuration or a supported extension point[\s\S]*A local adapter or wrapper[\s\S]*Pinning or moving the external project's version[\s\S]*version-scoped, hash-authenticated downstream patch[\s\S]*A contribution to the other repository/u,
+    /Search existing issues, pull requests, and discussions before drafting[\s\S]*merged to the default branch but not yet released/u,
+    /For a bug, an issue and pull request may be prepared together/u,
+    /For anything that is not a bug, prepare an issue first[\s\S]*until a maintainer responds positively/u,
+    /public API or\s+schema, adds a dependency, requires a migration, changes a documented\s+default, or requires new documentation/u,
+    /verify and record the applicable\s+rules from the exact project and target branch/u,
+    /CONTRIBUTING\.md.*CODE_OF_CONDUCT\.md.*SECURITY\.md[\s\S]*DCO or CLA requirements[\s\S]*issue and pull-request templates[\s\S]*title conventions[\s\S]*test and lint commands[\s\S]*target-branch rules[\s\S]*required submission language/u,
+    /Unverified requirements are a blocker, not a reason to assume conventional\s+defaults/u,
+    /security defect is never reported publicly[\s\S]*SECURITY\.md` private disclosure route[\s\S]*If no private route is published[\s\S]*make no public report/u,
+    /minimal, de-identified reproduction[\s\S]*tests using that project's own framework and conventions[\s\S]*observed and expected behavior[\s\S]*exact external version or commit/u,
+    /Internal validation, DSH smoke runs, patch apply or\s+reverse receipts, private logs, and local workflow evidence stay with this\s+repository/u,
+    /Never publish credentials,\s+private content, machine paths, internal hosts, private topology, private skill\s+contents, employer or client names that are not already public, or internal\s+identifiers/u,
+    /link to this repository's workaround is optional[\s\S]*target is public and contains no internal information[\s\S]*downstream expedient/u,
+    /human chooses the account and email that determine personal or employer\s+attribution/u,
+    /must not sign a DCO or CLA or accept another legal contribution\s+agreement/u,
+    /Do not add a `Co-Authored-By: Claude` trailer/u,
+    /Disclose AI assistance when the other project's rules require it/u,
+    /accepted submission as an ongoing obligation[\s\S]*answer review[\s\S]*rebase when required[\s\S]*terminal outcome/u,
+    /If it is rejected or becomes stale, retain the downstream workaround and\s+record the result with its owner/u,
+    /record the public link beside that patch[\s\S]*once the fix is released and the supported\s+version has moved, remove the patch through its normal authenticated lifecycle/u,
+  ]
+  for (const boundary of requiredUpstreamPolicyBoundaries) {
+    assert.match(upstreamPolicy, boundary)
+  }
 })
 
 test('nils-cli compatibility is machine-readable and pinned to the current DSH-capable release', () => {
