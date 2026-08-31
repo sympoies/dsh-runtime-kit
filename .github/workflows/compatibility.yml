@@ -165,6 +165,7 @@ jobs:
           pnpm vitest run \
             packages/core/tools/tests/tools.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
+            packages/subagent/subagent/tests/continuation.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib:host
       - name: Download authenticated nils-cli acceptance binaries
@@ -226,7 +227,7 @@ jobs:
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
       - name: Run unpatched DSH tools smoke
-        if: success() && matrix.channel == 'pinned'
+        if: success()
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
@@ -307,6 +308,7 @@ jobs:
           pnpm vitest run \
             packages/core/tools/tests/tools.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
+            packages/subagent/subagent/tests/continuation.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib:host
       - name: Download authenticated macOS nils-cli acceptance binaries

@@ -19,9 +19,9 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 /** The nils-cli checkpoint input contract `main-agent checkpoint --file` reads. */
 export const CHECKPOINT_INPUT_SCHEMA = 'main-agent.checkpoint-input.v1'
-export const SUPERVISION_SCHEMA = 'dsh-runtime-kit.main-agent-supervision.v1'
-export const REVIEW_SCHEMA = 'dsh-runtime-kit.main-agent-review.v1'
-export const CLOSEOUT_SCHEMA = 'dsh-runtime-kit.main-agent-closeout.v1'
+export const SUPERVISION_SCHEMA = 'dsh-runtime-kit.main-agent-supervision.v2'
+export const REVIEW_SCHEMA = 'dsh-runtime-kit.main-agent-review.v2'
+export const CLOSEOUT_SCHEMA = 'dsh-runtime-kit.main-agent-closeout.v2'
 
 /**
  * Assignment states a worker may declare on its own checkpoint. The store owns
@@ -178,7 +178,6 @@ export function supervisionEnvelope(input) {
     worker_session_id: input.lane.workerSessionId,
     launch_id: input.lane.launchId,
     child_session_id: input.lane.childId,
-    anchor_session_id: input.lane.anchorId,
     state: input.lane.state,
     turn_phase: input.lane.turn?.phase ?? null,
     turn_changed_at: input.lane.turn?.phaseChangedAt ?? null,

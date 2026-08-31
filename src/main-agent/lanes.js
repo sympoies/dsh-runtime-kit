@@ -22,18 +22,16 @@ export const LIVENESS_SCHEMA = 'main-agent.dsh-runtime-liveness.v1'
  * @property {string} launchId
  * @property {string} livenessFile
  * @property {string} childId
- * @property {string} anchorId
- * @property {unknown} anchor the live anchor Agent, the parent authority every
- *   `followup` and drain call needs; the id alone cannot carry it
+ * @property {unknown} parent the exact live controller Agent that authorizes
+ *   child follow-up, interruption, and terminal release
  * @property {string} worktree the lane's real worktree, which is both the
- *   anchor session cwd and the cwd every worker-principal CLI call runs in
+ *   host-issued child workspace and the cwd every worker-principal CLI call runs in
  * @property {'open' | 'terminated'} state
  * @property {LaneTurnEvidence | undefined} turn
  * @property {Readonly<Record<string, string>>} workerEnv
  * @property {string} bootstrapKey the runtime-issued initial bootstrap key
  * @property {readonly string[]} brokerStopArgv
  * @property {(() => void) | undefined} stopHeartbeat
- * @property {(() => void) | undefined} disposeAnchor
  * @property {Promise<void>} sidecarChain
  */
 
@@ -78,7 +76,7 @@ export function harnessIdentity() {
 /**
  * Durable-enough per-lane bookkeeping for one harness process lifetime. The
  * nils-cli orchestration store remains the source of truth for run state;
- * this registry only binds live children, anchors, heartbeats, and sidecars.
+ * this registry only binds live children, descendants, heartbeats, and sidecars.
  */
 export function createLaneRegistry() {
   /** @type {Map<string, Lane>} */
@@ -92,8 +90,6 @@ export function createLaneRegistry() {
   const byLivenessFile = new Map()
   /** @type {Map<string, Lane>} */
   const byWorkerSession = new Map()
-  /** @type {Map<string, Lane>} */
-  const byAnchor = new Map()
   /** @type {Map<string, Lane>} */
   const byMember = new Map()
   return Object.freeze({
@@ -112,13 +108,9 @@ export function createLaneRegistry() {
     byWorkerSession(workerSessionId) {
       return byWorkerSession.get(workerSessionId)
     },
-    /** Bind the parked anchor before child materialization begins. @param {Lane} lane */
-    bindAnchor(lane) {
-      byAnchor.set(lane.anchorId, lane)
-    },
-    /** @param {string} anchorId */
-    byAnchor(anchorId) {
-      return byAnchor.get(anchorId)
+    /** Bind the DSH-reserved child before unpublished materialization. @param {Lane} lane */
+    bindChild(lane) {
+      byChild.set(lane.childId, lane)
     },
     /** @param {string} sessionId @param {Lane} lane */
     bindMember(sessionId, lane) {
@@ -146,7 +138,6 @@ export function createLaneRegistry() {
       byChild.delete(lane.childId)
       byLivenessFile.delete(resolve(lane.livenessFile))
       byWorkerSession.delete(lane.workerSessionId)
-      byAnchor.delete(lane.anchorId)
       for (const [sessionId, memberLane] of byMember) {
         if (memberLane === lane) byMember.delete(sessionId)
       }
@@ -156,7 +147,6 @@ export function createLaneRegistry() {
       byChild.clear()
       byLivenessFile.clear()
       byWorkerSession.clear()
-      byAnchor.clear()
       byMember.clear()
     },
     list() {

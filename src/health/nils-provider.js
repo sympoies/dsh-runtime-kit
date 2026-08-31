@@ -740,8 +740,10 @@ export function resolveNilsHealthCompatibility(
   const artifacts = requiredRecord(selected.artifacts, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const hook = requiredRecord(artifacts['agent-hook'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const docs = requiredRecord(artifacts['agent-docs'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
+  const session = requiredRecord(artifacts['agent-session'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   if (typeof hook.sha256 !== 'string' || !SHA256_PATTERN.test(hook.sha256)
-    || typeof docs.sha256 !== 'string' || !SHA256_PATTERN.test(docs.sha256)) {
+    || typeof docs.sha256 !== 'string' || !SHA256_PATTERN.test(docs.sha256)
+    || typeof session.sha256 !== 'string' || !SHA256_PATTERN.test(session.sha256)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   }
   return Object.freeze({
@@ -749,6 +751,7 @@ export function resolveNilsHealthCompatibility(
     platform,
     hookSha256: hook.sha256,
     docsSha256: docs.sha256,
+    sessionSha256: session.sha256,
   })
 }
 
@@ -862,6 +865,7 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   let canonicalDocsHome
   let sourceHook
   let sourceDocs
+  let sourceSession
   try {
     runtimeCwd = await realpath(agentHook.stateDir)
     canonicalDocsHome = await realpath(docsHome)
@@ -870,6 +874,10 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
     const docsArgv = await resolveSubprocessArgv(ctx, [agentDocs], prepareSignal)
     sourceHook = await readAuthenticatedBinary(hookArgv[0], compatibility.hookSha256)
     sourceDocs = await readAuthenticatedBinary(docsArgv[0], compatibility.docsSha256)
+    sourceSession = await readAuthenticatedBinary(
+      join(dirname(sourceHook.path), 'agent-session'),
+      compatibility.sessionSha256,
+    )
   } catch (error) {
     if (error instanceof HealthProbeFailure) throw error
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
@@ -878,6 +886,7 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   let snapshotRootHandle
   let hook
   let docs
+  let session
   try {
     snapshotRootHandle = await open(
       snapshotRoot,
@@ -903,13 +912,20 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
       sourceDocs.bytes,
       compatibility.docsSha256,
     )
-    const retained = await retainSnapshotLinks(snapshotRoot, snapshotRootHandle, [hook, docs])
+    session = await snapshotExecutable(
+      snapshotRoot,
+      'agent-session',
+      sourceSession.bytes,
+      compatibility.sessionSha256,
+    )
+    const retained = await retainSnapshotLinks(snapshotRoot, snapshotRootHandle, [hook, docs, session])
     hook = retained[0]
     docs = retained[1]
+    session = retained[2]
   } catch (error) {
     if (snapshotRootHandle !== undefined) {
       await snapshotRootHandle.chmod(0o700).catch(() => {})
-      for (const binary of [hook, docs]) {
+      for (const binary of [hook, docs, session]) {
         if (binary !== undefined
           && await pathReferencesOpenFile(binary.path, binary.handle).catch(() => false)) {
           await unlink(binary.path).catch(() => {})
@@ -920,7 +936,7 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
       }
       await snapshotRootHandle.close().catch(() => {})
     }
-    const binaries = [hook, docs].filter(binary => binary !== undefined)
+    const binaries = [hook, docs, session].filter(binary => binary !== undefined)
     await Promise.allSettled(binaries.map(binary => binary.handle.close()))
     throw error
   }
@@ -928,7 +944,7 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
   const disposeSnapshot = async () => {
     if (snapshotDisposed) return
     snapshotDisposed = true
-    await cleanupLinkedSnapshot(snapshotRoot, snapshotRootHandle, [hook, docs])
+    await cleanupLinkedSnapshot(snapshotRoot, snapshotRootHandle, [hook, docs, session])
   }
   const spawnDescriptor = authenticatedDescriptorSpawner(ctx, new Map([
     [hook.path, hook],

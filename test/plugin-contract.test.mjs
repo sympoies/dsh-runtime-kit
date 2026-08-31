@@ -833,18 +833,18 @@ function harness({
       let verifiedContexts = []
       if (result.kind === 'allow') {
         const bound = prerequisiteBindings.get(prepared.exec)
-        const verifyPrerequisite = async () => {
+        const verifyPrerequisite = async phase => {
           if (bound === undefined) return
           if (bound.definition !== ctx.tools.get(prepared.exec.name, prepared.exec.agent)) {
             throw new Error('dsh-tools: prerequisite definition changed before dispatch')
           }
-          verifiedContexts = await bound.prerequisite.beforeBody(prepared.exec) ?? []
+          verifiedContexts = await bound.prerequisite.beforeBody(prepared.exec, phase) ?? []
           if (bound.definition !== ctx.tools.get(prepared.exec.name, prepared.exec.agent)) {
             throw new Error('dsh-tools: prerequisite definition changed before dispatch')
           }
         }
         try {
-          await verifyPrerequisite()
+          await verifyPrerequisite('dispatch')
           executionResult = await dispatchWaterfall(
             'tools/execute',
             [prepared.exec],
@@ -863,7 +863,7 @@ function harness({
                 if (bound.definition !== definition) {
                   throw new Error('dsh-tools: prerequisite definition changed before body dispatch')
                 }
-                await verifyPrerequisite()
+                await verifyPrerequisite('body')
                 if (prepared.exec.signal.aborted) {
                   return {
                     isError: true,
@@ -1120,11 +1120,11 @@ test('a declared project-dev prerequisite begins before policy and commits only 
   const commit = subject.spawnSpecs.find(spec => spec.argv.includes('commit-prerequisite'))
   const policies = subject.spawnSpecs.filter(spec => spec.argv.includes('dispatch')
     && JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute')
-  const policy = policies[0]
+  const policy = policies.at(-1)
   assert.ok(begin)
   assert.ok(commit)
   assert.ok(policy)
-  assert.equal(policies.length, 3)
+  assert.equal(policies.length, 1)
   const ingress = JSON.parse(policy.stdio.stdin.data)
   assert.equal(ingress.schema_version, 'agent-hook.dsh-ingress.v5')
   assert.equal(ingress.call_id, 'prerequisite-call-1')
@@ -1135,6 +1135,29 @@ test('a declared project-dev prerequisite begins before policy and commits only 
   assert.deepEqual(first.postDecision.additionalContexts?.[0]?.content, [
     { type: 'text', text: 'bounded policy\n' },
   ])
+})
+
+test('a body-bound prerequisite preserves an explicit policy denial', async () => {
+  const subject = harness({
+    envelope: decision('block', {
+      reasons: [{
+        rule_id: 'dsh.plus-one',
+        code: 'plus-one-blocked',
+        disposition: 'block',
+      }],
+    }),
+  })
+  subject.service.prerequisites.require(
+    subject.tool('runtime_kit_plus_one'),
+    'project-dev-context',
+  )
+
+  const denied = await subject.invoke({ value: 41 }, { callId: 'prerequisite-policy-block' })
+
+  assert.equal(denied.executionResult.isError, true)
+  assert.match(denied.executionResult.error.message, /agent-hook:plus-one-blocked/)
+  assert.equal(subject.service.plusOneExecutions, 0)
+  assert.equal(subject.service.pendingPrerequisites, 0)
 })
 
 test('all five default mutator names bind the exact visible definition automatically', async () => {
@@ -1178,7 +1201,7 @@ test('all five default mutator names bind the exact visible definition automatic
         begins += 1
         return {
           reason: 'pending',
-          receipt: `receipt-${begins}`,
+          receipt: 'receipt-stable',
           documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
         }
       },
@@ -1200,19 +1223,84 @@ test('all five default mutator names bind the exact visible definition automatic
       name,
     })
     assert.ok(bound, name)
-    const firstContexts = await bound.beforeBody(exec)
-    const secondContexts = await bound.beforeBody(exec)
+    const firstContexts = await bound.beforeBody(exec, 'dispatch')
+    const secondContexts = await bound.beforeBody(exec, 'body')
     await bound.commit(exec, { isError: false, value: null, content: [] })
     coordinator.result(exec)
 
     assert.equal(begins, 3, name)
-    assert.equal(policyChecks, 2, name)
+    assert.equal(policyChecks, 1, name)
     assert.equal(commits, 1, name)
     assert.equal(firstContexts.length, 1, name)
     assert.equal(secondContexts.length, 1, name)
     assert.equal(coordinator.pending, 0, name)
     coordinator.dispose()
   }
+})
+
+test('dispatch refuses a changed prerequisite receipt before an execute wrapper can mutate', async () => {
+  const definition = Object.freeze({ name: 'write' })
+  const session = { header: { id: 'session-dispatch-policy', cwd: '/tmp' } }
+  const agent = { id: session.header.id, session }
+  const exec = {
+    token: Symbol('dispatch-policy'),
+    callId: 'dispatch-policy',
+    rootCallId: 'dispatch-policy',
+    name: 'write',
+    arguments: Object.freeze({ file_path: '/tmp/value', content: 'mutated' }),
+    agent,
+    signal: new AbortController().signal,
+  }
+  let bound
+  let begins = 0
+  let policyChecks = 0
+  const coordinator = createPrerequisiteCoordinator({
+    tools: {
+      get(candidateName, candidateAgent) {
+        return candidateName === definition.name && candidateAgent === agent
+          ? definition
+          : undefined
+      },
+      bindPrerequisite(candidateExec, candidateDefinition, prerequisite) {
+        assert.equal(candidateExec, exec)
+        assert.equal(candidateDefinition, definition)
+        bound = prerequisite
+      },
+    },
+  }, {
+    async beginPrerequisite() {
+      begins += 1
+      return {
+        reason: 'pending',
+        receipt: `receipt-${begins}`,
+        documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
+      }
+    },
+    async commitPrerequisite() {
+      assert.fail('a dispatch-denied prerequisite must not commit')
+    },
+  }, createUserMessage, async () => {
+    policyChecks += 1
+    return undefined
+  })
+
+  await coordinator.begin(exec, {
+    sessionId: session.header.id,
+    cwd: session.header.cwd,
+    turn: 1,
+    step: 1,
+    callId: exec.callId,
+    name: exec.name,
+  })
+  assert.ok(bound)
+  await assert.rejects(
+    bound.beforeBody(exec, 'dispatch'),
+    /prerequisite-binding-invalid:receipt-changed/,
+  )
+  assert.equal(begins, 2)
+  assert.equal(policyChecks, 0)
+  assert.equal(coordinator.pending, 0)
+  coordinator.dispose()
 })
 
 test('a restored wrapper signal cannot impersonate caller cancellation at completion', async () => {
@@ -1238,7 +1326,7 @@ test('a restored wrapper signal cannot impersonate caller cancellation at comple
   )
 })
 
-test('approval wait cannot carry an earlier allow past fresh last-mile policy', async () => {
+test('approval wait is followed by one fresh last-mile policy decision', async () => {
   let preToolChecks = 0
   const subject = harness({
     envelope: (spec) => {
@@ -1246,7 +1334,7 @@ test('approval wait cannot carry an earlier allow past fresh last-mile policy', 
       const ingress = JSON.parse(spec.stdio.stdin.data)
       if (ingress.event !== 'tools/pre-execute') return decision()
       preToolChecks += 1
-      return preToolChecks === 1 ? decision('allow') : decision('block')
+      return decision('block')
     },
   })
   subject.service.prerequisites.require(
@@ -1261,10 +1349,10 @@ test('approval wait cannot carry an earlier allow past fresh last-mile policy', 
   })
 
   assert.equal(result.result.kind, 'allow')
-  assert.equal(result.delegated, false)
+  assert.equal(result.delegated, true)
   assert.equal(result.executionResult.isError, true)
   assert.equal(subject.service.plusOneExecutions, 0)
-  assert.equal(preToolChecks, 2)
+  assert.equal(preToolChecks, 1)
   assert.equal(
     subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
     false,
@@ -1613,8 +1701,7 @@ test('a replaced visible definition cannot reuse or commit an execution prerequi
     .map(spec => JSON.parse(spec.stdio.stdin.data))
     .filter(candidate => candidate.event === 'tools/pre-execute')
     .map(candidate => candidate.tool.definition_id)
-  assert.equal(ingressDefinitions.length, 2)
-  assert.notEqual(ingressDefinitions[0], ingressDefinitions[1])
+  assert.equal(ingressDefinitions.length, 1)
 })
 
 test('approval rejection cancellation and downstream exceptions abandon pending prerequisites', async () => {

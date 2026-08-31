@@ -23,23 +23,22 @@ symlinkSync(process.execPath, MAIN_AGENT_CLI)
 symlinkSync(process.execPath, AGENT_SESSION_CLI)
 test.after(() => { rmSync(testBin, { recursive: true, force: true }) })
 
-test('the lane registry owns anchor and descendant membership indexes', () => {
+test('the lane registry owns host-bound child and descendant membership indexes', () => {
   const lanes = createLaneRegistry()
   const lane = /** @type {any} */ ({
     assignmentId: 'assignment-one',
     childId: 'child-one',
-    anchorId: 'anchor-one',
     workerSessionId: 'worker-one',
     livenessFile: '/tmp/liveness-one.json',
   })
 
-  lanes.bindAnchor(lane)
+  lanes.bindChild(lane)
   lanes.bindMember('grandchild-one', lane)
-  assert.equal(lanes.byAnchor('anchor-one'), lane)
+  assert.equal(lanes.byChild('child-one'), lane)
   assert.equal(lanes.byMember('grandchild-one'), lane)
   lanes.add(lane)
   lanes.remove(lane)
-  assert.equal(lanes.byAnchor('anchor-one'), undefined)
+  assert.equal(lanes.byChild('child-one'), undefined)
   assert.equal(lanes.byMember('grandchild-one'), undefined)
 })
 
@@ -155,24 +154,26 @@ function workerStartEnvelope(livenessFile, overrides = {}) {
 function createContext({
   envelope,
   spawnFailure = false,
-  agentCreateFailure = false,
-  anchorSessionId,
   startContinuable,
   children = [],
   followupFailure = false,
   drainFailure = false,
+  closeContinuable,
+  lifecycleEvents = [],
 } = {}) {
   const listeners = new Map()
   const effects = []
   const provided = new Map()
   const registeredTools = new Map()
   const spawned = []
-  const anchors = []
   const continuations = []
   const interrupts = []
   const followups = []
   const drains = []
   const listings = []
+  const workspaceProviders = new Map()
+  const workspaceLeaseRefs = []
+  const closedContinuations = []
   let setupContribution
   const ctx = {
     on(event, listener) {
@@ -202,6 +203,9 @@ function createContext({
       },
       spawn(spec) {
         if (spawnFailure) throw new Error('spawn failed')
+        if (spec.argv.includes('broker') && spec.argv.includes('stop')) {
+          lifecycleEvents.push('broker-stop')
+        }
         const record = { spec, terminated: false }
         spawned.push(record)
         // Heartbeats are long-running broker processes; everything else is a
@@ -228,7 +232,11 @@ function createContext({
           : Promise.resolve({ exitCode: currentEnvelope.ok === false ? 1 : 0, signal: null })
         return {
           done,
-          terminate() { record.terminated = true },
+          terminate() {
+            const wasTerminated = record.terminated
+            record.terminated = true
+            if (isHeartbeat && !wasTerminated) lifecycleEvents.push('heartbeat-stop')
+          },
           async waitForExit() { return true },
           collected: {
             stdout: {
@@ -240,25 +248,47 @@ function createContext({
         }
       },
     },
-    agents: {
-      async create(options) {
-        if (agentCreateFailure) throw new Error('anchor refused to start')
-        const sessionId = anchorSessionId ?? options.sessionId
-        const agent = {
-          id: sessionId,
-          options: options.agentOptions,
-          session: { header: { id: sessionId, cwd: options.meta?.cwd } },
-        }
-        const handle = { agent, dispose() { anchors.pop() } }
-        anchors.push(agent)
-        return handle
+    workspaceLease: {
+      async ref(agent) {
+        workspaceLeaseRefs.push(agent)
+        return Object.freeze(Object.create(null))
       },
     },
     subagents: {
       async startContinuable(spec) {
         continuations.push(spec)
-        if (startContinuable !== undefined) return startContinuable(spec, continuations.length)
-        return { childId: `child-${continuations.length}`, messageId: 'message-1' }
+        const result = startContinuable !== undefined
+          ? await startContinuable(spec, continuations.length)
+          : { childId: `child-${continuations.length}`, messageId: 'message-1' }
+        const childId = result.childId
+        if (spec.workspace !== undefined) {
+          const provider = workspaceProviders.get(spec.workspace.provider)
+          provider.validate(spec.workspace.ref, spec.request.parent)
+          const descriptor = { provider: provider.name, version: provider.version }
+          const prepared = await provider.prepare({
+            sessionId: childId,
+            parent: spec.request.parent,
+            signal: spec.signal,
+            descriptor,
+            ref: spec.workspace.ref,
+          })
+          await provider.activate({
+            agent: { session: { header: { id: childId, cwd: prepared.cwd } } },
+            descriptor,
+            signal: spec.signal,
+          })
+        }
+        return result
+      },
+      registerContinuableWorkspaceProvider(provider) {
+        workspaceProviders.set(provider.name, provider)
+        return () => workspaceProviders.delete(provider.name)
+      },
+      async closeContinuable(parent, childId, signal) {
+        lifecycleEvents.push('dsh-close:start')
+        closedContinuations.push({ parent, childId, signal })
+        await closeContinuable?.({ parent, childId, signal })
+        lifecycleEvents.push('dsh-close:end')
       },
       interrupt(target, authority) {
         interrupts.push({ target, authority })
@@ -289,12 +319,15 @@ function createContext({
     provided,
     registeredTools,
     spawned,
-    anchors,
     continuations,
     interrupts,
     followups,
     drains,
     listings,
+    workspaceProviders,
+    workspaceLeaseRefs,
+    closedContinuations,
+    lifecycleEvents,
     setup: () => setupContribution,
   }
 }
@@ -323,6 +356,7 @@ function controllerExec() {
 test('the owner inventory exactly covers registered controller and lane tools', () => {
   const subject = createContext()
   applyMainAgentMode(subject.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  assert.equal(subject.provided.get('mainAgentOrchestration').apiVersion, 2)
   assert.deepEqual(
     [...subject.registeredTools.keys()].sort(),
     [...MAIN_AGENT_TOOL_INVENTORY.controller].sort(),
@@ -337,6 +371,7 @@ const TEST_CONTROLLER_ENVIRONMENT = Object.freeze({
   AGENT_SESSION_ID: 'controller-managed',
   AGENT_SESSION_RUNTIME_ID: 'controller-runtime',
   AGENT_SESSION_STATE_DIR: '/private/state',
+  AGENT_SESSION_COORDINATION_MODE: 'advisory',
   AGENT_SESSION_CAPABILITY_FILE: '/private/capability',
   AGENT_SESSION_CHECKPOINT_FILE: '/private/checkpoint.json',
   AGENT_SESSION_BIN: AGENT_SESSION_CLI,
@@ -370,6 +405,16 @@ async function withoutControllerEnvironment(run) {
       else process.env[name] = value
     }
   }
+}
+
+function applyBoundMainAgentMode(ctx, config = {}) {
+  const managedSessionBridge = createManagedSessionBridge()
+  managedSessionBridge.bind('controller-one', {
+    sessionId: TEST_CONTROLLER_ENVIRONMENT.AGENT_SESSION_ID,
+    environment: TEST_CONTROLLER_ENVIRONMENT,
+  })
+  applyMainAgentMode(ctx, { ...config, managedSessionBridge })
+  return managedSessionBridge
 }
 
 test('controller initialization is a native readiness-fenced tool', async () => {
@@ -453,7 +498,7 @@ test('controller initialization creates no run when compatibility is unproven', 
       },
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
 
   await assert.rejects(
     harness.registeredTools.get('main_agent_run_initialize').execute({
@@ -791,12 +836,100 @@ test('controller initialization refuses a foreign non-lane subagent caller', asy
   assert.equal(harness.spawned.length, 0)
 })
 
+test('unbound foreign and second top-level callers cannot borrow ambient controller authority', async () => {
+  await withControllerEnvironment(async () => {
+    const harness = createContext({
+      envelope: {
+        schema_version: 'cli.main-agent.worker-supervise.v1',
+        ok: true,
+        data: {
+          schema_version: 'main-agent.worker-supervise-result.v2',
+          classification: 'healthy_progress',
+          next_action: 'continue bounded supervision',
+        },
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    const supervise = harness.registeredTools.get('main_agent_worker_supervise')
+    const foreignChild = controllerExec()
+    foreignChild.agent.session.header.id = 'foreign-child'
+    foreignChild.agent.session.header.parentSession = 'foreign-parent'
+    const secondTopLevel = controllerExec()
+    secondTopLevel.agent.session.header.id = 'second-controller'
+
+    for (const exec of [foreignChild, secondTopLevel]) {
+      await assert.rejects(
+        supervise.execute({ assignment_id: 'assignment-one' }, exec),
+        /main-agent-controller-principal-unavailable/,
+      )
+    }
+    assert.equal(harness.spawned.length, 0)
+  })
+})
+
+test('ambient controller bootstrap is single-owner before any second top-level CLI spawn', async () => {
+  await withControllerEnvironment(async (controllerEnvironment) => {
+    const harness = createContext({
+      envelope: (spec) => {
+        if (spec.argv.includes('capabilities')) {
+          return {
+            schema_version: 'cli.main-agent.capabilities.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.capabilities.v1',
+              provider: 'dsh',
+              compatible: true,
+              capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+            },
+          }
+        }
+        if (spec.argv.includes('readiness')) {
+          return {
+            schema_version: 'cli.main-agent.self-readiness.v1',
+            ok: true,
+            data: {
+              schema_version: 'main-agent.runtime-readiness.v1',
+              ready: true,
+              session_id: controllerEnvironment.AGENT_SESSION_ID,
+              session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+              checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+            },
+          }
+        }
+        return {
+          schema_version: 'cli.main-agent.init.v1',
+          ok: true,
+          data: { schema_version: 'main-agent.init-result.v1', run: { state: 'active' } },
+        }
+      },
+    })
+    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    const initialize = harness.registeredTools.get('main_agent_run_initialize')
+    await initialize.execute({
+      objective_file: '/private/objective.json',
+      idempotency_key: 'initialize-owner-1',
+    }, controllerExec())
+    const spawnedByOwner = harness.spawned.length
+    const second = controllerExec()
+    second.agent.session.header.id = 'second-controller'
+
+    await assert.rejects(
+      initialize.execute({
+        objective_file: '/private/objective.json',
+        idempotency_key: 'initialize-owner-2',
+      }, second),
+      /main-agent-controller-binding-conflict/,
+    )
+    assert.equal(harness.spawned.length, spawnedByOwner)
+  })
+})
+
 test('worker launch executes the external-launch contract without duplicating lanes', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx)
+  applyBoundMainAgentMode(harness.ctx)
 
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   assert.ok(launch, 'launch tool is registered')
@@ -831,22 +964,32 @@ test('worker launch executes the external-launch contract without duplicating la
   assert.deepEqual(heartbeat.spec.argv.slice(1, 3), ['--state-dir', scratch])
   assert.deepEqual(heartbeat.spec.argv.slice(3, 5), ['broker', 'heartbeat'])
 
-  assert.equal(harness.anchors.length, 1, 'one anchor per lane')
-  assert.equal(
-    harness.anchors[0].session.header.cwd,
-    realpathSync(laneWorktree(scratch)),
-    'the anchor cwd is the real lane worktree',
-  )
-  assert.deepEqual(
-    harness.anchors[0].options,
-    { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
-    'the lane anchor inherits the Agent Console high-effort Sol controller route',
-  )
   assert.equal(harness.continuations.length, 1)
   const continuation = harness.continuations[0]
   assert.equal(continuation.label, 'main-agent:assignment-one')
   assert.equal(continuation.provider, 'spawn')
-  assert.equal(continuation.request.parent, harness.anchors[0])
+  assert.equal(continuation.request.parent.session.header.id, 'controller-one')
+  assert.equal(typeof continuation.workspace?.ref, 'object')
+  assert.equal(continuation.workspace?.provider, 'dsh-runtime-kit')
+  const workspaceProvider = harness.workspaceProviders.get('dsh-runtime-kit')
+  assert.ok(workspaceProvider)
+  assert.throws(
+    () => workspaceProvider.validate(Object.freeze(Object.create(null)), continuation.request.parent),
+    /main-agent-host-workspace-ref-invalid/,
+    'a copied opaque reference is never authority',
+  )
+  assert.throws(
+    () => workspaceProvider.validate(continuation.workspace.ref, controllerExec().agent),
+    /main-agent-host-workspace-ref-invalid/,
+    'the valid reference is bound to the exact controller identity',
+  )
+  assert.equal(harness.workspaceLeaseRefs.length, 1)
+  assert.equal(harness.workspaceLeaseRefs[0].session.header.id, result.child_session_id)
+  assert.equal(
+    harness.workspaceLeaseRefs[0].session.header.cwd,
+    realpathSync(laneWorktree(scratch)),
+    'lease activation observes the exact host-issued worktree before launch returns',
+  )
   assert.deepEqual(continuation.request.prompt, [{
     type: 'text',
     text: 'Main Agent Mode is explicitly active for this managed worker assignment. '
@@ -879,14 +1022,13 @@ test('worker launch executes the external-launch contract without duplicating la
   )
   assert.equal(replay.disposition, 'reattached')
   assert.equal(harness.continuations.length, 1, 'replay never spawns a second child')
-  assert.equal(harness.anchors.length, 1, 'replay never creates a second anchor')
 
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 1)
   assert.deepEqual(
     service.workerRoute(controllerExec().agent),
     { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
-    'the real orchestration service exposes the inherited route used for lane anchors',
+    'the real orchestration service exposes the inherited route used for lane children',
   )
 })
 
@@ -913,7 +1055,7 @@ test('worker launch waits for authenticated broker readiness before starting the
       }
     },
   })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     brokerReadyTimeoutMs: 2_000,
   })
@@ -962,7 +1104,7 @@ test('worker launch rolls back when authenticated broker readiness never arrives
         }
       : start),
   })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     brokerReadyTimeoutMs: 1,
   })
@@ -975,7 +1117,6 @@ test('worker launch rolls back when authenticated broker readiness never arrives
     /main-agent-broker-readiness-timeout.*starting/,
   )
   assert.equal(harness.continuations.length, 0, 'an unusable lane child is never started')
-  assert.equal(harness.anchors.length, 0, 'the half-launched anchor is released')
   assert.equal(harness.spawned.find(record => record.spec.argv.includes('heartbeat')).terminated, true)
 })
 
@@ -987,7 +1128,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const refused = createContext({
     envelope: { schema_version: 'cli.main-agent.worker-start.v1', ok: false, error: { code: 'claim-not-active', message: 'no claim' } },
   })
-  applyMainAgentMode(refused.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(refused.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     refused.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1000,7 +1141,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   const invalid = createContext({
     envelope: workerStartEnvelope(livenessFile, { external_launch: { schema_version: 'main-agent.external-launch.v999' } }),
   })
-  applyMainAgentMode(invalid.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(invalid.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     invalid.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1010,7 +1151,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   )
 
   const relative = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(relative.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(relative.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     relative.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: 'relative/path.json', idempotency_key: 'key-1' },
@@ -1020,7 +1161,7 @@ test('worker launch fails closed on refusals, invalid contracts, and incarnation
   )
 })
 
-test('worker launch releases an unadopted incarnation when route or anchor creation fails', async (t) => {
+test('worker launch releases an unadopted incarnation when the worker route is unavailable', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const cases = [
@@ -1041,28 +1182,10 @@ test('worker launch releases an unadopted incarnation when route or anchor creat
       },
       error: /main-agent-worker-route-unavailable/,
     },
-    {
-      name: 'anchor creation refusal',
-      harness: createContext({
-        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'create')),
-        agentCreateFailure: true,
-      }),
-      exec: controllerExec(),
-      error: /anchor refused to start/,
-    },
-    {
-      name: 'anchor without a session id',
-      harness: createContext({
-        envelope: workerStartEnvelope(laneSidecarPath(scratch, 'identity')),
-        anchorSessionId: '',
-      }),
-      exec: controllerExec(),
-      error: /main-agent-anchor-unavailable/,
-    },
   ]
 
   for (const fixture of cases) {
-    applyMainAgentMode(fixture.harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(fixture.harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       fixture.harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: `key-${fixture.name}` },
@@ -1076,7 +1199,6 @@ test('worker launch releases an unadopted incarnation when route or anchor creat
       true,
       `${fixture.name} releases the refused store-side broker`,
     )
-    assert.equal(fixture.harness.anchors.length, 0, `${fixture.name} leaves no anchor`)
   }
 })
 
@@ -1085,20 +1207,18 @@ test('lane children get the deny guard and environment section; foreign children
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, {
+  applyBoundMainAgentMode(harness.ctx, {
     mainAgentCli: MAIN_AGENT_CLI,
     laneDeniedTools: ['custom_tool'],
   })
-  await harness.registeredTools.get('main_agent_worker_launch').execute(
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  const anchorId = harness.anchors[0].session.header.id
-
   const guards = []
   const sections = []
   const laneChildCtx = {
-    agent: { session: { header: { parentSession: anchorId } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard(callback) {
         guards.push(callback)
@@ -1138,7 +1258,7 @@ test('lane children get the deny guard and environment section; foreign children
   assert.equal(sections.length, 0)
 
   const foreignChildCtx = {
-    agent: { session: { header: { parentSession: 'someone-else' } } },
+    agent: { session: { header: { id: 'foreign-child', parentSession: 'someone-else' } } },
     tools: {
       guard() {
         throw new Error('foreign children must not be guarded')
@@ -1177,8 +1297,12 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
     },
   })
   const managedSessionBridge = createManagedSessionBridge()
+  managedSessionBridge.bind('controller-one', {
+    sessionId: TEST_CONTROLLER_ENVIRONMENT.AGENT_SESSION_ID,
+    environment: TEST_CONTROLLER_ENVIRONMENT,
+  })
   applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, managedSessionBridge })
-  await harness.registeredTools.get('main_agent_worker_launch').execute(
+  const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
@@ -1187,10 +1311,9 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   assert.match(firstPrompt, /main_agent_bootstrap/)
   assert.doesNotMatch(firstPrompt, /Run exactly .*main-agent bootstrap/)
 
-  const anchorId = harness.anchors[0].session.header.id
   const childTools = new Map()
   const dispose = harness.setup()({
-    agent: { session: { header: { id: 'lane-child-one', parentSession: anchorId } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard() { return () => {} },
       register(definition) {
@@ -1202,7 +1325,7 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   })
   const bootstrap = childTools.get('main_agent_bootstrap')
   assert.ok(bootstrap, 'lane child gets its authenticated bootstrap tool')
-  const principal = managedSessionBridge.resolve('lane-child-one')
+  const principal = managedSessionBridge.resolve(launched.child_session_id)
   assert.equal(principal.sessionId, 'worker-one')
   assert.equal(principal.environment.AGENT_SESSION_ID, 'worker-one')
   assert.equal(managedSessionBridge.resolve('foreign-child'), undefined)
@@ -1231,27 +1354,17 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   dispose()
 })
 
-test('anchors are parked, lanes interrupt and close, and run boundaries update the sidecar', async (t) => {
+test('host-bound lanes interrupt, drain, close, and update run-boundary sidecars', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  const anchorId = harness.anchors[0].session.header.id
-
   const preStep = harness.listeners.get('agent/pre-step')
-  const parked = await preStep(
-    { agent: { session: { header: { id: anchorId } } } },
-    async () => ({ kind: 'enter', messages: [] }),
-  )
-  assert.deepEqual(parked, {
-    kind: 'reject',
-    reason: 'dsh-runtime-kit:main-agent-anchor-parked',
-  })
   const passedThrough = await preStep(
     { agent: { session: { header: { id: 'foreign-child', parentSession: 'foreign-parent' } } } },
     async () => ({ kind: 'enter', messages: [] }),
@@ -1290,7 +1403,7 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
   assert.equal(harness.interrupts[0].target, launched.child_session_id)
   assert.deepEqual(harness.interrupts[0].authority, {
     kind: 'user',
-    parentSessionId: anchorId,
+    parentSessionId: 'controller-one',
   })
 
   const closed = await harness.registeredTools.get('main_agent_lane_close').execute(
@@ -1309,7 +1422,8 @@ test('anchors are parked, lanes interrupt and close, and run boundaries update t
     harness.spawned.some(record => record.spec.argv.includes('stop')),
     'lane close runs the broker stop argv',
   )
-  assert.equal(harness.anchors.length, 0, 'lane close disposes the anchor agent')
+  assert.equal(harness.closedContinuations.length, 1)
+  assert.equal(harness.closedContinuations[0].childId, launched.child_session_id)
   const service = harness.provided.get('dshRuntimeKitMainAgent')
   assert.equal(service.laneCount, 0)
   await assert.rejects(
@@ -1334,7 +1448,7 @@ test('concurrent launches of one assignment serialize to a single lane', async (
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1350,7 +1464,6 @@ test('concurrent launches of one assignment serialize to a single lane', async (
   assert.equal(firstResult.disposition, 'launched')
   assert.equal(secondResult.disposition, 'reattached')
   assert.equal(harness.continuations.length, 1, 'exactly one child is spawned')
-  assert.equal(harness.anchors.length, 1, 'exactly one anchor exists')
   assert.equal(
     harness.spawned.filter(record => record.spec.argv.includes('heartbeat')).length,
     1,
@@ -1368,7 +1481,7 @@ test('a failed launch rolls back completely and terminates its sidecar', async (
       throw new Error('child refused to start')
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await assert.rejects(
     harness.registeredTools.get('main_agent_worker_launch').execute(
       { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1376,7 +1489,6 @@ test('a failed launch rolls back completely and terminates its sidecar', async (
     ),
     /child refused to start/,
   )
-  assert.equal(harness.anchors.length, 0, 'rollback disposes the anchor')
   const heartbeat = harness.spawned.find(record => record.spec.argv.includes('heartbeat'))
   assert.equal(heartbeat.terminated, true, 'rollback stops the heartbeat')
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
@@ -1399,7 +1511,7 @@ test('a registered lane refuses a foreign launch incarnation', async (t) => {
       external_launch: { launch_id: launchId },
     }),
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1414,7 +1526,6 @@ test('a registered lane refuses a foreign launch incarnation', async (t) => {
     /main-agent-lane-incarnation-conflict/,
   )
   assert.equal(harness.continuations.length, 1, 'the conflict spawns nothing')
-  assert.equal(harness.anchors.length, 1)
 })
 
 test('lane capacity is bounded with a typed refusal', async (t) => {
@@ -1430,7 +1541,7 @@ test('lane capacity is bounded with a typed refusal', async (t) => {
       return envelope
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   await launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -1451,17 +1562,33 @@ test('disposal closes the runtime: tools refuse and lane bookkeeping empties', a
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
-  const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  const releaseClose = Promise.withResolvers()
+  const lifecycleEvents = []
+  const harness = createContext({
+    envelope: workerStartEnvelope(livenessFile),
+    lifecycleEvents,
+    closeContinuable: async () => releaseClose.promise,
+  })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
-  for (const effect of harness.effects) {
-    const dispose = effect.callback()
-    if (typeof dispose === 'function') dispose()
-  }
   const service = harness.provided.get('dshRuntimeKitMainAgent')
+  const disposals = harness.effects.map((effect) => {
+    const dispose = effect.callback()
+    return typeof dispose === 'function' ? dispose() : undefined
+  })
+  await Promise.resolve()
+  assert.deepEqual(lifecycleEvents, ['dsh-close:start'])
+  assert.equal(service.laneCount, 1, 'registry authority remains while DSH drains')
+  releaseClose.resolve()
+  await Promise.all(disposals)
+  assert.deepEqual(lifecycleEvents.slice(0, 3), [
+    'dsh-close:start',
+    'dsh-close:end',
+    'heartbeat-stop',
+  ])
   assert.equal(service.laneCount, 0, 'disposal empties the lane registry')
   for (const name of [
     'main_agent_worker_launch',
@@ -1488,7 +1615,7 @@ test('lane close still releases the heartbeat when the interrupt throws', async 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1509,7 +1636,7 @@ test('synchronous run boundaries publish the last transition, not the last renam
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1560,7 +1687,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const harness = createContext({
       envelope: workerStartEnvelope(livenessFile, { external_launch: override }),
     })
-    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1578,7 +1705,7 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
     const envelope = workerStartEnvelope(livenessFile)
     envelope.data.external_launch.worker_env.AGENT_SESSION_RUNTIME_ID = hostileValue
     const harness = createContext({ envelope })
-    applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+    applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
     await assert.rejects(
       harness.registeredTools.get('main_agent_worker_launch').execute(
         { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1603,7 +1730,7 @@ test('the external-launch envelope accepts the canonical target of the configure
   envelope.data.external_launch.broker_heartbeat_argv[0] = trustedTarget
   envelope.data.external_launch.broker_stop_argv[0] = trustedTarget
   const harness = createContext({ envelope })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: join(bin, 'main-agent') })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: join(bin, 'main-agent') })
 
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
@@ -1618,7 +1745,10 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
   // A partial override must extend, never replace, the mandatory core.
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, laneDeniedTools: ['custom_tool'] })
+  applyBoundMainAgentMode(harness.ctx, {
+    mainAgentCli: MAIN_AGENT_CLI,
+    laneDeniedTools: ['custom_tool'],
+  })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1642,7 +1772,7 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
     'configured execution-only denies cannot make the strict visibility filter invalid',
   )
 
-  // A lane child (or its anchor) can never drive the lane surface.
+  // A lane child can never drive the controller surface.
   const laneChildExec = {
     signal: new AbortController().signal,
     agent: {
@@ -1651,7 +1781,7 @@ test('the lane deny set is monotonic and lane management refuses non-controller 
         header: {
           id: launched.child_session_id,
           cwd: '/lane/worktree',
-          parentSession: launched.anchor_session_id,
+          parentSession: 'controller-one',
         },
       },
     },
@@ -1684,7 +1814,7 @@ test('run outcomes map onto the sidecar contract vocabulary', async (t) => {
   })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const harness = createContext({ envelope: workerStartEnvelope(livenessFile) })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1736,7 +1866,7 @@ test('lane capacity holds across concurrent launches of distinct assignments', a
       return { childId: `child-${count}`, messageId: `message-${count}` }
     },
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI, maxLanes: 1 })
   const launch = harness.registeredTools.get('main_agent_worker_launch')
   const first = launch.execute(
     { assignment_file: '/private/a.json', idempotency_key: 'key-a' },
@@ -1765,7 +1895,7 @@ test('interrupting a settled lane reports it instead of throwing', async (t) => 
   harness.ctx.subagents.interrupt = () => {
     throw new Error('child already settled')
   }
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
@@ -1798,15 +1928,17 @@ async function launchedLane(scratch, options = {}) {
     children: options.children,
     followupFailure: options.followupFailure,
     drainFailure: options.drainFailure,
+    closeContinuable: options.closeContinuable,
+    lifecycleEvents: options.lifecycleEvents,
   })
-  applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
   const laneTools = new Map()
   const disposeChild = harness.setup()({
-    agent: { session: { header: { id: 'child-1', parentSession: harness.anchors[0].session.header.id } } },
+    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
     tools: {
       guard() { return () => {} },
       register(definition) {
@@ -1938,11 +2070,11 @@ test('supervision folds lane transport facts onto the store classification', asy
     { assignment_id: 'assignment-one' },
     controllerExec(),
   )
-  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v1')
+  assert.equal(supervised.schema_version, 'dsh-runtime-kit.main-agent-supervision.v2')
   assert.equal(supervised.store.classification, 'healthy_progress')
   assert.equal(supervised.lane.child_activity, 'running')
   assert.equal(supervised.lane.turn_phase, 'working')
-  assert.equal(harness.listings[0].parentSessionId, harness.anchors[0].session.header.id)
+  assert.equal(harness.listings[0].parentSessionId, 'controller-one')
 })
 
 test('request-changes records the fenced decision first, then delivers it into the lane', async (t) => {
@@ -1968,7 +2100,7 @@ test('request-changes records the fenced decision first, then delivers it into t
     },
     controllerExec(),
   )
-  assert.equal(returned.schema_version, 'dsh-runtime-kit.main-agent-review.v1')
+  assert.equal(returned.schema_version, 'dsh-runtime-kit.main-agent-review.v2')
   assert.equal(returned.decision, 'request-changes')
   assert.equal(returned.delivered, true)
 
@@ -1990,7 +2122,7 @@ test('request-changes records the fenced decision first, then delivers it into t
   assert.equal(harness.followups.length, 1)
   const delivery = harness.followups[0]
   assert.equal(delivery.childId, 'child-1')
-  assert.equal(delivery.parent, harness.anchors[0])
+  assert.equal(delivery.parent.session.header.id, 'controller-one')
   assert.match(delivery.content[0].text, /the diff misses the regression test/)
   assert.match(delivery.content[0].text, /main_agent_checkpoint/)
   assert.deepEqual(delivery.options.source, { kind: 'plugin', plugin: 'dsh-runtime-kit' })
@@ -2020,14 +2152,16 @@ test('a failed delivery reports the transport gap without unwinding the durable 
   assert.ok(returned.store, 'the recorded store decision is still reported')
 })
 
-test('closeout terminates every lane, fences the final checkpoint, then drains the anchors', async (t) => {
+test('closeout drains host-bound children before fencing the final store checkpoint', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
   const livenessFile = laneSidecarPath(scratch, 'worker-one')
   const start = workerStartEnvelope(livenessFile)
+  const lifecycleEvents = []
   let closeoutFile
   const envelope = (spec) => {
     if (spec.argv.includes('closeout')) {
+      lifecycleEvents.push('store-closeout')
       closeoutFile = spec.argv[spec.argv.indexOf('--checkpoint-file') + 1]
       return {
         schema_version: 'cli.main-agent.closeout.v1',
@@ -2037,10 +2171,14 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
     }
     return start
   }
-  const { harness } = await launchedLane(scratch, { envelope })
-  // Capture the anchor before closeout: disposal removes it from the harness.
-  const anchor = harness.anchors[0]
-
+  const { harness } = await launchedLane(scratch, {
+    envelope,
+    lifecycleEvents,
+    async closeContinuable() {
+      const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
+      assert.equal(sidecar.lane.state, 'open', 'sidecar authority remains until DSH drain ends')
+    },
+  })
   const closed = await harness.registeredTools.get('main_agent_run_closeout').execute(
     {
       summary: 'delivered both lanes',
@@ -2051,7 +2189,7 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
     },
     controllerExec(),
   )
-  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v1')
+  assert.equal(closed.schema_version, 'dsh-runtime-kit.main-agent-closeout.v2')
   assert.equal(closed.store.run.state, 'closed')
   assert.equal(closed.lanes_closed.length, 1)
   assert.equal(closed.lanes_closed[0].closed, true)
@@ -2060,9 +2198,15 @@ test('closeout terminates every lane, fences the final checkpoint, then drains t
   // The lane is terminal before the store retires it, and its sidecar says so.
   const sidecar = JSON.parse(await readFile(livenessFile, 'utf8'))
   assert.equal(sidecar.lane.state, 'terminated')
-  assert.equal(harness.drains.length, 1)
-  assert.deepEqual(harness.drains[0], [anchor])
-  assert.equal(harness.anchors.length, 0, 'anchors are disposed after the drain')
+  assert.equal(harness.closedContinuations.length, 1)
+  assert.equal(harness.drains.length, 0, 'the exact child close seam owns recursive drain')
+  assert.deepEqual(lifecycleEvents, [
+    'dsh-close:start',
+    'dsh-close:end',
+    'heartbeat-stop',
+    'broker-stop',
+    'store-closeout',
+  ])
 
   // The private closeout checkpoint is removed with its temporary directory.
   assert.ok(closeoutFile, 'closeout passed a checkpoint file')

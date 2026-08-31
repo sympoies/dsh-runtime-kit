@@ -842,7 +842,8 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
       return rememberDenial(denial(finishProbe.reason ?? 'finish-line-unavailable').reason)
     }
 
-    if (finishProbe.kind !== 'validation') {
+    if (finishProbe.kind !== 'validation'
+      && (prerequisiteProof === undefined || finishProbe.kind === 'ordinary')) {
       let decision
       try {
         decision = await transport.evaluate(exec, correlation.context, prerequisiteProof)

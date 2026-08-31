@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { setTimeout as delay } from 'node:timers/promises'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../src/compat/dsh-patch.js'
@@ -125,6 +126,7 @@ assert.equal(initialDshCheckout.revision, dshRevision)
 assert.equal(initialDshCheckout.after, 'patched')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
+const nativeControllerSessions = []
 const agentConsoleTuiArchive = join(temporaryRoot, 'authenticated-agent-console-tui.tgz')
 const userHome = join(temporaryRoot, 'home')
 const dshHome = join(temporaryRoot, 'dsh-home')
@@ -165,6 +167,7 @@ const nativeFullHostCapabilities = Object.freeze([
 ])
 if (fullHostAuthority) assert.equal(process.platform, 'linux')
 const nilsCandidateFeature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+const nativeMainAgentProfile = 'runtime-kit-smoke'
 const profile = agentConsoleTuiPackage === undefined ? 'runtime-kit-smoke' : 'dsh-tui'
 const marker = 'DSH_RUNTIME_KIT_SMOKE='
 const skillMarker = 'DSH_RUNTIME_KIT_SKILLS='
@@ -524,6 +527,687 @@ function runDsh(args, options = {}) {
   return result
 }
 
+async function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile, mode = 'happy' }) {
+  const processLoss = mode === 'process-loss'
+  const nativeRoot = join(temporaryRoot, `native-main-agent-${mode}`)
+  const nativeProject = join(nativeRoot, 'project')
+  const nativeWorktrees = join(nativeRoot, 'worktrees')
+  const nativeLane = join(nativeWorktrees, 'lane-one')
+  const nativeState = join(nativeRoot, 'state')
+  const nativeProvider = join(nativeRoot, 'provider-stub.mjs')
+  const nativeDriver = join(nativeRoot, 'driver.mjs')
+  const nativeObservation = join(nativeRoot, 'observation.json')
+  const nativeOverlay = join(nativeRoot, 'driver.patch.yml')
+  const mainAgentBinDir = resolve(process.env.NILS_BIN_DIR ?? dirname(agentHookBin))
+  const mainAgentBin = join(mainAgentBinDir, 'main-agent')
+  const agentSessionBin = join(mainAgentBinDir, 'agent-session')
+  for (const binary of [mainAgentBin, agentSessionBin]) {
+    assert.equal(existsSync(binary), true, `native Main Agent smoke missing ${binary}`)
+  }
+  mkdirSync(nativeRoot, { recursive: true, mode: 0o700 })
+  mkdirSync(nativeWorktrees, { recursive: true, mode: 0o700 })
+  mkdirSync(nativeState, { recursive: true, mode: 0o700 })
+  writeFileSync(nativeProvider, `#!/usr/bin/env node
+process.on('SIGINT', () => process.exit(0))
+process.on('SIGTERM', () => process.exit(0))
+setInterval(() => {}, 60_000)
+`, { mode: 0o700 })
+  const git = (args, cwd = nativeProject) => {
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 })
+    assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`)
+    return result.stdout.trim()
+  }
+  const initialized = spawnSync('git', ['init', '--quiet', '--initial-branch=main', nativeProject], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  assert.equal(initialized.status, 0, initialized.stderr)
+  writeFileSync(join(nativeProject, 'README.md'), '# native main-agent smoke\n')
+  writeFileSync(join(nativeProject, 'native-lane.txt'), 'baseline\n')
+  mkdirSync(join(nativeProject, 'agent-docs'), { recursive: true, mode: 0o700 })
+  const nativeAgentDocs = `
+[[validation]]
+context = "project-dev"
+product = "dsh"
+commands = ["test -f native-lane.txt"]
+description = "packed native Main Agent lane"
+`
+  writeFileSync(join(nativeProject, 'AGENT_DOCS.toml'), nativeAgentDocs)
+  writeFileSync(join(nativeProject, 'agent-docs', 'AGENT_DOCS.toml'), nativeAgentDocs)
+  git(['add', '-A'])
+  git(['-c', 'user.name=runtime-kit-smoke', '-c', 'user.email=smoke@example.invalid',
+    'commit', '--quiet', '-m', 'test: seed native lane'])
+  git(['remote', 'add', 'origin', 'https://example.invalid/example/native-smoke.git'])
+  git(['worktree', 'add', '--quiet', '-b', 'feat/native-lane', nativeLane, 'HEAD'])
+
+  const controllerStart = spawnSync(agentSessionBin, [
+    '--state-dir', nativeState,
+    'start',
+    '--agent', 'hermes',
+    '--cwd', nativeProject,
+    '--coordination-mode', 'off',
+    '--format', 'json',
+  ], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    env: { ...process.env, AGENT_SESSION_HERMES_BIN: nativeProvider },
+  })
+  assert.equal(controllerStart.status, 0, controllerStart.stderr)
+  const controller = JSON.parse(controllerStart.stdout).data
+  nativeControllerSessions.push({ agentSessionBin, stateDir: nativeState, sessionId: controller.id })
+  const coordination = join(nativeState, 'sessions', controller.id, 'coordination')
+  const pickCoordination = async prefix => {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const selected = readdirSync(coordination).find(name => name.startsWith(prefix))
+      if (selected !== undefined) return join(coordination, selected)
+      await delay(50)
+    }
+    assert.fail(`agent-session did not publish ${prefix} coordination authority`)
+  }
+  const objectiveFile = join(nativeRoot, 'objective.json')
+  const assignmentFile = join(nativeRoot, 'assignment.json')
+  const closeoutFile = join(nativeRoot, 'closeout.json')
+  writeFileSync(objectiveFile, `${JSON.stringify({
+    schema_version: 'main-agent.objective-packet.v1',
+    tier: 'L0',
+    objective_summary: 'prove the packed native host workspace lane',
+    objective: { goal: 'complete one reviewed native DSH lane' },
+    done_criteria: ['lane accepted', 'run closed'],
+    constraints: ['no commits', 'no delivery'],
+    durable_refs: [],
+    next_action: null,
+    work_context: {
+      schema_version: 'agent-session.work-context-input.v1',
+      intent: 'project-dev',
+      tier: 'L2',
+      repositories: ['example/native-smoke'],
+      summary: 'DSH project-dev session',
+    },
+  }, null, 2)}\n`, { mode: 0o600 })
+  writeFileSync(assignmentFile, `${JSON.stringify({
+    schema_version: 'main-agent.assignment-input.v1',
+    assignment_id: 'native-lane',
+    task_summary: 'edit and validate native-lane.txt',
+    task: { objective: 'edit native-lane.txt, validate, and submit' },
+    launch: {
+      agent: 'dsh',
+      cwd: nativeLane,
+      title: null,
+      session_id: 'worker-native-lane',
+      coordination_mode: 'enforce',
+      agent_args: [],
+    },
+    repository: 'example/native-smoke',
+    worktree: nativeLane,
+    base_ref: 'main',
+    scopes: ['native-lane.txt'],
+    durable_refs: [],
+  }, null, 2)}\n`, { mode: 0o600 })
+  writeFileSync(closeoutFile, `${JSON.stringify({
+    schema_version: 'main-agent.checkpoint-input.v1',
+    summary: 'native lane accepted and drained',
+    next_action: 'report the packed evidence',
+    result_summary: 'one reviewed lane completed',
+  }, null, 2)}\n`, { mode: 0o600 })
+
+  writeFileSync(nativeDriver, `
+import { spawnSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
+
+export const name = 'dsh-runtime-kit-native-main-agent-smoke'
+export const inject = ['agents', 'llm', 'tools', 'workspaceLease', 'subagents', 'mainAgentOrchestration']
+const controllerId = process.env.DSH_RUNTIME_KIT_NATIVE_CONTROLLER_ID
+const assignmentId = 'native-lane'
+const crashAfterAccept = process.env.DSH_RUNTIME_KIT_NATIVE_CRASH_AFTER_ACCEPT === '1'
+let controllerCalls = 0
+let childCalls = 0
+let childId
+let childCwd
+let leaseReadyBeforePrompt = false
+let leaseActivatedByRuntime = false
+let firstSubmissionRevision = 0
+let closeoutRevision = 0
+let listed = []
+let acceptedObserved = false
+let laneCloseObserved = false
+let crashTriggered = false
+const childTools = []
+
+function call(name, value, suffix) {
+  const id = CallId('native-main-agent-' + suffix)
+  const args = JSON.stringify(value)
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ]
+}
+function text(value) {
+  return [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: value },
+    { type: 'block-end', index: 0, block: { type: 'text', text: value } },
+    { type: 'usage', usage: { inputTokens: 10, outputTokens: value.length } },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+}
+function store(args) {
+  const result = spawnSync(process.env.DSH_RUNTIME_KIT_MAIN_AGENT_BIN, [
+    '--state-dir', process.env.DSH_RUNTIME_KIT_NATIVE_STATE,
+    ...args,
+    '--format', 'json',
+  ], { cwd: process.env.DSH_RUNTIME_KIT_NATIVE_PROJECT, env: process.env, encoding: 'utf8', timeout: 30_000 })
+  if (result.status !== 0) throw new Error('store call failed: ' + result.stdout + result.stderr)
+  return JSON.parse(result.stdout).data
+}
+function assignment() {
+  return store(['worker', 'list']).workers.find(worker => worker.assignment_id === assignmentId)
+}
+function runRevision() { return store(['status']).run.revision }
+function bootstrapKey(messages) {
+  const source = JSON.stringify(messages)
+  const tick = String.fromCharCode(96)
+  const start = source.indexOf('set to ' + tick)
+  if (start < 0) throw new Error('native bootstrap key not found')
+  const tail = source.slice(start + ('set to ' + tick).length)
+  return tail.slice(0, tail.indexOf(tick))
+}
+function writeObservation() {
+  writeFileSync(process.env.DSH_RUNTIME_KIT_NATIVE_OBSERVATION, JSON.stringify({
+    controller_id: controllerId,
+    child_id: childId,
+    child_cwd: childCwd,
+    lease_ready_before_prompt: leaseReadyBeforePrompt,
+    listed_children: listed.map(entry => entry.id),
+    anchor_visible: listed.some(entry => entry.id !== childId),
+    accepted_observed: acceptedObserved,
+    lane_close_observed: laneCloseObserved,
+    crash_triggered: crashTriggered,
+    closeout_revision: closeoutRevision,
+    child_tools: childTools,
+  }) + '\\n', { mode: 0o600 })
+}
+async function waitFor(probe, description, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (probe()) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(description)
+}
+
+class NativeAdapter extends LlmAdapter {
+  resolveModel(provider, model) { return Promise.resolve({ provider, id: model, name: model }) }
+  async *stream(options) {
+    const isController = String(options.sessionId) === controllerId
+    let chunks
+    const agentLoopRequest = options.tools?.some(tool => (
+      tool.name === 'main_agent_run_initialize' || tool.name === 'main_agent_bootstrap'
+    )) === true
+    if (!agentLoopRequest) {
+      chunks = text('native auxiliary response')
+    } else if (isController) {
+      const happySequence = [
+        () => call('main_agent_run_initialize', {
+          objective_file: process.env.DSH_RUNTIME_KIT_NATIVE_OBJECTIVE,
+          idempotency_key: 'native-init-0001',
+        }, 'initialize'),
+        () => call('main_agent_worker_launch', {
+          assignment_file: process.env.DSH_RUNTIME_KIT_NATIVE_ASSIGNMENT,
+          idempotency_key: 'native-launch-0001',
+        }, 'launch'),
+        () => call('native_wait_for_submission', { after_revision: 0 }, 'wait-first'),
+        () => {
+          firstSubmissionRevision = assignment().revision
+          return call('main_agent_worker_supervise', { assignment_id: assignmentId }, 'supervise')
+        },
+        () => call('main_agent_worker_request_changes', {
+          assignment_id: assignmentId,
+          if_revision: firstSubmissionRevision,
+          reason: 'record the reviewed second pass',
+          idempotency_key: 'native-changes-0001',
+        }, 'changes'),
+        () => call('native_wait_for_submission', {
+          after_revision: firstSubmissionRevision,
+        }, 'wait-second'),
+        () => call('main_agent_worker_accept', {
+          assignment_id: assignmentId,
+          if_revision: assignment().revision,
+          idempotency_key: 'native-accept-0001',
+        }, 'accept'),
+        () => call('main_agent_lane_close', { assignment_id: assignmentId }, 'lane-close'),
+        () => {
+          closeoutRevision = runRevision()
+          writeObservation()
+          return text('native lane accepted and drained; durable closeout ready')
+        },
+      ]
+      const lossSequence = [
+        happySequence[0],
+        happySequence[1],
+        () => call('native_wait_for_working', {}, 'wait-working'),
+        () => {
+          crashTriggered = true
+          writeObservation()
+          process.kill(process.pid, 'SIGKILL')
+          return text('unreachable after forced harness loss')
+        },
+      ]
+      const sequence = crashAfterAccept ? lossSequence : happySequence
+      const next = sequence[controllerCalls++]
+      if (next !== undefined) {
+        chunks = await next()
+      } else {
+        chunks = text('native run closed')
+      }
+    } else {
+      const sequence = [
+        () => call('main_agent_bootstrap', {
+          idempotency_key: bootstrapKey(options.messages),
+        }, 'bootstrap'),
+        () => call('runtime_context', { intent: 'project-dev' }, 'runtime-context'),
+        () => call('read', {
+          file_path: process.env.DSH_RUNTIME_KIT_NATIVE_LANE + '/native-lane.txt',
+        }, 'read-baseline'),
+        () => call('write', {
+          file_path: process.env.DSH_RUNTIME_KIT_NATIVE_LANE + '/native-lane.txt',
+          content: 'first pass\\n',
+        }, 'first-write'),
+        () => call('bash', {
+          command: 'test -f native-lane.txt',
+          description: 'validate the first native lane pass',
+        }, 'first-validation'),
+        () => call('main_agent_checkpoint', {
+          summary: 'completed the first native pass',
+          next_action: 'await review',
+          state: 'submitted',
+          result_summary: 'first pass validated',
+          if_revision: assignment().revision,
+          idempotency_key: 'native-checkpoint-0001',
+        }, 'first-checkpoint'),
+        () => text('first pass submitted'),
+        () => call('read', {
+          file_path: process.env.DSH_RUNTIME_KIT_NATIVE_LANE + '/native-lane.txt',
+        }, 'read-first-pass'),
+        () => call('write', {
+          file_path: process.env.DSH_RUNTIME_KIT_NATIVE_LANE + '/native-lane.txt',
+          content: 'reviewed second pass\\n',
+        }, 'second-write'),
+        () => call('bash', {
+          command: 'test -f native-lane.txt',
+          description: 'validate the reviewed native lane pass',
+        }, 'second-validation'),
+        () => call('main_agent_checkpoint', {
+          summary: 'completed the reviewed second pass',
+          next_action: 'await acceptance',
+          state: 'submitted',
+          result_summary: 'reviewed pass validated',
+          if_revision: assignment().revision,
+          idempotency_key: 'native-checkpoint-0002',
+        }, 'second-checkpoint'),
+        () => text('reviewed pass submitted'),
+      ]
+      chunks = (sequence[childCalls++] ?? (() => text('lane done')))()
+    }
+    for (const chunk of chunks) yield chunk
+  }
+}
+
+export function apply(ctx) {
+  void (async () => {
+    let handle
+    try {
+      const workspaceLeaseRef = ctx.workspaceLease.ref.bind(ctx.workspaceLease)
+      ctx.workspaceLease.ref = async agent => {
+        const ref = await workspaceLeaseRef(agent)
+        if (String(agent.session?.header?.parentSession) === controllerId) {
+          leaseActivatedByRuntime = true
+        }
+        return ref
+      }
+      ctx.on('agent/error', ({ agent, error }) => {
+        process.stderr.write('native agent error ' + String(agent.id) + ': '
+          + String(error?.stack ?? error) + '\\n')
+      })
+      ctx.on('agent/created', ({ agent }) => {
+        if (String(agent.session?.header?.parentSession) === controllerId) {
+          childId = String(agent.id)
+          childCwd = agent.session.header.cwd
+          writeObservation()
+        }
+      })
+      ctx.on('agent/pre-step', async ({ agent }, next) => {
+        if (String(agent.session?.header?.parentSession) === controllerId) {
+          if (!leaseActivatedByRuntime) {
+            throw new Error('native lane reached its first prompt before runtime lease activation')
+          }
+          leaseReadyBeforePrompt = true
+          writeObservation()
+        }
+        const decision = await next()
+        if (String(agent.id) === controllerId && decision?.kind === 'reject') {
+          process.stderr.write('native controller pre-step: ' + JSON.stringify(decision) + '\\n')
+        }
+        return decision
+      }, { prepend: true })
+      ctx.on('tools/result', (exec, result) => {
+        if (result?.isError === true) {
+          process.stderr.write('native tool error: ' + JSON.stringify({
+            agent_id: String(exec.agent?.id),
+            name: exec.name,
+            content: result.content,
+          }) + '\\n')
+        }
+        if (String(exec.agent?.session?.header?.parentSession) === controllerId) {
+          childTools.push(exec.name)
+          writeObservation()
+          if (exec.agent.session.header.cwd !== process.env.DSH_RUNTIME_KIT_NATIVE_LANE) {
+            throw new Error('native child cwd changed during tool execution')
+          }
+        }
+        if (String(exec.agent?.id) === controllerId
+          && exec.name === 'main_agent_worker_accept'
+          && result?.isError !== true) {
+          acceptedObserved = assignment()?.state === 'accepted'
+          writeObservation()
+        }
+        if (String(exec.agent?.id) === controllerId
+          && exec.name === 'main_agent_lane_close'
+          && result?.isError !== true) {
+          laneCloseObserved = true
+          writeObservation()
+        }
+      })
+      ctx.tools.register({
+        name: 'native_wait_for_submission',
+        description: 'Wait for the packed native lane to publish a newer submitted revision.',
+        parameters: {
+          type: 'object',
+          properties: { after_revision: { type: 'integer' } },
+          required: ['after_revision'],
+          additionalProperties: false,
+        },
+        output: {
+          schema: { type: 'object' },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        async execute(args, exec) {
+          await waitFor(() => {
+            const current = assignment()
+            return current?.state === 'submitted' && current.revision > args.after_revision
+          }, 'native submission did not arrive')
+          if (args.after_revision === 0) {
+            listed = await ctx.subagents.listChildren(SessionId(controllerId), exec.signal)
+            writeObservation()
+          }
+          return { submitted_revision: assignment().revision }
+        },
+      })
+      ctx.tools.register({
+        name: 'native_wait_for_working',
+        description: 'Wait for the packed native lane to acquire its assignment claim.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        output: {
+          schema: { type: 'object' },
+          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+        },
+        async execute(_args, exec) {
+          await waitFor(() => assignment()?.state === 'working', 'native lane never started working')
+          listed = await ctx.subagents.listChildren(SessionId(controllerId), exec.signal)
+          writeObservation()
+          return { assignment_revision: assignment().revision }
+        },
+      })
+      ctx.llm.registerAdapter(['native-main-agent'], new NativeAdapter())
+      handle = await ctx.agents.create({
+        sessionId: SessionId(controllerId),
+        agentOptions: { provider: 'native-main-agent', model: 'scripted' },
+        meta: { cwd: process.env.DSH_RUNTIME_KIT_NATIVE_PROJECT },
+      })
+      handle.agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'complete the packed native lane lifecycle' }],
+        source: { kind: 'user' },
+      }))
+      try {
+        await waitFor(() => {
+          try {
+            return assignment()?.state === 'accepted'
+              && ctx.mainAgentOrchestration.laneCount === 0
+              && laneCloseObserved
+          } catch {
+            return false
+          }
+        }, 'native lane did not reach its accepted and drained state')
+      } catch (error) {
+        let status
+        let workers
+        try { status = store(['status']) } catch {}
+        try { workers = store(['worker', 'list']) } catch {}
+        process.stderr.write('native resumable timeout state: ' + JSON.stringify({
+          controller_calls: controllerCalls,
+          child_calls: childCalls,
+          child_id: childId,
+          status,
+          workers,
+        }) + '\\n')
+        throw error
+      }
+    } catch (error) {
+      process.stderr.write(String(error?.stack ?? error) + '\\n')
+      process.exitCode = 1
+    } finally {
+      await handle?.dispose().catch(() => undefined)
+      ctx.get('appExit')?.(process.exitCode ?? 0)
+    }
+  })()
+}
+`, { mode: 0o600 })
+  writeFileSync(nativeOverlay, `
+- insert:
+    - id: dsh-runtime-kit-native-main-agent-smoke
+      name: ${JSON.stringify(nativeDriver)}
+`, { mode: 0o600 })
+
+  const nativeEnv = {
+    ...environment,
+    AGENT_SESSION_STATE_DIR: nativeState,
+    AGENT_SESSION_ID: controller.id,
+    AGENT_SESSION_RUNTIME_ID: controller.session_incarnation,
+    AGENT_SESSION_COORDINATION_MODE: 'off',
+    AGENT_SESSION_BIN: agentSessionBin,
+    AGENT_SESSION_CAPABILITY_FILE: await pickCoordination('capability-'),
+    AGENT_SESSION_CHECKPOINT_FILE: await pickCoordination('main-agent-checkpoint-'),
+    DSH_PERMISSION_MODE: 'danger-full-access',
+    DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgentBin,
+    DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSessionBin,
+    DSH_RUNTIME_KIT_NATIVE_CONTROLLER_ID: controller.id,
+    DSH_RUNTIME_KIT_NATIVE_STATE: nativeState,
+    DSH_RUNTIME_KIT_NATIVE_PROJECT: nativeProject,
+    DSH_RUNTIME_KIT_NATIVE_LANE: nativeLane,
+    DSH_RUNTIME_KIT_NATIVE_OBJECTIVE: objectiveFile,
+    DSH_RUNTIME_KIT_NATIVE_ASSIGNMENT: assignmentFile,
+    DSH_RUNTIME_KIT_NATIVE_CLOSEOUT: closeoutFile,
+    DSH_RUNTIME_KIT_NATIVE_OBSERVATION: nativeObservation,
+    DSH_RUNTIME_KIT_NATIVE_CRASH_AFTER_ACCEPT: processLoss ? '1' : '0',
+    DSH_RUNTIME_KIT_SMOKE_PROJECT: nativeProject,
+  }
+  const result = processLoss
+    ? spawnDsh(['--profile', profile, '--patch', nativeOverlay], { env: nativeEnv })
+    : runDsh(['--profile', profile, '--patch', nativeOverlay], { env: nativeEnv })
+  if (processLoss) {
+    assert.notEqual(result.status, 0, 'forced DSH harness loss unexpectedly exited cleanly')
+  }
+  assert.equal(
+    existsSync(nativeObservation),
+    true,
+    `missing native Main Agent observation:\n${result.stdout}\n${result.stderr}`,
+  )
+  const observation = JSON.parse(readFileSync(nativeObservation, 'utf8'))
+  const nativeStoreAttempt = args => {
+    const storeResult = spawnSync(mainAgentBin, [
+      '--state-dir', nativeState,
+      ...args,
+      '--format', 'json',
+    ], { cwd: nativeProject, env: nativeEnv, encoding: 'utf8', timeout: 30_000 })
+    return {
+      status: storeResult.status,
+      output: storeResult.stdout + storeResult.stderr,
+      envelope: JSON.parse(storeResult.stdout),
+    }
+  }
+  const nativeStore = args => {
+    const attempt = nativeStoreAttempt(args)
+    assert.equal(attempt.status, 0, attempt.output)
+    return attempt.envelope.data
+  }
+  let status = nativeStore(['status'])
+  const workerRuntime = JSON.parse(readFileSync(
+    join(nativeState, 'sessions', 'worker-native-lane', 'session.json'),
+    'utf8',
+  )).runtime
+  let lastCloseoutResult
+  let retirement
+  let reconciliation
+  let staleSidecarObserved = false
+  if (status.run.state !== 'closed') {
+    assert.equal(status.run.state, 'active')
+    if (processLoss) {
+      assert.equal(status.assignments.every(entry => entry.state === 'working'), true)
+      assert.equal(observation.crash_triggered, true)
+      assert.equal(observation.lane_close_observed, false)
+      const sidecarPath = join(
+        nativeState,
+        'sessions',
+        'worker-native-lane',
+        'dsh-runtime-liveness.json',
+      )
+      const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf8'))
+      assert.equal(sidecar.lane.state, 'open')
+      staleSidecarObserved = true
+      const stoppedDeadline = Date.now() + 90_000
+      let workerStatus
+      while (Date.now() < stoppedDeadline) {
+        const listResult = spawnSync(agentSessionBin, [
+          '--state-dir', nativeState,
+          'list',
+          '--format', 'json',
+        ], { encoding: 'utf8', timeout: 30_000 })
+        assert.equal(listResult.status, 0, listResult.stdout + listResult.stderr)
+        workerStatus = JSON.parse(listResult.stdout).data
+          .find(session => session.id === 'worker-native-lane')?.status
+        if (workerStatus === 'stopped') break
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+      }
+      assert.equal(workerStatus, 'stopped', 'lost DSH lane did not converge to stopped')
+      const lostAssignment = status.assignments[0]
+      reconciliation = nativeStore([
+        'worker',
+        'reconcile-stopped',
+        lostAssignment.assignment_id,
+        '--if-revision', String(lostAssignment.revision),
+        '--reason', 'the packed DSH harness process was forcibly stopped',
+        '--idempotency-key', 'native-reconcile-stopped-0001',
+      ])
+      status = nativeStore(['status'])
+      assert.notEqual(status.assignments[0].state, 'working')
+    } else {
+      assert.equal(status.assignments.every(entry => entry.state === 'accepted'), true)
+      const assignmentToRetire = status.assignments[0]
+      const retireArgs = [
+        'worker',
+        'retire',
+        assignmentToRetire.assignment_id,
+        '--if-revision', String(assignmentToRetire.revision),
+        '--idempotency-key', 'native-retire-0001',
+      ]
+      const retirementDeadline = Date.now() + 60_000
+      while (retirement === undefined && Date.now() < retirementDeadline) {
+        const attempt = nativeStoreAttempt(retireArgs)
+        if (attempt.status === 0) {
+          retirement = attempt.envelope.data
+          break
+        }
+        assert.equal(attempt.envelope.error?.code, 'dsh-runtime-plugin-owned', attempt.output)
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+      assert.notEqual(retirement, undefined, 'native lane broker did not publish terminal proof')
+      assert.equal(retirement.schema_version, 'main-agent.worker-retire-result.v1')
+      assert.equal(retirement.cleanup_pending, false)
+      assert.equal(retirement.retired, true)
+      status = nativeStore(['status'])
+    }
+    const closeoutRevision = status.run.revision
+    const closeoutArgs = [
+      'closeout',
+      '--if-run-revision', String(closeoutRevision),
+      '--checkpoint-file', closeoutFile,
+      '--idempotency-key', 'native-closeout-0001',
+    ]
+    const closeoutDeadline = Date.now() + 60_000
+    while (status.run.state !== 'closed' && Date.now() < closeoutDeadline) {
+      lastCloseoutResult = nativeStore(closeoutArgs)
+      if (lastCloseoutResult.run?.state === 'closed') {
+        status = { ...status, run: lastCloseoutResult.run }
+        break
+      }
+      status = nativeStore(['status'])
+      if (status.run.state !== 'closed') {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+      }
+    }
+  }
+  const finalAssignment = status.assignments
+    .find(assignment => assignment.assignment_id === 'native-lane')
+  const receipt = {
+    schema_version: 'dsh-runtime-kit.native-main-agent-smoke.v1',
+    ok: true,
+    ...observation,
+    worker_runtime: workerRuntime,
+    final_assignment: finalAssignment,
+    retirement,
+    reconciliation,
+    closeout: lastCloseoutResult,
+    process_loss: processLoss
+      ? { forced: true, stale_open_sidecar_observed: staleSidecarObserved }
+      : { forced: false, stale_open_sidecar_observed: false },
+    run: status.run,
+    remaining_assignments: status.assignments
+      .filter(entry => entry.state !== 'released' && entry.state !== 'cancelled').length,
+    file: readFileSync(join(nativeLane, 'native-lane.txt'), 'utf8'),
+  }
+  assert.equal(receipt.ok, true)
+  assert.equal(receipt.child_cwd, nativeLane)
+  assert.equal(receipt.lease_ready_before_prompt, true)
+  assert.deepEqual(receipt.listed_children, [receipt.child_id])
+  assert.equal(receipt.anchor_visible, false)
+  assert.equal(receipt.worker_runtime.kind, 'dsh_external')
+  assert.equal(receipt.accepted_observed, !processLoss)
+  assert.equal(receipt.lane_close_observed, !processLoss)
+  assert.equal(receipt.final_assignment.state, processLoss ? 'cancelled' : 'released')
+  assert.equal(receipt.run.state, 'closed', JSON.stringify({ status, lastCloseoutResult }))
+  assert.equal(receipt.closeout.handoff_ready, true)
+  assert.equal(receipt.process_loss.forced, processLoss)
+  assert.equal(receipt.process_loss.stale_open_sidecar_observed, processLoss)
+  assert.equal(receipt.remaining_assignments, 0)
+  assert.equal(
+    receipt.file,
+    processLoss ? 'baseline\n' : 'reviewed second pass\n',
+    `native lane file mismatch:\n${result.stdout}\n${result.stderr}`,
+  )
+  const requiredChildTools = processLoss
+    ? ['main_agent_bootstrap']
+    : ['main_agent_bootstrap', 'read', 'write', 'bash', 'main_agent_checkpoint']
+  for (const tool of requiredChildTools) {
+    assert.ok(receipt.child_tools.includes(tool), `native lane did not execute ${tool}`)
+  }
+  return receipt
+}
+
 function runAgentConsoleTuiStartupSmoke() {
   if (process.platform !== 'linux') return false
   const launcher = join(temporaryRoot, 'dsh-tui-startup-smoke.mjs')
@@ -829,7 +1513,7 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
-    'patches/deepseek-harness/native-execution-boundaries-v2.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v3.patch',
     'patches/dsh-tui/nonblocking-history-lock.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
@@ -932,6 +1616,9 @@ try {
     )
   }
   runDsh(['plugin', '--profile', profile, 'add', tarball])
+  if (profile !== nativeMainAgentProfile) {
+    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
+  }
 
   const installedProfileManifest = JSON.parse(
     readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
@@ -2288,7 +2975,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(receipt.tools.includes('runtime_kit_governed_commit'), true)
   assert.equal(
     receipt.mainAgentOrchestration?.apiVersion,
-    1,
+    2,
     'the versioned orchestration service is provided in a real DSH composition',
   )
   const forbiddenRuntimeSurface = /(?:claude|anthropic|co.?author(?:ship)?[-_ ]?trailer)/i
@@ -2763,6 +3450,18 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assertProviderSentinel(codexHome, 'codex')
   assertProviderSentinel(claudeHome, 'claude')
 
+  const nativeMainAgentReceipt = await runNativeMainAgentSmoke({
+    llmModuleUrl,
+    sessionModuleUrl,
+    profile: nativeMainAgentProfile,
+  })
+  const nativeMainAgentLossReceipt = await runNativeMainAgentSmoke({
+    llmModuleUrl,
+    sessionModuleUrl,
+    profile: nativeMainAgentProfile,
+    mode: 'process-loss',
+  })
+
   const finalDshCheckout = await manageDshPatch({
     action: 'check',
     sourceRoot: dshRoot,
@@ -2801,6 +3500,17 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       },
       { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
       { id: 'subagent', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:native-subagent-completed'] },
+      {
+        id: 'native-main-agent-lane',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'main-agent:host-workspace-before-prompt',
+          'main-agent:model-driven-review-loop',
+          'main-agent:no-anchor-agent',
+          'main-agent:forced-harness-loss-converged-without-stale-sidecar-trust',
+        ],
+      },
       ...(authoritativeAcceptance ? [{
         id: 'authoritative-acceptance',
         status: 'passed',
@@ -2886,6 +3596,10 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     governedStaleHeadRejected: deliveryRehearsal,
     governedForeignSessionBlocked: deliveryRehearsal,
     nativeReviewSpecialistsVerified: true,
+    nativeMainAgentLaneVerified: nativeMainAgentReceipt.ok,
+    nativeMainAgentProcessLossVerified: nativeMainAgentLossReceipt.ok
+      && nativeMainAgentLossReceipt.process_loss.forced
+      && nativeMainAgentLossReceipt.process_loss.stale_open_sidecar_observed,
     codeModeNestedPrerequisiteVerified: true,
     reviewerMutationBlockedBeforeBody: true,
     agentConsoleProfileInspectionVerified: agentConsoleTuiPackage === undefined
@@ -2914,6 +3628,14 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     }) + '\n')
   }
 } finally {
+  for (const controller of nativeControllerSessions) {
+    spawnSync(controller.agentSessionBin, [
+      '--state-dir', controller.stateDir,
+      'delete',
+      controller.sessionId,
+      '--format', 'json',
+    ], { encoding: 'utf8', timeout: 30_000 })
+  }
   if (process.env.DSH_RUNTIME_KIT_SMOKE_KEEP_ROOT === '1') {
     process.stderr.write(`DSH_RUNTIME_KIT_SMOKE_ROOT=${temporaryRoot}\n`)
   } else {

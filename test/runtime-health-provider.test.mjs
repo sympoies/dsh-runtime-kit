@@ -39,10 +39,13 @@ async function fixture(overrides = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-runtime-health-provider-')))
   const hook = join(root, 'agent-hook')
   const docs = join(root, 'agent-docs')
+  const session = join(root, 'agent-session')
   const hookBytes = Buffer.from('authenticated agent-hook fixture')
   const docsBytes = Buffer.from('authenticated agent-docs fixture')
+  const sessionBytes = Buffer.from('authenticated agent-session fixture')
   await writeFile(hook, hookBytes, { mode: 0o700 })
   await writeFile(docs, docsBytes, { mode: 0o700 })
+  await writeFile(session, sessionBytes, { mode: 0o700 })
   const calls = []
   let terminations = 0
   let quiescenceWaits = 0
@@ -127,6 +130,7 @@ async function fixture(overrides = {}) {
       artifacts: {
         'agent-hook': { sha256: sha256(hookBytes) },
         'agent-docs': { sha256: sha256(docsBytes) },
+        'agent-session': { sha256: sha256(sessionBytes) },
       },
     },
   }
@@ -175,6 +179,7 @@ async function fixture(overrides = {}) {
     subprocess,
     docs,
     hook,
+    session,
     childPlugins,
     get terminations() { return terminations },
     get quiescenceWaits() { return quiescenceWaits },
@@ -213,6 +218,30 @@ test('authenticated nils providers report runtime and project readiness without 
 test('runtime health blocks an unauthenticated companion before executing it', async () => {
   const subject = await fixture({
     artifacts: { 'agent-hook': { sha256: '0'.repeat(64) } },
+    captureInstallFailure: true,
+  })
+  try {
+    assert.equal(subject.installError?.code, 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+    assert.equal(subject.calls.length, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health snapshots the authenticated operation-lifecycle sibling beside agent-hook', async () => {
+  const subject = await fixture()
+  try {
+    const snapshotSession = join(dirname(subject.authenticatedConfig.agentHook), 'agent-session')
+    assert.equal(await readFile(snapshotSession, 'utf8'), 'authenticated agent-session fixture')
+    assert.equal((await stat(snapshotSession)).mode & 0o077, 0)
+  } finally {
+    await subject.dispose()
+  }
+})
+
+test('runtime health blocks an unauthenticated operation-lifecycle sibling before execution', async () => {
+  const subject = await fixture({
+    artifacts: { 'agent-session': { sha256: '0'.repeat(64) } },
     captureInstallFailure: true,
   })
   try {
@@ -319,12 +348,14 @@ test('runtime health selects platform-specific authenticated companion artifacts
       artifacts: {
         'agent-hook': { sha256: '1'.repeat(64) },
         'agent-docs': { sha256: '2'.repeat(64) },
+        'agent-session': { sha256: '5'.repeat(64) },
       },
       platforms: {
         'aarch64-apple-darwin': {
           artifacts: {
             'agent-hook': { sha256: '3'.repeat(64) },
             'agent-docs': { sha256: '4'.repeat(64) },
+            'agent-session': { sha256: '6'.repeat(64) },
           },
         },
       },
@@ -337,6 +368,7 @@ test('runtime health selects platform-specific authenticated companion artifacts
       platform: 'aarch64-apple-darwin',
       hookSha256: '3'.repeat(64),
       docsSha256: '4'.repeat(64),
+      sessionSha256: '6'.repeat(64),
     },
   )
   assert.throws(
@@ -354,6 +386,7 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       artifacts: {
         'agent-hook': { sha256: '1'.repeat(64) },
         'agent-docs': { sha256: '2'.repeat(64) },
+        'agent-session': { sha256: '5'.repeat(64) },
       },
     },
     candidate_validation: {
@@ -365,6 +398,7 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       artifacts: {
         'agent-hook': { sha256: '3'.repeat(64) },
         'agent-docs': { sha256: '4'.repeat(64) },
+        'agent-session': { sha256: '6'.repeat(64) },
       },
     },
   }
@@ -379,6 +413,7 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       platform: 'x86_64-unknown-linux-gnu',
       hookSha256: '3'.repeat(64),
       docsSha256: '4'.repeat(64),
+      sessionSha256: '6'.repeat(64),
     },
   )
   assert.throws(

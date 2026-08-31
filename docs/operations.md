@@ -175,7 +175,10 @@ of profile evidence.
 The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui `0.9.3`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
-contract.
+contract. Managed continuation metadata can reconstruct an exact host-issued
+workspace only when its registered provider reauthenticates the same persisted
+cwd and renews the nils workspace lease; stale liveness sidecars never grant
+that authority.
 
 Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils
