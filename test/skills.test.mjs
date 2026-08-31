@@ -296,6 +296,7 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
     'git-delivery.md',
     'heuristic-error-inbox.md',
     'review-thread-convergence.md',
+    'upstream-contribution.md',
   ]
   const policyRoot = join(projectRoot, 'docs', 'policies')
   assert.deepEqual(
@@ -320,6 +321,21 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
     assert.match(content, /^# /)
     assert.doesNotMatch(content, /\bCodex\b|\.codex\//i)
   }
+
+  const agentPolicy = readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')
+  const upstreamPolicy = readFileSync(
+    join(policyRoot, 'upstream-contribution.md'),
+    'utf8',
+  )
+  assert.match(agentPolicy, /docs\/policies\/upstream-contribution\.md/u)
+  assert.match(agentPolicy, /exhaust its downstream-first\s+order/u)
+  assert.match(agentPolicy, /Agents may only draft third-party issues or PRs/u)
+  assert.match(agentPolicy, /a human submits them\s+and signs any DCO or CLA/u)
+  assert.match(agentPolicy, /Never publish a security defect or internal data\./u)
+  assert.match(upstreamPolicy, /If only this runtime kit needs the boundary, it stays downstream\./u)
+  assert.match(upstreamPolicy, /must not submit\s+the issue, open the PR, or sign a DCO or CLA/u)
+  assert.match(upstreamPolicy, /security defect is never reported publicly/u)
+  assert.match(upstreamPolicy, /Never publish credentials, private content, machine paths/u)
 })
 
 test('nils-cli compatibility is machine-readable and pinned to the current DSH-capable release', () => {
