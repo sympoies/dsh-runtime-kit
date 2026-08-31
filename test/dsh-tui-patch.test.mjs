@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and the alpha-only inventory row', async () => {
+test('the checked-in beta.2/beta.3 patch removes synchronous waits and the alpha-only inventory row', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -138,7 +138,10 @@ test('the checked-in 0.10.0-beta.2 patch removes synchronous waits and the alpha
   const patch = validated.patches[0]
   const bytes = await readFile(join(projectRoot, patch.path))
   assert.equal(sha256(bytes), patch.sha256)
-  assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.0-beta.2'])
+  assert.deepEqual(Object.keys(patch.validated_releases), [
+    '0.10.0-beta.2',
+    '0.10.0-beta.3',
+  ])
   assert.deepEqual(Object.keys(patch.targets), [
     'cordis.patch.yml',
     'lib/types/history.js',

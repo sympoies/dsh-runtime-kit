@@ -5,7 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.2` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.3` |
 | Cordis | `4.0.1` |
 | Node.js | `24` or newer |
 | nils-cli | `1.27.17` minimum; exactly validated through `1.27.27` |
@@ -37,8 +37,8 @@ manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
-owns the temporary installed-package repair for the exact 0.10.0-beta.2 TUI
-artifact.
+owns the temporary installed-package repair for the exact 0.10.0-beta.2 and
+0.10.0-beta.3 TUI artifacts.
 It binds the package manifest bytes, patch digest, and target before/after
 hashes. The manager accepts only pristine or exactly patched bytes and emits a
 typed check/apply/reverse receipt. The
@@ -73,14 +73,14 @@ and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
 authority facts a sanitized live observation must prove. It does not broaden
 the generic DSH version range or authorize another custom profile.
 The TUI pin includes the exact package specifier, source tag and tag-ref type,
-source revision, npm tarball URL, SRI, and shasum. The beta.2 release uses a
+source revision, npm tarball URL, SRI, and shasum. The beta.3 release uses a
 lightweight tag whose ref points directly at the recorded commit, rather than
 the annotated tag object used by the prior 0.9.3 boundary. The prerelease adds
 the 0.10 interaction and plugin surfaces and repairs beta.1's startup failure;
 these remain upstream TUI behaviors rather than runtime-kit patches. The exact
 package repair recorded in `compatibility/dsh-tui-patches.json` rebases the
-history-lock fix without removing beta.2's private data-directory and
-history-file modes. It also removes beta.2's alpha-only
+history-lock fix without removing the prerelease's private data-directory and
+history-file modes. It also removes the prerelease's alpha-only
 `plugin-package-inventory-deepseek` override, which is not present in the
 selected DSH rc.2 base bundle. The history path migrates retained, owner-owned
 0.9.3 data to the private modes before reading it and refuses unexpected or
