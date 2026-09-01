@@ -12,6 +12,7 @@ import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
 import { resolveManagedSessionPrincipal } from '../nils/session-environment.js'
 import { createNilsTransport } from './nils-transport.js'
 import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-status.js'
+import { REVIEWER_ROLES } from '../review/index.js'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-fs').FsObservation} FsObservation */
@@ -28,6 +29,7 @@ const MAX_LIFECYCLE_PROMPT_BYTES = 64 * 1024
 /** Same-turn steering bound shared with the finish-line and acceptance coordinators. */
 const MAX_SAME_TURN_STOP_STEERS = 2
 const DATA_POLICY_CANDIDATE = 'typed-data-policy-protected-roots'
+const REVIEWER_ROLE_IDS = new Set(REVIEWER_ROLES)
 
 /**
  * Resolve the exact finish-line command through the active DSH shell provider.
@@ -561,7 +563,8 @@ export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createC
     const subagents = /** @type {{roleOf?: (agent: import('@deepseek-ai/dsh-agent').Agent) => string | undefined} | undefined} */ (
       ctx.get('subagents')
     )
-    return subagents?.roleOf?.(agent)?.startsWith('reviewer-') === true
+    const role = subagents?.roleOf?.(agent)
+    return role !== undefined && REVIEWER_ROLE_IDS.has(role)
   }
 
   /** @param {string} name */

@@ -1330,6 +1330,25 @@ test('reviewer-role calls cross persistence, pre-call, and terminal-result data 
   assert.doesNotMatch(JSON.stringify(quarantined.finalResult), new RegExp(machinePath))
 })
 
+test('only the exact runtime-kit reviewer taxonomy receives reviewer lifecycle exemptions', async () => {
+  const owned = harness({
+    reviewers: { roleOf: () => 'reviewer-testing' },
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+  const foreign = harness({
+    reviewers: { roleOf: () => 'reviewer-export' },
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+
+  const ownedResult = await owned.invoke({}, { callId: 'owned-reviewer' })
+  const foreignResult = await foreign.invoke({}, { callId: 'foreign-prefixed-role' })
+
+  assert.equal(ownedResult.result.kind, 'allow')
+  assert.equal(owned.spawnCount, 0)
+  assert.equal(foreignResult.result.kind, 'allow')
+  assert.ok(foreign.spawnCount > 0)
+})
+
 test('sensitive model arguments are projected before durable persistence', async () => {
   const sentinel = 'ghp_issue61_synthetic_sensitive_value'
   const subject = harness({
