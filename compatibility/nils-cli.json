@@ -86,7 +86,7 @@
     }
   },
   "rollback_validation": {
-    "runtime_package_sha256": "0720c53a156459a1b888689a98815dcd5493ad6736b627507b7cdef6f3edd1b3",
+    "runtime_package_sha256": "ca5d538b6f76b109787a06b7721c489bb9238727e3c2c9c9ebdf8f5d41f5576c",
     "version": "1.27.27",
     "source_revision": "v1.27.27",
     "source_commit": "1e93e23cdf89cc82eac0e81d796fa13136d3782f",
@@ -101,6 +101,9 @@
       },
       "agent-docs": {
         "sha256": "8e3beb884efd3c2ca1bbc91f023db2dc246a56b5325b7f73394319f46c10a169"
+      },
+      "agent-session": {
+        "sha256": "073a8089c864b1566a5c7ddbbfc44973766cbdcc0c944b99b0d02e0aa797ccdf"
       },
       "forge-cli": {
         "sha256": "3940bc6c8be3983b8221d5287aba2e8affe41a539c5586ea00e1cb3ac5949528"

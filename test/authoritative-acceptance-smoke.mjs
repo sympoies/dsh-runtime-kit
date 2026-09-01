@@ -466,7 +466,7 @@ digest = ${JSON.stringify(policyDigest)}
     const mismatchOutput = `${mismatch.stdout}\n${mismatch.stderr}`
     assert.notEqual(mismatch.status, 0)
     failureDiagnostic.recordOperationExitStatus(0)
-    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE/u)
+    assert.match(mismatchOutput, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
     assert.equal(mismatchOutput.includes(marker), false)
     assert.equal(existsSync(providerProbePath), true, 'provider mismatch probe did not load')
     const mismatchProbe = JSON.parse(readFileSync(providerProbePath, 'utf8'))
@@ -483,9 +483,20 @@ digest = ${JSON.stringify(policyDigest)}
     const baselineSeed = runPhase(upgradeProfile, 'baseline-seed', 'acceptance-upgrade', 'baseline')
     assert.equal(baselineSeed.acceptance_mode, 'absent')
     assert.equal(baselineSeed.mutation_executions, 1)
-    assert.equal(baselineSeed.validation_executions, 1)
-    assert.ok(baselineSeed.turn_stops >= 2)
+    assert.equal(baselineSeed.validation_executions, 0)
+    assert.ok(baselineSeed.turn_stops >= 1)
     rmSync(join(workspace, '.authoritative-acceptance-mutation'), { force: true })
+    enterStep('baseline-seed-validation')
+    const baselineSeedValidation = runPhase(
+      upgradeProfile,
+      'baseline-seed-validation',
+      'acceptance-upgrade-validation',
+      'baseline',
+    )
+    assert.equal(baselineSeedValidation.acceptance_mode, 'absent')
+    assert.equal(baselineSeedValidation.mutation_executions, 0)
+    assert.equal(baselineSeedValidation.validation_executions, 1)
+    assert.ok(baselineSeedValidation.turn_stops >= 1)
     const cleanAfterSeed = run('git', ['status', '--porcelain'], { cwd: workspace })
     assert.equal(cleanAfterSeed.stdout, '')
     enterStep('candidate-upgrade-install')
@@ -506,6 +517,22 @@ digest = ${JSON.stringify(policyDigest)}
       'acceptance-upgrade',
       'baseline',
     )
+    assert.equal(baselineRollback.acceptance_mode, 'absent')
+    assert.equal(baselineRollback.mutation_executions, 1)
+    assert.equal(baselineRollback.validation_executions, 0)
+    assert.ok(baselineRollback.turn_stops >= 1)
+    rmSync(join(workspace, '.authoritative-acceptance-mutation'), { force: true })
+    enterStep('baseline-rollback-validation')
+    const baselineRollbackValidation = runPhase(
+      upgradeProfile,
+      'baseline-rollback-validation',
+      'acceptance-upgrade-rollback-validation',
+      'baseline',
+    )
+    assert.equal(baselineRollbackValidation.acceptance_mode, 'absent')
+    assert.equal(baselineRollbackValidation.mutation_executions, 0)
+    assert.equal(baselineRollbackValidation.validation_executions, 1)
+    assert.ok(baselineRollbackValidation.turn_stops >= 1)
     const cleanAfterRollback = run('git', ['status', '--porcelain'], { cwd: workspace })
     assert.equal(cleanAfterRollback.stdout, '')
 
@@ -607,7 +634,7 @@ digest = ${JSON.stringify(policyDigest)}
           workspace_sha256: positive.workspace_sha256,
           resources_after: zeroResources(positive),
           boot_outcome: 'blocked-before-model',
-          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
+          denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
           probe_loaded: mismatchProbe.loaded,
           model_calls: mismatchProbe.model_calls,
           session_starts: mismatchProbe.session_starts,
@@ -619,9 +646,16 @@ digest = ${JSON.stringify(policyDigest)}
           baseline_seed_runtime_package_sha256: baselinePackageSha,
           baseline_seed_acceptance_mode: baselineSeed.acceptance_mode,
           baseline_seed_mutation_executions: baselineSeed.mutation_executions,
-          baseline_seed_legacy_stop: baselineSeed.turn_stops >= 2 ? 'blocked' : 'not-observed',
+          baseline_seed_process_instance_sha256: baselineSeed.process_instance_sha256,
+          baseline_seed_validation_process_instance_sha256:
+            baselineSeedValidation.process_instance_sha256,
+          baseline_seed_session_sha256: baselineSeed.session_sha256,
+          baseline_seed_validation_session_sha256:
+            baselineSeedValidation.session_sha256,
+          baseline_seed_legacy_stop: baselineSeed.turn_stops >= 1 ? 'blocked' : 'not-observed',
           baseline_seed_steering_observed: baselineSeed.legacy_steering_observed,
-          baseline_seed_exact_validation_executions: baselineSeed.validation_executions,
+          baseline_seed_exact_validation_executions:
+            baselineSeedValidation.validation_executions,
           baseline_seed_checkout_clean: cleanAfterSeed.stdout === '',
           first_verdict: candidateUpgrade.first_verdict,
           goal_unchanged: JSON.stringify(candidateUpgrade.goal.before)
@@ -634,15 +668,17 @@ digest = ${JSON.stringify(policyDigest)}
         {
           ...common(baselineRollback, 'baseline-rollback'),
           rollback_session_sha256: baselineRollback.session_sha256,
-          validation_session_sha256: baselineRollback.legacy_validation_session_sha256,
+          validation_process_instance_sha256:
+            baselineRollbackValidation.process_instance_sha256,
+          validation_session_sha256: baselineRollbackValidation.session_sha256,
           installed_runtime_package_sha256: baselinePackageSha,
           nils_source_commit: baselineSourceCommit,
           tool_outcome: 'succeeded',
           acceptance_mode: baselineRollback.acceptance_mode,
-          legacy_stop: baselineRollback.turn_stops >= 2 ? 'blocked' : 'not-observed',
+          legacy_stop: baselineRollback.turn_stops >= 1 ? 'blocked' : 'not-observed',
           legacy_steering_observed: baselineRollback.legacy_steering_observed,
           mutation_body_executions: baselineRollback.mutation_executions,
-          exact_validation_executions: baselineRollback.validation_executions,
+          exact_validation_executions: baselineRollbackValidation.validation_executions,
           rollback_checkout_clean: cleanAfterRollback.stdout === '',
         },
       ],

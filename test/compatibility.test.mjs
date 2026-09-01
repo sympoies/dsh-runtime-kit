@@ -874,6 +874,31 @@ test('compatibility workflow keeps selected channels and every patch release blo
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
   assert.match(runtimeSmoke, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST/)
   assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
+  assert.match(
+    runtimeSmoke,
+    /const dataPolicyCandidateEnabled = nilsCandidateFeature !== undefined\s+&& nilsCandidateFeature === nilsCompatibility\.candidate_validation\?\.feature/u,
+    'the packed smoke must bind candidate-only data-policy coverage to the reviewed feature',
+  )
+  assert.match(
+    runtimeSmoke,
+    /if \(dataPolicyCandidateEnabled\) \{\s+resetCheckoutLease\(\)\s+const dataPolicyBoot/u,
+    'released nils-cli smoke must not execute the candidate-only data-policy scenario',
+  )
+  assert.match(
+    runtimeSmoke,
+    /\.\.\.\(dataPolicyCandidateEnabled\s+\? \[\{\s+id: 'data-policy'/u,
+    'only candidate acceptance may report candidate-only data-policy evidence',
+  )
+  assert.match(
+    runtimeSmoke,
+    /const attempt = nativeStoreAttempt\(closeoutArgs\)[\s\S]+attempt\.envelope\.error\?\.code, 'coordination-unauthorized'/u,
+    'forced-loss closeout may retry only the exact transient authority observation',
+  )
+  assert.doesNotMatch(
+    runtimeSmoke,
+    /lastCloseoutResult = nativeStore\(closeoutArgs\)/u,
+    'forced-loss closeout must inspect the typed attempt before retrying',
+  )
   for (const capability of [
     'af-unix',
     'af-netlink',

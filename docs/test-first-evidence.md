@@ -1791,9 +1791,9 @@ inherited candidate `main-agent` and `agent-session` paths. Supplying a baseline
 row to wait instead of proving a mismatch. The authoritative smoke now deletes
 both ambient paths and adds them only to the candidate environment. The #60
 candidate therefore remains exact-seven while the accepted #59 rollback
-remains exact-six; absence of the new companion in that negative row produces
-the exact fail-closed `DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE` result before
-model or session startup.
+remains exact-six; selecting candidate identities with the older provider
+produces the exact fail-closed `DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID`
+result before model or session startup.
 
 A scenario-registry RED rejected an extra native Main Agent row. The five
 host-workspace observations now strengthen the existing `subagent` scenario,

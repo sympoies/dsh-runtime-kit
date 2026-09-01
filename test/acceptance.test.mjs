@@ -58,6 +58,7 @@ const BASELINE_SOURCE_COMMIT = '3'.repeat(40)
 const BASELINE_NILS_ARTIFACTS = Object.freeze({
   'agent-hook': '0'.repeat(64),
   'agent-docs': '1'.repeat(64),
+  'agent-session': '6'.repeat(64),
   'forge-cli': '2'.repeat(64),
   'git-cli': '3'.repeat(64),
   'review-specialists': '4'.repeat(64),
@@ -246,7 +247,7 @@ function authoritativeMatrix() {
       {
         ...common('candidate-old-provider-mismatch'),
         boot_outcome: 'blocked-before-model',
-        denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
+        denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
         probe_loaded: true,
         model_calls: 0,
         session_starts: 0,
@@ -258,6 +259,14 @@ function authoritativeMatrix() {
         baseline_seed_runtime_package_sha256: BASELINE_PACKAGE_SHA,
         baseline_seed_acceptance_mode: 'absent',
         baseline_seed_mutation_executions: 1,
+        baseline_seed_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-process').digest('hex'),
+        baseline_seed_validation_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-validation-process').digest('hex'),
+        baseline_seed_session_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-session').digest('hex'),
+        baseline_seed_validation_session_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-seed-validation-session').digest('hex'),
         baseline_seed_legacy_stop: 'blocked',
         baseline_seed_steering_observed: true,
         baseline_seed_exact_validation_executions: 1,
@@ -273,6 +282,8 @@ function authoritativeMatrix() {
         ...common('baseline-rollback'),
         rollback_session_sha256: 'sha256:'
           + createHash('sha256').update('baseline-rollback-session').digest('hex'),
+        validation_process_instance_sha256: 'sha256:'
+          + createHash('sha256').update('baseline-rollback-validation-process').digest('hex'),
         validation_session_sha256: 'sha256:'
           + createHash('sha256').update('baseline-rollback-validation-session').digest('hex'),
         installed_runtime_package_sha256: BASELINE_PACKAGE_SHA,
@@ -293,7 +304,7 @@ function scenario(id, producer, evidence = [id + ':verified'], extra = {}) {
   return { id, status: 'passed', producer, evidence, ...extra }
 }
 
-function runtimeReceipt() {
+function runtimeReceipt({ dataPolicy = true } = {}) {
   return {
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
     ok: true,
@@ -307,6 +318,14 @@ function runtimeReceipt() {
       ]),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
+      ...(dataPolicy
+        ? [scenario('data-policy', 'packed-runtime', [
+            'data-policy:native-pre-call-denied-before-body',
+            'data-policy:mcp-web-shell-code-final-result-contained',
+            'data-policy:content-free-audit-rule-bound',
+            'protected-root:direct-relative-symlink-shell-denied',
+          ])]
+        : []),
       scenario('private-project-skill', 'packed-runtime', [
         'skills:private-project-precedence',
         'coexistence:no-cross-loaded-hooks-skills-session-state',
@@ -422,7 +441,7 @@ function pendingCompatibility() {
     validated_release: null,
     release: null,
     candidate_validation: {
-      feature: 'authoritative-finish-line-acceptance',
+      feature: 'typed-data-policy-protected-roots',
       status: 'reviewed-source-candidate',
       validation: 'exact-reviewed-source',
       source_commit: nils.source_commit,
@@ -545,6 +564,10 @@ function baseInput() {
   }
 }
 
+function releasedInput(input = baseInput()) {
+  return { ...input, runtime: runtimeReceipt({ dataPolicy: false }) }
+}
+
 test('authoritative scenario scopes explicit candidate selection to intended processes', () => {
   const candidateFeature = 'future-reviewed-source-candidate'
   const ambient = {
@@ -586,7 +609,7 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-summary.v2')
   assert.equal(summary.status, 'incomplete')
   assert.equal(summary.mode, 'source-rehearsal')
-  assert.deepEqual(summary.counts, { passed: 12, pending: 2, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 13, pending: 2, failed: 0 })
   assert.deepEqual(
     summary.scenarios.filter(item => item.status === 'pending-authorization').map(item => item.id),
     ['semantic-commit', 'pr-delivery'],
@@ -600,7 +623,7 @@ test('source rehearsal selects only the exact reviewed nils candidate', () => {
   assert.deepEqual(
     resolveSourceCandidateAcceptance(input.compatibility, input.nils),
     {
-      feature: 'authoritative-finish-line-acceptance',
+      feature: 'typed-data-policy-protected-roots',
       source_commit: SOURCE_COMMIT,
       version: '1.26.4',
     },
@@ -687,6 +710,51 @@ test('automatic prerequisite acceptance requires every native gating marker', ()
       missing,
     )
   }
+})
+
+test('data-policy acceptance requires every native containment marker', () => {
+  const required = [
+    'data-policy:native-pre-call-denied-before-body',
+    'data-policy:mcp-web-shell-code-final-result-contained',
+    'data-policy:content-free-audit-rule-bound',
+    'protected-root:direct-relative-symlink-shell-denied',
+  ]
+  assert.doesNotThrow(() => buildAcceptanceSummary(baseInput()))
+  for (const missing of required) {
+    const input = baseInput()
+    const dataPolicy = input.runtime.scenarios.find(item => item.id === 'data-policy')
+    dataPolicy.evidence = dataPolicy.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+})
+
+test('candidate-only data-policy evidence is exact for source and released modes', () => {
+  const missingCandidateEvidence = baseInput()
+  missingCandidateEvidence.runtime = runtimeReceipt({ dataPolicy: false })
+  assert.throws(
+    () => buildAcceptanceSummary(missingCandidateEvidence),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'the authenticated source candidate must provide data-policy evidence',
+  )
+
+  const unexpectedReleasedEvidence = baseInput()
+  assert.throws(
+    () => buildAcceptanceSummary({
+      ...unexpectedReleasedEvidence,
+      compatibility: releasedCompatibility(),
+      nils: nilsIdentity('v1.26.4'),
+      allow_source_nils: false,
+    }),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'released acceptance must reject candidate-only evidence it did not execute',
+  )
 })
 
 test('authoritative acceptance requires both synchronous goal decisions and the exact verdict', () => {
@@ -791,7 +859,7 @@ test('authoritative acceptance rejects fabricated matrix identities and observat
 test('only exact released artifacts plus one correlated no-merge delivery completes the matrix', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
-    ...input,
+    ...releasedInput(input),
     compatibility: releasedCompatibility(),
     nils: nilsIdentity('v1.26.4'),
     environment: { mode: 'disposable-ci', isolated: true },
@@ -807,7 +875,7 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 test('a newer exact release may retain an older supported minimum', () => {
   const input = baseInput()
   const summary = buildAcceptanceSummary({
-    ...input,
+    ...releasedInput(input),
     compatibility: releasedCompatibility('1.27.0', '1.26.4'),
     nils: nilsIdentity('v1.27.0', '1.27.0'),
     environment: { mode: 'disposable-ci', isolated: true },
@@ -818,7 +886,7 @@ test('a newer exact release may retain an older supported minimum', () => {
 
   assert.throws(
     () => buildAcceptanceSummary({
-      ...input,
+      ...releasedInput(input),
       compatibility: releasedCompatibility('1.26.4', '1.27.0'),
       nils: nilsIdentity('v1.26.4'),
       allow_source_nils: false,
@@ -830,7 +898,7 @@ test('a newer exact release may retain an older supported minimum', () => {
   const prerelease = baseInput()
   assert.throws(
     () => buildAcceptanceSummary({
-      ...prerelease,
+      ...releasedInput(prerelease),
       compatibility: releasedCompatibility('1.27.0-alpha', '1.27.0-alpha.1'),
       nils: nilsIdentity('v1.27.0-alpha', '1.27.0-alpha'),
       allow_source_nils: false,
@@ -839,7 +907,7 @@ test('a newer exact release may retain an older supported minimum', () => {
       && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RELEASE_REQUIRED',
   )
   assert.doesNotThrow(() => buildAcceptanceSummary({
-    ...prerelease,
+    ...releasedInput(prerelease),
     compatibility: releasedCompatibility('1.27.0-alpha.1', '1.27.0-alpha'),
     nils: nilsIdentity('v1.27.0-alpha.1', '1.27.0-alpha.1'),
     allow_source_nils: false,
@@ -856,7 +924,7 @@ test('release gate rejects source or archive substitution for the nils bundle', 
     mutate(nils)
     assert.throws(
       () => buildAcceptanceSummary({
-        ...baseInput(),
+        ...releasedInput(),
         compatibility: releasedCompatibility('1.27.0'),
         nils,
         allow_source_nils: false,
@@ -882,7 +950,7 @@ test('release gate rejects unknown revisions and version-only substitute binarie
   ]) {
     assert.throws(
       () => buildAcceptanceSummary({
-        ...input,
+        ...releasedInput(input),
         compatibility: releasedCompatibility(),
         nils,
         allow_source_nils: false,
@@ -912,7 +980,7 @@ test('DSH evidence binds pristine provenance to the reviewed downstream patch', 
 
 test('delivery rejects replay, cross-repository URLs, mismatched heads, and partial chains', () => {
   const input = {
-    ...baseInput(),
+    ...releasedInput(),
     compatibility: releasedCompatibility(),
     nils: nilsIdentity('v1.26.4'),
     environment: { mode: 'disposable-ci', isolated: true },
@@ -1893,6 +1961,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /'baseline-package-sha256'/u)
   assert.match(runner, /'baseline-nils-bin-dir'/u)
   assert.match(runner, /'baseline-nils-source-commit'/u)
+  assert.match(
+    runner,
+    /'agent-hook',\s*'agent-docs',\s*'agent-session',\s*'forge-cli'/u,
+    'the rollback snapshot must include the baseline runtime health companion',
+  )
   assert.match(runner, /DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS/u)
   assert.match(runner, /rollback_validation/u)
   assert.match(runner, /AUTHORITATIVE_SCENARIO_TIMEOUT_MS/u)
@@ -1931,7 +2004,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(authoritativeSmoke, /kind === 'candidate'\s*\? \{/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join\(binDir, 'main-agent'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join\(binDir, 'agent-session'\)/u)
-  assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE/u)
+  assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
   assert.doesNotMatch(packedSmoke, /id: 'native-main-agent-lane'/u)
   assert.match(packedSmoke, /id: 'subagent'[\s\S]*main-agent:host-workspace-before-prompt/u)
   assert.doesNotMatch(

@@ -21,6 +21,8 @@ import { createChildPluginStatus, snapshotChildPluginStatus } from '../runtime-s
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 /** @typedef {{callId:string, name:string, arguments:unknown, agent?:import('@deepseek-ai/dsh-agent').Agent, parent?:ToolExecutionToken, signal:AbortSignal, turn:number, step:number}} ToolPersistenceCall */
 /** @typedef {{kind:'keep'} | {kind:'replace', arguments:unknown}} ToolPersistenceDecision */
+/** @typedef {{projectPersistence(call:Readonly<ToolPersistenceCall>):Promise<ToolPersistenceDecision>, projectResult(exec:Readonly<ToolExecution>, result:unknown):Promise<unknown>}} ToolTerminalPolicy */
+/** @typedef {{registerTerminalPolicy(provider:ToolTerminalPolicy):() => void}} ToolTerminalPolicyRuntime */
 
 const MAX_LIFECYCLE_PROMPT_BYTES = 64 * 1024
 /** Same-turn steering bound shared with the finish-line and acceptance coordinators. */
@@ -637,7 +639,10 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   })
 
   if (dataPolicyEnabled) {
-    /** @type {import('@deepseek-ai/dsh-tools').ToolRuntime} */ (ctx.tools).registerTerminalPolicy({
+    const terminalPolicyRuntime = /** @type {ToolTerminalPolicyRuntime} */ (
+      /** @type {unknown} */ (ctx.tools)
+    )
+    terminalPolicyRuntime.registerTerminalPolicy({
       async projectPersistence(call) {
         const session = call.agent?.session
         const cwd = session?.header.cwd
