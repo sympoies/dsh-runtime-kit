@@ -8,11 +8,12 @@
 - Plan branch: `feat/dsh-tui-beta3-compat`
 - Current sprint: complete
 - Status: complete
-- Current task: none
+- Current task: complete
 - Next task: none
 - Integration checkout: managed non-default worktree
 - Blockers: none
 - Last updated: 2026-09-01
+- Branch/commit/PR: sympoies/dsh-runtime-kit#149 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/149>); sympoies/dsh-runtime-kit#150 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/150>); sympoies/dsh-runtime-kit#152 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/152>); sympoies/dsh-runtime-kit#158 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/158>)
 
 ## Task Ledger
 
@@ -95,3 +96,7 @@
   restoration proven on sympoies with eight live sessions preserved
 - Clean unpatched DSH build closure SHA-256:
   `218ad630ff2803da623494d8ab4e05fd6469ac1bf835f325f5b7d972b7f824dd`
+
+## Handoff
+
+- Tracking issue <https://github.com/sympoies/dsh-runtime-kit/issues/147> is closed; terminal execution state is synchronized. No closeout or merge action remains.
