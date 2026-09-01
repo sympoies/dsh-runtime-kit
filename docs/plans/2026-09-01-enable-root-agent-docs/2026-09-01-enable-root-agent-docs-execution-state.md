@@ -8,9 +8,9 @@
 - Profile: tracking
 - Plan branch: `feat/enable-root-agent-docs`
 - Current sprint: Sprint 1
-- Status: in-progress
-- Current task: 1.2
-- Next task: run complete validation and follow-up review, then deliver PR #160
+- Status: ready-for-close
+- Current task: none
+- Next task: merge PR #160 and complete strict issue closeout
 - Blockers: none; baseline repair PR #157 merged as `6591ca470073864782529b8f905c86fa0a0ca13e`
 - Last updated: 2026-09-01
 
@@ -19,7 +19,7 @@
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Freeze and implement the root catalog contract | done | evaluation: generic preflight returned zero documents and no validation; RED: focused owner test failed ENOENT; GREEN: owner test, strict edit/delivery preflight, DSH context, and strict audit passed | Root catalog keeps repository and packaged DSH ownership separate |
-| 1.2 | Document load timing and complete repository validation | in-progress | loading matrix, Claude entrypoint, pinned semantic resolver smoke, and 2026-09 devlog entry added | Full routine validation, follow-up review, and provider delivery remain |
+| 1.2 | Document load timing and complete repository validation | done | Node 24 routine gates, pinned semantic smoke, package inspection, and hosted compatibility 6/6 passed; testing, maintainability, and red-team follow-up reviews passed | PR #160 is ready for final delivery |
 
 ## Validation Log
 
@@ -40,3 +40,12 @@
   and the pinned semantic smoke now passes all product/phase resolutions,
   Claude policy-entrypoint ownership, packaged DSH isolation, and authoritative
   DSH validation selection.
+- 2026-09-01: `npm test`, `npm run typecheck`, `npm run benchmark:policy`,
+  `npm run test:agent-docs-catalog`, `git diff --check`, plan validation, and
+  package-content inspection passed on Node 24.
+- 2026-09-01: Testing, maintainability, and red-team review findings were
+  posted before repair; all four lifecycle fingerprints are fixed at repaired
+  head `2695209ecbb1edd393e48c75dada644cdb5acca3`, with no follow-up finding.
+- 2026-09-01: All six hosted PR checks passed, including the package semantic
+  catalog gate, macOS runtime health, retained rc.7/rc.8 rows, and pinned plus
+  upstream-next rc.2 acceptance.
