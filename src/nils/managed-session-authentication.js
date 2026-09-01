@@ -144,14 +144,16 @@ function validBaselineClaim(envelope, candidate) {
  *
  * @param {unknown} envelope
  */
-function baselineScopeUnavailable(envelope) {
-  if (!isRecord(envelope)) return false
+function baselineScopeUnavailableCode(envelope) {
+  if (!isRecord(envelope)) return undefined
   const outer = /** @type {Record<string, any>} */ (envelope)
   return outer.schema_version === WORK_CONTEXT_SET_ENVELOPE_SCHEMA
     && outer.ok === false
     && isRecord(outer.error)
     && BASELINE_SCOPE_UNAVAILABLE.has(outer.error.code)
     && isBoundedText(outer.error.message, 512)
+    ? /** @type {'repository-unavailable' | 'uncovered-mutation-scope'} */ (outer.error.code)
+    : undefined
 }
 
 /** @param {number} deadlineAt */
@@ -306,14 +308,18 @@ export function applyManagedSessionAuthentication(
         timeoutMs: remainingAuthenticationMs(deadlineAt),
         env: candidate,
       })
+      const baselineFailureCode = baseline.ok
+        ? baselineScopeUnavailableCode(baseline.envelope)
+        : undefined
       if (!baseline.ok
         || (!validBaselineClaim(baseline.envelope, candidate)
-          && !baselineScopeUnavailable(baseline.envelope))) {
+          && baselineFailureCode === undefined)) {
         throw new Error('dsh-runtime-kit: managed session baseline claim unavailable')
       }
       const principal = Object.freeze({
         sessionId: candidate.AGENT_SESSION_ID,
         environment: candidate,
+        ...(baselineFailureCode === undefined ? {} : { baselineFailureCode }),
       })
       const dispose = bridge.bind?.(providerSessionId, principal)
       if (typeof dispose !== 'function') {

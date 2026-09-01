@@ -88,11 +88,28 @@ test('workspace disposal cleanup completes before a replacement session starts',
   await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
 })
 
-test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
-  const principal = mode => ({
+test('authenticated advisory non-repository sessions bypass authoritative finish-line', () => {
+  const principal = (mode, baselineFailureCode) => ({
     environment: { AGENT_SESSION_COORDINATION_MODE: mode },
+    ...(baselineFailureCode === undefined ? {} : { baselineFailureCode }),
   })
   assert.equal(requiresAuthoritativeFinishLine('linux', principal('advisory')), true)
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'repository-unavailable')),
+    false,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('off', 'repository-unavailable')),
+    false,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('enforce', 'repository-unavailable')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'uncovered-mutation-scope')),
+    true,
+  )
   assert.equal(requiresAuthoritativeFinishLine('darwin', undefined), true)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('enforce')), true)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('advisory')), false)

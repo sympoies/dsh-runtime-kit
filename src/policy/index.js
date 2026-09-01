@@ -52,17 +52,21 @@ export function resolveFinishLineShellSpec(shell, operation, input) {
 }
 
 /**
- * Linux remains the only authoritative finish-line execution host. A non-Linux
- * runtime may delegate only for an authenticated managed session whose durable
- * coordination mode explicitly accepts advisory failure. Missing, malformed,
- * unmanaged, and enforce identities remain fail-closed.
+ * Linux remains the only authoritative finish-line execution host for a Git
+ * repository. A managed session whose authenticated baseline attempt proved
+ * that its cwd is outside every repository has no repository finish-line to
+ * open, so advisory/off mode delegates to ordinary policy on every platform.
+ * Missing, malformed, repository-backed, uncovered-scope, and enforce
+ * identities remain fail-closed on Linux.
  *
  * @param {NodeJS.Platform} platform
- * @param {{environment?: Readonly<Record<string, string>>} | undefined} principal
+ * @param {{environment?: Readonly<Record<string, string>>, baselineFailureCode?: string} | undefined} principal
  */
 export function requiresAuthoritativeFinishLine(platform, principal) {
-  if (platform === 'linux') return true
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
+  if (principal?.baselineFailureCode === 'repository-unavailable'
+    && (mode === 'advisory' || mode === 'off')) return false
+  if (platform === 'linux') return true
   return mode !== 'advisory' && mode !== 'off'
 }
 

@@ -263,6 +263,7 @@ for (const code of ['uncovered-mutation-scope', 'repository-unavailable']) {
     assert.deepEqual(bridge.resolve('home-console'), {
       sessionId: 'console-session-one',
       environment: principalEnvironment,
+      baselineFailureCode: code,
     })
   })
 }

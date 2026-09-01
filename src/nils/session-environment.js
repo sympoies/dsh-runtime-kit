@@ -7,6 +7,10 @@ const HOST_RUNTIME_FIELDS = new Set([
   'PATH',
   'XDG_RUNTIME_DIR',
 ])
+const BASELINE_FAILURE_CODES = new Set([
+  'repository-unavailable',
+  'uncovered-mutation-scope',
+])
 
 /** @param {Readonly<NodeJS.ProcessEnv> | undefined} explicit */
 function selectExplicitNilsEnvironment(explicit) {
@@ -116,7 +120,7 @@ export function authenticatedNilsEnvironment(
  * @param {unknown} _ctx retained for the transport call signature; never used
  * @param {string} sessionId
  * @param {{resolve?: (id:string) => unknown} | undefined} [bridge]
- * @returns {{sessionId:string, environment:Readonly<Record<string,string>>} | undefined}
+ * @returns {{sessionId:string, environment:Readonly<Record<string,string>>, baselineFailureCode?:'repository-unavailable'|'uncovered-mutation-scope'} | undefined}
  */
 export function resolveManagedSessionPrincipal(_ctx, sessionId, bridge) {
   const raw = bridge?.resolve?.(sessionId)
@@ -133,8 +137,17 @@ export function resolveManagedSessionPrincipal(_ctx, sessionId, bridge) {
       && typeof value === 'string'
       && value.length > 0
     ))) return undefined
+  const baselineFailureCode = principal.baselineFailureCode
+  if (baselineFailureCode !== undefined
+    && (typeof baselineFailureCode !== 'string'
+      || !BASELINE_FAILURE_CODES.has(baselineFailureCode))) {
+    return undefined
+  }
   return {
     sessionId: principal.sessionId,
     environment: /** @type {Readonly<Record<string,string>>} */ (environment),
+    ...(baselineFailureCode === undefined
+      ? {}
+      : { baselineFailureCode: /** @type {'repository-unavailable'|'uncovered-mutation-scope'} */ (baselineFailureCode) }),
   }
 }

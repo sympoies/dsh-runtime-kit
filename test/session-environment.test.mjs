@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import {
   authenticatedNilsEnvironment,
   isolatedNilsEnvironment,
+  resolveManagedSessionPrincipal,
 } from '../src/nils/session-environment.js'
 
 test('nils subprocess leaves the normal host PATH to the upstream scrubbed environment', () => {
@@ -76,4 +77,29 @@ test('an authenticated lane bridge restores explicit managed fields while ambien
       AGENT_SESSION_TOKEN: undefined,
     },
   )
+})
+
+test('managed principal resolution preserves only authenticated baseline scope failures', () => {
+  const environment = { AGENT_SESSION_ID: 'session-one' }
+  const bridge = baselineFailureCode => ({
+    resolve() {
+      return {
+        sessionId: 'session-one',
+        environment,
+        baselineFailureCode,
+      }
+    },
+  })
+
+  assert.deepEqual(resolveManagedSessionPrincipal(undefined, 'provider-one', bridge('repository-unavailable')), {
+    sessionId: 'session-one',
+    environment,
+    baselineFailureCode: 'repository-unavailable',
+  })
+  assert.deepEqual(resolveManagedSessionPrincipal(undefined, 'provider-one', bridge('uncovered-mutation-scope')), {
+    sessionId: 'session-one',
+    environment,
+    baselineFailureCode: 'uncovered-mutation-scope',
+  })
+  assert.equal(resolveManagedSessionPrincipal(undefined, 'provider-one', bridge('untrusted')), undefined)
 })
