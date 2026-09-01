@@ -12,7 +12,7 @@ profile. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
 created the ordered base +
-`@deepseek-harness-tui/dsh-tui@0.10.0-beta.3` profile before runtime-kit is
+`@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` profile before runtime-kit is
 added as its final bundle. Save the complete pre-activation profile and the
 owner-only runtime root as the rollback point.
 
@@ -42,13 +42,13 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
 ```
 
 The required receipt state is `after: "patched"`. Check it before service
-start. The exact beta.2/beta.3 repair removes the alpha-only package-inventory
-override that DSH rc.2 cannot activate and repairs the history implementation
-as one authenticated transaction. Reverse the same patch before replacing the
-package; never edit either installed target by hand. On first history append,
-the patch preserves legacy entries while restricting owner-owned data paths to
-0700/0600; an unexpected type, owner, or symlink is refused without following
-it.
+start. Beta.4 already includes dsh-TUI #593's asynchronous history persistence.
+The narrowed repair removes the alpha-only package-inventory override that DSH
+rc.2 cannot activate and restricts legacy history paths as one authenticated
+transaction. Reverse the same patch before replacing the package; never edit
+either installed target by hand. On first history append, the patch preserves
+legacy entries while restricting owner-owned data paths to 0700/0600; an
+unexpected type, owner, or symlink is refused without following it.
 
 Runtime-kit also requires one authenticated source patch in the selected DSH
 checkout. This is an operator/deployment action, never an agent-authored shell
@@ -179,7 +179,7 @@ references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
 The supported UI boundary is exact: DSH `0.1.1-rc.2`, dsh-tui
-`0.10.0-beta.3`, and the
+`0.10.0-beta.4`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
 contract. Managed continuation metadata can reconstruct an exact host-issued
@@ -188,8 +188,8 @@ cwd and renews the nils workspace lease; stale liveness sidecars never grant
 that authority.
 
 The TUI is an explicit prerelease promotion. Do not replace the exact specifier
-with npm's moving `latest` tag. Keep the previous 0.9.3 profile receipt and
-package identity until beta.3 startup, profile inspection, and live smoke have
+with npm's moving `latest` tag. Keep the previous beta.3 profile receipt and
+package identity until beta.4 startup, profile inspection, and live smoke have
 passed on every deployed surface; rollback restores that exact prior contract
 without deleting profile homes or unrelated session state.
 

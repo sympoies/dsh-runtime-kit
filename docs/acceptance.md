@@ -16,9 +16,9 @@ provider read-back into one promotion result.
   libraries for source compatibility evidence;
 - applies the authenticated execution-boundary patch, rebuilds DSH, and binds
   its typed patch receipt into the acceptance summary;
-- authenticates the exact Agent Console TUI artifact, applies its
-  package-level history-lock patch, and proves contended history persistence
-  cannot delay input dispatch;
+- authenticates the exact Agent Console TUI artifact, applies its narrowed
+  package-level rc.2 compatibility patch, and proves upstream contended
+  history persistence cannot delay input dispatch;
 - runs operations and runtime scenarios from separate fresh package
   extractions;
 - executes each scenario in a bounded transient user-systemd control group;

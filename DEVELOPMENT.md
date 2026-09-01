@@ -179,7 +179,7 @@ npm run test:workspace-lease-native-smoke
 
 Exercise the exact Agent Console layer on the same smoke by selecting the only
 authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
-applies and verifies the authenticated package-level history-lock patch,
+applies and verifies the narrowed package-level rc.2 compatibility patch,
 disables only the interactive front door in its test overlay, and boots the
 real selected runtime to prove `userQuestions`,
 runtime-kit tools/skills, and Main Agent service together:
@@ -188,7 +188,7 @@ runtime-kit tools/skills, and Main Agent service together:
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
-DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.10.0-beta.3' \
+DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.10.0-beta.4' \
 npm run test:smoke
 ```
 

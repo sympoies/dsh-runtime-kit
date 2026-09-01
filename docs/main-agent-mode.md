@@ -84,8 +84,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   configured Main Agent CLI. Native run initialization rechecks and reuses the
   same principal before `init`. Portable CLI names are first resolved through
   DSH's host executable seam; the resulting real filesystem identity must
-  still match. Unmanaged sessions, foreign subagents, and failed authentication
-  attempts create no binding, and plugin teardown removes it.
+  still match. A project-dev baseline claim is created when nils can prove a
+  repository scope; its exact typed `repository-unavailable` or
+  `uncovered-mutation-scope` result is non-fatal because Agent Console may be
+  launched from a non-repository home directory. All other baseline failures,
+  unmanaged sessions, foreign subagents, and failed authentication attempts
+  create no binding, and plugin teardown removes it.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the

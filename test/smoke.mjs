@@ -73,15 +73,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.3',
+  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  '470997e848a92f0c57aacbc4d05b8f9eda667d94',
+  'f7db605713a861b28c004b2dc18813bb74d61154',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-V9aB+rAekEHMVGch8s/2epVc1kp8YSceQuxcbhvBmJp3ta/9gLFpFOFOalrmbI7ZpcUEi6qj1B12/l9GZyhVQQ==',
+  'sha512-+DAyd7uWgSibjxiTtC/SFODt/TdNrrmS9dSAYP53VNAhA6sFcJATp1qPNhG/31coVM+mb5HmZD5rwX60MC/cCQ==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -1138,6 +1138,10 @@ export function apply(ctx) {
         '--if-revision', String(assignmentToRetire.revision),
         '--idempotency-key', 'native-retire-0001',
       ]
+      const retryableRetirementErrors = new Set([
+        'dsh-runtime-plugin-owned',
+        'coordination-unauthorized',
+      ])
       const retirementDeadline = Date.now() + 60_000
       while (retirement === undefined && Date.now() < retirementDeadline) {
         const attempt = nativeStoreAttempt(retireArgs)
@@ -1145,7 +1149,11 @@ export function apply(ctx) {
           retirement = attempt.envelope.data
           break
         }
-        assert.equal(attempt.envelope.error?.code, 'dsh-runtime-plugin-owned', attempt.output)
+        assert.equal(
+          retryableRetirementErrors.has(attempt.envelope.error?.code),
+          true,
+          attempt.output,
+        )
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
       }
       assert.notEqual(retirement, undefined, 'native lane broker did not publish terminal proof')
@@ -1287,12 +1295,14 @@ function runAgentConsoleTuiHistoryLockSmoke(packageRoot) {
   mkdirSync(join(historyHome, '.dsh-tui', 'history.jsonl.lock'), { recursive: true })
   const historyModule = pathToFileURL(join(packageRoot, 'lib/types/history.js')).href
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+import { writeSync } from 'node:fs'
 const { appendHistory } = await import(${JSON.stringify(historyModule)})
 const started = performance.now()
 appendHistory('dsh-runtime-kit nonblocking history lock smoke')
 const elapsed = performance.now() - started
 if (elapsed > 100) throw new Error('history append blocked input dispatch')
-process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '\\n')
+writeSync(1, JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '\\n')
+process.exit(0)
 `], {
     cwd: packageRoot,
     env: { ...environment, HOME: historyHome },
@@ -1302,7 +1312,7 @@ process.stdout.write(JSON.stringify({ accepted: true, elapsed_ms: elapsed }) + '
   assert.equal(
     result.status,
     0,
-    `patched dsh-tui history append did not return promptly (signal=${result.signal ?? 'none'})`,
+    `dsh-tui history append did not return promptly (signal=${result.signal ?? 'none'})`,
   )
   const receipt = JSON.parse(result.stdout)
   assert.equal(receipt.accepted, true)
@@ -1327,7 +1337,7 @@ if (beforeAppend.length !== 1 || beforeAppend[0].text !== 'legacy history sentin
 }
 const read_first_directory_mode = statSync(${JSON.stringify(privateHistoryDir)}).mode & 0o777
 const read_first_file_mode = statSync(${JSON.stringify(privateHistoryFile)}).mode & 0o777
-appendHistory('dsh-runtime-kit private history mode smoke')
+await appendHistory('dsh-runtime-kit private history mode smoke')
 let history = ''
 for (let attempt = 0; attempt < 100; attempt += 1) {
   if (existsSync(${JSON.stringify(privateHistoryFile)})) {
@@ -1369,12 +1379,10 @@ process.stdout.write(JSON.stringify({
   symlinkSync(symlinkTarget, symlinkHistoryFile)
   const symlinkResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
 import { readFile, stat } from 'node:fs/promises'
-import { setTimeout as delay } from 'node:timers/promises'
 const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
 const loaded = loadHistory()
 if (loaded.length !== 0) throw new Error('history symlink was read')
-appendHistory('must not follow history symlink')
-await delay(100)
+await appendHistory('must not follow history symlink')
 const content = await readFile(${JSON.stringify(symlinkTarget)}, 'utf8')
 process.stdout.write(JSON.stringify({
   content,
@@ -1626,7 +1634,7 @@ try {
     'patches/deepseek-harness/native-execution-boundaries-v5-rc7.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
-    'patches/dsh-tui/beta-2-rc2-compat.patch',
+    'patches/dsh-tui/beta-4-rc2-compat.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',

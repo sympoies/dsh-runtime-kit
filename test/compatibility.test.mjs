@@ -898,6 +898,11 @@ test('compatibility workflow keeps selected channels and every patch release blo
     /const attempt = nativeStoreAttempt\(closeoutArgs\)[\s\S]+attempt\.envelope\.error\?\.code, 'coordination-unauthorized'/u,
     'forced-loss closeout may retry only the exact transient authority observation',
   )
+  assert.match(
+    runtimeSmoke,
+    /const retryableRetirementErrors = new Set\(\[\s*'dsh-runtime-plugin-owned',\s*'coordination-unauthorized',\s*\]\)[\s\S]+retryableRetirementErrors\.has\(attempt\.envelope\.error\?\.code\)/u,
+    'native lane retirement may retry only the two exact transient ownership observations',
+  )
   assert.doesNotMatch(
     runtimeSmoke,
     /lastCloseoutResult = nativeStore\(closeoutArgs\)/u,
