@@ -6,15 +6,15 @@
       "release_artifacts": {
         "0.1.0-rc.7": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc7.patch",
-          "sha256": "57cd9677af432a9aafbc60dcc62947165dd0b3ee6c4a7cc9cb3db0a3ce082720"
+          "sha256": "18d25c12ddb2b651a1187c630ef975c3f592e6fb966e68c22d136bd07e167114"
         },
         "0.1.0-rc.8": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch",
-          "sha256": "3ecf2cccde41305956a08ccb443a2aa28496d6dd2c79a8dec76c5f6f46fcd9fa"
+          "sha256": "49e9cac2debdc8b6006d65a3419d04770e863b62b0e337210341aaa2322c6e02"
         },
         "0.1.1-rc.2": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch",
-          "sha256": "c07c6414ca2c115a5ce63b4c187f5d2ea79fa0655bc741d7330ae3a23eaf1a65"
+          "sha256": "f018faa3592919adc6153b6fdff139c444a7fb6497fa3c954a829b269d7465ef"
         }
       },
       "targets": {
@@ -778,15 +778,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "1b9af45cd05f4b22b5a4dd3c1d773cb76d7f415a316e805cb62c6cb0e09d20d5"
+              "after_sha256": "0d77f3b35cdf90f6129c98f4b42f9b86b08cb8aed728961abbdd4eb7cf96bb87"
             },
             "0.1.0-rc.8": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "1b9af45cd05f4b22b5a4dd3c1d773cb76d7f415a316e805cb62c6cb0e09d20d5"
+              "after_sha256": "0d77f3b35cdf90f6129c98f4b42f9b86b08cb8aed728961abbdd4eb7cf96bb87"
             },
             "0.1.1-rc.2": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "1b9af45cd05f4b22b5a4dd3c1d773cb76d7f415a316e805cb62c6cb0e09d20d5"
+              "after_sha256": "0d77f3b35cdf90f6129c98f4b42f9b86b08cb8aed728961abbdd4eb7cf96bb87"
             }
           }
         },
@@ -826,15 +826,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "24c595fcb2e15f2092fc0fe333fcf74ea22ba8a248d942295654a40cf795c65c",
-              "after_sha256": "ff6a7831fadc04a3b4471ab328a5b981a30af93b60991a2e5b789656c3318f37"
+              "after_sha256": "de7fa4eda1cb2a06ea0e3a67c315d8ff1f59631da67b1538e567bb8ef7e9b6db"
             },
             "0.1.0-rc.8": {
               "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "2e56a050bccded438c7290ae2ba7e5a7c9393c74565cf27126b90bfd459cb986"
+              "after_sha256": "0195d3f4632e0a5097cfba9be9e1421243861453d9bc568109fd6be2ef446cdd"
             },
             "0.1.1-rc.2": {
               "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "2e56a050bccded438c7290ae2ba7e5a7c9393c74565cf27126b90bfd459cb986"
+              "after_sha256": "0195d3f4632e0a5097cfba9be9e1421243861453d9bc568109fd6be2ef446cdd"
             }
           }
         },
@@ -970,15 +970,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
-              "after_sha256": "89cee8af5148d2c3c3f5d427d9f2bda47b3c0141c6f0198e87db3ad0c16d274c"
+              "after_sha256": "723b6ccb358da4a72e6d20ff4d5a3802c8c3abcafc725882995da91519d1a509"
             },
             "0.1.0-rc.8": {
               "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
-              "after_sha256": "89cee8af5148d2c3c3f5d427d9f2bda47b3c0141c6f0198e87db3ad0c16d274c"
+              "after_sha256": "723b6ccb358da4a72e6d20ff4d5a3802c8c3abcafc725882995da91519d1a509"
             },
             "0.1.1-rc.2": {
               "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
-              "after_sha256": "89cee8af5148d2c3c3f5d427d9f2bda47b3c0141c6f0198e87db3ad0c16d274c"
+              "after_sha256": "723b6ccb358da4a72e6d20ff4d5a3802c8c3abcafc725882995da91519d1a509"
             }
           }
         },
@@ -1066,15 +1066,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "f5f8bfe1f90b32f574ab47b2bb676870e4bf1e2cb2c8e8010ceb28a947d97200",
-              "after_sha256": "a864486adf5f37be69e58046b1b0be325ed4b8e2be450c058bb9b37de0d9ecad"
+              "after_sha256": "8cadd4d95caaf101335cee434e2cbc755c500ddf23aa2b72705b8ec3cfddb222"
             },
             "0.1.0-rc.8": {
               "before_sha256": "340c4715db61a9d4a647643b1f1eccf412770df5803c7f067d8807719ed6f268",
-              "after_sha256": "9c9f5f1ccfadfc3e670fd6733222ee7a9aee1a4833a7794cea1e3ffa77f25579"
+              "after_sha256": "943030d8a80997684ad33a6e78700a040df960ceffb90842dcafeb4fd41a36dc"
             },
             "0.1.1-rc.2": {
               "before_sha256": "340c4715db61a9d4a647643b1f1eccf412770df5803c7f067d8807719ed6f268",
-              "after_sha256": "9c9f5f1ccfadfc3e670fd6733222ee7a9aee1a4833a7794cea1e3ffa77f25579"
+              "after_sha256": "943030d8a80997684ad33a6e78700a040df960ceffb90842dcafeb4fd41a36dc"
             }
           }
         }

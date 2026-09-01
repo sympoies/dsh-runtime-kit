@@ -4146,7 +4146,7 @@ index fd1ebff2be..35a2d8e7a3 100644
    }
  
 diff --git a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
-index aa7437be81..93586c8fb5 100644
+index aa7437be81..4072dbbdde 100644
 --- a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
 +++ b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
 @@ -4,7 +4,7 @@
@@ -4190,7 +4190,7 @@ index aa7437be81..93586c8fb5 100644
    }
  }
  
-@@ -79,6 +85,143 @@ function toolResultTexts(agent: Agent): string[] {
+@@ -79,6 +85,157 @@ function toolResultTexts(agent: Agent): string[] {
  }
  
  describe('in-process policy inheritance', () => {
@@ -4256,8 +4256,16 @@ index aa7437be81..93586c8fb5 100644
 +    const outside = await realpath(await mkdtemp(join(tmpdir(), 'dsh-inherit-outside-')))
 +    try {
 +      await mkdir(join(workspace, 'src'))
++      await mkdir(join(workspace, 'service'))
++      await mkdir(join(workspace, 'subrepo', '.git'), { recursive: true })
++      await mkdir(join(workspace, 'keys'))
 +      await writeFile(join(workspace, 'src', 'visible.txt'), 'visible')
 +      await writeFile(join(workspace, '.env'), 'secret')
++      await writeFile(join(workspace, 'service', '.env'), 'nested-env-secret')
++      await writeFile(join(workspace, '.env.local'), 'env-variant-secret')
++      await writeFile(join(workspace, 'subrepo', '.git', 'config'), 'nested-git-secret')
++      await writeFile(join(workspace, '.credentials.test'), 'credentials-secret')
++      await writeFile(join(workspace, 'keys', 'deploy.pem'), 'pem-secret')
 +      await writeFile(join(outside, 'secret.txt'), 'outside')
 +      await symlink(join(outside, 'secret.txt'), join(workspace, 'outside-link'))
 +      const script: Script = []
@@ -4298,6 +4306,11 @@ index aa7437be81..93586c8fb5 100644
 +        toolCallResponse('outside', 'read', { file_path: join(outside, 'secret.txt') }),
 +        toolCallResponse('alias', 'read', { file_path: 'outside-link' }),
 +        toolCallResponse('protected', 'read', { file_path: '.env' }),
++        toolCallResponse('nested-env', 'read', { file_path: 'service/.env' }),
++        toolCallResponse('env-variant', 'read', { file_path: '.env.local' }),
++        toolCallResponse('nested-git', 'read', { file_path: 'subrepo/.git/config' }),
++        toolCallResponse('credentials', 'read', { file_path: '.credentials.test' }),
++        toolCallResponse('pem', 'read', { file_path: 'keys/deploy.pem' }),
 +        toolCallResponse('grep-root', 'grep', { path: '.' }),
 +        toolCallResponse('glob-root', 'glob', { path: '.' }),
 +        toolCallResponse('visible', 'read', { file_path: 'src/visible.txt' }),
@@ -4321,6 +4334,7 @@ index aa7437be81..93586c8fb5 100644
 +        expect(denials).toContain('read boundary denied')
 +        expect(denials).toContain('protected path denied')
 +        expect(denials).toContain('visible')
++        expect(denials).not.toMatch(/nested-env-secret|env-variant-secret|nested-git-secret|credentials-secret|pem-secret/u)
 +        expect(searchBodies).toBe(0)
 +        expect(ctx.sandboxPolicy.resolve({ session: parent.session })).toEqual(before)
 +      } finally {
@@ -4423,7 +4437,7 @@ index e289863531..1649bfac1c 100644
  
  启动时功能通过 `provider.capabilities` 声明，因为服务必须在创建子 agent 前拒绝不受支持的一次性请求：
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 7582338858..e0988b86be 100644
+index 7582338858..1f942e8b13 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
 @@ -8,11 +8,13 @@
@@ -4474,11 +4488,30 @@ index 7582338858..e0988b86be 100644
  }
  
  /**
-@@ -138,6 +146,67 @@ export const SUBAGENT_DELEGATION_CONTEXT
+@@ -138,6 +146,101 @@ export const SUBAGENT_DELEGATION_CONTEXT
      + 'When the task needs access beyond that scope, do not retry the denied operation; state the '
      + 'limitation in your reply so the delegating agent can handle it.'
  
 +const RESTRICTED_ROLE_PATH_TOOLS = new Set(['glob', 'grep', 'read'])
++const RESTRICTED_ROLE_PROTECTED_DIRECTORIES = new Set([
++  '.aws',
++  '.dsh',
++  '.git',
++  '.gnupg',
++  '.ssh',
++])
++const RESTRICTED_ROLE_PROTECTED_FILES = new Set([
++  '.git-credentials',
++  '.netrc',
++  '.npmrc',
++  '.pypirc',
++  'credentials.yaml',
++  'credentials.yml',
++  'id_dsa',
++  'id_ed25519',
++  'id_ecdsa',
++  'id_rsa',
++])
 +
 +function plainRecord(value: unknown): value is Record<string, unknown> {
 +  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -4489,6 +4522,18 @@ index 7582338858..e0988b86be 100644
 +function containsPath(root: string, candidate: string): boolean {
 +  const within = relative(root, candidate)
 +  return within === '' || (within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within))
++}
++
++function protectedRestrictedRolePath(workspace: string, candidate: string): boolean {
++  const segments = relative(workspace, candidate).split(sep).filter(Boolean)
++    .map(segment => segment.toLowerCase())
++  if (segments.some(segment => RESTRICTED_ROLE_PROTECTED_DIRECTORIES.has(segment))) return true
++  const basename = segments.at(-1) ?? ''
++  return basename.startsWith('.env')
++    || basename.startsWith('.credentials.')
++    || RESTRICTED_ROLE_PROTECTED_FILES.has(basename)
++    || basename.endsWith('.key')
++    || basename.endsWith('.pem')
 +}
 +
 +function restrictedRolePathDenial(
@@ -4522,6 +4567,9 @@ index 7582338858..e0988b86be 100644
 +  if (!containsPath(workspace, canonical)) {
 +    return `restricted role ${role.id} read boundary denied`
 +  }
++  if (protectedRestrictedRolePath(workspace, canonical)) {
++    return `restricted role ${role.id} protected path denied`
++  }
 +  const searchDirectory = exec.name !== 'read' && statSync(canonical).isDirectory()
 +  for (const configured of role.sandbox.protectedRoots) {
 +    const candidate = isAbsolute(configured) ? configured : resolve(workspace, configured)
@@ -4542,7 +4590,7 @@ index 7582338858..e0988b86be 100644
  /**
   * Compose one child inside its creation window: join its parent's preset,
   * register the fixed delegation-scope statement, then apply the child's own
-@@ -171,7 +240,40 @@ export function applyChildComposition(
+@@ -171,7 +274,40 @@ export function applyChildComposition(
    if (composition.persona !== undefined) {
      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
    }
@@ -4903,7 +4951,7 @@ index 6d9dedee75..ff5624fbff 100644
    const snapshot = snapshotJsonValue(candidate)
    if (snapshot === undefined) {
 diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index 45b96a2311..97afcba003 100644
+index 45b96a2311..ab794e93a0 100644
 --- a/packages/subagent/subagent/src/index.ts
 +++ b/packages/subagent/subagent/src/index.ts
 @@ -31,16 +31,30 @@
@@ -4957,7 +5005,7 @@ index 45b96a2311..97afcba003 100644
    ResolvedSubagentStartRequest,
    SubagentCapabilities,
    SubagentProvider,
-@@ -167,9 +192,210 @@ declare module '@deepseek-ai/cordis' {
+@@ -167,9 +192,211 @@ declare module '@deepseek-ai/cordis' {
    }
  }
  
@@ -5159,6 +5207,7 @@ index 45b96a2311..97afcba003 100644
    private providers = new Map<string, SubagentProvider>()
 +  private workspaceProviders = new Map<string, ContinuableWorkspaceProvider>()
 +  private roles = new Map<string, RegisteredRole>()
++  private agentRegistry: Context['agents'] | undefined
 +  private readonly roleAgents = new WeakMap<Agent, RestrictedRoleReceipt>()
 +  private globalRoleCapacity = new RoleCapacity(ROLE_MAX_ACTIVE, ROLE_MAX_QUEUED)
 +  private roleCapacityConfigured = false
@@ -5168,8 +5217,11 @@ index 45b96a2311..97afcba003 100644
    private continuations: SubagentContinuationManager | undefined
    /** Deployment contributions composed into unpublished continuable children. */
    private readonly setupRegistry = new SubagentActivationSetupRegistry()
-@@ -186,6 +412,9 @@ export class SubagentRuntime extends Service {
+@@ -184,20 +411,54 @@ export class SubagentRuntime extends Service {
+     super(ctx, 'subagents')
+     this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
      ctx.inject(['agents'], (childCtx: Context) => {
++      this.agentRegistry = childCtx.agents
        const manager = new SubagentContinuationManager(childCtx, {
          prepareContinuable: (name, request) => this.prepareContinuable(name, request),
 +        snapshotWorkspace: (selection, parent) => this.snapshotWorkspace(selection, parent),
@@ -5178,7 +5230,13 @@ index 45b96a2311..97afcba003 100644
          observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
        }, this.setupRegistry)
        this.continuations = manager
-@@ -198,6 +427,35 @@ export class SubagentRuntime extends Service {
+       childCtx.effect(() => () => {
+         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
+         if (this.continuations === manager) this.continuations = undefined
++        if (this.agentRegistry === childCtx.agents) this.agentRegistry = undefined
+       }, 'subagents.continuationBinding()')
+     })
+     ctx.inject(['sessionProjections'], (projectionCtx) => {
        projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
        projectionCtx.sessionProjections.register(subagentIdentityProjectionDefinition)
      })
@@ -5214,7 +5272,7 @@ index 45b96a2311..97afcba003 100644
    }
  
    /**
-@@ -237,6 +495,18 @@ export class SubagentRuntime extends Service {
+@@ -237,6 +498,18 @@ export class SubagentRuntime extends Service {
      return this.requireContinuations().followup(parent, childId, content, options)
    }
  
@@ -5233,7 +5291,7 @@ index 45b96a2311..97afcba003 100644
    /**
     * Interrupt one live continuable child's current turn under a human parent
     * address or an exact live ancestor Agent. Fire-and-return: the cancel
-@@ -291,6 +561,60 @@ export class SubagentRuntime extends Service {
+@@ -291,6 +564,60 @@ export class SubagentRuntime extends Service {
      )
    }
  
@@ -5294,7 +5352,7 @@ index 45b96a2311..97afcba003 100644
    /**
     * Close continuable admission below exact live parent Agents, stop only their
     * visible descendant Activations synchronously, then await admitted scoped
-@@ -417,6 +741,297 @@ export class SubagentRuntime extends Service {
+@@ -417,6 +744,297 @@ export class SubagentRuntime extends Service {
      return [...this.providers.keys()]
    }
  
@@ -5421,8 +5479,8 @@ index 45b96a2311..97afcba003 100644
 +    // Capability rejection is an admission decision: it must happen before a
 +    // permit, timeout, child, model, or tool body exists.
 +    this.assertCapabilities(provider, fixedRequest)
-+    const agents = request.parent.ctx.agents
-+    if (agents.get(request.parent.id) !== request.parent) {
++    const agents = this.agentRegistry
++    if (agents === undefined || agents.get(request.parent.id) !== request.parent) {
 +      throw new SubagentError('restricted-role parent identity is invalid', 'ROLE_IDENTITY_INVALID')
 +    }
 +
@@ -5592,7 +5650,7 @@ index 45b96a2311..97afcba003 100644
    /**
     * Establish a published child on the named provider. Capability and semantic
     * checks run before delegation. Provider ownership lasts until its promise
-@@ -428,6 +1043,9 @@ export class SubagentRuntime extends Service {
+@@ -428,6 +1046,9 @@ export class SubagentRuntime extends Service {
     * @returns the published holder-owned run.
     */
    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
@@ -5912,9 +5970,16 @@ index 6cf1aea5a8..3aaade41da 100644
          provider: 'spawn',
          label: 'child task',
 diff --git a/packages/subagent/subagent/tests/service.spec.ts b/packages/subagent/subagent/tests/service.spec.ts
-index 05e9785611..871442f4fe 100644
+index 05e9785611..fc511d22f9 100644
 --- a/packages/subagent/subagent/tests/service.spec.ts
 +++ b/packages/subagent/subagent/tests/service.spec.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+-import { Context } from '@deepseek-ai/cordis'
++import { Context, Service } from '@deepseek-ai/cordis'
+ import { type Agent } from '@deepseek-ai/dsh-agent'
+ 
+ import { HarnessError } from '@deepseek-ai/dsh-llm'
 @@ -11,6 +11,7 @@ import SubagentRuntime, {
    SubagentError,
    assertSubagentMaxDepth,
@@ -5923,22 +5988,49 @@ index 05e9785611..871442f4fe 100644
    type SubagentCapabilities,
    type SubagentProvider,
    type SubagentResult,
-@@ -21,7 +22,57 @@ import SubagentRuntime, {
+@@ -20,8 +21,82 @@ import SubagentRuntime, {
+ } from '@deepseek-ai/dsh-subagent'
  import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
  
- function fakeParent(id = 'parent-1'): Agent {
+-function fakeParent(id = 'parent-1'): Agent {
 -  return { id: SessionId(id) } as unknown as Agent
-+  const agents = new Map<string, Agent>()
++interface TestAgentStore {
++  get(id: SessionId): Agent | undefined
++  publish(agent: Agent): () => void
++}
++
++class TestAgentRegistry extends Service implements TestAgentStore {
++  private readonly agents = new Map<string, Agent>()
++
++  constructor(ctx: Context) { super(ctx, 'agents') }
++
++  get(id: SessionId): Agent | undefined { return this.agents.get(String(id)) }
++
++  publish(agent: Agent): () => void {
++    this.agents.set(String(agent.id), agent)
++    return () => { if (this.agents.get(String(agent.id)) === agent) this.agents.delete(String(agent.id)) }
++  }
++}
++
++function fakeParent(id = 'parent-1', authoritative?: TestAgentStore): Agent {
++  const local = new Map<string, Agent>()
++  const agents = authoritative ?? {
++    get: (agentId: SessionId) => local.get(String(agentId)),
++    publish(agent: Agent) {
++      local.set(String(agent.id), agent)
++      return () => { if (local.get(String(agent.id)) === agent) local.delete(String(agent.id)) }
++    },
++  }
 +  const parent = {
 +    id: SessionId(id),
-+    ctx: { agents: { get: (agentId: SessionId) => agents.get(String(agentId)) } },
++    ctx: { agents },
 +  } as unknown as Agent
-+  agents.set(String(parent.id), parent)
++  agents.publish(parent)
 +  fakeAgentRegistries.set(parent, agents)
 +  return parent
 +}
 +
-+const fakeAgentRegistries = new WeakMap<Agent, Map<string, Agent>>()
++const fakeAgentRegistries = new WeakMap<Agent, TestAgentStore>()
 +
 +function classifyAndPublish(request: ResolvedSubagentStartRequest, agent: Agent): () => void {
 +  request.restrictedRole?.classify(agent)
@@ -5948,8 +6040,7 @@ index 05e9785611..871442f4fe 100644
 +function publishAgent(parent: Agent, agent: Agent): () => void {
 +  const registry = fakeAgentRegistries.get(parent)
 +  if (registry === undefined) throw new Error('test parent lacks its fake registry')
-+  registry.set(String(agent.id), agent)
-+  return () => { if (registry.get(String(agent.id)) === agent) registry.delete(String(agent.id)) }
++  return registry.publish(agent)
 +}
 +
 +class PendingPublicationProvider implements SubagentProvider {
@@ -5982,7 +6073,7 @@ index 05e9785611..871442f4fe 100644
  }
  
  const ALL_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
-@@ -53,15 +104,101 @@ class StubProvider implements SubagentProvider {
+@@ -53,19 +128,111 @@ class StubProvider implements SubagentProvider {
    async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
      this.startCount += 1
      this.lastRequest = request
@@ -6062,6 +6153,7 @@ index 05e9785611..871442f4fe 100644
    }
  }
  
+-async function service(): Promise<{ ctx: Context; subagents: SubagentRuntime }> {
 +class AbortAwareRoleProvider implements SubagentProvider {
 +  readonly name = 'role-provider'
 +  readonly capabilities = ALL_CAPS
@@ -6084,15 +6176,26 @@ index 05e9785611..871442f4fe 100644
 +  }
 +}
 +
- async function service(): Promise<{ ctx: Context; subagents: SubagentRuntime }> {
++async function service(withAgents = false): Promise<{
++  ctx: Context
++  subagents: SubagentRuntime
++  parent(id?: string): Agent
++}> {
    const ctx = new Context()
++  if (withAgents) await ctx.plugin(TestAgentRegistry)
    await ctx.plugin(SubagentRuntime)
-@@ -90,6 +227,257 @@ describe('SubagentRuntime', () => {
+-  return { ctx, subagents: ctx.subagents }
++  const agents = withAgents ? ctx.agents as unknown as TestAgentStore : undefined
++  return { ctx, subagents: ctx.subagents, parent: (id = 'parent-1') => fakeParent(id, agents) }
+ }
+ 
+ describe('SubagentRuntime', () => {
+@@ -90,6 +257,273 @@ describe('SubagentRuntime', () => {
      expect(subagents.getProvider('alpha')).toBeUndefined()
    })
  
 +  it('registers immutable restricted roles and keeps authority out of the caller request', async () => {
-+    const { subagents } = await service()
++    const { subagents, parent } = await service(true)
 +    const provider = Object.assign(new StubProvider('role-provider', ALL_CAPS, {
 +      output: [{ type: 'text', text: 'ok' }],
 +      structured: {},
@@ -6109,7 +6212,7 @@ index 05e9785611..871442f4fe 100644
 +
 +    await expect(subagents.startRole('reviewer-readonly', {
 +      prompt: [{ type: 'text', text: 'inspect the change' }],
-+      parent: fakeParent(),
++      parent: parent(),
 +      signal: new AbortController().signal,
 +      persona: 'widened by caller',
 +    } as never)).rejects.toMatchObject({ code: 'INVALID_ROLE_REQUEST' })
@@ -6117,7 +6220,7 @@ index 05e9785611..871442f4fe 100644
 +
 +    const run = await subagents.startRole('reviewer-readonly', {
 +      prompt: [{ type: 'text', text: 'inspect the change' }],
-+      parent: fakeParent(),
++      parent: parent(),
 +      signal: new AbortController().signal,
 +    })
 +    expect(provider.lastRequest).toMatchObject({
@@ -6140,7 +6243,7 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('rejects malformed restricted-role output with a stable typed error', async () => {
-+    const { subagents } = await service()
++    const { subagents, parent } = await service(true)
 +    const provider = Object.assign(new StubProvider('role-provider'), {
 +      supportsRestrictedRoles: true as const,
 +    })
@@ -6148,10 +6251,26 @@ index 05e9785611..871442f4fe 100644
 +    subagents.registerRole(roleDefinition())
 +
 +    const run = await subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: parent(), signal: new AbortController().signal,
 +    })
 +    await expect(run.result).rejects.toMatchObject({ code: 'ROLE_OUTPUT_INVALID' })
 +    expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 0, queued: 0 })
++  })
++
++  it('rejects a forged parent whose private registry self-authenticates it', async () => {
++    const subject = await service(true)
++    const provider = Object.assign(new StubProvider('role-provider'), {
++      supportsRestrictedRoles: true as const,
++    })
++    subject.subagents.registerProvider(provider)
++    subject.subagents.registerRole(roleDefinition())
++    subject.parent('exact-parent')
++    const forged = fakeParent('exact-parent')
++
++    await expect(subject.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: forged, signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
++    expect(provider.startCount).toBe(0)
 +  })
 +
 +  it('rejects malformed, duplicate, unknown, unsupported, and forged roles before provider execution', async () => {
@@ -6178,12 +6297,12 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('bounds role admission, cancels queued callers, and releases every permit on disposal', async () => {
-+    const { subagents } = await service()
++    const { subagents, parent } = await service(true)
 +    const provider = new DeferredRoleProvider()
 +    subagents.registerProvider(provider)
 +    subagents.registerRole(roleDefinition())
 +    const start = (signal = new AbortController().signal) => subagents.startRole('reviewer-readonly', {
-+      prompt: [{ type: 'text', text: 'inspect' }], parent: fakeParent(), signal,
++      prompt: [{ type: 'text', text: 'inspect' }], parent: parent(), signal,
 +    })
 +
 +    const first = await start()
@@ -6207,13 +6326,13 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('applies one configured global pool across distinct roles', async () => {
-+    const { subagents } = await service()
++    const { subagents, parent } = await service(true)
 +    const provider = new DeferredRoleProvider()
 +    subagents.registerProvider(provider)
 +    subagents.configureRoleCapacity({ maxActive: 1, maxQueued: 1 })
 +    subagents.registerRole(roleDefinition({ id: 'reviewer-a', maxActive: 2 }))
 +    subagents.registerRole(roleDefinition({ id: 'reviewer-b', maxActive: 2 }))
-+    const request = { prompt: [], parent: fakeParent(), signal: new AbortController().signal }
++    const request = { prompt: [], parent: parent(), signal: new AbortController().signal }
 +
 +    const first = await subagents.startRole('reviewer-a', request)
 +    const second = subagents.startRole('reviewer-b', request)
@@ -6226,13 +6345,13 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('bounds every per-role waiter under the one global FIFO queue ceiling', async () => {
-+    const { subagents } = await service()
++    const { subagents, parent } = await service(true)
 +    const provider = new DeferredRoleProvider()
 +    subagents.registerProvider(provider)
 +    subagents.configureRoleCapacity({ maxActive: 1, maxQueued: 2 })
 +    subagents.registerRole(roleDefinition({ id: 'reviewer-a', maxQueued: 2 }))
 +    subagents.registerRole(roleDefinition({ id: 'reviewer-b', maxQueued: 2 }))
-+    const request = { prompt: [], parent: fakeParent(), signal: new AbortController().signal }
++    const request = { prompt: [], parent: parent(), signal: new AbortController().signal }
 +
 +    const first = await subagents.startRole('reviewer-a', request)
 +    const second = subagents.startRole('reviewer-a', request)
@@ -6249,7 +6368,7 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('rejects detached and already-live role children before granting role identity', async () => {
-+    const detached = await service()
++    const detached = await service(true)
 +    detached.subagents.registerProvider(Object.assign(new StubProvider('role-provider'), {
 +      supportsRestrictedRoles: true as const,
 +      async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
@@ -6264,10 +6383,10 @@ index 05e9785611..871442f4fe 100644
 +    }))
 +    detached.subagents.registerRole(roleDefinition())
 +    await expect(detached.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: detached.parent(), signal: new AbortController().signal,
 +    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
 +
-+    const live = await service()
++    const live = await service(true)
 +    live.subagents.registerProvider(Object.assign(new StubProvider('role-provider'), {
 +      supportsRestrictedRoles: true as const,
 +      async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
@@ -6283,17 +6402,17 @@ index 05e9785611..871442f4fe 100644
 +    }))
 +    live.subagents.registerRole(roleDefinition())
 +    await expect(live.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: live.parent(), signal: new AbortController().signal,
 +    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
 +  })
 +
 +  it('waits for unpublished provider startup rollback during role removal and host teardown', async () => {
-+    const roleOwned = await service()
++    const roleOwned = await service(true)
 +    const roleProvider = new PendingPublicationProvider()
 +    roleOwned.subagents.registerProvider(roleProvider)
 +    const removeRole = roleOwned.subagents.registerRole(roleDefinition())
 +    const roleStart = roleOwned.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: roleOwned.parent(), signal: new AbortController().signal,
 +    })
 +    await roleProvider.started
 +    let roleRemoved = false
@@ -6304,12 +6423,12 @@ index 05e9785611..871442f4fe 100644
 +    await expect(roleStart).rejects.toMatchObject({ code: 'NO_ROLE' })
 +    await removal
 +
-+    const hostOwned = await service()
++    const hostOwned = await service(true)
 +    const hostProvider = new PendingPublicationProvider()
 +    hostOwned.subagents.registerProvider(hostProvider)
 +    hostOwned.subagents.registerRole(roleDefinition())
 +    const hostStart = hostOwned.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: hostOwned.parent(), signal: new AbortController().signal,
 +    })
 +    await hostProvider.started
 +    let hostDisposed = false
@@ -6322,20 +6441,20 @@ index 05e9785611..871442f4fe 100644
 +  })
 +
 +  it('surfaces timeout and host teardown as typed outcomes and drains the live run', async () => {
-+    const timed = await service()
++    const timed = await service(true)
 +    timed.subagents.registerProvider(new AbortAwareRoleProvider())
 +    timed.subagents.registerRole(roleDefinition({ timeoutMs: 10 }))
 +    const timedRun = await timed.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: timed.parent(), signal: new AbortController().signal,
 +    })
 +    await expect(timedRun.result).rejects.toMatchObject({ code: 'ROLE_TIMEOUT' })
 +    expect(timed.subagents.roleStats()).toEqual({ active: 0, queued: 0 })
 +
-+    const hosted = await service()
++    const hosted = await service(true)
 +    hosted.subagents.registerProvider(new AbortAwareRoleProvider())
 +    hosted.subagents.registerRole(roleDefinition())
 +    const hostedRun = await hosted.subagents.startRole('reviewer-readonly', {
-+      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++      prompt: [], parent: hosted.parent(), signal: new AbortController().signal,
 +    })
 +    const disposal = hosted.ctx.fiber.dispose()
 +    await expect(hostedRun.result).rejects.toMatchObject({ code: 'ROLE_DISPOSING' })
@@ -6345,7 +6464,7 @@ index 05e9785611..871442f4fe 100644
    it('rolls registration back when provider-added throws', async () => {
      const { ctx, subagents } = await service()
      ctx.on('subagent/provider-added', () => { throw new Error('added boom') })
-@@ -116,7 +504,9 @@ describe('SubagentRuntime', () => {
+@@ -116,7 +550,9 @@ describe('SubagentRuntime', () => {
      expect(provider.lastRequest).toEqual({
        ...request,
        descriptor: {
@@ -6356,7 +6475,7 @@ index 05e9785611..871442f4fe 100644
          mode: 'one-shot',
          provider: 'one-shot',
        },
-@@ -331,11 +721,14 @@ describe('subagent descriptors', () => {
+@@ -331,11 +767,14 @@ describe('subagent descriptors', () => {
      expect(foldSubagentDescriptor([])).toBeUndefined()
      const minimal = snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'spawn' })
      expect(minimal).toEqual({
@@ -6373,7 +6492,7 @@ index 05e9785611..871442f4fe 100644
      expect(snapshotSubagentDescriptor({
        mode: 'one-shot',
        provider: 'spawn',
-@@ -351,6 +744,7 @@ describe('subagent descriptors', () => {
+@@ -351,6 +790,7 @@ describe('subagent descriptors', () => {
        persona: 'reviewer',
        toolFilter: { allow: ['read'], deny: ['bash'] },
      }
@@ -6381,7 +6500,7 @@ index 05e9785611..871442f4fe 100644
      expect(snapshotSubagentDescriptor({
        mode: 'continuable',
        provider: complete.provider,
-@@ -359,8 +753,8 @@ describe('subagent descriptors', () => {
+@@ -359,8 +799,8 @@ describe('subagent descriptors', () => {
        agentModel: complete.agentModel,
        persona: complete.persona,
        toolFilter: complete.toolFilter,
