@@ -1,8 +1,12 @@
-# Repository-development catalog for contributors working in this checkout.
-# This is intentionally separate from agent-docs/AGENT_DOCS.toml, which is a
-# published DSH runtime asset whose home-scoped documents resolve inside the
-# installed agent-docs directory. Project entries here resolve from the
-# repository root and must not duplicate DSH model context.
+# Repository catalog for agents contributing to this checkout. Root document
+# entries route Codex, Claude, and Hermes; their project-scoped paths resolve
+# from the repository root.
+#
+# DSH document routing is owned separately by agent-docs/AGENT_DOCS.toml, which
+# is packaged and activated as DSH's home-scoped catalog. DSH remains included
+# in the repository validation declared below. Do not add DSH to root document
+# entries unless packaged document ownership is being replaced; otherwise DSH
+# would receive duplicate model context.
 
 [[document]]
 context = "project-dev"
