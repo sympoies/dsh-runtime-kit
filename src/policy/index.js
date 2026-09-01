@@ -56,15 +56,15 @@ export function resolveFinishLineShellSpec(shell, operation, input) {
  * repository. A managed session whose authenticated baseline attempt proved
  * that its cwd is outside every repository has no repository finish-line to
  * open, so advisory/off mode delegates to ordinary policy on every platform.
- * Missing, malformed, repository-backed, uncovered-scope, and enforce
- * identities remain fail-closed on Linux.
+ * Missing, malformed, repository-unavailable, and enforce identities remain
+ * fail-closed on Linux.
  *
  * @param {NodeJS.Platform} platform
  * @param {{environment?: Readonly<Record<string, string>>, baselineFailureCode?: string} | undefined} principal
  */
 export function requiresAuthoritativeFinishLine(platform, principal) {
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
-  if (principal?.baselineFailureCode === 'repository-unavailable'
+  if (principal?.baselineFailureCode === 'uncovered-mutation-scope'
     && (mode === 'advisory' || mode === 'off')) return false
   if (platform === 'linux') return true
   return mode !== 'advisory' && mode !== 'off'
