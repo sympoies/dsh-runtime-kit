@@ -76,7 +76,7 @@ const authoritativeLegIds = [
   'agent-disposal',
   'graceful-restart',
   'crash-recovery',
-  'candidate-old-provider-mismatch',
+  'candidate-companion-identity-mismatch',
   'candidate-upgrade',
   'baseline-rollback',
 ]
@@ -245,7 +245,7 @@ function authoritativeMatrix() {
         recovery_verdict: { action: 'allow', aggregate: 'satisfied' },
       },
       {
-        ...common('candidate-old-provider-mismatch'),
+        ...common('candidate-companion-identity-mismatch'),
         boot_outcome: 'blocked-before-model',
         denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
         probe_loaded: true,
@@ -2005,6 +2005,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join\(binDir, 'main-agent'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join\(binDir, 'agent-session'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
+  assert.match(
+    authoritativeSmoke,
+    /DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion/u,
+    'the negative health leg must inject a deterministic unauthenticated companion',
+  )
   assert.doesNotMatch(packedSmoke, /id: 'native-main-agent-lane'/u)
   assert.match(packedSmoke, /id: 'subagent'[\s\S]*main-agent:host-workspace-before-prompt/u)
   assert.doesNotMatch(
