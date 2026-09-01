@@ -18,7 +18,9 @@ function fixture({
   },
   now = Date.now,
   requiresFinishLine,
+  allowsNonRepositoryDelegation,
   authenticatePrincipal,
+  sessionCwd = '/workspace/project',
 } = {}) {
   const effects = []
   const opens = []
@@ -120,15 +122,16 @@ function fixture({
     maxSameTurnSteers,
     now,
     requiresFinishLine,
+    allowsNonRepositoryDelegation,
     authenticatePrincipal,
     createOperationId: () => `operation:${++operation}`,
     prepareValidationRuntime: async (_exec, operation) => {
       runtimePreparations.push(structuredClone(operation))
-      return runtime
+      return typeof runtime === 'function' ? runtime(operation) : runtime
     },
     createSteeringMessage: text => ({ source: { kind: 'plugin' }, content: [{ type: 'text', text }] }),
   })
-  const session = { header: { id: 'session-1', cwd: '/workspace/project' }, events: [] }
+  const session = { header: { id: 'session-1', cwd: sessionCwd }, events: [] }
   const steered = []
   agent = {
     id: 'session-1',
@@ -206,6 +209,356 @@ test('an authenticated advisory session bypasses Linux-only finish-line without 
   assert.equal(subject.coordinator.activeReservations, 0)
   assert.equal(subject.coordinator.degraded, false)
   await subject.dispose()
+})
+
+test('a typed non-repository result returns pwd for only the matching Bash workdir', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  const originalOpen = subject.client.open
+  subject.client.open = async request => {
+    if (request.cwd !== '/workspace/home') return originalOpen(request)
+    if (request.command !== undefined) assert.equal(request.command, '/usr/bin/pwd')
+    return { kind: 'not-in-repository' }
+  }
+
+  const home = execution(subject, {
+    name: 'bash',
+    arguments: Object.freeze({ command: 'pwd', description: 'Show home directory' }),
+    callId: 'home-pwd',
+  })
+  assert.deepEqual(await subject.coordinator.begin(home, context(home, {
+    cwd: '/workspace/home',
+  })), { ok: true })
+  const homeResult = await subject.coordinator.execute(home)
+  assert.equal(homeResult.kind, 'result')
+  assert.deepEqual(homeResult.result.value, {
+    kind: 'foreground',
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    aborted: false,
+    timeoutMs: 30 * 60 * 1_000,
+    stdout: { text: '/workspace/home\n', truncated: false },
+    stderr: { text: '', truncated: false },
+  })
+  assert.equal(home.arguments.command, 'pwd')
+
+  const repository = execution(subject, {
+    name: 'bash',
+    arguments: {
+      command: 'npm test',
+      description: 'Run repository validation',
+      workdir: '/workspace/project',
+    },
+    callId: 'repo-test',
+  })
+  assert.deepEqual(await subject.coordinator.begin(repository, context(repository, {
+    cwd: '/workspace/home',
+  })), { ok: true })
+  assert.equal((await subject.coordinator.execute(repository)).kind, 'result')
+  assert.deepEqual(subject.opens.map(open => open.cwd), ['/workspace/project'])
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(subject.stops.map(stop => stop.cwd), ['/workspace/project'])
+})
+
+test('a prepared non-repository pwd rejects in-place argument mutation before delegation', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  subject.client.open = async () => ({ kind: 'not-in-repository' })
+  const arguments_ = { command: 'pwd', description: 'Show home directory' }
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: arguments_,
+    callId: 'mutable-home-pwd',
+  })
+
+  assert.deepEqual(await subject.coordinator.probe(exec, context(exec, {
+    cwd: '/workspace/home',
+  })), { ok: true, kind: 'ordinary' })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
+    cwd: '/workspace/home',
+  })), { ok: true })
+  arguments_.command = 'printf compromised > /workspace/project/tracked.txt'
+  arguments_.run_in_background = true
+
+  await assert.rejects(
+    subject.coordinator.execute(exec),
+    /non-repository correlation invalid/,
+  )
+  assert.equal(subject.runs.length, 0)
+})
+
+test('repository and non-repository workdirs retain independent ledgers across one turn', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+    runtime: operation => ({
+      timeoutMs: 5_000,
+      execution: {
+        kind: 'bash-v1',
+        workdir: operation.workdir,
+        outputMaxBytes: 64 * 1024,
+        runner: { kind: 'danger-full-access' },
+      },
+    }),
+  })
+  const originalOpen = subject.client.open
+  subject.client.open = async request => request.cwd === '/workspace/home'
+    ? { kind: 'not-in-repository' }
+    : originalOpen(request)
+
+  for (const [callId, command, workdir] of [
+    ['repo-first', 'npm test', '/workspace/project'],
+    ['home-middle', 'pwd', '/workspace/home'],
+    ['repo-last', 'npm run lint', '/workspace/project'],
+  ]) {
+    const exec = execution(subject, {
+      name: 'bash',
+      arguments: { command, description: callId, workdir },
+      callId,
+    })
+    assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
+      cwd: '/workspace/home',
+    })), { ok: true })
+    const routed = await subject.coordinator.execute(exec)
+    assert.equal(routed.kind, 'result')
+    subject.coordinator.result(exec, routed.result)
+  }
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(subject.stops.map(stop => stop.cwd), ['/workspace/project'])
+  assert.deepEqual(subject.releases.map(release => release.cwd), ['/workspace/project'])
+})
+
+test('stop checks the header repository and every concurrent operation repository', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/header',
+    runtime: operation => ({
+      timeoutMs: 5_000,
+      execution: {
+        kind: 'bash-v1',
+        workdir: operation.workdir,
+        outputMaxBytes: 64 * 1024,
+        runner: { kind: 'danger-full-access' },
+      },
+    }),
+  })
+  const first = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'npm test', description: 'Validate A', workdir: '/workspace/a' },
+    callId: 'repo-a',
+  })
+  const second = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'npm test', description: 'Validate B', workdir: '/workspace/b' },
+    callId: 'repo-b',
+  })
+
+  await Promise.all([
+    subject.coordinator.begin(first, context(first, { cwd: '/workspace/header' })),
+    subject.coordinator.begin(second, context(second, { cwd: '/workspace/header' })),
+  ])
+  const results = await Promise.all([
+    subject.coordinator.execute(first),
+    subject.coordinator.execute(second),
+  ])
+  subject.coordinator.result(first, results[0].result)
+  subject.coordinator.result(second, results[1].result)
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(subject.stops.map(stop => stop.cwd), [
+    '/workspace/header',
+    '/workspace/a',
+    '/workspace/b',
+  ])
+  assert.deepEqual(subject.releases.map(release => release.cwd).sort(), [
+    '/workspace/a',
+    '/workspace/b',
+    '/workspace/header',
+  ])
+})
+
+test('an unsatisfied header repository blocks stop after work in another repository', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/header',
+    runtime: operation => ({
+      timeoutMs: 5_000,
+      execution: {
+        kind: 'bash-v1',
+        workdir: operation.workdir,
+        outputMaxBytes: 64 * 1024,
+        runner: { kind: 'danger-full-access' },
+      },
+    }),
+  })
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'npm test', description: 'Validate B', workdir: '/workspace/b' },
+    callId: 'repo-b-before-header-stop',
+  })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
+    cwd: '/workspace/header',
+  })), { ok: true })
+  const routed = await subject.coordinator.execute(exec)
+  subject.coordinator.result(exec, routed.result)
+  subject.client.stop = async request => {
+    subject.stops.push(structuredClone(request))
+    return {
+      action: request.cwd === '/workspace/header' ? 'block' : 'allow',
+      generation: 1,
+      contractDigest: `sha256:${'0'.repeat(64)}`,
+      correlationId,
+      reasonCodes: request.cwd === '/workspace/header' ? ['validation-required'] : [],
+      remediation: [],
+    }
+  }
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), false)
+  assert.deepEqual(subject.stops.map(stop => stop.cwd), ['/workspace/header'])
+  assert.equal(subject.releases.length, 0)
+  assert.match(subject.steered[0].content[0].text, /validation-required/)
+})
+
+test('a non-repository workdir cannot delegate an absolute repository write', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  const commands = []
+  subject.client.open = async request => {
+    commands.push(request.command)
+    throw new Error('finish-line non-repository operation unauthorized')
+  }
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: {
+      command: 'printf x > /workspace/project/tracked.txt',
+      description: 'Write through an absolute repository path',
+    },
+    callId: 'absolute-repository-write',
+  })
+
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
+    cwd: '/workspace/home',
+  })), { ok: true })
+  await assert.rejects(
+    subject.coordinator.execute(exec),
+    /finish-line non-repository operation unauthorized/,
+  )
+  assert.deepEqual(commands, [
+    'printf x > /workspace/project/tracked.txt',
+    'printf x > /workspace/project/tracked.txt',
+  ])
+})
+
+test('concurrent non-repository opens cannot reuse another command classification', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  let releasePwd
+  const pwdGate = new Promise(resolve => { releasePwd = resolve })
+  const commands = []
+  subject.client.open = async request => {
+    commands.push(request.command)
+    if (request.command === '/usr/bin/pwd') {
+      await pwdGate
+      return { kind: 'not-in-repository' }
+    }
+    throw new Error('finish-line non-repository operation unauthorized')
+  }
+  const pwd = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'pwd', description: 'Show cwd' },
+    callId: 'concurrent-pwd',
+  })
+  const write = execution(subject, {
+    name: 'bash',
+    arguments: {
+      command: 'printf x > /workspace/project/tracked.txt',
+      description: 'Write through an absolute repository path',
+    },
+    callId: 'concurrent-write',
+  })
+  await Promise.all([
+    subject.coordinator.begin(pwd, context(pwd, { cwd: '/workspace/home' })),
+    subject.coordinator.begin(write, context(write, { cwd: '/workspace/home' })),
+  ])
+  const pwdResult = subject.coordinator.execute(pwd)
+  await new Promise(resolve => setImmediate(resolve))
+  const writeResult = subject.coordinator.execute(write)
+  await new Promise(resolve => setImmediate(resolve))
+  releasePwd()
+
+  const pwdRouted = await pwdResult
+  assert.equal(pwdRouted.kind, 'result')
+  assert.equal(pwdRouted.result.value.stdout.text, '/workspace/home\n')
+  assert.equal(pwd.arguments.command, 'pwd')
+  await assert.rejects(writeResult, /finish-line non-repository operation unauthorized/)
+  assert.deepEqual(commands, [
+    '/usr/bin/pwd',
+    'printf x > /workspace/project/tracked.txt',
+    'printf x > /workspace/project/tracked.txt',
+  ])
+})
+
+test('a non-repository session keeps editor mutations fail-closed', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  subject.client.open = async () => ({ kind: 'not-in-repository' })
+  const exec = execution(subject, {
+    name: 'edit',
+    arguments: {
+      file_path: '/workspace/project/a.txt',
+      old_string: 'old',
+      new_string: 'new',
+    },
+  })
+
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
+    cwd: '/workspace/home',
+  })), { ok: false, reason: 'finish-line-unavailable' })
+  assert.equal(subject.edits.length, 0)
+})
+
+test('a no-tool non-repository turn classifies its stop through exact open', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/home',
+    allowsNonRepositoryDelegation: () => true,
+  })
+  subject.client.open = async request => {
+    assert.equal(request.cwd, '/workspace/home')
+    return { kind: 'not-in-repository' }
+  }
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.equal(subject.stops.length, 0)
 })
 
 function execution(subject, {
@@ -295,7 +648,13 @@ test('an exact validation transparently runs through nils and becomes a Bash for
   assert.equal(subject.opens.length, 0)
   const routed = await subject.coordinator.execute(exec)
   assert.equal(routed.kind, 'result')
-  assert.deepEqual(subject.opens, [{ product: 'dsh', sessionId: 'session-1', turnId: '1', cwd: '/workspace/project' }])
+  assert.deepEqual(subject.opens, [{
+    product: 'dsh',
+    sessionId: 'session-1',
+    turnId: '1',
+    cwd: '/workspace/project',
+    command,
+  }])
   assert.equal(subject.runs[1].command, command)
   assert.equal(subject.runs[1].runnerCapability, 'finish-line-runner:opaque')
   assert.deepEqual(subject.runs[1].execution.runner, { kind: 'danger-full-access' })
@@ -389,7 +748,7 @@ test('a non-contract foreground Bash command is executed once by nils and invali
   assert.equal(routed.kind, 'result')
   assert.equal(subject.edits.length, 0)
   assert.equal(subject.runs.length, 2)
-  assert.equal(subject.runs[1].command, 'pwd')
+  assert.equal(subject.runs[1].command, '/usr/bin/pwd')
   assert.equal(subject.runs[1].execution.kind, 'bash-v1')
   assert.deepEqual(subject.runs[1].execution.runner, { kind: 'danger-full-access' })
   subject.coordinator.result(exec, routed.result)
@@ -414,7 +773,17 @@ test('background Bash is denied while ordinary workdir and escalation inputs sta
     { command: ':', description: 'Run elsewhere', workdir: '/tmp' },
     { command: ':', description: 'Escalate command', sandbox_permissions: 'danger-full-access', justification: 'test' },
   ]) {
-    const subject = fixture()
+    const subject = fixture({
+      runtime: {
+        timeoutMs: 5_000,
+        execution: {
+          kind: 'bash-v1',
+          workdir: arguments_.workdir ?? '/workspace/project',
+          outputMaxBytes: 64 * 1024,
+          runner: { kind: 'danger-full-access' },
+        },
+      },
+    })
     configureOrdinaryShell(subject)
     const exec = execution(subject, { name: 'bash', arguments: arguments_ })
     assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })

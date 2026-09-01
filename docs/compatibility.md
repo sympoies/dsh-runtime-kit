@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.17` minimum; exactly validated through `1.27.29` |
+| nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
 
 The package does not claim compatibility with DSH release candidates after the
 exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
@@ -65,10 +65,14 @@ owner-only migration for legacy history paths.
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and seven acceptance binary
 hashes, plus the macOS ARM64 archive and runtime-health companion hashes. The
-validated v1.27.29 `review-specialists` requires every delivery finding to
+validated v1.27.34 `review-specialists` requires every delivery finding to
 declare `actionable: true` or `actionable: false`; packed review acceptance
 proves the former becomes one native line or file thread while the latter stays
-in the summary only. The v1.27.17 floor is intentional: managed DSH startup
+in the summary only. The same release preserves `not-in-repository` as an exact
+public policy code for existing non-symlink directories with no Git ancestor.
+Managed advisory and off-mode finish-line fallback may delegate only that code;
+repository access, scope coverage, malformed output, and enforcement failures
+remain authoritative. The v1.27.17 floor is intentional: managed DSH startup
 requires the atomic
 `agent-session work-context set --if-absent` contract and the durable
 finish-line acceptance provider, while dirty-workspace quarantine requires the

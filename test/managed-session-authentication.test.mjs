@@ -238,7 +238,7 @@ test('managed-session authentication is available to startup lifecycle owners be
   assert.equal(subject.spawned.length, 2)
 })
 
-for (const code of ['uncovered-mutation-scope', 'repository-unavailable']) {
+for (const code of ['not-in-repository', 'uncovered-mutation-scope', 'repository-unavailable']) {
   test(`managed-session authentication permits ${code} without a baseline claim`, async () => {
     const subject = harness({
       response(spec) {
@@ -263,6 +263,7 @@ for (const code of ['uncovered-mutation-scope', 'repository-unavailable']) {
     assert.deepEqual(bridge.resolve('home-console'), {
       sessionId: 'console-session-one',
       environment: principalEnvironment,
+      baselineFailureCode: code,
     })
   })
 }

@@ -9,6 +9,7 @@ import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deeps
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../policy.js'
 import {
+  allowsNonRepositoryFinishLineDelegation,
   boundedUtf8Segments,
   createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
@@ -88,15 +89,57 @@ test('workspace disposal cleanup completes before a replacement session starts',
   await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
 })
 
-test('only authenticated non-Linux advisory sessions bypass authoritative finish-line', () => {
-  const principal = mode => ({
+test('only per-operation authenticated advisory non-repository results may delegate', () => {
+  const principal = (mode, baselineFailureCode) => ({
     environment: { AGENT_SESSION_COORDINATION_MODE: mode },
+    ...(baselineFailureCode === undefined ? {} : { baselineFailureCode }),
   })
   assert.equal(requiresAuthoritativeFinishLine('linux', principal('advisory')), true)
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'repository-unavailable')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('off', 'repository-unavailable')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('enforce', 'repository-unavailable')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'uncovered-mutation-scope')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('off', 'uncovered-mutation-scope')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('enforce', 'uncovered-mutation-scope')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'not-in-repository')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('off', 'not-in-repository')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('enforce', 'not-in-repository')),
+    true,
+  )
   assert.equal(requiresAuthoritativeFinishLine('darwin', undefined), true)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('enforce')), true)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('advisory')), false)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('off')), false)
+  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', undefined), false)
+  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('enforce')), false)
+  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('advisory')), true)
+  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('off')), true)
+  assert.equal(allowsNonRepositoryFinishLineDelegation('darwin', principal('advisory')), false)
 })
 
 test('lifecycle prompt projection stops consuming segments at its UTF-8 budget', () => {
@@ -382,7 +425,33 @@ function acceptanceStopEnvelope(actions, selectStopDecision) {
 
 function lifecycleStopEnvelope(selectStopDecision) {
   return spec => {
-    if (spec.argv.includes('finish-line')) {
+    const finishLineIndex = spec.argv.indexOf('finish-line')
+    if (finishLineIndex >= 0) {
+      const action = spec.argv[finishLineIndex + 1]
+      if (action === 'open') {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-open.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.open-result.v1',
+            status: 'opened',
+            runner_capability: 'runner:opaque',
+            correlation_id: 'correlation-1',
+          },
+        }
+      }
+      if (action === 'release') {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-release.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.release-result.v1',
+            status: 'released',
+            correlation_id: 'correlation-1',
+          },
+        }
+      }
+      assert.equal(action, 'stop')
       return {
         schema_version: 'cli.agent-hook.finish-line-stop.v1',
         ok: true,
@@ -1125,27 +1194,7 @@ test('runtime service activation places canary progress after the real stop list
   })
   let runtimeStopListenerRegistrations = 0
   const subject = harness({
-    envelope: (spec) => {
-      if (spec.argv.includes('finish-line')) {
-        return {
-          schema_version: 'cli.agent-hook.finish-line-stop.v1',
-          ok: true,
-          data: {
-            schema_version: 'agent-hook.finish-line.stop-result.v1',
-            action: 'allow',
-            generation: 0,
-            contract_digest: 'contract-1',
-            correlation_id: 'correlation-1',
-            reason_codes: [],
-            remediation: [],
-          },
-        }
-      }
-      const ingress = JSON.parse(spec.stdio.stdin.data)
-      return decision('allow', {
-        event: ingress.event === 'agent/turn-stopping' ? 'Stop' : 'UserPromptSubmit',
-      })
-    },
+    envelope: lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' })),
     runtimeStopListenerGate,
     onRuntimeStopListenerRegistered() { runtimeStopListenerRegistrations += 1 },
     onRuntimeStopListenerEnter() { runtimeStopListenerEntered() },
@@ -2904,6 +2953,85 @@ test('an exact declared validation reaches finish-line before opaque shell polic
   assert.equal(subject.service.activeFinishLineReservations, 0)
 })
 
+test('a non-repository session runs an explicit repository validation in its bound workdir', async () => {
+  const finishLineRequests = []
+  const subject = harness({
+    workspace: '/workspace/home',
+    envelope: (spec) => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex < 0) return decision('allow')
+      const action = spec.argv[finishLineIndex + 1]
+      const request = JSON.parse(spec.stdio.stdin.data)
+      finishLineRequests.push([action, request])
+      if (action === 'open') {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-open.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.open-result.v1',
+            status: 'opened',
+            runner_capability: 'runner:opaque',
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      if (action === 'run' && request.execution === undefined) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-run.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.run-result.v1',
+            status: 'ready',
+            operation_id: request.operation_id,
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      if (action === 'run') {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-run.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.run-result.v1',
+            status: 'applied',
+            operation_id: request.operation_id,
+            generation: 1,
+            correlation_id: 'correlation:opaque',
+            execution: {
+              exit_code: 0,
+              signal: null,
+              timed_out: false,
+              aborted: false,
+              timeout_ms: request.timeout_ms,
+              stdout: { text: 'validated\n', truncated: false },
+              stderr: { text: '', truncated: false },
+              sandbox: { mode: 'danger-full-access', denied: false },
+            },
+          },
+        }
+      }
+      throw new Error(`unexpected finish-line action: ${action}`)
+    },
+  })
+  subject.ctx.tools.register(Object.freeze({
+    name: 'bash',
+    async execute() { throw new Error('finish-line should own repository validation') },
+  }))
+
+  const invocation = await subject.invoke({
+    command: 'bash scripts/ci/all.sh',
+    description: 'Run repository validation from home session',
+    workdir: '/workspace/project',
+  }, { name: 'bash' })
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, false)
+  assert.equal(invocation.executionResult.isError, false)
+  assert.deepEqual(finishLineRequests.map(([action]) => action), ['open', 'run', 'run'])
+  assert.equal(finishLineRequests[0][1].cwd, '/workspace/project')
+  assert.equal(finishLineRequests[2][1].execution.workdir, '/workspace/project')
+})
+
 test('an ordinary shell script remains subject to generic policy after finish-line probing', async () => {
   const finishLineActions = []
   let preExecutePolicies = 0
@@ -3155,27 +3283,10 @@ test('disposal releases an ordinary Bash capability while generic policy is pend
 
 test('stop advisory is steered once only after the authoritative finish-line allows', async () => {
   const subject = harness({
-    envelope: (spec) => {
-      if (spec.argv.includes('finish-line')) {
-        return {
-          schema_version: 'cli.agent-hook.finish-line-stop.v1',
-          ok: true,
-          data: {
-            schema_version: 'agent-hook.finish-line.stop-result.v1',
-            action: 'allow',
-            generation: 0,
-            contract_digest: 'contract-1',
-            correlation_id: 'correlation-1',
-            reason_codes: [],
-            remediation: [],
-          },
-        }
-      }
-      const ingress = JSON.parse(spec.stdio.stdin.data)
-      return ingress.event === 'agent/turn-stopping'
-        ? decision('context', { event: 'Stop', context: 'run the pre-PR check now' })
-        : decision('allow', { event: 'UserPromptSubmit' })
-    },
+    envelope: lifecycleStopEnvelope(() => decision('context', {
+      event: 'Stop',
+      context: 'run the pre-PR check now',
+    })),
   })
   subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
   await subject.waterfall(
@@ -3224,27 +3335,10 @@ test('stop policy transport denial steers closed and remains retryable in the sa
       stopAttempts += 1
       return stopAttempts === 1
     },
-    envelope: (spec) => {
-      if (spec.argv.includes('finish-line')) {
-        return {
-          schema_version: 'cli.agent-hook.finish-line-stop.v1',
-          ok: true,
-          data: {
-            schema_version: 'agent-hook.finish-line.stop-result.v1',
-            action: 'allow',
-            generation: 0,
-            contract_digest: 'contract-1',
-            correlation_id: 'correlation-1',
-            reason_codes: [],
-            remediation: [],
-          },
-        }
-      }
-      const ingress = JSON.parse(spec.stdio.stdin.data)
-      return ingress.event === 'agent/turn-stopping'
-        ? decision('context', { event: 'Stop', context: 'retry reached authoritative policy' })
-        : decision('allow', { event: 'UserPromptSubmit' })
-    },
+    envelope: lifecycleStopEnvelope(() => decision('context', {
+      event: 'Stop',
+      context: 'retry reached authoritative policy',
+    })),
   })
   subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
   await subject.waterfall(
@@ -3285,24 +3379,7 @@ test('a persistent stop policy failure terminalizes instead of steering the whol
       if (!spec.argv.includes('dispatch')) return false
       return JSON.parse(spec.stdio.stdin.data).event === 'agent/turn-stopping'
     },
-    envelope: (spec) => {
-      if (spec.argv.includes('finish-line')) {
-        return {
-          schema_version: 'cli.agent-hook.finish-line-stop.v1',
-          ok: true,
-          data: {
-            schema_version: 'agent-hook.finish-line.stop-result.v1',
-            action: 'allow',
-            generation: 0,
-            contract_digest: 'contract-1',
-            correlation_id: 'correlation-1',
-            reason_codes: [],
-            remediation: [],
-          },
-        }
-      }
-      return decision('allow', { event: 'UserPromptSubmit' })
-    },
+    envelope: lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' })),
   })
   subject.emit('agent/session-start', { agent: subject.agent, source: 'startup' })
   await subject.waterfall(
@@ -3440,7 +3517,10 @@ test('stop pipeline outcome distinguishes pre-policy exits without content', asy
 
   const contextInvalid = harness({
     envelope: lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' })),
-    pending: spec => spec.argv.includes('finish-line'),
+    pending: spec => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      return finishLineIndex >= 0 && spec.argv[finishLineIndex + 1] === 'open'
+    },
   })
   contextInvalid.emit('agent/session-start', {
     agent: contextInvalid.agent,

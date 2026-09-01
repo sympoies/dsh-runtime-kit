@@ -276,6 +276,21 @@ function envelopeData(envelope, schema) {
   return data
 }
 
+/** @param {unknown} envelope @param {unknown} outcome */
+function isExactNonRepositoryOpen(envelope, outcome) {
+  const result = record(outcome)
+  const value = record(envelope)
+  const error = record(value?.error)
+  return result?.exitCode === 65
+    && result.signal === null
+    && value?.schema_version === 'cli.agent-hook.finish-line-open.v1'
+    && value.ok === false
+    && error?.code === 'finish-line-not-in-repository'
+    && typeof error.message === 'string'
+    && error.message.length > 0
+    && Buffer.byteLength(error.message, 'utf8') <= MAX_ERROR_BYTES
+}
+
 /** @param {unknown} envelope @param {unknown} outcome @param {string} schema */
 function throwTemporaryProviderError(envelope, outcome, schema) {
   const result = record(outcome)
@@ -834,8 +849,14 @@ export function createNilsFinishLineClient(ctx, config = {}) {
 
   return Object.freeze({
     drain,
-    /** @param {import('./index.js').FinishLineIdentity} identity @param {AbortSignal} [signal] */
+    /** @param {import('./index.js').FinishLineIdentity & {command?: string}} identity @param {AbortSignal} [signal] */
     async open(identity, signal) {
+      if (identity.command !== undefined
+        && (typeof identity.command !== 'string'
+          || identity.command.trim().length === 0
+          || Buffer.byteLength(identity.command, 'utf8') > 16 * 1024)) {
+        throw new Error('dsh-runtime-kit: finish-line request invalid')
+      }
       const retryKey = openRetryKey(identity)
       let attemptToken = openRetryTokens.get(retryKey)
       if (attemptToken === undefined) {
@@ -849,8 +870,14 @@ export function createNilsFinishLineClient(ctx, config = {}) {
         schema_version: 'agent-hook.finish-line.open.v1',
         ...identityPayload(identity),
         attempt_token: attemptToken,
+        ...(identity.command === undefined ? {} : { command: identity.command }),
       }, signal)
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
+        if (isExactNonRepositoryOpen(envelope, outcome)) {
+          openRetryTokens.delete(retryKey)
+          retirePrincipal(identity)
+          return { kind: /** @type {const} */ ('not-in-repository') }
+        }
         throw new Error('dsh-runtime-kit: finish-line response invalid')
       }
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-open.v1')

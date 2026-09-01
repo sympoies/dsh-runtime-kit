@@ -11,34 +11,34 @@ test('issue 62 rollback is pinned to the exact accepted issue 61 baseline', () =
 
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.17')
-  assert.equal(manifest.validated_release, '1.27.29')
+  assert.equal(manifest.validated_release, '1.27.34')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.29',
-    source_commit: 'e6f50a34d68e7a6638eb104e423dcacd116c4071',
+    source_revision: 'v1.27.34',
+    source_commit: '5e8564357f6deb524e36d1a0cbdcf124f034c3f2',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.29-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: '4a169d28032ace8e6d696c9385e3096dbea6e5e1ea17c492b9b0f4094f8b5f21',
+      name: 'nils-cli-v1.27.34-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: 'a9c4a88038d66d538605fd1ded630fca342e1025372f24896254f4e34e5916a8',
     },
     artifacts: {
-      'agent-hook': { sha256: '75ac5435d3afb6dc129cf6179f71d3289004ef335942674a9bbce58cd0ad8cd0' },
-      'agent-docs': { sha256: '095f0a33e73727be984e8601871034353e70bea7229e95f304b6e37195e96c71' },
-      'agent-session': { sha256: 'ad519863bd0bd3c2d3120ddb41f6f932ab10d98fa8ebeae8fa9fe265858e0059' },
-      'forge-cli': { sha256: '10101f48242733028afa2a77183f22a7173c1f95af3fa2fc1893b10aa4b87ca7' },
-      'git-cli': { sha256: '899ec620a08b09d5a7be628fbc504a70063e05ddefc71071ae2c19725e7bda4e' },
-      'review-specialists': { sha256: '70b68cb2b5de2ba29a5c8c2e4661808a40ed7ac00ee8546f19d3f351b262e1bc' },
-      'semantic-commit': { sha256: 'c628a41e09f8354f13dd5c2678e2a52382cb1c4940c69fa14a604e91dc72fa6e' },
+      'agent-hook': { sha256: 'b97eb058b756168249d8adc6b35b7e57333196c05e1380eecd9a43e3b423dd3a' },
+      'agent-docs': { sha256: '83080958f26bffd11a5b60081267367d95f9a25b0823f80d56f4f319595890b3' },
+      'agent-session': { sha256: '316d86e4e9faa6e240b12823091a4e8e6fa161fb79791501d6c2b8729d01cae6' },
+      'forge-cli': { sha256: '27215e78ac042cf1334c68776e1d49a93b2d62332c0abeb14b262608540cfd0e' },
+      'git-cli': { sha256: '331d0dc8e1f58e082fd9d6984987fdb6d38fe37c3f31824867abcc56ca2b5962' },
+      'review-specialists': { sha256: 'f5add3b378ffe053bb8a742f7c37186d357d550cef83aa303fbb8633dab36e85' },
+      'semantic-commit': { sha256: '9d3f1bf99cbe18414e5692ee00d4f4e17f5b737acfdbec604672c73500f38d85' },
     },
     platforms: {
       'aarch64-apple-darwin': {
         archive: {
-          name: 'nils-cli-v1.27.29-aarch64-apple-darwin.tar.gz',
-          sha256: '5d65f5f7982910d7aa69466e054b9a05cf4453d6ce7aa26df47ad1643bdff5cf',
+          name: 'nils-cli-v1.27.34-aarch64-apple-darwin.tar.gz',
+          sha256: '9abc71134df9bdb04ff0a8d718fe91ad2e034c6f74b47c5af8d23a94735964e2',
         },
         artifacts: {
-          'agent-hook': { sha256: '6cf18e4e86563704284835d4c04437f7d74aadf8caa2ce0f2b0f81d1a84d2195' },
-          'agent-docs': { sha256: '1ea127194cee10b382ac016da15ac6a9dcc5d08b1a8c57819adadb288af7e230' },
-          'agent-session': { sha256: '4ec55b05809068e9b067eadb54bfcb478afca711a6ad4d5394aa2ce25713938b' },
+          'agent-hook': { sha256: '60ae88def2459e35e1c672f40650d44f433146571674b909caead7bad710d65c' },
+          'agent-docs': { sha256: 'c6128a9d16610c536882116b2256aa1fc3786749c4a8f89f602f2a65912c7870' },
+          'agent-session': { sha256: '47595ae1c84cfae19305085721c93adfc55a8bd792a20b08287bf3dbfa88369f' },
         },
       },
     },
@@ -49,6 +49,11 @@ test('issue 62 rollback is pinned to the exact accepted issue 61 baseline', () =
     manifest.commands
       .find(command => command.id === 'agent-hook.dispatch.dsh')
       ?.source_tasks.includes('sympoies/nils-cli#1541'),
+  )
+  assert.ok(
+    manifest.commands
+      .find(command => command.id === 'agent-session.work-context-set-if-absent')
+      ?.source_tasks.includes('sympoies/nils-cli#1591'),
   )
   assert.equal(manifest.candidate_validation?.feature, 'typed-data-policy-protected-roots')
   assert.equal(manifest.candidate_validation?.status, 'reviewed-source-candidate')
@@ -95,7 +100,10 @@ test('issue 62 rollback is pinned to the exact accepted issue 61 baseline', () =
         'cli.agent-session.work-context-set.v1',
         'agent-session.work-context-set-result.v1',
       ],
-      source_task: 'serenvia/sympoies-infra#213',
+      source_tasks: [
+        'serenvia/sympoies-infra#213',
+        'sympoies/nils-cli#1591',
+      ],
     },
   )
 })

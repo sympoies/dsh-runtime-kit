@@ -1,6 +1,7 @@
 // @ts-check
 
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-agent').Agent} Agent */
@@ -36,7 +37,7 @@ export function resolveFinishLineShellTimeout(kind, timeoutMs) {
 
 /**
  * @typedef FinishLineClient
- * @property {(request: FinishLineIdentity, signal?: AbortSignal) => Promise<{runnerCapability: string, correlationId: string}>} open
+ * @property {(request: FinishLineIdentity & {command?: string}, signal?: AbortSignal) => Promise<{runnerCapability: string, correlationId: string} | {kind: 'not-in-repository'}>} open
  * @property {(request: FinishLineIdentity) => void} abandonOpen
  * @property {(request: FinishLineIdentity & {operationId: string}, signal?: AbortSignal) => Promise<{status: 'registered' | 'duplicate', operationId: string, generation: number, correlationId: string}>} beginEdit
  * @property {(request: FinishLineIdentity & {operationId: string}) => void} abandonBegin
@@ -76,10 +77,16 @@ export function resolveFinishLineShellTimeout(kind, timeoutMs) {
  * @property {Agent['session']} session
  * @property {FinishLineIdentity} identity
  * @property {string | undefined} runnerCapability
- * @property {Promise<void> | undefined} runnerCapabilityOpening
+ * @property {Promise<boolean> | undefined} runnerCapabilityOpening
+ * @property {string | undefined} runnerCapabilityOpeningCommand
  * @property {number | undefined} runnerCapabilityRefreshedAt
  * @property {string | undefined} correlationId
  * @property {string | undefined} poison
+ */
+
+/**
+ * @typedef SessionLedgerSet
+ * @property {Map<string, SessionLedger>} ledgers
  * @property {number | undefined} steeringTurn
  * @property {number} steeringCount
  */
@@ -142,14 +149,41 @@ function operationFor(exec) {
       || args.timeoutMs <= 0)) {
     return { invalid: /** @type {const} */ (true) }
   }
+  // Use a lookup-independent executable for the one shell primitive that the
+  // non-repository finish-line contract can authenticate. This preserves the
+  // ordinary `pwd` UX without allowing an imported shell function to shadow it.
+  const command = args.command === 'pwd' ? '/usr/bin/pwd' : args.command
   return {
     kind: /** @type {const} */ ('validation'),
     intent: 'project-dev',
-    command: args.command,
+    command,
     timeoutMs: args.timeoutMs,
     workdir: typeof args.workdir === 'string' ? args.workdir : undefined,
     sandboxPermissions: typeof args.sandbox_permissions === 'string' ? args.sandbox_permissions : undefined,
     justification: typeof args.justification === 'string' ? args.justification : undefined,
+  }
+}
+
+/**
+ * Bind Bash authority to the tool's actual working directory. Editor tools do
+ * not expose an equivalent complete target root, so they retain the session
+ * identity and fail closed when that identity has no repository authority.
+ *
+ * @param {{sessionId: string, cwd: string, turn: number}} call
+ * @param {{kind: 'edit'} | {kind: 'validation', workdir: string | undefined}} operation
+ * @returns {FinishLineIdentity}
+ */
+function identityForOperation(call, operation) {
+  const cwd = operation.kind === 'validation' && operation.workdir !== undefined
+    ? isAbsolute(operation.workdir)
+      ? resolvePath(operation.workdir)
+      : resolvePath(call.cwd, operation.workdir)
+    : call.cwd
+  return {
+    product: 'dsh',
+    sessionId: call.sessionId,
+    turnId: String(call.turn),
+    cwd,
   }
 }
 
@@ -170,8 +204,54 @@ function matches(prepared, exec) {
 }
 
 /**
+ * Materialize the lookup-independent result of the one non-repository command
+ * that nils authenticated. No shell name resolution or argument mutation is
+ * involved after the exact call identity and operation are rechecked.
+ *
+ * @param {CallIdentity} prepared
+ * @param {ValidationCall['operation']} admitted
+ * @param {ValidationCall['operation']} current
+ * @param {Readonly<ToolExecution>} exec
+ * @returns {{kind: 'result', result: ToolExecutionResult} | undefined}
+ */
+function nonRepositoryPwdResult(prepared, admitted, current, exec) {
+  if (!matches(prepared, exec)
+    || record(exec.arguments)?.command !== 'pwd'
+    || current.command !== '/usr/bin/pwd'
+    || !sameValidationOperation(admitted, current)) return undefined
+  return {
+    kind: 'result',
+    result: {
+      isError: false,
+      content: [],
+      value: {
+        kind: 'foreground',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+        aborted: false,
+        timeoutMs: current.timeoutMs ?? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS,
+        stdout: { text: `${prepared.identity.cwd}\n`, truncated: false },
+        stderr: { text: '', truncated: false },
+      },
+    },
+  }
+}
+
+/** @param {ValidationCall['operation']} admitted @param {ValidationCall['operation']} current */
+function sameValidationOperation(admitted, current) {
+  return admitted.kind === current.kind
+    && admitted.intent === current.intent
+    && admitted.command === current.command
+    && admitted.timeoutMs === current.timeoutMs
+    && admitted.workdir === current.workdir
+    && admitted.sandboxPermissions === current.sandboxPermissions
+    && admitted.justification === current.justification
+}
+
+/**
  * @param {Context} ctx
- * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
+ * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, allowsNonRepositoryDelegation?: (identity: FinishLineIdentity) => boolean, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}, identity: FinishLineIdentity) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
  */
 export function createFinishLineCoordinator(ctx, options) {
   const HarnessError = options.HarnessError ?? Error
@@ -185,6 +265,7 @@ export function createFinishLineCoordinator(ctx, options) {
   const createOperationId = options.createOperationId ?? (() => `dsh:${randomUUID()}`)
   const now = options.now ?? Date.now
   const requiresFinishLine = options.requiresFinishLine ?? (() => true)
+  const allowsNonRepositoryDelegation = options.allowsNonRepositoryDelegation ?? (() => false)
   const authenticatePrincipal = options.authenticatePrincipal ?? (async () => undefined)
   const prepareValidationRuntime = options.prepareValidationRuntime ?? (async (_exec, operation) => ({
     timeoutMs: resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
@@ -203,9 +284,11 @@ export function createFinishLineCoordinator(ctx, options) {
   const validationCalls = new Map()
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const advisoryDelegations = new WeakSet()
+  /** @type {WeakMap<Readonly<ToolExecution>, {prepared: CallIdentity, operation: ValidationCall['operation']}>} */
+  const nonRepositoryPwdCalls = new WeakMap()
   /** @type {WeakSet<Readonly<ToolExecution>>} */
   const settledValidations = new WeakSet()
-  /** @type {Map<Agent['session'], SessionLedger>} */
+  /** @type {Map<Agent['session'], SessionLedgerSet>} */
   const ledgers = new Map()
   /** @type {Set<Promise<void>>} */
   const releaseTasks = new Set()
@@ -216,27 +299,40 @@ export function createFinishLineCoordinator(ctx, options) {
 
   /** @param {Agent['session']} session @param {FinishLineIdentity} identity */
   function ledgerFor(session, identity) {
-    const existing = ledgers.get(session)
-    if (existing !== undefined) {
-      if (existing.identity.sessionId !== identity.sessionId || existing.identity.cwd !== identity.cwd) {
-        existing.poison = 'identity'
-      }
-      return existing
+    let ledgerSet = ledgers.get(session)
+    if (ledgerSet === undefined) {
+      ledgerSet = { ledgers: new Map(), steeringTurn: undefined, steeringCount: 0 }
+      ledgers.set(session, ledgerSet)
     }
+    const key = finishLineIdentityKey(identity)
+    const existing = ledgerSet.ledgers.get(key)
+    if (existing !== undefined) return existing
     /** @type {SessionLedger} */
     const created = {
       session,
       identity,
       runnerCapability: undefined,
       runnerCapabilityOpening: undefined,
+      runnerCapabilityOpeningCommand: undefined,
       runnerCapabilityRefreshedAt: undefined,
       correlationId: undefined,
       poison: undefined,
-      steeringTurn: undefined,
-      steeringCount: 0,
     }
-    ledgers.set(session, created)
+    ledgerSet.ledgers.set(key, created)
     return created
+  }
+
+  /** @param {SessionLedger} ledger */
+  function removeLedger(ledger) {
+    const ledgerSet = ledgers.get(ledger.session)
+    if (ledgerSet?.ledgers.get(finishLineIdentityKey(ledger.identity)) !== ledger) return
+    ledgerSet.ledgers.delete(finishLineIdentityKey(ledger.identity))
+    if (ledgerSet.ledgers.size === 0) ledgers.delete(ledger.session)
+  }
+
+  /** @param {Agent['session']} session */
+  function sessionLedgers(session) {
+    return [...(ledgers.get(session)?.ledgers.values() ?? [])]
   }
 
   /** @param {SessionLedger} ledger @param {string} reason */
@@ -256,22 +352,44 @@ export function createFinishLineCoordinator(ctx, options) {
     }
   }
 
-  /** @param {SessionLedger} ledger @param {FinishLineIdentity} identity @param {AbortSignal} signal */
-  async function ensureRunnerCapability(ledger, identity, signal) {
+  /**
+   * @param {SessionLedger} ledger
+   * @param {FinishLineIdentity} identity
+   * @param {AbortSignal} signal
+   * @param {string} [command]
+   * @returns {Promise<boolean>} whether repository authority was opened
+   */
+  async function ensureRunnerCapability(ledger, identity, signal, command) {
     const currentCapability = ledger.runnerCapability
     if (currentCapability !== undefined
       && ledger.runnerCapabilityRefreshedAt !== undefined
-      && now() - ledger.runnerCapabilityRefreshedAt < CAPABILITY_REFRESH_INTERVAL_MS) return
+      && now() - ledger.runnerCapabilityRefreshedAt < CAPABILITY_REFRESH_INTERVAL_MS) return true
+    if (ledger.runnerCapabilityOpening !== undefined
+      && ledger.runnerCapabilityOpeningCommand !== command) {
+      try { await ledger.runnerCapabilityOpening } catch {}
+      if (signal.aborted) throw signal.reason ?? new Error('dsh-runtime-kit: finish-line aborted')
+      return ensureRunnerCapability(ledger, identity, signal, command)
+    }
     if (ledger.runnerCapabilityOpening === undefined) {
-      /** @type {Promise<void>} */
+      /** @type {Promise<boolean>} */
       let opening
       opening = (async () => {
         let opened
         try {
-          opened = await client.open(identity, signal)
+          opened = await client.open({
+            ...identity,
+            ...(command === undefined ? {} : { command }),
+          }, signal)
         } catch (error) {
           if (signal.aborted) throw error
-          opened = await client.open(identity, signal)
+          opened = await client.open({
+            ...identity,
+            ...(command === undefined ? {} : { command }),
+          }, signal)
+        }
+        if (!('runnerCapability' in opened)) {
+          if (opened.kind === 'not-in-repository') return false
+          throw new Error('dsh-runtime-kit: finish-line open response invalid')
         }
         acceptCorrelation(ledger, opened.correlationId)
         if (currentCapability !== undefined && opened.runnerCapability !== currentCapability) {
@@ -279,20 +397,28 @@ export function createFinishLineCoordinator(ctx, options) {
         }
         ledger.runnerCapability = opened.runnerCapability
         ledger.runnerCapabilityRefreshedAt = now()
+        return true
       })().catch(error => {
         if (ledger.runnerCapability === undefined) client.abandonOpen(identity)
         throw error
       }).finally(() => {
         if (ledger.runnerCapabilityOpening === opening) {
           ledger.runnerCapabilityOpening = undefined
+          ledger.runnerCapabilityOpeningCommand = undefined
         }
       })
       ledger.runnerCapabilityOpening = opening
+      ledger.runnerCapabilityOpeningCommand = command
     }
-    await ledger.runnerCapabilityOpening
+    const authoritative = await ledger.runnerCapabilityOpening
+    if (!authoritative) {
+      if (ledger.runnerCapability === undefined) removeLedger(ledger)
+      return false
+    }
     if (ledger.runnerCapability === undefined) {
       throw new Error('dsh-runtime-kit: finish-line capability unavailable')
     }
+    return true
   }
 
   /** @param {Agent['session']} session @param {SessionLedger} ledger */
@@ -316,7 +442,7 @@ export function createFinishLineCoordinator(ctx, options) {
     }
     if (ledger.runnerCapability === undefined) {
       client.abandonOpen(ledger.identity)
-      ledgers.delete(session)
+      removeLedger(ledger)
       return
     }
     const request = {
@@ -331,21 +457,19 @@ export function createFinishLineCoordinator(ctx, options) {
         released = await client.release(request)
       }
       acceptCorrelation(ledger, released.correlationId)
-      ledgers.delete(session)
+      removeLedger(ledger)
     } catch {
       releaseDegraded = true
       poison(ledger, 'release-persistence')
     }
   }
 
-  /** @param {Agent['session']} session */
-  function queueRelease(session) {
-    const ledger = ledgers.get(session)
-    if (ledger === undefined) return Promise.resolve()
+  /** @param {SessionLedger} ledger */
+  function queueLedgerRelease(ledger) {
     const identityKey = finishLineIdentityKey(ledger.identity)
     const existing = releaseTasksByIdentity.get(identityKey)
     if (existing !== undefined) return existing
-    const task = releaseLedger(session, ledger)
+    const task = releaseLedger(ledger.session, ledger)
     releaseTasks.add(task)
     releaseTasksByIdentity.set(identityKey, task)
     const settled = () => {
@@ -356,6 +480,11 @@ export function createFinishLineCoordinator(ctx, options) {
     }
     void task.then(settled, settled)
     return task
+  }
+
+  /** @param {Agent['session']} session */
+  function queueRelease(session) {
+    return Promise.all(sessionLedgers(session).map(queueLedgerRelease)).then(() => {})
   }
 
   /** @param {FinishLineIdentity} identity */
@@ -374,14 +503,16 @@ export function createFinishLineCoordinator(ctx, options) {
 
   /** @param {SessionLedger} ledger @param {number} turn @param {string} text @param {Agent} agent */
   function steer(ledger, turn, text, agent) {
-    if (ledger.steeringTurn !== turn) {
-      ledger.steeringTurn = turn
-      ledger.steeringCount = 0
+    const ledgerSet = ledgers.get(ledger.session)
+    if (ledgerSet === undefined) throw new Error('dsh-runtime-kit: finish-line ledger unavailable')
+    if (ledgerSet.steeringTurn !== turn) {
+      ledgerSet.steeringTurn = turn
+      ledgerSet.steeringCount = 0
     }
-    if (ledger.steeringCount >= maxSameTurnSteers) {
+    if (ledgerSet.steeringCount >= maxSameTurnSteers) {
       throw new Error('dsh-runtime-kit: finish-line same-turn steering limit reached')
     }
-    ledger.steeringCount += 1
+    ledgerSet.steeringCount += 1
     agent.steer(options.createSteeringMessage(boundedUtf8(text, MAX_STEERING_TEXT_BYTES)))
   }
 
@@ -394,7 +525,7 @@ export function createFinishLineCoordinator(ctx, options) {
     // reservation before releasing its durable runner capability.
     preparedEdits.clear()
     validationCalls.clear()
-    for (const session of ledgers.keys()) queueRelease(session)
+    for (const session of [...ledgers.keys()]) queueRelease(session)
     await drainReleaseTasks()
     await client.dispose()
     ledgers.clear()
@@ -428,12 +559,7 @@ export function createFinishLineCoordinator(ctx, options) {
       }
       const session = exec.agent?.session
       if (session === undefined) return { ok: false, reason: 'finish-line-session-missing' }
-      const identity = {
-        product: /** @type {const} */ ('dsh'),
-        sessionId: call.sessionId,
-        turnId: String(call.turn),
-        cwd: call.cwd,
-      }
+      const identity = identityForOperation(call, operation)
       if (requiresFinishLine(identity) === false) {
         advisoryDelegations.add(exec)
         return { ok: true, kind: /** @type {const} */ ('ordinary') }
@@ -457,7 +583,17 @@ export function createFinishLineCoordinator(ctx, options) {
         identity,
       }
       try {
-        await ensureRunnerCapability(ledger, identity, exec.signal)
+        if (!await ensureRunnerCapability(ledger, identity, exec.signal, operation.command)) {
+          if (allowsNonRepositoryDelegation(identity)) {
+            if (record(exec.arguments)?.command !== 'pwd'
+              || operation.command !== '/usr/bin/pwd') {
+              return { ok: false, reason: 'finish-line-unavailable' }
+            }
+            nonRepositoryPwdCalls.set(exec, { prepared, operation })
+            return { ok: true, kind: /** @type {const} */ ('ordinary') }
+          }
+          return { ok: false, reason: 'finish-line-unavailable' }
+        }
         const operationId = createOperationId()
         const result = await client.run({
           ...identity,
@@ -498,16 +634,13 @@ export function createFinishLineCoordinator(ctx, options) {
       }
       const session = exec.agent?.session
       if (session === undefined) return { ok: false, reason: 'finish-line-session-missing' }
-      const identity = {
-        product: /** @type {const} */ ('dsh'),
-        sessionId: call.sessionId,
-        turnId: String(call.turn),
-        cwd: call.cwd,
-      }
+      const identity = identityForOperation(call, operation)
       if (requiresFinishLine(identity) === false) {
         advisoryDelegations.add(exec)
         return { ok: true }
       }
+      if (advisoryDelegations.has(exec)) return { ok: true }
+      if (nonRepositoryPwdCalls.has(exec)) return { ok: true }
       await awaitPriorRelease(identity)
       if (!open) return { ok: false, reason: 'finish-line-disposed' }
       if (releaseDegraded) return { ok: false, reason: 'finish-line-unavailable' }
@@ -546,6 +679,9 @@ export function createFinishLineCoordinator(ctx, options) {
       const operationId = createOperationId()
       const beginRequest = { ...identity, operationId }
       try {
+        if (!await ensureRunnerCapability(ledger, identity, exec.signal)) {
+          return { ok: false, reason: 'finish-line-unavailable' }
+        }
         let result
         try {
           result = await client.beginEdit(beginRequest, exec.signal)
@@ -573,14 +709,39 @@ export function createFinishLineCoordinator(ctx, options) {
      */
     async execute(exec) {
       const operation = operationFor(/** @type {ToolExecution} */ (exec))
-      if (operation?.kind !== 'validation') return { kind: 'delegate' }
-      if (advisoryDelegations.delete(exec)) return { kind: 'delegate' }
+      const nonRepositoryPwd = nonRepositoryPwdCalls.get(exec)
+      nonRepositoryPwdCalls.delete(exec)
+      if (nonRepositoryPwd !== undefined) {
+        if (operation === undefined || 'invalid' in operation || 'unsupported' in operation
+          || operation.kind !== 'validation') {
+          throw new Error('dsh-runtime-kit: finish-line non-repository correlation invalid')
+        }
+        const routed = nonRepositoryPwdResult(
+          nonRepositoryPwd.prepared,
+          nonRepositoryPwd.operation,
+          operation,
+          exec,
+        )
+        if (routed === undefined) {
+          throw new Error('dsh-runtime-kit: finish-line non-repository correlation invalid')
+        }
+        return routed
+      }
       const pending = validationCalls.get(exec)
       validationCalls.delete(exec)
-      if (pending === undefined || !matches(pending.prepared, exec)) {
-        if (pending !== undefined) {
+      if (pending !== undefined) {
+        if (operation === undefined || 'invalid' in operation || 'unsupported' in operation
+          || operation.kind !== 'validation'
+          || !matches(pending.prepared, exec)
+          || !sameValidationOperation(pending.operation, operation)) {
           poison(ledgerFor(pending.prepared.session, pending.prepared.identity), 'execute-correlation')
+          throw new Error('dsh-runtime-kit: finish-line validation correlation invalid')
         }
+      } else {
+        if (advisoryDelegations.delete(exec)) return { kind: 'delegate' }
+        if (operation?.kind !== 'validation') return { kind: 'delegate' }
+      }
+      if (pending === undefined) {
         throw new Error('dsh-runtime-kit: finish-line validation correlation invalid')
       }
       const prepared = pending.prepared
@@ -589,7 +750,23 @@ export function createFinishLineCoordinator(ctx, options) {
         let operationId = pending.operationId
         let readiness = pending.readiness
         if (operationId === undefined || readiness === undefined) {
-          await ensureRunnerCapability(ledger, prepared.identity, exec.signal)
+          if (!await ensureRunnerCapability(
+            ledger,
+            prepared.identity,
+            exec.signal,
+            operation.command,
+          )) {
+            if (allowsNonRepositoryDelegation(prepared.identity)) {
+              const routed = nonRepositoryPwdResult(
+                prepared,
+                pending.operation,
+                operation,
+                exec,
+              )
+              if (routed !== undefined) return routed
+            }
+            throw new Error('dsh-runtime-kit: finish-line capability unavailable')
+          }
           operationId = createOperationId()
           const probe = await client.run({
             ...prepared.identity,
@@ -618,7 +795,10 @@ export function createFinishLineCoordinator(ctx, options) {
         const runtime = await prepareValidationRuntime(exec, {
           ...operation,
           kind: ordinary ? 'ordinary' : 'validation',
-        })
+        }, prepared.identity)
+        if (record(runtime.execution)?.workdir !== prepared.identity.cwd) {
+          throw new Error('dsh-runtime-kit: finish-line execution identity invalid')
+        }
         const result = await client.run({
           ...candidate,
           timeoutMs: runtime.timeoutMs,
@@ -668,6 +848,7 @@ export function createFinishLineCoordinator(ctx, options) {
       preparedEdits.delete(exec)
       validationCalls.delete(exec)
       advisoryDelegations.delete(exec)
+      nonRepositoryPwdCalls.delete(exec)
     },
 
     /**
@@ -716,7 +897,9 @@ export function createFinishLineCoordinator(ctx, options) {
       if (ledger.poison !== undefined) {
         throw new Error('dsh-runtime-kit: finish-line acceptance authority unavailable')
       }
-      await ensureRunnerCapability(ledger, identity, signal)
+      if (!await ensureRunnerCapability(ledger, identity, signal)) {
+        throw new Error('dsh-runtime-kit: finish-line acceptance requires repository authority')
+      }
       return invoke(Object.freeze({
         identity: Object.freeze(identity),
         runnerCapability: /** @type {string} */ (ledger.runnerCapability),
@@ -773,38 +956,67 @@ export function createFinishLineCoordinator(ctx, options) {
       if (sessionId.length === 0 || typeof cwd !== 'string') {
         throw new Error('dsh-runtime-kit: finish-line stop identity invalid')
       }
-      const identity = {
+      const headerIdentity = {
         product: /** @type {const} */ ('dsh'),
         sessionId,
         turnId: String(payload.turn),
         cwd,
       }
-      if (requiresFinishLine(identity) === false) return true
-      await awaitPriorRelease(identity)
+      if (requiresFinishLine(headerIdentity) === false) return true
+      await awaitPriorRelease(headerIdentity)
       if (!open || releaseDegraded) {
         throw new Error('dsh-runtime-kit: finish-line unavailable')
       }
-      const ledger = ledgerFor(payload.agent.session, identity)
-      if (!correlated) poison(ledger, 'stop-correlation')
-      if (ledger.poison !== undefined) {
-        steer(ledger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
+      const headerLedger = ledgerFor(payload.agent.session, headerIdentity)
+      if (!correlated) {
+        for (const ledger of sessionLedgers(payload.agent.session)) poison(ledger, 'stop-correlation')
+      }
+      if (headerLedger.poison !== undefined) {
+        steer(headerLedger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
         return false
       }
-      const decision = await client.stop(identity, payload.signal)
-      try {
-        acceptCorrelation(ledger, decision.correlationId)
-      } catch {
-        steer(ledger, payload.turn, 'Finish-line response identity changed. Do not stop; repair the runtime boundary and retry.', payload.agent)
-        return false
+      const headerAuthoritative = await ensureRunnerCapability(
+        headerLedger,
+        headerIdentity,
+        payload.signal,
+      )
+      if (!headerAuthoritative && !allowsNonRepositoryDelegation(headerIdentity)) {
+        throw new Error('dsh-runtime-kit: finish-line unavailable')
       }
-      if (decision.action === 'block') {
-        const details = [...decision.reasonCodes, ...decision.remediation].join('; ')
-        steer(ledger, payload.turn, `Finish-line blocked: ${details}`, payload.agent)
-        return false
+      const authoritativeLedgers = sessionLedgers(payload.agent.session)
+        .filter(ledger => ledger.runnerCapability !== undefined)
+        .sort((left, right) => {
+          const leftHeader = finishLineIdentityKey(left.identity) === finishLineIdentityKey(headerIdentity)
+          const rightHeader = finishLineIdentityKey(right.identity) === finishLineIdentityKey(headerIdentity)
+          if (leftHeader !== rightHeader) return leftHeader ? -1 : 1
+          return finishLineIdentityKey(left.identity).localeCompare(finishLineIdentityKey(right.identity))
+        })
+      for (const ledger of authoritativeLedgers) {
+        const identity = { ...ledger.identity, turnId: String(payload.turn) }
+        if (ledger.poison !== undefined) {
+          steer(ledger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
+          return false
+        }
+        if (!await ensureRunnerCapability(ledger, identity, payload.signal)) {
+          throw new Error('dsh-runtime-kit: finish-line unavailable')
+        }
+        const decision = await client.stop(identity, payload.signal)
+        try {
+          acceptCorrelation(ledger, decision.correlationId)
+        } catch {
+          steer(ledger, payload.turn, 'Finish-line response identity changed. Do not stop; repair the runtime boundary and retry.', payload.agent)
+          return false
+        }
+        if (decision.action === 'block') {
+          const details = [...decision.reasonCodes, ...decision.remediation].join('; ')
+          steer(ledger, payload.turn, `Finish-line blocked: ${details}`, payload.agent)
+          return false
+        }
       }
       await queueRelease(payload.agent.session)
       if (releaseDegraded || ledgers.has(payload.agent.session)) {
-        steer(ledger, payload.turn, 'Finish-line release is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
+        const releaseFailureLedger = sessionLedgers(payload.agent.session)[0] ?? headerLedger
+        steer(releaseFailureLedger, payload.turn, 'Finish-line release is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
         return false
       }
       return true
@@ -837,7 +1049,9 @@ export function createFinishLineCoordinator(ctx, options) {
     get trackedSessions() { return ledgers.size },
     get maxSameTurnSteers() { return maxSameTurnSteers },
     get degraded() {
-      return releaseDegraded || [...ledgers.values()].some(ledger => ledger.poison !== undefined)
+      return releaseDegraded || [...ledgers.values()]
+        .some(ledgerSet => [...ledgerSet.ledgers.values()]
+          .some(ledger => ledger.poison !== undefined))
     },
   })
 }
