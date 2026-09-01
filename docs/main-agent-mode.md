@@ -85,11 +85,14 @@ Mode simply never activates and the rest of the bundle is unaffected.
   same principal before `init`. Portable CLI names are first resolved through
   DSH's host executable seam; the resulting real filesystem identity must
   still match. A project-dev baseline claim is created when nils can prove a
-  repository scope; its exact typed `repository-unavailable` or
-  `uncovered-mutation-scope` result is non-fatal because Agent Console may be
-  launched from a non-repository home directory. All other baseline failures,
-  unmanaged sessions, foreign subagents, and failed authentication attempts
-  create no binding, and plugin teardown removes it.
+  repository scope. The exact typed `not-in-repository`,
+  `repository-unavailable`, and `uncovered-mutation-scope` baseline results are
+  authentication-tolerated; only `not-in-repository` in advisory/off mode
+  delegates repository finish-line because it proves a safely resolved cwd has
+  no Git ancestor. Unresolved origins, unprovable cwd boundaries, enforce mode,
+  malformed results, unmanaged sessions, foreign subagents, and failed
+  authentication attempts remain authoritative or create no binding. Plugin
+  teardown removes every binding.
 - **Worker shell guidance**: the lane system prompt still renders the exact
   environment for worker-owned CLI commands not represented by a native tool.
   Because DSH shell calls are separate processes, assignments must prefix the
