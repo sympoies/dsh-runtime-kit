@@ -149,7 +149,7 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 ## Released dependency
 
-The implementation requires the independently authenticated nils-cli v1.27.29
+The implementation requires the independently authenticated nils-cli v1.27.32
 release. It contains strict delivery-mode review actionability from PR #1582,
 so every finding explicitly selects either a native owner thread or a
 summary-only observation. The release retains the canonical provider-review
