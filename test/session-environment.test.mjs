@@ -91,6 +91,11 @@ test('managed principal resolution preserves only authenticated baseline scope f
     },
   })
 
+  assert.deepEqual(resolveManagedSessionPrincipal(undefined, 'provider-one', bridge('not-in-repository')), {
+    sessionId: 'session-one',
+    environment,
+    baselineFailureCode: 'not-in-repository',
+  })
   assert.deepEqual(resolveManagedSessionPrincipal(undefined, 'provider-one', bridge('repository-unavailable')), {
     sessionId: 'session-one',
     environment,

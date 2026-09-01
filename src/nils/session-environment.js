@@ -8,6 +8,7 @@ const HOST_RUNTIME_FIELDS = new Set([
   'XDG_RUNTIME_DIR',
 ])
 const BASELINE_FAILURE_CODES = new Set([
+  'not-in-repository',
   'repository-unavailable',
   'uncovered-mutation-scope',
 ])
@@ -120,7 +121,7 @@ export function authenticatedNilsEnvironment(
  * @param {unknown} _ctx retained for the transport call signature; never used
  * @param {string} sessionId
  * @param {{resolve?: (id:string) => unknown} | undefined} [bridge]
- * @returns {{sessionId:string, environment:Readonly<Record<string,string>>, baselineFailureCode?:'repository-unavailable'|'uncovered-mutation-scope'} | undefined}
+ * @returns {{sessionId:string, environment:Readonly<Record<string,string>>, baselineFailureCode?:'not-in-repository'|'repository-unavailable'|'uncovered-mutation-scope'} | undefined}
  */
 export function resolveManagedSessionPrincipal(_ctx, sessionId, bridge) {
   const raw = bridge?.resolve?.(sessionId)
@@ -148,6 +149,6 @@ export function resolveManagedSessionPrincipal(_ctx, sessionId, bridge) {
     environment: /** @type {Readonly<Record<string,string>>} */ (environment),
     ...(baselineFailureCode === undefined
       ? {}
-      : { baselineFailureCode: /** @type {'repository-unavailable'|'uncovered-mutation-scope'} */ (baselineFailureCode) }),
+      : { baselineFailureCode: /** @type {'not-in-repository'|'repository-unavailable'|'uncovered-mutation-scope'} */ (baselineFailureCode) }),
   }
 }

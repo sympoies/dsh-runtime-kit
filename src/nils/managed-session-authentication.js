@@ -15,6 +15,7 @@ const WORK_CONTEXT_SET_SCHEMA = 'agent-session.work-context-set-result.v1'
 const WORK_CONTEXT_SCHEMA = 'agent-session.work-context.v1'
 const CONFLICT_EVALUATION_SCHEMA = 'agent-session.conflict-evaluation.v1'
 const BASELINE_SCOPE_UNAVAILABLE = new Set([
+  'not-in-repository',
   'repository-unavailable',
   'uncovered-mutation-scope',
 ])
@@ -152,7 +153,7 @@ function baselineScopeUnavailableCode(envelope) {
     && isRecord(outer.error)
     && BASELINE_SCOPE_UNAVAILABLE.has(outer.error.code)
     && isBoundedText(outer.error.message, 512)
-    ? /** @type {'repository-unavailable' | 'uncovered-mutation-scope'} */ (outer.error.code)
+    ? /** @type {'not-in-repository' | 'repository-unavailable' | 'uncovered-mutation-scope'} */ (outer.error.code)
     : undefined
 }
 

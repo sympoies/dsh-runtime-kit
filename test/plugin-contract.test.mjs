@@ -108,14 +108,26 @@ test('authenticated advisory non-repository sessions bypass authoritative finish
   )
   assert.equal(
     requiresAuthoritativeFinishLine('linux', principal('advisory', 'uncovered-mutation-scope')),
-    false,
+    true,
   )
   assert.equal(
     requiresAuthoritativeFinishLine('linux', principal('off', 'uncovered-mutation-scope')),
-    false,
+    true,
   )
   assert.equal(
     requiresAuthoritativeFinishLine('linux', principal('enforce', 'uncovered-mutation-scope')),
+    true,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('advisory', 'not-in-repository')),
+    false,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('off', 'not-in-repository')),
+    false,
+  )
+  assert.equal(
+    requiresAuthoritativeFinishLine('linux', principal('enforce', 'not-in-repository')),
     true,
   )
   assert.equal(requiresAuthoritativeFinishLine('darwin', undefined), true)
