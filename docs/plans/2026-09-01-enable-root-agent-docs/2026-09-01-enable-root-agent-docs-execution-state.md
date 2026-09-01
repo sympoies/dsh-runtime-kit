@@ -9,9 +9,10 @@
 - Plan branch: `feat/enable-root-agent-docs`
 - Current sprint: Sprint 1
 - Status: in-progress
-- Current task: 1.1
-- Next task: 1.2
-- Blockers: none
+- Current task: 1.2
+- Next task: rerun complete validation after PR #157 merges, then review and delivery
+- Blockers: repository baseline repair PR #157 must land before the complete
+  test and typecheck gates can pass from a fresh main checkout
 - Last updated: 2026-09-01
 
 ## Task Ledger
@@ -30,3 +31,9 @@
   generic intent because its DSH-only product tag is intentionally isolated.
 - 2026-09-01: The user authorized issue creation, implementation, review,
   merge, and closeout in the same delivery.
+- 2026-09-01: The focused catalog owner test, all Codex/Claude/Hermes
+  edit/delivery preflights, one-document DSH context resolution, strict project
+  audit, policy benchmark, diff check, and package-content check passed.
+- 2026-09-01: Node 24 full validation reached 750/752 tests. The two failures
+  are the fresh-clone squash-anchor defect already owned by PR #157. Typecheck
+  also reproduced the terminal-policy declaration defect owned by the same PR.
