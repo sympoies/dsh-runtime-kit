@@ -7,12 +7,12 @@
 [[document]]
 context = "project-dev"
 scope = "project"
-path = "agent-docs/PROJECT_DEV_EDIT.md"
+path = "PROJECT_DEV_EDIT.md"
 product = ["codex", "claude", "hermes"]
 phase = "edit"
 required = true
 when = "always"
-notes = "Compact required edit contract for contributors; DSH loads its separate packaged home-scoped copy instead."
+notes = "Runtime-neutral required edit contract for contributors; DSH loads its separate packaged home-scoped contract instead."
 
 [[document]]
 context = "project-dev"
@@ -45,5 +45,5 @@ description = "Run the complete routine repository gate once for the final candi
 [path_classes]
 production = ["AGENT_DOCS.toml", "package.json", "package-lock.json", "index.js", "policy.js", "cordis.patch.yml", "bin/**", "src/**", "scripts/**", "policy/**", "compatibility/**", "patches/**", "agent-docs/**", "agents/**", "skills/**"]
 test = ["test/**"]
-docs = ["AGENTS.md", "README.md", "DEVELOPMENT.md", "LICENSE", "docs/**"]
+docs = ["AGENTS.md", "CLAUDE.md", "PROJECT_DEV_EDIT.md", "README.md", "DEVELOPMENT.md", "LICENSE", "docs/**"]
 unmatched = "unknown"

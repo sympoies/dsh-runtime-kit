@@ -382,67 +382,36 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
   }
 })
 
-test('repository agent-docs catalog keeps contributor and packaged DSH routing separate', () => {
-  const repositoryCatalog = readFileSync(join(projectRoot, 'AGENT_DOCS.toml'), 'utf8')
-  const packagedCatalog = readFileSync(
-    join(projectRoot, 'agent-docs', 'AGENT_DOCS.toml'),
+test('repository agent-docs semantic smoke is wired to the documented product entrypoints', () => {
+  const development = readFileSync(join(projectRoot, 'DEVELOPMENT.md'), 'utf8')
+  const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+  const compatibilityWorkflow = readFileSync(
+    join(projectRoot, '.github', 'workflows', 'compatibility.yml'),
     'utf8',
   )
-  const development = readFileSync(join(projectRoot, 'DEVELOPMENT.md'), 'utf8')
-  const documentBlocks = repositoryCatalog.split('[[document]]').slice(1)
-    .map(block => block.split('[[validation]]', 1)[0])
-
-  assert.equal(documentBlocks.length, 3)
-  assert.match(documentBlocks[0], /context = "project-dev"/u)
-  assert.match(documentBlocks[0], /scope = "project"/u)
-  assert.match(documentBlocks[0], /path = "agent-docs\/PROJECT_DEV_EDIT\.md"/u)
-  assert.match(documentBlocks[0], /product = \["codex", "claude", "hermes"\]/u)
-  assert.match(documentBlocks[0], /phase = "edit"/u)
-  assert.match(documentBlocks[0], /required = true/u)
-
-  assert.match(documentBlocks[1], /path = "DEVELOPMENT\.md"/u)
-  assert.match(documentBlocks[1], /product = \["codex", "claude", "hermes"\]/u)
-  assert.match(documentBlocks[1], /phase = \["edit", "delivery"\]/u)
-  assert.match(documentBlocks[1], /required = false/u)
-
-  assert.match(
-    documentBlocks[2],
-    /path = "docs\/policies\/upstream-contribution\.md"/u,
+  const contributorEditContract = readFileSync(
+    join(projectRoot, 'PROJECT_DEV_EDIT.md'),
+    'utf8',
   )
-  assert.match(documentBlocks[2], /product = \["codex", "claude", "hermes"\]/u)
-  assert.match(documentBlocks[2], /phase = "delivery"/u)
-  assert.match(documentBlocks[2], /required = false/u)
 
-  const projectDocuments = documentBlocks.join('\n')
-  assert.doesNotMatch(projectDocuments, /product = (?:"dsh"|\[[^\]]*"dsh")/u)
-  assert.doesNotMatch(projectDocuments, /scope = "home"/u)
-  assert.equal((repositoryCatalog.match(/\[\[validation\]\]/gu) ?? []).length, 1)
-  assert.match(
-    repositoryCatalog,
-    /product = \["codex", "claude", "hermes", "dsh"\]/u,
+  assert.equal(readFileSync(join(projectRoot, 'CLAUDE.md'), 'utf8'), '@AGENTS.md\n')
+  assert.doesNotMatch(contributorEditContract, /DeepSeek|\bDSH\b|DSH runtime/iu)
+  assert.equal(
+    packageManifest.scripts['test:agent-docs-catalog'],
+    'node test/agent-docs-catalog-smoke.mjs',
   )
-  assert.match(
-    repositoryCatalog,
-    /commands = \["npm test", "npm run typecheck", "npm run benchmark:policy"\]/u,
-  )
-  assert.match(repositoryCatalog, /production = \[[^\n]*"AGENT_DOCS\.toml"/u)
-  assert.match(repositoryCatalog, /test = \["test\/\*\*"\]/u)
-  assert.match(repositoryCatalog, /docs = \[[^\n]*"DEVELOPMENT\.md"/u)
-  assert.match(repositoryCatalog, /unmatched = "unknown"/u)
-
-  assert.equal((packagedCatalog.match(/\[\[document\]\]/gu) ?? []).length, 1)
-  assert.match(packagedCatalog, /scope = "home"/u)
-  assert.match(packagedCatalog, /path = "PROJECT_DEV_EDIT\.md"/u)
-  assert.match(packagedCatalog, /product = "dsh"/u)
-  assert.match(packagedCatalog, /phase = "edit"/u)
-  assert.match(packagedCatalog, /required = true/u)
+  assert.match(compatibilityWorkflow, /name: Validate repository agent-docs loading contract/u)
+  assert.match(compatibilityWorkflow, /AGENT_DOCS_BIN:[^\n]*agent-docs/u)
+  assert.match(compatibilityWorkflow, /AGENT_HOOK_BIN:[^\n]*agent-hook/u)
+  assert.match(compatibilityWorkflow, /run: npm run test:agent-docs-catalog/u)
 
   assert.match(development, /--phase edit[\s\\]+\n\s+--strict --require-declared-intent/u)
   assert.match(development, /Two catalogs intentionally coexist\./u)
-  assert.match(development, /\| Harness \| `AGENTS\.md` \| Codex, Claude, Hermes, DSH/u)
+  assert.match(development, /\| Harness \| `AGENTS\.md` \| Codex, Hermes, DSH/u)
+  assert.match(development, /\| Harness \| `CLAUDE\.md` → `@AGENTS\.md` \| Claude/u)
   assert.match(
     development,
-    /\| Root catalog \| `agent-docs\/PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,
+    /\| Root catalog \| `PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,
   )
   assert.match(
     development,
@@ -457,6 +426,7 @@ test('repository agent-docs catalog keeps contributor and packaged DSH routing s
     /\| Packaged DSH catalog \| installed `PROJECT_DEV_EDIT\.md` \(source: `agent-docs\/PROJECT_DEV_EDIT\.md`\) \| DSH \| `project-dev` \/ `edit` \| yes/u,
   )
   assert.match(development, /after\s+the final mutation and before declaring the task complete/u)
+  assert.match(development, /authoritative finish-line resolver/u)
   assert.match(development, /they are not automatic model context/u)
 })
 

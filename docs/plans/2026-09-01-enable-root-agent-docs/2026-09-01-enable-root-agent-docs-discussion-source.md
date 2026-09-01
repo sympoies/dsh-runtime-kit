@@ -25,8 +25,9 @@ packaged `agent-docs/` catalog used by the DSH runtime.
   Codex, Claude, and Hermes CLI projection.
 - Repository health and finish-line validation discovery activate only when a
   repository-root `AGENT_DOCS.toml` exists.
-- `AGENTS.md` is loaded by the harness and must not be duplicated through
-  agent-docs.
+- `AGENTS.md` is loaded directly by Codex, Hermes, and DSH. Claude requires its
+  native repository `CLAUDE.md` entrypoint to import that same policy. These
+  always-on entrypoints must not be duplicated through agent-docs.
 
 ## Decisions
 
@@ -34,8 +35,8 @@ packaged `agent-docs/` catalog used by the DSH runtime.
   the packaged DSH catalog.
 - The root catalog owns repository-development routing; `agent-docs/` remains
   the published DSH runtime context asset.
-- Standard products load the compact project-development document only during
-  `project-dev/edit`.
+- Standard products load a runtime-neutral compact project-development document
+  only during `project-dev/edit`; DSH retains its separate packaged document.
 - `DEVELOPMENT.md` is declared for `project-dev/edit` and
   `project-dev/delivery`, but remains optional and on demand because it is a
   contributor reference rather than prompt-mandatory context.
@@ -55,6 +56,8 @@ packaged `agent-docs/` catalog used by the DSH runtime.
   validation commands, and path classes.
 - Regression coverage for the complete catalog contract and the separation
   from the packaged DSH catalog.
+- Claude's native repository policy import and a CI semantic resolver smoke
+  using the pinned released `agent-docs` and `agent-hook` binaries.
 - Contributor documentation that lists every catalog document, its owner,
   product, intent/phase, required status, and loading trigger.
 - Provider issue, implementation PR, independent review, merge, strict
@@ -82,11 +85,14 @@ packaged `agent-docs/` catalog used by the DSH runtime.
    their exact optional loading phases.
 5. All four product views must receive the same repository validation
    commands through their appropriate generic or isolated resolver.
-6. Tests must reject missing documents, wrong products, wrong phases, wrong
-   required flags, validation drift, catalog conflation, and an unclassified
-   root catalog.
+6. The pinned released resolvers must reject missing documents, wrong products,
+   wrong phases, wrong required flags, validation drift, catalog conflation,
+   and an unclassified root catalog in CI; DSH validation selection must be
+   proved through the authoritative finish-line resolver.
 7. `DEVELOPMENT.md` must explain the two-catalog ownership boundary and the
    exact load timing without implying that a no-op preflight is valid.
+8. Claude must load the complete repository policy through a tracked
+   `CLAUDE.md` import of `AGENTS.md`.
 
 ## Acceptance criteria
 
@@ -96,6 +102,9 @@ packaged `agent-docs/` catalog used by the DSH runtime.
 - Generic delivery preflight exposes optional `DEVELOPMENT.md` and the
   upstream-contribution policy without force-injecting them.
 - The DSH catalog contract remains product-isolated and package parity passes.
+- Claude's native entrypoint imports `AGENTS.md`, the root compact document is
+  runtime-neutral, and the DSH finish-line resolver selects exactly the three
+  declared commands.
 - `agent-docs audit --target project --strict`, the focused catalog test,
   `npm test`, `npm run typecheck`, and `npm run benchmark:policy` pass.
 - Independent testing and maintainability review, plus any risk-selected lens,
@@ -128,6 +137,8 @@ Recommended execution state: docs/plans/2026-09-01-enable-root-agent-docs/2026-0
 ## Read first
 
 - `AGENTS.md`
+- `CLAUDE.md`
+- `PROJECT_DEV_EDIT.md`
 - `DEVELOPMENT.md`
 - `agent-docs/AGENT_DOCS.toml`
 - `agent-docs/PROJECT_DEV_EDIT.md`
