@@ -239,7 +239,7 @@ const AUTHORITATIVE_LEGS = Object.freeze([
   'agent-disposal',
   'graceful-restart',
   'crash-recovery',
-  'candidate-companion-identity-mismatch',
+  'candidate-old-provider-mismatch',
   'candidate-upgrade',
   'baseline-rollback',
 ])
@@ -517,7 +517,7 @@ function authoritativeMatrix(value) {
         exactVerdict(leg.post_crash_verdict, 'block', 'infrastructure-blocked')
         exactVerdict(leg.recovery_verdict, 'allow', 'satisfied')
         break
-      case 'candidate-companion-identity-mismatch':
+      case 'candidate-old-provider-mismatch':
         exactRecord(leg, [
           'id', 'process_instance_sha256', 'workspace_sha256', 'resources_after',
           'boot_outcome', 'denial_code', 'probe_loaded', 'model_calls', 'session_starts',

@@ -76,7 +76,7 @@ const authoritativeLegIds = [
   'agent-disposal',
   'graceful-restart',
   'crash-recovery',
-  'candidate-companion-identity-mismatch',
+  'candidate-old-provider-mismatch',
   'candidate-upgrade',
   'baseline-rollback',
 ]
@@ -245,7 +245,7 @@ function authoritativeMatrix() {
         recovery_verdict: { action: 'allow', aggregate: 'satisfied' },
       },
       {
-        ...common('candidate-companion-identity-mismatch'),
+        ...common('candidate-old-provider-mismatch'),
         boot_outcome: 'blocked-before-model',
         denial_code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
         probe_loaded: true,

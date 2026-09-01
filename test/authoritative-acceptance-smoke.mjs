@@ -448,7 +448,7 @@ digest = ${JSON.stringify(policyDigest)}
     installMismatchProfile(mismatchProfile, candidatePackage)
     rmSync(providerProbePath, { force: true })
     writeFileSync(mismatchCompanion, '#!/bin/sh\nexit 99\n', { mode: 0o500 })
-    const mismatchProcess = processIdentity('candidate-companion-identity-mismatch')
+    const mismatchProcess = processIdentity('candidate-old-provider-mismatch')
     enterStep('companion-identity-mismatch')
     const mismatch = spawnSync(pnpmBin, ['dsh', '--profile', mismatchProfile], {
       cwd: dshRoot,
@@ -631,7 +631,7 @@ digest = ${JSON.stringify(policyDigest)}
           recovery_verdict: crashRecovery.final_verdict,
         },
         {
-          id: 'candidate-companion-identity-mismatch',
+          id: 'candidate-old-provider-mismatch',
           process_instance_sha256: mismatchProcess,
           workspace_sha256: positive.workspace_sha256,
           resources_after: zeroResources(positive),
