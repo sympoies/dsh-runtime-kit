@@ -52,22 +52,31 @@ export function resolveFinishLineShellSpec(shell, operation, input) {
 }
 
 /**
- * Linux remains the only authoritative finish-line execution host for a Git
- * repository. A managed session whose authenticated baseline attempt proved
- * that its cwd is outside every repository has no repository finish-line to
- * open, so advisory/off mode delegates to ordinary policy on every platform.
- * Missing, malformed, repository-unavailable, uncovered-scope, and enforce
- * identities remain fail-closed on Linux.
+ * Linux remains the only authoritative finish-line execution host. Repository
+ * presence is classified per operation by agent-hook; a session-start result
+ * is metadata and never grants a persistent bypass.
  *
  * @param {NodeJS.Platform} platform
  * @param {{environment?: Readonly<Record<string, string>>, baselineFailureCode?: string} | undefined} principal
  */
 export function requiresAuthoritativeFinishLine(platform, principal) {
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
-  if (principal?.baselineFailureCode === 'not-in-repository'
-    && (mode === 'advisory' || mode === 'off')) return false
   if (platform === 'linux') return true
   return mode !== 'advisory' && mode !== 'off'
+}
+
+/**
+ * Only an authenticated managed advisory/off principal may consume an exact
+ * per-operation `finish-line-not-in-repository` result on Linux.
+ *
+ * @param {NodeJS.Platform} platform
+ * @param {{environment?: Readonly<Record<string, string>>} | undefined} principal
+ */
+export function allowsNonRepositoryFinishLineDelegation(platform, principal) {
+  const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
+  return platform === 'linux'
+    && principal !== undefined
+    && (mode === 'advisory' || mode === 'off')
 }
 
 /**
@@ -382,7 +391,11 @@ export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createC
       process.platform,
       resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
     ),
-    prepareValidationRuntime: async (exec, operation) => {
+    allowsNonRepositoryDelegation: identity => allowsNonRepositoryFinishLineDelegation(
+      process.platform,
+      resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
+    ),
+    prepareValidationRuntime: async (exec, operation, identity) => {
       const session = exec.agent?.session
       if (session === undefined) throw new Error('dsh-runtime-kit: finish-line-session-missing')
       if (!await ctx.sessions.flush(session)) {
@@ -450,7 +463,7 @@ export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createC
       if (spec.command !== operation.command
         || typeof spec.workdir !== 'string'
         || (operation.kind === 'validation'
-          && canonicalPath(spec.workdir) !== canonicalPath(headerCwd))
+          && canonicalPath(spec.workdir) !== canonicalPath(identity.cwd))
         || typeof spec.timeoutMs !== 'number'
         || !Number.isFinite(spec.timeoutMs)
         || spec.timeoutMs <= 0

@@ -53,7 +53,7 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
 | Cordis | `4.0.1` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.17` minimum; exactly validated through `1.27.32` |
+| nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
 
 The package deliberately does not claim compatibility with DSH release
 candidates after rc.2 or the eventual stable `0.1.x` line. See the

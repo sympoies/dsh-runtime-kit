@@ -272,7 +272,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.27.32 executables for every supported DSH row.
+the released and validated v1.27.34 executables for every supported DSH row.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

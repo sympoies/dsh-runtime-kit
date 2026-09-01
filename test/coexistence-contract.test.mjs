@@ -11,34 +11,34 @@ test('issue 62 rollback is pinned to the exact accepted issue 61 baseline', () =
 
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.27.17')
-  assert.equal(manifest.validated_release, '1.27.32')
+  assert.equal(manifest.validated_release, '1.27.34')
   assert.deepEqual(manifest.release, {
-    source_revision: 'v1.27.32',
-    source_commit: '96ee66590428e173c10c494565a3bb429b7b6db8',
+    source_revision: 'v1.27.34',
+    source_commit: '5e8564357f6deb524e36d1a0cbdcf124f034c3f2',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.32-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: 'db0ef6c888574c0c4e538e96a9a1dfa8f7d23d9beceed7249b90b54061b8918c',
+      name: 'nils-cli-v1.27.34-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: 'a9c4a88038d66d538605fd1ded630fca342e1025372f24896254f4e34e5916a8',
     },
     artifacts: {
-      'agent-hook': { sha256: 'e51fc4258c8c245707aa68ac7c37b58a49670bd2d62b5d6663c2f7db62ae6dae' },
-      'agent-docs': { sha256: 'c709f83826d0fc7b19d5c3b6f52d6a16007fbb815e20f0b1721102c89d710539' },
-      'agent-session': { sha256: '2681b03aae6310b917607cf5502ddc7df7f033679eae8fc85ef148fff5df6cbb' },
-      'forge-cli': { sha256: '11f6f5bb565592f76ce1d8c760cc1a93b2440341189019d7936efbcd9ed24b84' },
-      'git-cli': { sha256: '620dbe12ea07f4e634131b4d1f1c6a51457f982bf959117de182e4248209aa8b' },
-      'review-specialists': { sha256: '233b1f36b86b6d88f133f4a548d90df0370229f77962fd9b2d8987f10984200d' },
-      'semantic-commit': { sha256: 'ff3cbb5e4f2a3e0ccbcd797af8decb371b17f41c2e0f949f43725fe45f1d6b98' },
+      'agent-hook': { sha256: 'b97eb058b756168249d8adc6b35b7e57333196c05e1380eecd9a43e3b423dd3a' },
+      'agent-docs': { sha256: '83080958f26bffd11a5b60081267367d95f9a25b0823f80d56f4f319595890b3' },
+      'agent-session': { sha256: '316d86e4e9faa6e240b12823091a4e8e6fa161fb79791501d6c2b8729d01cae6' },
+      'forge-cli': { sha256: '27215e78ac042cf1334c68776e1d49a93b2d62332c0abeb14b262608540cfd0e' },
+      'git-cli': { sha256: '331d0dc8e1f58e082fd9d6984987fdb6d38fe37c3f31824867abcc56ca2b5962' },
+      'review-specialists': { sha256: 'f5add3b378ffe053bb8a742f7c37186d357d550cef83aa303fbb8633dab36e85' },
+      'semantic-commit': { sha256: '9d3f1bf99cbe18414e5692ee00d4f4e17f5b737acfdbec604672c73500f38d85' },
     },
     platforms: {
       'aarch64-apple-darwin': {
         archive: {
-          name: 'nils-cli-v1.27.32-aarch64-apple-darwin.tar.gz',
-          sha256: '69c1c5e9195c59fdadaa9069a0d6a3908462cef52c79b0934bdf664e0353fc2c',
+          name: 'nils-cli-v1.27.34-aarch64-apple-darwin.tar.gz',
+          sha256: '9abc71134df9bdb04ff0a8d718fe91ad2e034c6f74b47c5af8d23a94735964e2',
         },
         artifacts: {
-          'agent-hook': { sha256: '6d231fe3c066f3e112525a819551770bc14ad1acbf9846e982f6f852cea6b7c7' },
-          'agent-docs': { sha256: 'a97ae2e7067b653e347db19d0e0bbe8afd2d168fd1d3e6fd4e67c437639c69e0' },
-          'agent-session': { sha256: '60c426214417bc81059966905cdb032a005b92e5e237e3d4e2496cb7fd90c58c' },
+          'agent-hook': { sha256: '60ae88def2459e35e1c672f40650d44f433146571674b909caead7bad710d65c' },
+          'agent-docs': { sha256: 'c6128a9d16610c536882116b2256aa1fc3786749c4a8f89f602f2a65912c7870' },
+          'agent-session': { sha256: '47595ae1c84cfae19305085721c93adfc55a8bd792a20b08287bf3dbfa88369f' },
         },
       },
     },

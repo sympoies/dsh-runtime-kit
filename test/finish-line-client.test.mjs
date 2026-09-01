@@ -501,6 +501,54 @@ test('open carries one private retry token without exposing it in the result', a
   assert.doesNotMatch(JSON.stringify(result), /attempt_token|finish-line-open:/)
 })
 
+test('open returns only the exact typed non-repository result as a delegation fact', async () => {
+  const subject = fixture({
+    responder(action) {
+      if (action !== 'open') throw new Error(`unexpected action: ${action}`)
+      return {
+        schema_version: 'cli.agent-hook.finish-line-open.v1',
+        ok: false,
+        error: {
+          code: 'finish-line-not-in-repository',
+          message: 'finish-line cwd is not inside a Git repository',
+        },
+      }
+    },
+    exitCodeFor: action => action === 'open' ? 65 : 0,
+  })
+
+  assert.deepEqual(await subject.client.open({ ...identity, command: 'pwd' }), {
+    kind: 'not-in-repository',
+  })
+  assert.equal(subject.spawns.length, 1)
+  assert.equal(subject.spawns[0].request.command, 'pwd')
+  assert.doesNotMatch(JSON.stringify(await subject.client.open({
+    ...identity,
+    sessionId: 'session-2',
+  })), /attempt_token/u)
+})
+
+test('open rejects adjacent exit-65 repository failures instead of delegating', async () => {
+  for (const code of [
+    'finish-line-repository-invalid',
+    'finish-line-repository-mismatch',
+    'finish-line-non-repository-operation-unauthorized',
+  ]) {
+    const subject = fixture({
+      responder(action) {
+        if (action !== 'open') throw new Error(`unexpected action: ${action}`)
+        return {
+          schema_version: 'cli.agent-hook.finish-line-open.v1',
+          ok: false,
+          error: { code, message: 'repository identity unavailable' },
+        }
+      },
+      exitCodeFor: action => action === 'open' ? 65 : 0,
+    })
+    await assert.rejects(subject.client.open(identity), /finish-line response invalid/)
+  }
+})
+
 test('open retains its private token across an ambiguous committed response', async () => {
   let call = 0
   const subject = fixture({
