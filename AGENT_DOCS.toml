@@ -1,0 +1,49 @@
+# Repository-development catalog for contributors working in this checkout.
+# This is intentionally separate from agent-docs/AGENT_DOCS.toml, which is a
+# published DSH runtime asset whose home-scoped documents resolve inside the
+# installed agent-docs directory. Project entries here resolve from the
+# repository root and must not duplicate DSH model context.
+
+[[document]]
+context = "project-dev"
+scope = "project"
+path = "agent-docs/PROJECT_DEV_EDIT.md"
+product = ["codex", "claude", "hermes"]
+phase = "edit"
+required = true
+when = "always"
+notes = "Compact required edit contract for contributors; DSH loads its separate packaged home-scoped copy instead."
+
+[[document]]
+context = "project-dev"
+scope = "project"
+path = "DEVELOPMENT.md"
+product = ["codex", "claude", "hermes"]
+phase = ["edit", "delivery"]
+required = false
+when = "always"
+notes = "Optional contributor orientation for setup, source ownership, validation, and delivery details."
+
+[[document]]
+context = "project-dev"
+scope = "project"
+path = "docs/policies/upstream-contribution.md"
+product = ["codex", "claude", "hermes"]
+phase = "delivery"
+required = false
+when = "always"
+notes = "Optional delivery-phase reference; AGENTS.md makes it mandatory when cross-repository work is proposed."
+
+[[validation]]
+context = "project-dev"
+product = ["codex", "claude", "hermes", "dsh"]
+commands = ["npm test", "npm run typecheck", "npm run benchmark:policy"]
+description = "Run the complete routine repository gate once for the final candidate."
+
+# Project-owned classification consumed by phase-aware test-first and
+# finish-line checks. Unmatched paths stay fail-closed.
+[path_classes]
+production = ["AGENT_DOCS.toml", "package.json", "package-lock.json", "index.js", "policy.js", "cordis.patch.yml", "bin/**", "src/**", "scripts/**", "policy/**", "compatibility/**", "patches/**", "agent-docs/**", "agents/**", "skills/**"]
+test = ["test/**"]
+docs = ["AGENTS.md", "README.md", "DEVELOPMENT.md", "LICENSE", "docs/**"]
+unmatched = "unknown"
