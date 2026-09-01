@@ -1,13 +1,9 @@
 // @ts-check
 
-import { AsyncLocalStorage } from 'node:async_hooks'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
+import { readFileSync } from 'node:fs'
 
 /** @typedef {import('@deepseek-ai/dsh-agent').Agent} Agent */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
-/** @typedef {import('@deepseek-ai/dsh-tools').ToolExecution} ToolExecution */
-/** @typedef {{parent: Agent, role: string, agent?: Agent}} ReviewAdmission */
 
 export const REVIEWER_ROLES = Object.freeze([
   'reviewer-api-contract',
@@ -43,16 +39,15 @@ const READ_ONLY_TOOLS = new Set([
   'structured_output',
 ])
 
-const REVIEWER_PATH_TOOLS = new Set(['glob', 'grep', 'read'])
-const REVIEWER_PROTECTED_DIRECTORIES = new Set([
+const REVIEWER_PROTECTED_ROOTS = Object.freeze([
   '.aws',
   '.dsh',
   '.git',
   '.gnupg',
   '.ssh',
-])
-const REVIEWER_PROTECTED_FILES = new Set([
   '.git-credentials',
+  '.env',
+  '.envrc',
   '.netrc',
   '.npmrc',
   '.pypirc',
@@ -63,85 +58,6 @@ const REVIEWER_PROTECTED_FILES = new Set([
   'id_ecdsa',
   'id_rsa',
 ])
-
-/** @param {string} candidate */
-function protectedReviewerPath(candidate) {
-  const segments = candidate.split(sep).filter(Boolean).map(segment => segment.toLowerCase())
-  if (segments.some(segment => REVIEWER_PROTECTED_DIRECTORIES.has(segment))) return true
-  const basename = segments.at(-1) ?? ''
-  return basename.startsWith('.env')
-    || basename.startsWith('.credentials.')
-    || REVIEWER_PROTECTED_FILES.has(basename)
-    || basename.endsWith('.key')
-    || basename.endsWith('.pem')
-}
-
-/** @param {Readonly<ToolExecution>} exec @param {Agent} agent @param {string} role */
-function reviewerReadDenial(exec, agent, role) {
-  if (!REVIEWER_PATH_TOOLS.has(exec.name)) return undefined
-  const cwd = agent.session?.header?.cwd
-  if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
-    return `reviewer read boundary unavailable for ${role}`
-  }
-  let workspace
-  try {
-    workspace = realpathSync(cwd)
-  } catch {
-    return `reviewer read boundary unavailable for ${role}`
-  }
-  if (!plainRecord(exec.arguments)) {
-    return `reviewer read arguments are invalid for ${role}`
-  }
-  const field = exec.name === 'read' ? 'file_path' : 'path'
-  const rawPath = exec.arguments[field]
-  if (exec.name === 'grep' && typeof rawPath !== 'string') {
-    return `reviewer grep requires one explicit file for ${role}`
-  }
-  if (rawPath !== undefined && (typeof rawPath !== 'string' || rawPath.trim().length === 0)) {
-    return `reviewer read arguments are invalid for ${role}`
-  }
-  const requested = rawPath === undefined ? workspace : resolve(workspace, rawPath)
-  let canonical
-  try {
-    canonical = realpathSync(requested)
-  } catch {
-    return `reviewer read target is invalid for ${role}`
-  }
-  const within = relative(workspace, canonical)
-  if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
-    return `reviewer read boundary denied ${role}`
-  }
-  if (protectedReviewerPath(within)) {
-    return `reviewer protected path denied ${role}`
-  }
-  if (exec.name === 'grep') {
-    try {
-      if (!statSync(canonical).isFile()) return `reviewer grep requires one explicit file for ${role}`
-    } catch {
-      return `reviewer read target is invalid for ${role}`
-    }
-  }
-  return undefined
-}
-
-/** @type {WeakMap<object, WeakMap<Agent, string>>} */
-const authorityClassifications = new WeakMap()
-
-/**
- * Create the parent-owned reviewer identity authority before the optional
- * reviewer child plugin activates. Policy can consult this authority even
- * when the child remains pending because subagent services are unavailable.
- */
-export function createReviewerAuthority() {
-  /** @type {WeakMap<Agent, string>} */
-  const classified = new WeakMap()
-  const authority = Object.freeze({
-    /** @param {Agent} agent */
-    roleOf(agent) { return classified.get(agent) },
-  })
-  authorityClassifications.set(authority, classified)
-  return authority
-}
 
 const REVIEW_OUTPUT_SCHEMA = Object.freeze({
   type: 'object',
@@ -371,94 +287,24 @@ function renderToolResult(value) {
   return [{ type: /** @type {const} */ ('text'), text: sections.join('\n\n') }]
 }
 
-/** @param {number} maximum @param {number} maximumQueued */
-function createSemaphore(maximum, maximumQueued) {
-  let active = 0
-  /** @type {Error | undefined} */
-  let closedError
-  /** @type {{signal: AbortSignal, resolve: (release: () => void) => void, reject: (error: unknown) => void, onAbort: () => void}[]} */
-  const waiting = []
-
-  const makeRelease = () => {
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      active -= 1
-      while (waiting.length > 0) {
-        const waiter = waiting.shift()
-        if (waiter === undefined) break
-        waiter.signal.removeEventListener('abort', waiter.onAbort)
-        if (waiter.signal.aborted) continue
-        active += 1
-        waiter.resolve(makeRelease())
-        break
-      }
-    }
-  }
-
-  return {
-    /** @param {AbortSignal} signal */
-    acquire(signal) {
-      signal.throwIfAborted()
-      if (closedError !== undefined) return Promise.reject(closedError)
-      if (active < maximum) {
-        active += 1
-        return Promise.resolve(makeRelease())
-      }
-      if (waiting.length >= maximumQueued) {
-        return Promise.reject(new Error('dsh-runtime-kit: reviewer-overloaded'))
-      }
-      return new Promise((resolve, reject) => {
-        const waiter = {
-          signal,
-          resolve,
-          reject,
-          onAbort: () => {
-            const index = waiting.indexOf(waiter)
-            if (index >= 0) waiting.splice(index, 1)
-            reject(signal.reason instanceof Error
-              ? signal.reason
-              : new DOMException('review_specialists was aborted', 'AbortError'))
-          },
-        }
-        waiting.push(waiter)
-        signal.addEventListener('abort', waiter.onAbort, { once: true })
-      })
-    },
-    /** @param {Error} error */
-    close(error) {
-      if (closedError !== undefined) return
-      closedError = error
-      for (const waiter of waiting.splice(0)) {
-        waiter.signal.removeEventListener('abort', waiter.onAbort)
-        waiter.reject(error)
-      }
-    },
-    stats() { return { active, queued: waiting.length } },
-  }
-}
-
 /**
  * Install the fixed-persona reviewer runtime and its single model-facing tool.
  *
- * The `agent/created` observer runs synchronously inside the trusted
- * `ctx.subagents.start("spawn")` call. It binds the exact published Agent
- * identity before the provider can submit the reviewer prompt, appends the
- * read-only sandbox override, and registers a scoped monotonic guard. Session
- * event text is audit data only; authority comes from the exact Agent held in
- * the WeakMap and the scoped guard, so an ordinary or replayed session cannot
- * claim reviewer identity.
+ * Each packaged persona is registered as an immutable DSH restricted role.
+ * DSH owns exact-child classification, tool/sandbox/approval composition,
+ * capacity, cancellation, structured output, and quiescent disposal; this
+ * layer retains only review selection, wave ordering, and result synthesis.
  *
  * @param {any} ctx
  * @param {Record<string, unknown>} [config]
- * @param {{roleOf(agent: Agent): string | undefined}} [authority]
  */
-export function installReviewSpecialists(ctx, config = {}, authority = createReviewerAuthority()) {
-  if (ctx?.tools?.register === undefined || ctx?.subagents?.start === undefined
-    || ctx?.subagents?.getProvider === undefined || ctx?.agents?.get === undefined
-    || typeof ctx.on !== 'function' || typeof ctx.effect !== 'function') {
-    throw new TypeError('dsh-runtime-kit: reviewer runtime requires tools, subagents, and agents services')
+export function installReviewSpecialists(ctx, config = {}) {
+  if (ctx?.tools?.register === undefined || ctx?.agents?.get === undefined
+    || ctx?.subagents?.startRole === undefined
+    || ctx?.subagents?.registerRole === undefined || ctx?.subagents?.configureRoleCapacity === undefined
+    || ctx?.subagents?.roleOf === undefined || ctx?.subagents?.roleStats === undefined
+    || typeof ctx.effect !== 'function') {
+    throw new TypeError('dsh-runtime-kit: reviewer runtime requires the DSH restricted-role service')
   }
   if (config.reviewerProvider !== undefined && config.reviewerProvider !== 'spawn') {
     throw new Error('dsh-runtime-kit: rc.7 reviewerProvider must be the native in-process "spawn" provider')
@@ -506,84 +352,50 @@ export function installReviewSpecialists(ctx, config = {}, authority = createRev
     'reviewerMaxDepth',
   )
 
-  const classified = /** @type {WeakMap<Agent, string>} */ (
-    authorityClassifications.get(authority)
-  )
-  if (classified === undefined) {
-    throw new TypeError('dsh-runtime-kit: reviewer authority must be created by createReviewerAuthority')
+  ctx.subagents.configureRoleCapacity({ maxActive: maxParallel, maxQueued })
+  const protectedRoots = [...new Set([
+    ...REVIEWER_PROTECTED_ROOTS,
+    ...(Array.isArray(config.protectedRoots) ? config.protectedRoots : []),
+  ])]
+  for (const role of REVIEWER_ROLES) {
+    ctx.subagents.registerRole({
+      id: role,
+      provider: 'spawn',
+      persona: reviewerPersona(role),
+      toolFilter: { allow: [...READ_ONLY_TOOLS] },
+      sandbox: { mode: 'read-only', protectedRoots },
+      approval: 'never',
+      outputSchema: REVIEW_OUTPUT_SCHEMA,
+      maxDepth,
+      timeoutMs,
+      maxActive: maxParallel,
+      maxQueued,
+    })
   }
-  /** @type {AsyncLocalStorage<ReviewAdmission>} */
-  const starting = new AsyncLocalStorage()
-  const permits = createSemaphore(maxParallel, maxQueued)
   /** @type {Set<AbortController>} */
   const activeControllers = new Set()
   /** @type {Set<Promise<unknown>>} */
   const inFlight = new Set()
   let closing = false
 
-  /** @param {{agent: Agent}} payload */
-  const classifyReviewer = ({ agent }) => {
-    const admission = starting.getStore()
-    if (admission === undefined) return
-    if (admission.agent !== undefined) {
-      throw new Error('dsh-runtime-kit: native reviewer start published more than one child')
-    }
-    if (ctx.agents.get(agent.id) !== agent
-      || agent.session?.header?.origin !== 'subagent'
-      || agent.session.header.parentSession !== admission.parent.id) {
-      throw new Error('dsh-runtime-kit: native reviewer child identity did not match its exact parent')
-    }
-    admission.agent = agent
-    classified.set(agent, admission.role)
-    const append = /** @type {(type: string, data: Record<string, unknown>) => void} */ (
-      agent.session.append.bind(agent.session)
-    )
-    append('dsh-runtime-kit/reviewer', {
-      schema_version: 'dsh-runtime-kit.reviewer-session.v1',
-      role: admission.role,
-    })
-    // The spawn provider already copied the parent's standing policy during
-    // unpublished setup. This later event is therefore the monotonic, exact
-    // reviewer override consumed by every DSH fs/shell sandbox boundary.
-    append('sandbox/mode', { mode: 'read-only', source: 'delegation' })
-    agent.ctx.tools.guard(/** @param {Readonly<ToolExecution>} exec */ exec => {
-      if (exec.agent !== agent || classified.get(agent) !== admission.role
-        || !READ_ONLY_TOOLS.has(exec.name)) {
-        return `read-only reviewer ${admission.role} cannot execute ${JSON.stringify(exec.name)}`
-      }
-      return reviewerReadDenial(exec, agent, admission.role)
-    })
-  }
-  ctx.on('agent/created', classifyReviewer)
-
   /** @param {Agent} parent @param {string} role @param {string} task @param {AbortSignal} signal */
   async function runOne(parent, role, task, signal) {
-    const release = await permits.acquire(signal)
+    signal.throwIfAborted()
+    const run = await ctx.subagents.startRole(role, {
+      prompt: [{ type: 'text', text: task }],
+      parent,
+      signal,
+    })
     try {
-      signal.throwIfAborted()
-      /** @type {ReviewAdmission} */
-      const admission = { parent, role }
-      const run = await starting.run(admission, () => ctx.subagents.start('spawn', {
-        label: role,
-        prompt: [{ type: 'text', text: task }],
-        parent,
-        signal,
-        maxDepth,
-        outputSchema: REVIEW_OUTPUT_SCHEMA,
-        persona: reviewerPersona(role),
-      }))
-      if (run.localAgent === undefined || admission.agent !== run.localAgent
-        || classified.get(run.localAgent) !== role) {
+      if (run.localAgent === undefined || run.roleReceipt?.role !== role
+        || run.roleReceipt.parent_session_id !== String(parent.id)
+        || run.roleReceipt.child_session_id !== String(run.id)) {
         await run.dispose().catch(() => undefined)
         throw new Error('dsh-runtime-kit: reviewer provider did not publish one authenticated local child')
       }
-      try {
-        return normalizeResult(await run.result, maxOutputBytes, role)
-      } finally {
-        await run.dispose()
-      }
+      return normalizeResult(await run.result, maxOutputBytes, role)
     } finally {
-      release()
+      await run.dispose()
     }
   }
 
@@ -681,14 +493,6 @@ export function installReviewSpecialists(ctx, config = {}, authority = createRev
       if (parent === undefined || ctx.agents.get(parent.id) !== parent) {
         throw new Error('review_specialists requires the exact live parent Agent')
       }
-      const provider = ctx.subagents.getProvider('spawn')
-      if (provider === undefined || provider.capabilities?.outputSchema !== true
-        || provider.capabilities?.persona !== true
-        || provider.capabilities?.depthLimit !== true
-        || provider.inheritsParentContext !== false) {
-        throw new Error('dsh-runtime-kit: native spawn reviewer provider is unavailable or incompatible')
-      }
-
       const controller = new AbortController()
       activeControllers.add(controller)
       const onAbort = () => controller.abort(exec.signal.reason)
@@ -757,7 +561,6 @@ export function installReviewSpecialists(ctx, config = {}, authority = createRev
   ctx.effect(() => async () => {
     closing = true
     const reason = new Error('dsh-runtime-kit: reviewer runtime is disposing')
-    permits.close(reason)
     for (const controller of activeControllers) {
       if (!controller.signal.aborted) controller.abort(reason)
     }
@@ -765,23 +568,16 @@ export function installReviewSpecialists(ctx, config = {}, authority = createRev
   }, 'dsh-runtime-kit reviewer runtime')
   return Object.freeze({
     /** @param {Agent} agent */
-    roleOf(agent) { return authority.roleOf(agent) },
-    stats() { return permits.stats() },
+    roleOf(agent) { return ctx.subagents.roleOf(agent) },
+    stats() { return ctx.subagents.roleStats() },
   })
 }
 
 export const reviewSpecialistsRuntime = Object.freeze({
   name: 'dsh-runtime-kit-review-specialists',
   inject: ['agents', 'subagents', 'tools'],
-  /** @param {any} ctx @param {{config?: Record<string, unknown>, authority?: ReturnType<typeof createReviewerAuthority>}} [options] */
+  /** @param {any} ctx @param {{config?: Record<string, unknown>}} [options] */
   apply(ctx, options = {}) {
-    if (options.authority === undefined) {
-      throw new TypeError('dsh-runtime-kit: reviewer child plugin requires parent-owned authority')
-    }
-    // Cordis plugin bodies may return only a disposer (or an async disposer).
-    // The parent-owned authority is consulted through policy, while the child
-    // runtime owns its own effects; do not leak the diagnostic API as an
-    // invalid plugin return value or Cordis will unload the child immediately.
-    installReviewSpecialists(ctx, options.config ?? {}, options.authority)
+    installReviewSpecialists(ctx, options.config ?? {})
   },
 })

@@ -22,10 +22,7 @@ import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
 import { applyManagedSessionAuthentication } from './src/nils/managed-session-authentication.js'
 import { applyGovernedCommit } from './src/governed-commit/index.js'
-import {
-  createReviewerAuthority,
-  reviewSpecialistsRuntime,
-} from './src/review/index.js'
+import { reviewSpecialistsRuntime } from './src/review/index.js'
 import {
   createChildHealthRefresh,
   createChildPluginStatus,
@@ -463,7 +460,6 @@ export async function apply(ctx, config = {}) {
       installRuntimeHealthInvariant,
     } = await import('./src/health/index.js')
     const { installNilsHealthProviders } = await import('./src/health/nils-provider.js')
-    const reviewers = createReviewerAuthority()
     const childPlugins = createChildPluginStatus()
     const managedSessionBridge = createManagedSessionBridge()
     const configuredRuntime = { ...config, managedSessionBridge }
@@ -528,7 +524,7 @@ export async function apply(ctx, config = {}) {
       HarnessError: dshRuntime.HarnessError,
       TOOL_ABORTED: dshRuntime.TOOL_ABORTED,
     })
-    applyPolicy(ctx, runtimeConfig, reviewers, dshRuntime, childPlugins)
+    applyPolicy(ctx, runtimeConfig, dshRuntime, childPlugins)
     const { createWorkspaceRecoveryTools } = await import('./src/workspace-recovery/index.js')
     const { createNilsWorkspaceRecoveryClient } = await import('./src/workspace-recovery/nils-client.js')
     const workspaceRecovery = createWorkspaceRecoveryTools(
@@ -557,7 +553,7 @@ export async function apply(ctx, config = {}) {
     observeChildPluginActivation(
       childPlugins,
       'review_specialists',
-      () => ctx.plugin(reviewSpecialistsRuntime, { authority: reviewers, config }),
+      () => ctx.plugin(reviewSpecialistsRuntime, { config }),
       ctx.logger,
       () => {
         void refreshChildHealth('review-specialists')

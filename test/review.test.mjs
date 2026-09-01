@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import {
   REVIEWER_ROLES,
-  createReviewerAuthority,
   installReviewSpecialists,
   reviewSpecialistsRuntime,
   reviewerPersona,
@@ -83,6 +79,12 @@ function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutpu
   const starts = []
   const disposals = []
   const effects = []
+  const roleDefinitions = new Map()
+  const roleClassifications = new WeakMap()
+  let capacityMaximum = 8
+  let queueMaximum = 128
+  let capacityActive = 0
+  const capacityQueue = []
   const parent = parentAgent()
   agents.set(parent.id, parent)
 
@@ -108,23 +110,60 @@ function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutpu
       return cleanup
     },
     subagents: {
-      getProvider(name) {
-        return name === 'spawn'
-          ? {
-              name,
-              capabilities: {
-                outputSchema: true,
-                depthLimit: true,
-                toolFilter: true,
-                persona: true,
-              },
-              inheritsParentContext: false,
-            }
-          : undefined
+      configureRoleCapacity(limits) {
+        capacityMaximum = limits.maxActive
+        queueMaximum = limits.maxQueued
+        return () => {}
       },
-      async start(name, request) {
+      registerRole(definition) {
+        if (roleDefinitions.has(definition.id)) throw new Error(`duplicate role ${definition.id}`)
+        roleDefinitions.set(definition.id, structuredClone(definition))
+        return () => roleDefinitions.delete(definition.id)
+      },
+      roleOf(agent) { return roleClassifications.get(agent) },
+      roleStats() { return { active: capacityActive, queued: capacityQueue.length } },
+      async startRole(role, request) {
+        const release = await new Promise((resolve, reject) => {
+          const grant = () => {
+            capacityActive += 1
+            let released = false
+            resolve(() => {
+              if (released) return
+              released = true
+              capacityActive -= 1
+              const next = capacityQueue.shift()
+              next?.grant()
+            })
+          }
+          if (request.signal.aborted) {
+            reject(request.signal.reason)
+          } else if (capacityActive < capacityMaximum) {
+            grant()
+          } else if (capacityQueue.length >= queueMaximum) {
+            reject(new Error('restricted-role capacity queue is full'))
+          } else {
+            const entry = {
+              grant: () => {
+                request.signal.removeEventListener('abort', entry.abort)
+                grant()
+              },
+              abort: () => {
+                const queued = capacityQueue.indexOf(entry)
+                if (queued >= 0) capacityQueue.splice(queued, 1)
+                reject(request.signal.reason)
+              },
+            }
+            capacityQueue.push(entry)
+            request.signal.addEventListener('abort', entry.abort, { once: true })
+          }
+        })
+        const definition = roleDefinitions.get(role)
+        if (definition === undefined) {
+          release()
+          throw new Error(`unknown role ${role}`)
+        }
         const index = starts.length
-        starts.push({ name, request })
+        starts.push({ name: definition.provider, role, request, definition })
         const childSession = {
           id: `child-${index}`,
           header: {
@@ -140,49 +179,57 @@ function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutpu
         const child = {
           id: childSession.id,
           session: childSession,
-          ctx: {
-            tools: {
-              guard(candidate) {
-                guards.push(candidate)
-                return () => guards.splice(guards.indexOf(candidate), 1)
-              },
-            },
-          },
+          ctx: { tools: {} },
           guards,
         }
         starts[index].child = child
         agents.set(child.id, child)
-        for (const listener of listeners.get('agent/created') ?? []) listener({ agent: child })
+        roleClassifications.set(child, role)
         const selected = start === undefined
           ? {
               result: Promise.resolve(reviewerResult(`result-${index}`)),
             }
-          : await start({ index, name, request, child, starts })
+          : await start({ index, name: definition.provider, request, child, starts })
+        let disposed = false
+        const dispose = async () => {
+          if (disposed) return
+          disposed = true
+          disposals.push(child.id)
+          agents.delete(child.id)
+          await selected.dispose?.()
+          release()
+        }
+        const result = selected.result.finally(dispose)
         return {
           id: child.id,
           localAgent: child,
-          result: selected.result,
-          async dispose() {
-            disposals.push(child.id)
-            agents.delete(child.id)
-            await selected.dispose?.()
+          result,
+          roleReceipt: {
+            schema_version: 'dsh.subagent.restricted-role-receipt.v1',
+            role,
+            registration_generation: 'registration-test',
+            execution_generation: `execution-${index}`,
+            parent_session_id: String(parent.id),
+            child_session_id: String(child.id),
+            workspace_sha256: 'sha256:test',
           },
+          dispose,
         }
       },
     },
   }
-  const authority = createReviewerAuthority()
   const service = installReviewSpecialists(ctx, {
     maxActiveReviewers: maxParallel,
     maxQueuedReviewers: maxQueued,
     ...(maxTaskBytes === undefined ? {} : { reviewerTaskMaxBytes: maxTaskBytes }),
     ...(maxOutputBytes === undefined ? {} : { reviewerOutputMaxBytes: maxOutputBytes }),
-  }, authority)
+  })
   return {
     ctx,
     parent,
     service,
     starts,
+    roleDefinitions,
     disposals,
     tool: tools.get('review_specialists'),
     async dispose() {
@@ -226,12 +273,11 @@ test('review_specialists exposes exactly eight server-owned personas', () => {
   assert.match(reviewerPersona('reviewer-quick'), /clean, findings, or escalate/)
 })
 
-test('reviewer runtime is an optional child plugin with parent-owned authority', () => {
-  const authority = createReviewerAuthority()
-  const stranger = {}
+test('reviewer runtime is an optional child plugin backed by DSH role authority', () => {
+  const subject = reviewHarness()
 
   assert.deepEqual(reviewSpecialistsRuntime.inject, ['agents', 'subagents', 'tools'])
-  assert.equal(authority.roleOf(stranger), undefined)
+  assert.equal(subject.service.roleOf({}), undefined)
 })
 
 test('review_specialists keeps persona text outside caller control', async () => {
@@ -242,9 +288,9 @@ test('review_specialists keeps persona text outside caller control', async () =>
   }, execution(subject.parent))
 
   assert.equal(subject.starts.length, 1)
-  assert.ok(subject.starts[0].request.outputSchema)
-  assert.equal(subject.starts[0].request.persona, reviewerPersona('reviewer-security'))
-  assert.notEqual(subject.starts[0].request.persona, subject.starts[0].request.prompt[0].text)
+  assert.ok(subject.starts[0].definition.outputSchema)
+  assert.equal(subject.starts[0].definition.persona, reviewerPersona('reviewer-security'))
+  assert.notEqual(subject.starts[0].definition.persona, subject.starts[0].request.prompt[0].text)
   assert.match(subject.starts[0].request.prompt[0].text, /Inspect the current change/)
 })
 
@@ -363,7 +409,7 @@ test('cancellation aborts the wave, waits for cleanup, and leaks no child sessio
   assert.equal(subject.ctx.agents.get('child-1'), undefined)
 })
 
-test('reviewer authority is exact-agent scoped and blocks mutation before body execution', async () => {
+test('reviewer definitions delegate exact identity and complete read-only authority to DSH', async () => {
   const subject = reviewHarness()
   await subject.tool.execute({
     task: 'Inspect only.',
@@ -372,136 +418,17 @@ test('reviewer authority is exact-agent scoped and blocks mutation before body e
   const child = subject.starts[0].child
   assert.ok(child)
   assert.equal(subject.service.roleOf(child), 'reviewer-testing')
-  assert.deepEqual(child.session.events.at(-2), {
-    type: 'dsh-runtime-kit/reviewer',
-    data: {
-      schema_version: 'dsh-runtime-kit.reviewer-session.v1',
-      role: 'reviewer-testing',
-    },
-  })
-  assert.deepEqual(child.session.events.at(-1), {
-    type: 'sandbox/mode',
-    data: { mode: 'read-only', source: 'delegation' },
-  })
-
-  const guard = child.guards[0]
-  assert.match(guard({
-    agent: child,
-    name: 'read',
-    arguments: { file_path: '/workspace/project/file.js' },
-    parent: undefined,
-  }), /reviewer read boundary unavailable/)
-  assert.match(guard({
-    agent: child,
-    name: 'grep',
-    arguments: { pattern: 'x' },
-    parent: Symbol('code'),
-  }), /reviewer read boundary unavailable/)
-  for (const name of [
-    'write',
-    'edit',
-    'str_replace_editor',
-    'bash',
-    'run_code',
-    'subagent',
-    'review_specialists',
-    'list_agents',
-    'read_image',
-    'runtime_context',
-    'skill',
-    'web_fetch',
-    'web_search',
-  ]) {
-    assert.match(guard({ agent: child, name, parent: undefined }), /read-only reviewer/, name)
-  }
-  assert.match(guard({ agent: child, name: 'write', parent: Symbol('nested') }), /read-only reviewer/)
+  const definition = subject.starts[0].definition
+  assert.deepEqual(definition.toolFilter, { allow: ['glob', 'grep', 'read', 'structured_output'] })
+  assert.equal(definition.sandbox.mode, 'read-only')
+  assert.equal(definition.approval, 'never')
+  assert.ok(definition.sandbox.protectedRoots.includes('.git'))
+  assert.ok(definition.sandbox.protectedRoots.includes('.env'))
+  assert.deepEqual(Object.keys(subject.starts[0].request).sort(), ['parent', 'prompt', 'signal'])
 
   const impostor = { ...child, id: child.id }
   assert.equal(subject.service.roleOf(impostor), undefined)
   assert.equal(subject.service.roleOf(subject.parent), undefined)
-  assert.equal(guard({ agent: child, name: 'structured_output', parent: undefined }), undefined)
-})
-
-test('reviewer reads are confined to ordinary files under the exact session workspace', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-review-boundary-'))
-  const workspace = join(root, 'workspace')
-  const outside = join(root, 'outside')
-  mkdirSync(workspace)
-  mkdirSync(outside)
-  writeFileSync(join(workspace, 'source.js'), 'export const answer = 42\n')
-  writeFileSync(join(workspace, 'environment.js'), 'export const mode = "test"\n')
-  writeFileSync(join(workspace, '.env'), 'FIXTURE_ONLY=not-a-secret\n')
-  writeFileSync(join(workspace, '.envrc'), 'export FIXTURE_ONLY=not-a-secret\n')
-  writeFileSync(join(outside, 'credential.txt'), 'fixture-only\n')
-  symlinkSync(join(outside, 'credential.txt'), join(workspace, 'linked.txt'))
-
-  try {
-    const subject = reviewHarness()
-    await subject.tool.execute({
-      task: 'Inspect only.',
-      roles: ['reviewer-security'],
-    }, execution(subject.parent))
-    const child = subject.starts[0].child
-    child.session.header.cwd = workspace
-    const guard = child.guards[0]
-
-    assert.equal(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: 'source.js' },
-      parent: undefined,
-    }), undefined)
-    assert.equal(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: 'environment.js' },
-      parent: undefined,
-    }), undefined)
-    assert.equal(guard({
-      agent: child,
-      name: 'grep',
-      arguments: { pattern: 'answer', path: join(workspace, 'source.js') },
-      parent: undefined,
-    }), undefined)
-    assert.match(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: join(outside, 'credential.txt') },
-      parent: undefined,
-    }), /reviewer read boundary/)
-    assert.match(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: 'linked.txt' },
-      parent: undefined,
-    }), /reviewer read boundary/)
-    assert.match(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: '.env' },
-      parent: undefined,
-    }), /reviewer protected path/)
-    assert.match(guard({
-      agent: child,
-      name: 'read',
-      arguments: { file_path: '.envrc' },
-      parent: undefined,
-    }), /reviewer protected path/)
-    assert.match(guard({
-      agent: child,
-      name: 'grep',
-      arguments: { pattern: 'FIXTURE_ONLY', path: '.envrc' },
-      parent: undefined,
-    }), /reviewer protected path/)
-    assert.match(guard({
-      agent: child,
-      name: 'glob',
-      arguments: { pattern: '**/*', path: outside },
-      parent: undefined,
-    }), /reviewer read boundary/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
 })
 
 test('review_specialists emits deterministic validator-compatible JSONL from structured output', async () => {
@@ -557,7 +484,7 @@ test('review_specialists emits deterministic validator-compatible JSONL from str
   })}\n`)
   assert.equal(result.red_team, 'critical')
   assert.equal(subject.starts.length, 2, 'a critical first-wave finding automatically runs red-team')
-  assert.equal(subject.starts[1].request.label, 'reviewer-red-team')
+  assert.equal(subject.starts[1].role, 'reviewer-red-team')
 })
 
 test('empty JSONL does not erase escalate or partial review disposition', async () => {
@@ -643,7 +570,7 @@ test('structured findings require actionable classification and preserve false',
     task: 'Review.', roles: ['reviewer-security'],
   }, execution(classified.parent))
   assert.equal(JSON.parse(result.findings_jsonl).actionable, false)
-  assert.ok(classified.starts[0].request.outputSchema.properties.findings.items.required
+  assert.ok(classified.starts[0].definition.outputSchema.properties.findings.items.required
     .includes('actionable'))
 })
 
@@ -722,7 +649,7 @@ test('a cancelled queued tool call leaves no reviewer or semaphore permit behind
   assert.deepEqual(subject.disposals.sort(), ['child-0', 'child-1'])
 })
 
-test('reviewer admission rejects overload at a runtime-global queue ceiling', async () => {
+test('DSH role admission rejects overload at the configured global queue ceiling', async () => {
   const held = deferred()
   const subject = reviewHarness({
     maxParallel: 1,
@@ -744,7 +671,7 @@ test('reviewer admission rejects overload at a runtime-global queue ceiling', as
     subject.tool.execute({
       task: 'Must fail overload.', roles: ['reviewer-performance'],
     }, execution(subject.parent)),
-    /reviewer-overloaded/,
+    /restricted-role capacity queue is full/,
   )
   assert.deepEqual(subject.service.stats(), { active: 1, queued: 2 })
   for (const controller of queuedControllers) controller.abort(new Error('clear queued review'))

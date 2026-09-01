@@ -44,7 +44,7 @@ const dshRuntime = Object.freeze({
 
 test('policy activation requires the authenticated DSH echo classifier', () => {
   assert.throws(
-    () => applyPolicy({}, {}, undefined, {
+    () => applyPolicy({}, {}, {
       ...dshRuntime,
       isNonWideningSandboxEcho: undefined,
     }),
@@ -477,6 +477,7 @@ function harness({
       async flush(candidate) { return candidate === session },
     },
     get(name) {
+      if (name === 'subagents') return reviewers
       if (name === 'shell') {
         return {
           sandboxMode: 'danger-full-access',
@@ -836,7 +837,7 @@ function harness({
     agentDocsStateHome: '/runtime/state',
     nilsCompatibilityCandidate: 'typed-data-policy-protected-roots',
     ...config,
-  }, reviewers, dshRuntime)
+  }, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
@@ -1327,6 +1328,25 @@ test('reviewer-role calls cross persistence, pre-call, and terminal-result data 
   assert.equal(quarantined.postDecision.kind, 'block')
   assert.equal(quarantined.finalResult.isError, true)
   assert.doesNotMatch(JSON.stringify(quarantined.finalResult), new RegExp(machinePath))
+})
+
+test('only the exact runtime-kit reviewer taxonomy receives reviewer lifecycle exemptions', async () => {
+  const owned = harness({
+    reviewers: { roleOf: () => 'reviewer-testing' },
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+  const foreign = harness({
+    reviewers: { roleOf: () => 'reviewer-export' },
+    config: { nilsCompatibilityCandidate: undefined },
+  })
+
+  const ownedResult = await owned.invoke({}, { callId: 'owned-reviewer' })
+  const foreignResult = await foreign.invoke({}, { callId: 'foreign-prefixed-role' })
+
+  assert.equal(ownedResult.result.kind, 'allow')
+  assert.equal(owned.spawnCount, 0)
+  assert.equal(foreignResult.result.kind, 'allow')
+  assert.ok(foreign.spawnCount > 0)
 })
 
 test('sensitive model arguments are projected before durable persistence', async () => {

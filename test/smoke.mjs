@@ -1623,9 +1623,9 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
-    'patches/deepseek-harness/native-execution-boundaries-v4-rc7.patch',
-    'patches/deepseek-harness/native-execution-boundaries-v4-rc8.patch',
-    'patches/deepseek-harness/native-execution-boundaries-v4-rc2.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-rc7.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/dsh-tui/beta-2-rc2-compat.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
@@ -2235,6 +2235,7 @@ export function apply(ctx) {
       let foreignGovernedCommitResult
       let reviewResult
       let reviewerChild
+      let reviewerChildRole
       let reviewerMutationResult
       let acceptanceGoal
       let acceptanceGoalBlocked
@@ -2260,7 +2261,10 @@ export function apply(ctx) {
         if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
       })
       ctx.on('agent/created', ({ agent }) => {
-        if (agent.session?.header?.parentSession === targetId) reviewerChild = agent
+        if (agent.session?.header?.parentSession === targetId) {
+          reviewerChild = agent
+          reviewerChildRole = ctx.get('subagents')?.roleOf(agent)
+        }
       })
       ctx.on('agent/pre-step', ({ agent, turn, step }, next) => {
         if (String(agent.id) === targetId) lifecycle.push('pre-step:' + turn + ':' + step)
@@ -2661,6 +2665,7 @@ export function apply(ctx) {
         deliveryValidationResults,
         reviewResult,
         reviewerMutationResult,
+        reviewerChildRole,
         reviewerChildEvents: reviewerChild?.session.events.map(event => event.type),
         reviewerChildLive: reviewerChild === undefined
           ? undefined
@@ -3598,12 +3603,13 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(reviewerReceipt.reviewerMutationResult.isError, true)
   assert.match(
     reviewerReceipt.reviewerMutationResult.content[0].text,
-    /read-only reviewer reviewer-quick cannot execute "write"/,
+    /restricted role reviewer-quick cannot execute "write"/,
   )
   assert.equal(reviewerReceipt.reviewerCalls, 2)
   assert.equal(reviewerReceipt.reviewerChildLive, false)
-  assert.ok(reviewerReceipt.reviewerChildEvents.includes('dsh-runtime-kit/reviewer'))
+  assert.equal(reviewerReceipt.reviewerChildRole, 'reviewer-quick')
   assert.ok(reviewerReceipt.reviewerChildEvents.includes('sandbox/mode'))
+  assert.ok(reviewerReceipt.reviewerChildEvents.includes('approval/policy'))
   assert.equal(
     existsSync(join(projectWorkspace, 'reviewer-mutation-must-not-exist.txt')),
     false,

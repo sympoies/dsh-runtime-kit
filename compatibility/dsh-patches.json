@@ -2,19 +2,19 @@
   "schema_version": "dsh-runtime-kit.dsh-patches.v1",
   "patches": [
     {
-      "id": "native-execution-boundaries-v4",
+      "id": "native-execution-boundaries-v5",
       "release_artifacts": {
         "0.1.0-rc.7": {
-          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc7.patch",
-          "sha256": "c909076d2e2b9a220136752c3a8a219fa414dc6c0a0c83bcd2b5164411a68b6e"
+          "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc7.patch",
+          "sha256": "919fe4a592d44b6c01e76c3a8e8d65df84167f08a486f66944ec092bd98e30dc"
         },
         "0.1.0-rc.8": {
-          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc8.patch",
-          "sha256": "7c1d7b89a7abcc45619691e8009c30bf1c2c360657b7069d805d8767e65c250e"
+          "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch",
+          "sha256": "d8b655b20f7ff407650093741e45d080478b92421b3b8c820d1d162ef1d82d46"
         },
         "0.1.1-rc.2": {
-          "path": "patches/deepseek-harness/native-execution-boundaries-v4-rc2.patch",
-          "sha256": "9fe35cd7c842fbaa6508c8ec184638857b3be4e05fd0ed451622d1af11933d44"
+          "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch",
+          "sha256": "18362edecf80bec4c7717f42df3231569b608f6457e548f716f717e081c9390e"
         }
       },
       "targets": {
@@ -154,15 +154,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "1d784329ba7bc02f34bd10cf4698cb129d7889d936bd694b034145696d894460",
-              "after_sha256": "ae59aad9a65f7a34f8bd26a0818275ed3e9d2bf74e3c66ec4796a54db80a18ab"
+              "after_sha256": "1d1fc909016b3cd1af436c2b732090584bc2e886cf67e7fcb5037528c928431d"
             },
             "0.1.0-rc.8": {
               "before_sha256": "3b4aadddf0ff7e18b8fcc55f57cc614982d1a517f98e23d6a179c79076549682",
-              "after_sha256": "dac6c4c06550d4d9265bc854e0f6a042c540c3ba2f0dffac184d3e1219eda0f4"
+              "after_sha256": "52ba8f3ff26cae05c2e98994699651afd525d51affe929804b557ffc23750de0"
             },
             "0.1.1-rc.2": {
               "before_sha256": "abcfbfe163ad500a25295f3e9bf171aeb5f154a83c5d16499cd3f7c2e291a4ec",
-              "after_sha256": "eaa52b0a7a44758a3f4c63ebb6ac3b9a66b1d215bddbc7f8ea4e4da3ecb86204"
+              "after_sha256": "7e4018e5c38b59fe2c5e60fb654cc4628856dd5e48ed8772930b1c7655f81eb9"
             }
           }
         },
@@ -170,15 +170,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "42113259602c9199e178f4e541e5331278a706be2378a6a5b87a2de98e989de9",
-              "after_sha256": "c9d7cc2eb6584c644a069aeeb0ce5aa7da27515981af321d23031357c23122de"
+              "after_sha256": "913ee8731e5967baefc062df8be7ed18daf86d7d967a5cbe947111ac30e3b4b8"
             },
             "0.1.0-rc.8": {
               "before_sha256": "b1874f3ed1d25bb20e6b42ba837f93fb3a56b99313c8f6e2647b5384193a44c6",
-              "after_sha256": "de5573a58c7c9b4052226a98bcb2278563c2ff56284589569fee72b3dc59efef"
+              "after_sha256": "228afb8d1a6ffb2c8f3daecb271f1625aff79e199be32765c7b42439407e256a"
             },
             "0.1.1-rc.2": {
               "before_sha256": "0951249af8f3e65cba1b1cdc79ee6cfa57bf3d6f3fb80584eebe6ebdd9ec50c5",
-              "after_sha256": "364165eaadd6b934ac3c2222ac0ee398eef9b59cbf8ddad7cdad7ae4578312f2"
+              "after_sha256": "6a4e5837f0c57966ff4c781b03585338ccf7e5c20d6350633dc60a01eaf4be4e"
             }
           }
         },
@@ -186,15 +186,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "e2f89d1a93a03a58facdb54f8d9cc07fe04642c91beec322b095c32f3026717d",
-              "after_sha256": "4ea8c18b2a8b85fad24bc702551f6d0bb09d9cdb8ba11b9c00030a8e5bed13cc"
+              "after_sha256": "1c3db1ad4433183859a73337b0d79a9c08d6be79e7df4a8e389c2f6c7879a107"
             },
             "0.1.0-rc.8": {
               "before_sha256": "3fc4784ba1eb4e4d0c6fc2c1aed4eaaba71ee042b6d83fe7b0bf43ac68d754ec",
-              "after_sha256": "731fd8ceb95f2af306429c3e2f8feb04a3ad59a4e9345d217f40841c164c813b"
+              "after_sha256": "0b4eced092fd2f9177e165aaf6d740838a850b538e3f5fe760fb9da6afcef690"
             },
             "0.1.1-rc.2": {
               "before_sha256": "22c201870fab63be580f0ab8a6505fe7a1079c4da2acf3f3c2d31ae3230d14ff",
-              "after_sha256": "cbf6f9b7b4b3cb32bf5bab5f1dd490aeecfb96e2b2062d1b9bc1f8aab98c292b"
+              "after_sha256": "4b82566baf7237c45653b61819b7d5e6b3dc52ad45310993326b4298bd36922c"
             }
           }
         },
@@ -458,15 +458,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "00c8fc75ba771e922930601c0dcde0894401aa163b46e6f64cbd29f979c9b822",
-              "after_sha256": "000d8048a53be8415697dbe93f29eab8868bab4b53fd8557d6943b5809dc1c8c"
+              "after_sha256": "d2e6801e3f12d16bf557571314e917b941ecbbddb4975dab817a1e1e9554bf31"
             },
             "0.1.0-rc.8": {
               "before_sha256": "5abc2adb7e0eb8cd586525e9ccd212152b3b30547a6a6ba7af60a30926d16e10",
-              "after_sha256": "f44a5ad8384904a53f7f8c5dbc11563cad7b3f43de311a98e5b527bffa5123d0"
+              "after_sha256": "66c1a89713627f0cef7bc6b8c56ab662667aabb72b6997c7a9bfa8164f8a7dd1"
             },
             "0.1.1-rc.2": {
               "before_sha256": "20b7a3b0c7aae35534072dd3c9aa11f1156b4a817b23dc4fa53643c0a471e1d2",
-              "after_sha256": "5dd304ae28d3d1928fc3edf026a7041d17c2c2af2acadd20da23f07b37c94928"
+              "after_sha256": "3ce3c3965183c25f9f76923a6e7d56e9d9c9c40829beed9072ab9dd5ae93cde0"
             }
           }
         },
@@ -778,15 +778,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+              "after_sha256": "ca7802f5d4dc30dbffdd2d0b3586e424351fcefe3b52bba1ef6c04da3e9fed4e"
             },
             "0.1.0-rc.8": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+              "after_sha256": "ca7802f5d4dc30dbffdd2d0b3586e424351fcefe3b52bba1ef6c04da3e9fed4e"
             },
             "0.1.1-rc.2": {
               "before_sha256": "ea7b6f6fc209175d9a83154ef9f60ccb34ab3a87e966d34c908c5b7215612877",
-              "after_sha256": "ce2db80520fcdb25ba4f963d95760b237b82ab4512c9994a8ca1f455f59c19d5"
+              "after_sha256": "ca7802f5d4dc30dbffdd2d0b3586e424351fcefe3b52bba1ef6c04da3e9fed4e"
             }
           }
         },
@@ -826,15 +826,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "24c595fcb2e15f2092fc0fe333fcf74ea22ba8a248d942295654a40cf795c65c",
-              "after_sha256": "b4e17a25c9838803c7d39cb75e2d779fbd3b1490f6c099db4d6b4e534a5bdcdb"
+              "after_sha256": "de7fa4eda1cb2a06ea0e3a67c315d8ff1f59631da67b1538e567bb8ef7e9b6db"
             },
             "0.1.0-rc.8": {
               "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "a10fe3a4a2595558bad56da36795c8b7bb6eadfed693dce5d3cf02a8101540d7"
+              "after_sha256": "0195d3f4632e0a5097cfba9be9e1421243861453d9bc568109fd6be2ef446cdd"
             },
             "0.1.1-rc.2": {
               "before_sha256": "14e7c3b7079214a978548b64028f5c4d16d3f2f81a8ccf99e089dcd370e63b6c",
-              "after_sha256": "a10fe3a4a2595558bad56da36795c8b7bb6eadfed693dce5d3cf02a8101540d7"
+              "after_sha256": "0195d3f4632e0a5097cfba9be9e1421243861453d9bc568109fd6be2ef446cdd"
             }
           }
         },
@@ -842,15 +842,15 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "9740ca09ce19bdd62e5abb989099b5a3735845a79a110e9e6405df7ff4d22640",
-              "after_sha256": "ac94a79f5ccd2d95b649e4b278970ada89912ead980db7b4e94f07a1217c658a"
+              "after_sha256": "83bf4a3ef1bd6b9185c32c0f79bc9afab61016f2cb69497d47e73558f078fa11"
             },
             "0.1.0-rc.8": {
               "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
-              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
+              "after_sha256": "b004772f9ac10099c791f0508546c284ff69e94d7d1983a20e8abdc12211aca2"
             },
             "0.1.1-rc.2": {
               "before_sha256": "c21829a95caf7fe95e817d6a13d92cf3b58038cee3f7c2a426d8cc67e8b91b59",
-              "after_sha256": "8a1f681810a71c2530c2e5a8c47e5c1a87e427924eb9bf99565633cd09fb9adf"
+              "after_sha256": "b004772f9ac10099c791f0508546c284ff69e94d7d1983a20e8abdc12211aca2"
             }
           }
         },
@@ -938,15 +938,143 @@
           "release_hashes": {
             "0.1.0-rc.7": {
               "before_sha256": "5cb76db1df8eeb781836e943a952dd574a5c508e2bddb1eb6be3d37d723e84d1",
-              "after_sha256": "db60e5fda2864f2a851579f00ce0529c62c8f37f0983418bafbac060f7f409cf"
+              "after_sha256": "ee739758a1fd19aaddf4959bc40a0bedcc87305534657d01f00e0b40add3fe76"
             },
             "0.1.0-rc.8": {
               "before_sha256": "b8abf7f9f725b21a1a24273d96e548923854b03f1696b1160258d926b3c9c13f",
-              "after_sha256": "74d07b9fa1cd95caf4dc5b1e29f60460c18a225ed7feb172c8218a581d7daf2f"
+              "after_sha256": "ce6e2c87aaed5c6cccb15cce427a9368a9ea1bd799a965def227c67c4ba51380"
             },
             "0.1.1-rc.2": {
               "before_sha256": "b31daceead2d82bb3e25e43706904811fe114e752012a7b51a02171e33c62a65",
-              "after_sha256": "83dcf3132ad95914338fc12f262b97f0bca3f7d0df92cf4de7eff9fc0675f8dd"
+              "after_sha256": "587d1ddb6afddce75762215844ea1d1bea91e8b74287d6fa17b498e41d2205a7"
+            }
+          }
+        },
+        "packages/subagent/subagent-in-process-driver/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "2aadb343b2d189e9ccf17e365669a82c0dd85724465b056ab18d3425b66d9f99",
+              "after_sha256": "b8f9158b2149135dd1ae8eb56b2c76b8747a6271df2472bd358b4216e347b6f6"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "2aadb343b2d189e9ccf17e365669a82c0dd85724465b056ab18d3425b66d9f99",
+              "after_sha256": "b8f9158b2149135dd1ae8eb56b2c76b8747a6271df2472bd358b4216e347b6f6"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "2aadb343b2d189e9ccf17e365669a82c0dd85724465b056ab18d3425b66d9f99",
+              "after_sha256": "b8f9158b2149135dd1ae8eb56b2c76b8747a6271df2472bd358b4216e347b6f6"
+            }
+          }
+        },
+        "packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
+              "after_sha256": "d9386b9fc5be25f29477b6c114f14c3193db8a8b81a1e2d3d12ca70a25264980"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
+              "after_sha256": "d9386b9fc5be25f29477b6c114f14c3193db8a8b81a1e2d3d12ca70a25264980"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "a95836fc969c5e7cd886f79856e8262fbb110c63e751118ba408a22885c6eacd",
+              "after_sha256": "d9386b9fc5be25f29477b6c114f14c3193db8a8b81a1e2d3d12ca70a25264980"
+            }
+          }
+        },
+        "packages/subagent/subagent-spawn-in-process/README.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "7415af2a4ce46a105d16302c95cd961fb8143224dfcead485f2899f0a55da47c",
+              "after_sha256": "2a518716645ea682c36360a0461dcb4c467f4ae3d411c562f74c807cb94f9e83"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "7415af2a4ce46a105d16302c95cd961fb8143224dfcead485f2899f0a55da47c",
+              "after_sha256": "2a518716645ea682c36360a0461dcb4c467f4ae3d411c562f74c807cb94f9e83"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "7415af2a4ce46a105d16302c95cd961fb8143224dfcead485f2899f0a55da47c",
+              "after_sha256": "2a518716645ea682c36360a0461dcb4c467f4ae3d411c562f74c807cb94f9e83"
+            }
+          }
+        },
+        "packages/subagent/subagent-spawn-in-process/README.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "fa0c8212fcd3fbf64d70be17b3a9427523444d2b03faf5c9fb1f315e2a4edfb3",
+              "after_sha256": "0fd215c9235a41fd2d4771b23e8963e35152e28a8c937c3bde45ec534dd26f4d"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "fa0c8212fcd3fbf64d70be17b3a9427523444d2b03faf5c9fb1f315e2a4edfb3",
+              "after_sha256": "0fd215c9235a41fd2d4771b23e8963e35152e28a8c937c3bde45ec534dd26f4d"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "4b8cb8cfba6db7f68806f7c9855cdd94669c06792cfa69e1565f18a3363b61e6",
+              "after_sha256": "e8d94c345c4da128d2e6bf7977af209c83307bf70d59e1f8ad13f409871a5c7f"
+            }
+          }
+        },
+        "packages/subagent/subagent-spawn-in-process/src/index.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "164934735d7bbd6e2c6cdeffec511dfa89c20b3b67e5bfef55c1870731033de9",
+              "after_sha256": "f00cb43cca0b5feb136ffefe2a35cd3fc11d4229daa1f9d1ec29c64a8bacf5d1"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "164934735d7bbd6e2c6cdeffec511dfa89c20b3b67e5bfef55c1870731033de9",
+              "after_sha256": "f00cb43cca0b5feb136ffefe2a35cd3fc11d4229daa1f9d1ec29c64a8bacf5d1"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "164934735d7bbd6e2c6cdeffec511dfa89c20b3b67e5bfef55c1870731033de9",
+              "after_sha256": "f00cb43cca0b5feb136ffefe2a35cd3fc11d4229daa1f9d1ec29c64a8bacf5d1"
+            }
+          }
+        },
+        "packages/subagent/subagent/README.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "3803a46e9b925d0de5ec0a3f9255bf0240bf4f4f51baee529460e9fc371f1e48",
+              "after_sha256": "b306baa611a5a63a980e6598e086b8fafa2a62172d8a7f4b4157bc4f7728be41"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "2c97cc501d0c4eecdab90bfc79a96fb5e9c16d488b49a96321199f0b69030e31",
+              "after_sha256": "048f518e95e57f5dbd9ad19c7ba257c8585e125916ea603029cf6b3296585a82"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "2c97cc501d0c4eecdab90bfc79a96fb5e9c16d488b49a96321199f0b69030e31",
+              "after_sha256": "048f518e95e57f5dbd9ad19c7ba257c8585e125916ea603029cf6b3296585a82"
+            }
+          }
+        },
+        "packages/subagent/subagent/README.zh.md": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "15bddb72f87e6125552db83e89d689d19a7544036ad170d1504b0542132044ac",
+              "after_sha256": "aa0f4540d0130fc1f1f96b9c8aaeb2b3aacdbea53347192d08455c118d9cea47"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "cd408d7e5fc4879e25aabe5101137adb1208826f405eec39dffc9e319a28aed2",
+              "after_sha256": "d3b01e9c520be3f718a1ff4519bdd84e4c47ee1d119fe795a8aa87607af26474"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "090972456035d724706641d1d3dc89f17a18c6cc20ca4817c231777728daaa5c",
+              "after_sha256": "d51d139676dd8dccdea7cd028f0baecb99ba1e3a81c4105385c5754675ea7b5d"
+            }
+          }
+        },
+        "packages/subagent/subagent/tests/service.spec.ts": {
+          "release_hashes": {
+            "0.1.0-rc.7": {
+              "before_sha256": "f5f8bfe1f90b32f574ab47b2bb676870e4bf1e2cb2c8e8010ceb28a947d97200",
+              "after_sha256": "8cadd4d95caaf101335cee434e2cbc755c500ddf23aa2b72705b8ec3cfddb222"
+            },
+            "0.1.0-rc.8": {
+              "before_sha256": "340c4715db61a9d4a647643b1f1eccf412770df5803c7f067d8807719ed6f268",
+              "after_sha256": "943030d8a80997684ad33a6e78700a040df960ceffb90842dcafeb4fd41a36dc"
+            },
+            "0.1.1-rc.2": {
+              "before_sha256": "340c4715db61a9d4a647643b1f1eccf412770df5803c7f067d8807719ed6f268",
+              "after_sha256": "943030d8a80997684ad33a6e78700a040df960ceffb90842dcafeb4fd41a36dc"
             }
           }
         }

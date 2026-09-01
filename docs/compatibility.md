@@ -37,11 +37,14 @@ package does not fork, vendor, or propose this integration upstream. The patch
 manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
 
-The current `native-execution-boundaries-v4` patch supplies the monotonic
+The current `native-execution-boundaries-v5` patch supplies the monotonic
 pre-body guard and prerequisite seams retained from earlier revisions, adds a
 single terminal policy provider after ordinary persistence and result
 materialization, preserves model-order persistence projection, and adds the
-dynamic protected-root sandbox contract. Runtime-kit selects the candidate
+dynamic protected-root sandbox contract. It also adds DSH-owned restricted
+one-shot roles: immutable host registration, caller-minimal starts, exact-live
+classification and receipts, atomic unpublished-child authority mounting,
+bounded global/per-role admission, and quiescent teardown. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
 target hashes bind those seams independently for rc.7, rc.8, and rc.2; an

@@ -1,5 +1,5 @@
 diff --git a/docs/subsystems/llm-streaming.i18n.yaml b/docs/subsystems/llm-streaming.i18n.yaml
-index cd1adac..84491ce 100644
+index cd1adacbe3..84491cede9 100644
 --- a/docs/subsystems/llm-streaming.i18n.yaml
 +++ b/docs/subsystems/llm-streaming.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -11,7 +11,7 @@ index cd1adac..84491ce 100644
 +llm-streaming.md: e16438cf2deceef6dc8024e54d41cf50e0754ee5
 +llm-streaming.zh.md: 8bd2b22339c1c06cb81a2c847740b38657000a91
 diff --git a/docs/subsystems/llm-streaming.md b/docs/subsystems/llm-streaming.md
-index 1b23569..e16438c 100644
+index 1b2356983b..e16438cf2d 100644
 --- a/docs/subsystems/llm-streaming.md
 +++ b/docs/subsystems/llm-streaming.md
 @@ -768,6 +768,15 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
@@ -31,7 +31,7 @@ index 1b23569..e16438c 100644
   * Register an adapter for the given provider routes. Throws `LlmError` with code
   * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
 diff --git a/docs/subsystems/llm-streaming.zh.md b/docs/subsystems/llm-streaming.zh.md
-index 0c2b648..8bd2b22 100644
+index 0c2b64830d..8bd2b22339 100644
 --- a/docs/subsystems/llm-streaming.zh.md
 +++ b/docs/subsystems/llm-streaming.zh.md
 @@ -774,6 +774,15 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
@@ -51,7 +51,7 @@ index 0c2b648..8bd2b22 100644
   * Register an adapter for the given provider routes. Throws `LlmError` with code
   * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).
 diff --git a/docs/subsystems/sandbox.i18n.yaml b/docs/subsystems/sandbox.i18n.yaml
-index 445c019..994b868 100644
+index 445c0198ed..994b868874 100644
 --- a/docs/subsystems/sandbox.i18n.yaml
 +++ b/docs/subsystems/sandbox.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -63,7 +63,7 @@ index 445c019..994b868 100644
 +sandbox.md: 7e7396665e193fc86dbbfb4581150df1a3c3b1a5
 +sandbox.zh.md: 7eff10a31dff82fbd16abadf21ab7aaa40c8acd5
 diff --git a/docs/subsystems/sandbox.md b/docs/subsystems/sandbox.md
-index 765b33e..7e73966 100644
+index 765b33e2ac..7e7396665e 100644
 --- a/docs/subsystems/sandbox.md
 +++ b/docs/subsystems/sandbox.md
 @@ -204,6 +204,13 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
@@ -81,7 +81,7 @@ index 765b33e..7e73966 100644
   * Read the session override without applying the deployment default.
   * @param session - session whose log supplies the override.
 diff --git a/docs/subsystems/sandbox.zh.md b/docs/subsystems/sandbox.zh.md
-index 6d2b10d..7eff10a 100644
+index 6d2b10d63a..7eff10a31d 100644
 --- a/docs/subsystems/sandbox.zh.md
 +++ b/docs/subsystems/sandbox.zh.md
 @@ -206,6 +206,13 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
@@ -99,7 +99,7 @@ index 6d2b10d..7eff10a 100644
   * Read the session override without applying the deployment default.
   * @param session - session whose log supplies the override.
 diff --git a/docs/subsystems/subagent.i18n.yaml b/docs/subsystems/subagent.i18n.yaml
-index 6182d31..95130c9 100644
+index 6182d3112a..99328393a4 100644
 --- a/docs/subsystems/subagent.i18n.yaml
 +++ b/docs/subsystems/subagent.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -108,10 +108,10 @@ index 6182d31..95130c9 100644
  #   pnpm run verify-translation-pairing --write docs/subsystems/subagent.md
 -subagent.md: e08c2bd1caa021504be66f70d8b7006c923e4d6f
 -subagent.zh.md: 3ce5267cbd0b9d85e85f6376b5baa54b395d4786
-+subagent.md: ec4c8e15e939d32ce88cfebe72d08a0022f8a6ef
-+subagent.zh.md: ea9a1fbc00c8f0336c1d615572c3889eae47a7a3
++subagent.md: 0ca342073454c047313d571e2c2fc8338a61ffc3
++subagent.zh.md: 6778d707cd841ea02bfd4a729e96bf16198d5cf5
 diff --git a/docs/subsystems/subagent.md b/docs/subsystems/subagent.md
-index e08c2bd..ec4c8e1 100644
+index e08c2bd1ca..0ca3420734 100644
 --- a/docs/subsystems/subagent.md
 +++ b/docs/subsystems/subagent.md
 @@ -517,6 +517,14 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
@@ -143,8 +143,57 @@ index e08c2bd..ec4c8e1 100644
  /**
   * Close continuable admission below exact live parent Agents, stop only their
   * visible descendant Activations synchronously, then await admitted scoped
+@@ -650,6 +665,48 @@ getProvider(name: string): SubagentProvider | undefined
+  */
+ list(): string[]
+ 
++/**
++ * Configure the process-wide restricted-role pool before registering roles.
++ * @param limits - bounded global active and queued admissions.
++ * @returns the effect disposer for this capacity generation.
++ */
++configureRoleCapacity(limits: { readonly maxActive: number; readonly maxQueued: number }): () => void
++
++/**
++ * Register one immutable host-issued one-shot role.
++ * @param definition - complete trusted authority fixed for this role id.
++ * @returns the effect disposer that closes and drains this role generation.
++ */
++registerRole(definition: RestrictedRoleDefinition): () => void
++
++/**
++ * List trusted role ids in registration order.
++ * @returns registered ids without their authority definitions.
++ */
++listRoles(): string[]
++
++/**
++ * Return the host-authenticated role of one exact live child.
++ * @param agent - exact child Agent object to classify.
++ * @returns its role id while live, or undefined.
++ */
++roleOf(agent: Agent): string | undefined
++
++/**
++ * Read bounded operational counters without exposing child identities.
++ * @param role - optional role id; omission selects the global pool.
++ * @returns active and queued admission counts.
++ */
++roleStats(role?: string): { active: number; queued: number }
++
++/**
++ * Start one child whose complete authority comes from a registered role.
++ * @param roleId - trusted registered role to select.
++ * @param request - caller-controlled task, exact parent, and cancellation only.
++ * @returns a published authenticated role run after atomic composition.
++ */
++async startRole(roleId: string, request: RestrictedRoleStartRequest): Promise<RestrictedRoleRun>
++
+ /**
+  * Establish a published child on the named provider. Capability and semantic
+  * checks run before delegation. Provider ownership lasts until its promise
 diff --git a/docs/subsystems/subagent.zh.md b/docs/subsystems/subagent.zh.md
-index 3ce5267..ea9a1fb 100644
+index 3ce5267cbd..6778d707cd 100644
 --- a/docs/subsystems/subagent.zh.md
 +++ b/docs/subsystems/subagent.zh.md
 @@ -521,6 +521,14 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
@@ -176,8 +225,57 @@ index 3ce5267..ea9a1fb 100644
  /**
   * Close continuable admission below exact live parent Agents, stop only their
   * visible descendant Activations synchronously, then await admitted scoped
+@@ -654,6 +669,48 @@ getProvider(name: string): SubagentProvider | undefined
+  */
+ list(): string[]
+ 
++/**
++ * Configure the process-wide restricted-role pool before registering roles.
++ * @param limits - bounded global active and queued admissions.
++ * @returns the effect disposer for this capacity generation.
++ */
++configureRoleCapacity(limits: { readonly maxActive: number; readonly maxQueued: number }): () => void
++
++/**
++ * Register one immutable host-issued one-shot role.
++ * @param definition - complete trusted authority fixed for this role id.
++ * @returns the effect disposer that closes and drains this role generation.
++ */
++registerRole(definition: RestrictedRoleDefinition): () => void
++
++/**
++ * List trusted role ids in registration order.
++ * @returns registered ids without their authority definitions.
++ */
++listRoles(): string[]
++
++/**
++ * Return the host-authenticated role of one exact live child.
++ * @param agent - exact child Agent object to classify.
++ * @returns its role id while live, or undefined.
++ */
++roleOf(agent: Agent): string | undefined
++
++/**
++ * Read bounded operational counters without exposing child identities.
++ * @param role - optional role id; omission selects the global pool.
++ * @returns active and queued admission counts.
++ */
++roleStats(role?: string): { active: number; queued: number }
++
++/**
++ * Start one child whose complete authority comes from a registered role.
++ * @param roleId - trusted registered role to select.
++ * @param request - caller-controlled task, exact parent, and cancellation only.
++ * @returns a published authenticated role run after atomic composition.
++ */
++async startRole(roleId: string, request: RestrictedRoleStartRequest): Promise<RestrictedRoleRun>
++
+ /**
+  * Establish a published child on the named provider. Capability and semantic
+  * checks run before delegation. Provider ownership lasts until its promise
 diff --git a/docs/subsystems/subprocess.i18n.yaml b/docs/subsystems/subprocess.i18n.yaml
-index bb087de..9fcb40c 100644
+index bb087de82e..9fcb40ce6e 100644
 --- a/docs/subsystems/subprocess.i18n.yaml
 +++ b/docs/subsystems/subprocess.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -189,7 +287,7 @@ index bb087de..9fcb40c 100644
 +subprocess.md: c08319856c0e84896e8e5737daa1420c769e0def
 +subprocess.zh.md: b7bd82542c77431954fd68f7b09efe7caa14f964
 diff --git a/docs/subsystems/subprocess.md b/docs/subsystems/subprocess.md
-index b5d5c61..c083198 100644
+index b5d5c61da9..c08319856c 100644
 --- a/docs/subsystems/subprocess.md
 +++ b/docs/subsystems/subprocess.md
 @@ -310,6 +310,19 @@ abstract resolveExecutable( command: string, env?: Readonly<Record<string, strin
@@ -213,7 +311,7 @@ index b5d5c61..c083198 100644
   * Allocate a real terminal and start one owned process session. This is the
   * only non-pipe process primitive: implementations own terminal byte I/O,
 diff --git a/docs/subsystems/subprocess.zh.md b/docs/subsystems/subprocess.zh.md
-index 81f0d1a..b7bd825 100644
+index 81f0d1aa97..b7bd82542c 100644
 --- a/docs/subsystems/subprocess.zh.md
 +++ b/docs/subsystems/subprocess.zh.md
 @@ -310,6 +310,19 @@ abstract resolveExecutable( command: string, env?: Readonly<Record<string, strin
@@ -237,7 +335,7 @@ index 81f0d1a..b7bd825 100644
   * Allocate a real terminal and start one owned process session. This is the
   * only non-pipe process primitive: implementations own terminal byte I/O,
 diff --git a/docs/subsystems/tools.i18n.yaml b/docs/subsystems/tools.i18n.yaml
-index ed327e5..93fbcbd 100644
+index ed327e53ce..93fbcbdd38 100644
 --- a/docs/subsystems/tools.i18n.yaml
 +++ b/docs/subsystems/tools.i18n.yaml
 @@ -2,5 +2,5 @@
@@ -249,7 +347,7 @@ index ed327e5..93fbcbd 100644
 +tools.md: 44244b7cd8aadd4991432053a52f8a6b61726781
 +tools.zh.md: ad253b4d92e94e1a5cf5dacd53e367a31453e837
 diff --git a/docs/subsystems/tools.md b/docs/subsystems/tools.md
-index dd89d40..44244b7 100644
+index dd89d40c14..44244b7cd8 100644
 --- a/docs/subsystems/tools.md
 +++ b/docs/subsystems/tools.md
 @@ -482,6 +482,23 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
@@ -326,7 +424,7 @@ index dd89d40..44244b7 100644
  
  #### `tools/result` — emit
 diff --git a/docs/subsystems/tools.zh.md b/docs/subsystems/tools.zh.md
-index 0d3e59b..ad253b4 100644
+index 0d3e59bc22..ad253b4d92 100644
 --- a/docs/subsystems/tools.zh.md
 +++ b/docs/subsystems/tools.zh.md
 @@ -482,6 +482,23 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
@@ -403,7 +501,7 @@ index 0d3e59b..ad253b4 100644
  
  #### `tools/result` — emit
 diff --git a/packages/core/agent-loop/README.md b/packages/core/agent-loop/README.md
-index 907bbe7..8b4608e 100644
+index 907bbe75fd..8b4608e624 100644
 --- a/packages/core/agent-loop/README.md
 +++ b/packages/core/agent-loop/README.md
 @@ -63,7 +63,7 @@ Every inbox mutation publishes one normalized `agent/inbox/spliced` event before
@@ -425,7 +523,7 @@ index 907bbe7..8b4608e 100644
  - Model-request recovery: `dsh-llm-retry` records and waits exact-provider normal or unbounded backoff on `agent/request-error`, emits non-surface `llm/retry` status, then returns a retry action
  - Sandbox, permission, plan mode: `tools/pre-execute` for extensible deny/ask, `tools.guard()` for monotonic owner policy, `tools/post-execute` for result decisions, and `tools/result` for final observation
 diff --git a/packages/core/agent-loop/README.zh.md b/packages/core/agent-loop/README.zh.md
-index 76a7315..68f3d2d 100644
+index 76a73155a3..68f3d2dc16 100644
 --- a/packages/core/agent-loop/README.zh.md
 +++ b/packages/core/agent-loop/README.zh.md
 @@ -63,7 +63,7 @@ interface Config {
@@ -447,7 +545,7 @@ index 76a7315..68f3d2d 100644
  - 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待针对确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
  - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
-index 3ef1ec7..60534bf 100644
+index 3ef1ec7aa4..60534bfb88 100644
 --- a/packages/core/agent-loop/src/agent.ts
 +++ b/packages/core/agent-loop/src/agent.ts
 @@ -16,7 +16,7 @@ import type {
@@ -560,7 +658,7 @@ index 3ef1ec7..60534bf 100644
        )
        return concluded ? { kind: 'completed' } : null
 diff --git a/packages/core/agent-loop/src/tool-calls.ts b/packages/core/agent-loop/src/tool-calls.ts
-index 3acfe71..833b51f 100644
+index 3acfe7140d..833b51f123 100644
 --- a/packages/core/agent-loop/src/tool-calls.ts
 +++ b/packages/core/agent-loop/src/tool-calls.ts
 @@ -19,6 +19,7 @@ import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type ToolExecutio
@@ -639,7 +737,7 @@ index 3acfe71..833b51f 100644
    }
    /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
 diff --git a/packages/core/agent-loop/tests/interception.spec.ts b/packages/core/agent-loop/tests/interception.spec.ts
-index 72e3165..9a8cafc 100644
+index 72e3165f78..9a8cafccce 100644
 --- a/packages/core/agent-loop/tests/interception.spec.ts
 +++ b/packages/core/agent-loop/tests/interception.spec.ts
 @@ -1,6 +1,6 @@
@@ -763,7 +861,7 @@ index 72e3165..9a8cafc 100644
      const adapter = new MockAdapter([toolCallResponse('c1', 'danger', {}), textResponse('ok')])
      const ctx = await harness(adapter)
 diff --git a/packages/core/tools/README.md b/packages/core/tools/README.md
-index dd20b1b..1165c98 100644
+index dd20b1b8fd..1165c98e29 100644
 --- a/packages/core/tools/README.md
 +++ b/packages/core/tools/README.md
 @@ -43,6 +43,7 @@ The live registry pipeline has three transformable waterfalls, then the definiti
@@ -787,7 +885,7 @@ index dd20b1b..1165c98 100644
  - MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
  
 diff --git a/packages/core/tools/README.zh.md b/packages/core/tools/README.zh.md
-index 129bd8d..14ab64b 100644
+index 129bd8d0e3..14ab64b60b 100644
 --- a/packages/core/tools/README.zh.md
 +++ b/packages/core/tools/README.zh.md
 @@ -43,6 +43,7 @@ tools:
@@ -811,7 +909,7 @@ index 129bd8d..14ab64b 100644
  - MCP 服务器：每个服务器使用一个插件；发现工具后，使用服务器的 schema 调用 `ctx.tools.register()`。
  
 diff --git a/packages/core/tools/src/code-mode.ts b/packages/core/tools/src/code-mode.ts
-index ad0e59b..0e79a15 100644
+index ad0e59b77e..0e79a15473 100644
 --- a/packages/core/tools/src/code-mode.ts
 +++ b/packages/core/tools/src/code-mode.ts
 @@ -560,7 +560,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
@@ -824,7 +922,7 @@ index ad0e59b..0e79a15 100644
                  exec.deferContext(createUserMessage({
                    content: result.content,
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 377015f..05019bd 100644
+index 377015feb3..05019bdd3c 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -140,6 +140,17 @@ declare module '@deepseek-ai/cordis' {
@@ -1733,7 +1831,7 @@ index 377015f..05019bd 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
-index ec77059..1c351dd 100644
+index ec770592a6..1c351dd2ce 100644
 --- a/packages/core/tools/tests/tools.spec.ts
 +++ b/packages/core/tools/tests/tools.spec.ts
 @@ -4,11 +4,13 @@ import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@de
@@ -2835,7 +2933,7 @@ index ec77059..1c351dd 100644
 +  })
 +})
 diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
-index 32e9ccb..e8fcea6 100644
+index 32e9ccbda6..4ed8098a5e 100644
 --- a/packages/extensions/tool-cordis/src/api-catalog.ts
 +++ b/packages/extensions/tool-cordis/src/api-catalog.ts
 @@ -959,6 +959,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
@@ -2900,7 +2998,50 @@ index 32e9ccb..e8fcea6 100644
        {
          signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
          description: 'Close continuable admission below exact live parent Agents, stop only their visible descendant Activations synchronously, then await admitted scoped materializations and release those forests child-first. The scoped cutoff lasts until each exact parent leaves the registry; unrelated parent trees remain live.',
-@@ -1869,6 +1897,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -1856,6 +1884,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+         parameters: [],
+         returns: 'the registered names.',
+       },
++      {
++        signature: 'configureRoleCapacity(limits: { readonly maxActive: number; readonly maxQueued: number }): () => void',
++        description: 'Configure the process-wide restricted-role pool before registering roles.',
++        parameters: [{ name: 'limits', description: 'bounded global active and queued admissions.' }],
++        returns: 'the effect disposer for this capacity generation.',
++      },
++      {
++        signature: 'registerRole(definition: RestrictedRoleDefinition): () => void',
++        description: 'Register one immutable host-issued one-shot role.',
++        parameters: [{ name: 'definition', description: 'complete trusted authority fixed for this role id.' }],
++        returns: 'the effect disposer that closes and drains this role generation.',
++      },
++      {
++        signature: 'listRoles(): string[]',
++        description: 'List trusted role ids in registration order.',
++        parameters: [],
++        returns: 'registered ids without their authority definitions.',
++      },
++      {
++        signature: 'roleOf(agent: Agent): string | undefined',
++        description: 'Return the host-authenticated role of one exact live child.',
++        parameters: [{ name: 'agent', description: 'exact child Agent object to classify.' }],
++        returns: 'its role id while live, or undefined.',
++      },
++      {
++        signature: 'roleStats(role?: string): { active: number; queued: number }',
++        description: 'Read bounded operational counters without exposing child identities.',
++        parameters: [{ name: 'role', description: 'optional role id; omission selects the global pool.' }],
++        returns: 'active and queued admission counts.',
++      },
++      {
++        signature: 'async startRole(roleId: string, request: RestrictedRoleStartRequest): Promise<RestrictedRoleRun>',
++        description: 'Start one child whose complete authority comes from a registered role.',
++        parameters: [{ name: 'roleId', description: 'trusted registered role to select.' }, { name: 'request', description: 'caller-controlled task, exact parent, and cancellation only.' }],
++        returns: 'a published authenticated role run after atomic composition.',
++      },
+       {
+         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
+         description: 'Establish a published child on the named provider. Capability and semantic checks run before delegation. Provider ownership lasts until its promise fulfills; a rejection therefore has no run for the caller to dispose and emits no run lifecycle events. Post-publication turn and infrastructure failures settle through the returned run.',
+@@ -1869,6 +1933,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
      summary: 'Abstract subprocess service.',
      description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
      methods: [
@@ -2912,7 +3053,7 @@ index 32e9ccb..e8fcea6 100644
        {
          signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
          description: 'Resolve one configured executable in this provider\'s execution world. Absolute paths are verified; bare names use the provider\'s scrubbed PATH plus explicit environment overrides. Relative paths containing separators are rejected: the resolution base is undefined, so providers fail loud instead of guessing.',
-@@ -1881,6 +1914,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -1881,6 +1950,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
          parameters: [{ name: 'spec', description: 'argv, directory, stdio dispositions, grace, cancellation, and environment.' }],
          returns: 'the live process handle (streams/readers, signalling, outcome promise).',
        },
@@ -2925,7 +3066,7 @@ index 32e9ccb..e8fcea6 100644
        {
          signature: 'abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>',
          description: 'Allocate a real terminal and start one owned process session. This is the only non-pipe process primitive: implementations own terminal byte I/O, foreground groups, signals, and complete session-tree cleanup.',
-@@ -2085,6 +2124,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -2085,6 +2160,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
      summary: 'Tool registry and execution pipeline.',
      description: 'Tool registry and execution pipeline. Scoped registrations shadow globals; one visibility resolver feeds presentation, lookup, and dispatch.',
      methods: [
@@ -2944,7 +3085,7 @@ index 32e9ccb..e8fcea6 100644
        {
          signature: 'presentAs(mode: ToolPresentationMode): () => void',
          description: 'Present the calling scope\'s tools in `mode` instead of the deployment default. Nearest scope on the chain wins, so a preset\'s standing declaration covers every agent joined under it.\n\nScoped only, and one declaration per scope: this is how an agent preset composes Code Mode agents beside native ones in the same process, and a process-global override would be the `mode` config field instead.',
-@@ -2109,6 +2160,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+@@ -2109,6 +2196,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
          parameters: [{ name: 'guard', description: 'synchronous check; a returned string denies the execution.' }],
          returns: 'the exact disposer that unregisters the guard.',
        },
@@ -2956,7 +3097,7 @@ index 32e9ccb..e8fcea6 100644
        {
          signature: 'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
          description: 'Look up a tool as one scope sees it (scoped shadows global; a restricted-away global reads as absent). Presenters pass the calling agent so the rendered card matches the definition that actually executed.',
-@@ -2773,6 +2829,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
+@@ -2773,6 +2865,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
      description: 'Allow, deny, or ask before dispatch. `next()` delegates to allow; missing approval support turns `ask` into denial. Async gates must observe `exec.signal`; the registry rechecks cancellation after they settle but never abandons their promise. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent\'s calls.',
      parameters: [{ name: 'exec', description: 'the pending call (name, parsed arguments, caller agent).' }],
    },
@@ -2971,7 +3112,7 @@ index 32e9ccb..e8fcea6 100644
    {
      name: 'tools/result',
      mode: 'emit',
-@@ -3147,11 +3211,35 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3147,11 +3247,35 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'ContinuableStartSpec',
@@ -3009,7 +3150,7 @@ index 32e9ccb..e8fcea6 100644
    },
    {
      name: 'CordisDynamicPackageId',
-@@ -3617,6 +3705,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3617,6 +3741,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'LlmFailure',
      declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
    },
@@ -3020,7 +3161,7 @@ index 32e9ccb..e8fcea6 100644
    {
      name: 'LlmModelContext',
      declaration: 'export interface LlmModelContext {\n    contextWindow: number;\n}',
-@@ -3647,7 +3739,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3647,7 +3775,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'LlmRuntime',
@@ -3029,7 +3170,41 @@ index 32e9ccb..e8fcea6 100644
    },
    {
      name: 'LspHover',
-@@ -4003,7 +4095,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -3959,12 +4087,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+   },
+   {
+     name: 'ResolvedSubagentStartRequest',
+-    declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n}',
++    declaration: 'export interface ResolvedSubagentStartRequest extends SubagentStartRequest {\n    readonly descriptor: SubagentDescriptorData;\n    readonly restrictedRole?: RestrictedRoleAuthority;\n}',
+   },
+   {
+     name: 'RestoredSessionOptions',
+     declaration: 'export interface RestoredSessionOptions {\n    readonly seed: SessionEvent[];\n    readonly meta: SessionHeader;\n    readonly seedSource: \'persistence\';\n}',
+   },
++  {
++    name: 'RestrictedRoleAuthority',
++    declaration: 'export interface RestrictedRoleAuthority {\n    readonly id: string;\n    readonly registrationGeneration: string;\n    readonly executionGeneration: string;\n    readonly sandbox: RestrictedRoleDefinition[\'sandbox\'];\n    readonly approval: \'never\';\n    readonly toolFilter: ToolRestriction;\n    classify(agent: Agent): RestrictedRoleReceipt;\n}',
++  },
++  {
++    name: 'RestrictedRoleDefinition',
++    declaration: 'export interface RestrictedRoleDefinition {\n    readonly id: string;\n    readonly provider: string;\n    readonly persona: string;\n    readonly agentOptions?: AgentOptions;\n    readonly toolFilter: ToolRestriction;\n    readonly sandbox: {\n        readonly mode: \'read-only\';\n        readonly protectedRoots: readonly string[];\n    };\n    readonly approval: \'never\';\n    readonly outputSchema: ObjectJsonSchema;\n    readonly maxDepth: number;\n    readonly timeoutMs: number;\n    readonly maxActive: number;\n    readonly maxQueued: number;\n}',
++  },
++  {
++    name: 'RestrictedRoleReceipt',
++    declaration: 'export interface RestrictedRoleReceipt {\n    readonly schema_version: \'dsh.subagent.restricted-role-receipt.v1\';\n    readonly role: string;\n    readonly registration_generation: string;\n    readonly execution_generation: string;\n    readonly parent_session_id: string;\n    readonly child_session_id: string;\n    readonly workspace_sha256: string;\n}',
++  },
++  {
++    name: 'RestrictedRoleRun',
++    declaration: 'export interface RestrictedRoleRun extends SubagentRun {\n    readonly roleReceipt: RestrictedRoleReceipt;\n}',
++  },
++  {
++    name: 'RestrictedRoleStartRequest',
++    declaration: 'export interface RestrictedRoleStartRequest {\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
++  },
+   {
+     name: 'ResumeAgentOptions',
+     declaration: 'export interface ResumeAgentOptions {\n    readonly resumeSessionId: SessionId;\n    readonly agentOptions?: AgentOptions;\n    readonly signal?: AbortSignal;\n    readonly setup?: AgentSetup;\n}',
+@@ -4003,7 +4151,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'SandboxExecutionPolicy',
@@ -3038,16 +3213,25 @@ index 32e9ccb..e8fcea6 100644
    },
    {
      name: 'SandboxMode',
-@@ -4515,7 +4607,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4483,7 +4631,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+   },
+   {
+     name: 'SubagentProvider',
+-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
++    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    readonly supportsRestrictedRoles?: true;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
+   },
+   {
+     name: 'SubagentReportDelivery',
+@@ -4515,7 +4663,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'SubagentRuntime',
 -    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
-+    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    async closeContinuable(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    registerContinuableWorkspaceProvider(provider: ContinuableWorkspaceProvider): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;\n}',
++    declaration: 'export class SubagentRuntime extends Service {\n    constructor(ctx: Context);\n    async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;\n    async followup(parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions): Promise<MessageId>;\n    async closeContinuable(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void>;\n    interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void;\n    async reportFrom(child: Agent, content: ContentBlock[], options: SubagentReportOptions): Promise<MessageId>;\n    registerContinuableSetup(contribution: ContinuableSetupContribution): () => void;\n    registerContinuableWorkspaceProvider(provider: ContinuableWorkspaceProvider): () => void;\n    async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>;\n    async drainContinuableChildren(parent: Agent, childIds: readonly SessionId[]): Promise<void>;\n    listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>;\n    listDescendants(rootSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]>;\n    registerProvider(provider: SubagentProvider): () => void;\n    getProvider(name: string): SubagentProvider | undefined;\n    list(): string[];\n    configureRoleCapacity(limits: {\n        readonly maxActive: number;\n        readonly maxQueued: number;\n    }): () => void;\n    registerRole(definition: RestrictedRoleDefinition): () => void /* …truncated — full shape in source */',
    },
    {
      name: 'SubagentStartRequest',
-@@ -4781,6 +4873,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4781,6 +4929,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'ToolExecutionMode',
      declaration: 'export type ToolExecutionMode = {\n    kind: \'parallel\';\n} | {\n    kind: \'exclusive\';\n};',
    },
@@ -3058,7 +3242,7 @@ index 32e9ccb..e8fcea6 100644
    {
      name: 'ToolExecutionResult',
      declaration: 'export type ToolExecutionResult = ToolExecutionSuccess | ToolExecutionFailure;',
-@@ -4809,6 +4905,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4809,6 +4961,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
      name: 'ToolOutputDefinition',
      declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
    },
@@ -3073,7 +3257,7 @@ index 32e9ccb..e8fcea6 100644
    {
      name: 'ToolPresentationMode',
      declaration: 'export type ToolPresentationMode = \'native\' | \'code\' | \'both\';',
-@@ -4843,16 +4947,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+@@ -4843,16 +5003,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
    },
    {
      name: 'ToolRuntime',
@@ -3097,7 +3281,7 @@ index 32e9ccb..e8fcea6 100644
      name: 'TurnEndCancelCause',
      declaration: 'export type TurnEndCancelCause = AgentCancelCause | {\n    readonly kind: \'legacy\';\n};',
 diff --git a/packages/fs/fs-sandbox/src/index.ts b/packages/fs/fs-sandbox/src/index.ts
-index 17205a8..d124309 100644
+index 17205a8eaf..d124309839 100644
 --- a/packages/fs/fs-sandbox/src/index.ts
 +++ b/packages/fs/fs-sandbox/src/index.ts
 @@ -35,7 +35,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -3122,7 +3306,7 @@ index 17205a8..d124309 100644
      for (const root of writableRoots(policy)) {
        if (await isPathUnder(fresh.targetKey, root)) {
 diff --git a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
-index f6aaa0d..6027758 100644
+index f6aaa0dd81..6027758012 100644
 --- a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 +++ b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 @@ -234,3 +234,27 @@ describe('FsError identity', () => {
@@ -3154,7 +3338,7 @@ index f6aaa0d..6027758 100644
 +  })
 +})
 diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
-index 695a9fd..73fabfc 100644
+index 695a9fdfc9..73fabfcc2f 100644
 --- a/packages/fs/tool-fs/src/sandbox.ts
 +++ b/packages/fs/tool-fs/src/sandbox.ts
 @@ -13,7 +13,7 @@
@@ -3192,7 +3376,7 @@ index 695a9fd..73fabfc 100644
          approver: this.ctx.get('approval'),
          agent: exec.agent,
 diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
-index cad6531..a688524 100644
+index cad6531766..a688524614 100644
 --- a/packages/fs/tool-fs/tests/tools.spec.ts
 +++ b/packages/fs/tool-fs/tests/tools.spec.ts
 @@ -857,6 +857,25 @@ describe('sandbox escalation API (write/edit)', () => {
@@ -3222,7 +3406,7 @@ index cad6531..a688524 100644
      const { ctx, fs } = await setupConfining()
      fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
 diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
-index baf8c92..9052ff2 100644
+index baf8c921a9..9052ff25d8 100644
 --- a/packages/goal/goal/src/index.ts
 +++ b/packages/goal/goal/src/index.ts
 @@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
@@ -3251,7 +3435,7 @@ index baf8c92..9052ff2 100644
        agent,
        ref,
 diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
-index e94e075..fdd267b 100644
+index e94e0754a0..fdd267bb9a 100644
 --- a/packages/goal/goal/tests/goal.spec.ts
 +++ b/packages/goal/goal/tests/goal.spec.ts
 @@ -297,6 +297,44 @@ describe('GoalService mutations', () => {
@@ -3300,7 +3484,7 @@ index e94e075..fdd267b 100644
      const phases = ['paused', 'blocked'] as const
      for (const phase of phases) {
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index 82b64bf..1e419f1 100644
+index 82b64bf4ce..1e419f1f99 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
 @@ -182,6 +182,12 @@ export interface PreparedAdapterCall {
@@ -3396,7 +3580,7 @@ index 82b64bf..1e419f1 100644
  }
  
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 4c624fa..5478d49 100644
+index 4c624fa862..5478d49173 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
 @@ -459,6 +459,87 @@ describe('LlmRuntime', () => {
@@ -3488,7 +3672,7 @@ index 4c624fa..5478d49 100644
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
 diff --git a/packages/sandbox/sandbox-local/src/index.ts b/packages/sandbox/sandbox-local/src/index.ts
-index 5965d86..c870484 100644
+index 5965d86d32..c8704844b4 100644
 --- a/packages/sandbox/sandbox-local/src/index.ts
 +++ b/packages/sandbox/sandbox-local/src/index.ts
 @@ -323,6 +323,13 @@ export class LocalSandboxProvider extends SandboxProvider {
@@ -3506,7 +3690,7 @@ index 5965d86..c870484 100644
      return {
        argv: [...runnerArgv, '--', ...argv],
 diff --git a/packages/sandbox/sandbox-local/src/profiles.ts b/packages/sandbox/sandbox-local/src/profiles.ts
-index 4d64758..cb1491e 100644
+index 4d647580c5..cb1491e2c8 100644
 --- a/packages/sandbox/sandbox-local/src/profiles.ts
 +++ b/packages/sandbox/sandbox-local/src/profiles.ts
 @@ -5,7 +5,7 @@
@@ -3537,7 +3721,7 @@ index 4d64758..cb1491e 100644
    return ['-p', forms.join(' ')]
  }
 diff --git a/packages/sandbox/sandbox-local/tests/local.spec.ts b/packages/sandbox/sandbox-local/tests/local.spec.ts
-index 285afb8..21903a4 100644
+index 285afb865b..21903a4290 100644
 --- a/packages/sandbox/sandbox-local/tests/local.spec.ts
 +++ b/packages/sandbox/sandbox-local/tests/local.spec.ts
 @@ -73,6 +73,13 @@ describe('profile dialects', () => {
@@ -3596,7 +3780,7 @@ index 285afb8..21903a4 100644
      // The safety property moves to execution time: an unusable sandbox-exec
      // refuses to run the command, and the wrap's runnerFailureRules let
 diff --git a/packages/sandbox/sandbox-policy/src/index.ts b/packages/sandbox/sandbox-policy/src/index.ts
-index eee5a43..dbf2ff3 100644
+index eee5a43669..dbf2ff3272 100644
 --- a/packages/sandbox/sandbox-policy/src/index.ts
 +++ b/packages/sandbox/sandbox-policy/src/index.ts
 @@ -18,7 +18,7 @@
@@ -3682,7 +3866,7 @@ index eee5a43..dbf2ff3 100644
     * Read the session override without applying the deployment default.
     * @param session - session whose log supplies the override.
 diff --git a/packages/sandbox/sandbox-policy/tests/policy.spec.ts b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
-index 0a23911..d16d991 100644
+index 0a239114aa..d16d991887 100644
 --- a/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 +++ b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 @@ -14,7 +14,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -3734,7 +3918,7 @@ index 0a23911..d16d991 100644
      const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
      try {
 diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
-index e0b9a2c..a9731e9 100644
+index e0b9a2ce63..a9731e90fd 100644
 --- a/packages/sandbox/sandbox/src/escalation.ts
 +++ b/packages/sandbox/sandbox/src/escalation.ts
 @@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
@@ -3784,7 +3968,7 @@ index e0b9a2c..a9731e9 100644
   * The model-facing denial marker — the one vocabulary both enforcing families
   * teach and report, so the model recognizes a policy denial identically
 diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
-index 2d9ee5b..dc138f2 100644
+index 2d9ee5b91b..dc138f2c47 100644
 --- a/packages/sandbox/sandbox/src/index.ts
 +++ b/packages/sandbox/sandbox/src/index.ts
 @@ -14,11 +14,13 @@ export {
@@ -3817,7 +4001,7 @@ index 2d9ee5b..dc138f2 100644
     * Opaque identity of the calling session (the branded `dsh-session`
     * SessionId). Backends key per-session state off it (e.g. windows-acl gives
 diff --git a/packages/sandbox/sandbox/src/roots.ts b/packages/sandbox/sandbox/src/roots.ts
-index 1215f3d..556fad8 100644
+index 1215f3dac1..556fad85ec 100644
 --- a/packages/sandbox/sandbox/src/roots.ts
 +++ b/packages/sandbox/sandbox/src/roots.ts
 @@ -15,6 +15,7 @@
@@ -3840,7 +4024,7 @@ index 1215f3d..556fad8 100644
 +  )))]
 +}
 diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
-index 15810d0..6073180 100644
+index 15810d09d5..6073180efc 100644
 --- a/packages/sandbox/sandbox/tests/escalation.spec.ts
 +++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
 @@ -12,6 +12,8 @@ import {
@@ -3877,7 +4061,7 @@ index 15810d0..6073180 100644
    it('the denial marker names the mode', () => {
      expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
 diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
-index 37c4a76..f149209 100644
+index 37c4a762e3..f149209c6f 100644
 --- a/packages/shell/tool-bash/src/index.ts
 +++ b/packages/shell/tool-bash/src/index.ts
 @@ -20,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
@@ -3916,7 +4100,7 @@ index 37c4a76..f149209 100644
        const policy = approvedMode === undefined
          ? standingPolicy
 diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
-index 0f2e4d5..aaceb87 100644
+index 0f2e4d5a20..aaceb87775 100644
 --- a/packages/shell/tool-bash/tests/tools.spec.ts
 +++ b/packages/shell/tool-bash/tests/tools.spec.ts
 @@ -620,6 +620,19 @@ describe('sandbox escalation through the generic task producer', () => {
@@ -3939,11 +4123,353 @@ index 0f2e4d5..aaceb87 100644
    it('fails closed when approval cannot be routed', async () => {
      const withoutService = await setupSandboxed()
      expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
+diff --git a/packages/subagent/subagent-in-process-driver/src/index.ts b/packages/subagent/subagent-in-process-driver/src/index.ts
+index fd1ebff2be..35a2d8e7a3 100644
+--- a/packages/subagent/subagent-in-process-driver/src/index.ts
++++ b/packages/subagent/subagent-in-process-driver/src/index.ts
+@@ -119,13 +119,14 @@ export async function startInProcessRun(
+   let structured: StructuredAttachment | undefined
+   const setup = (childCtx: Context): void => {
+     appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
++    if (request.outputSchema !== undefined) {
++      structured = attachStructuredRuntime(childCtx, request.outputSchema)
++    }
+     applyChildComposition(childCtx, parent, {
+       persona: request.persona,
+       toolFilter: request.toolFilter,
++      restrictedRole: request.restrictedRole,
+     })
+-    if (request.outputSchema !== undefined) {
+-      structured = attachStructuredRuntime(childCtx, request.outputSchema)
+-    }
+     attachDescriptorAppend(childCtx, request.descriptor)
+   }
+ 
+diff --git a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
+index aa7437be81..a8a549572e 100644
+--- a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
++++ b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
+@@ -4,7 +4,7 @@
+  */
+ 
+ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
++import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { Context } from '@deepseek-ai/cordis'
+@@ -16,8 +16,13 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+ import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
+ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+ import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
++import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+ import ApprovalService from '@deepseek-ai/dsh-user-approval'
+-import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
++import {
++  snapshotSubagentDescriptor,
++  type RestrictedRoleAuthority,
++  type RestrictedRoleReceipt,
++} from '@deepseek-ai/dsh-subagent'
+ import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+ import { startInProcessRun } from '../src/index.ts'
+ 
+@@ -54,7 +59,7 @@ async function setupWalled(script: Script): Promise<{ ctx: Context; parent: Agen
+   return { ctx, parent }
+ }
+ 
+-function spawnRequest(parent: Agent) {
++function spawnRequest(parent: Agent, restrictedRole?: RestrictedRoleAuthority) {
+   return {
+     label: 'child task',
+     prompt: [{ type: 'text' as const, text: 'child task' }],
+@@ -65,6 +70,7 @@ function spawnRequest(parent: Agent) {
+       provider: 'spawn',
+       label: 'child task',
+     }),
++    ...restrictedRole === undefined ? {} : { restrictedRole },
+   }
+ }
+ 
+@@ -79,6 +85,163 @@ function toolResultTexts(agent: Agent): string[] {
+ }
+ 
+ describe('in-process policy inheritance', () => {
++  it('mounts a restricted role on the unpublished child scope before any tool dispatch', async () => {
++    const script: Script = []
++    const { ctx, parent } = await setupWalled(script)
++    const blocked = join(workspace, 'role-blocked.txt')
++    let classified: Agent | undefined
++    const authority: RestrictedRoleAuthority = {
++      id: 'reviewer-readonly',
++      registrationGeneration: 'registration-1',
++      executionGeneration: 'execution-1',
++      sandbox: { mode: 'read-only', protectedRoots: [] },
++      approval: 'never',
++      toolFilter: { allow: ['read', 'structured_output'] },
++      classify(agent): RestrictedRoleReceipt {
++        classified = agent
++        return {
++          schema_version: 'dsh.subagent.restricted-role-receipt.v1',
++          role: 'reviewer-readonly',
++          registration_generation: 'registration-1',
++          execution_generation: 'execution-1',
++          parent_session_id: String(parent.id),
++          child_session_id: String(agent.id),
++          workspace_sha256: 'test-only',
++        }
++      },
++    }
++    script.push(
++      toolCallResponse('write', 'write', { file_path: blocked, content: 'escaped' }),
++      toolCallResponse('structured', 'structured_output', { inspected: true }),
++    )
++
++    const run = await startInProcessRun({
++      ...spawnRequest(parent, authority),
++      outputSchema: {
++        type: 'object',
++        properties: { inspected: { type: 'boolean' } },
++        required: ['inspected'],
++      },
++    }, {})
++    try {
++      const result = await run.result
++      const child = run.localAgent as Agent
++      expect(classified).toBe(child)
++      expect(result.structured).toEqual({ inspected: true })
++      await expect(readFile(blocked, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
++      expect(toolResultTexts(child).join('\n')).toContain('restricted role reviewer-readonly cannot execute "write"')
++      expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('read-only')
++      expect(ctx.approval.overrideOf(child.session)).toBe('never')
++      const request = child.session.events.find(event => event.type === 'request/header')
++      const rolePolicySeq = child.session.events
++        .filter(event => event.type === 'sandbox/mode' || event.type === 'approval/policy')
++        .map(event => event.seq)
++      expect(request).toBeDefined()
++      expect(rolePolicySeq.every(seq => seq < (request?.seq ?? -1))).toBe(true)
++    } finally {
++      await run.dispose()
++    }
++  })
++
++  it('confines restricted-role reads without changing an ordinary sibling sandbox policy', async () => {
++    const outside = await realpath(await mkdtemp(join(tmpdir(), 'dsh-inherit-outside-')))
++    try {
++      await mkdir(join(workspace, 'src'))
++      await mkdir(join(workspace, 'service'))
++      await mkdir(join(workspace, 'subrepo', '.git'), { recursive: true })
++      await mkdir(join(workspace, 'keys'))
++      await writeFile(join(workspace, 'src', 'visible.txt'), 'visible')
++      await writeFile(join(workspace, '.env'), 'secret')
++      await writeFile(join(workspace, 'service', '.env'), 'nested-env-secret')
++      await writeFile(join(workspace, '.env.local'), 'env-variant-secret')
++      await writeFile(join(workspace, 'subrepo', '.git', 'config'), 'nested-git-secret')
++      await writeFile(join(workspace, '.credentials.test'), 'credentials-secret')
++      await writeFile(join(workspace, 'keys', 'deploy.pem'), 'pem-secret')
++      await writeFile(join(outside, 'secret.txt'), 'outside')
++      await symlink(join(outside, 'secret.txt'), join(workspace, 'outside-link'))
++      const script: Script = []
++      const { ctx, parent } = await setupWalled(script)
++      let searchBodies = 0
++      const searchTool = (name: 'glob' | 'grep'): ToolDefinition => ({
++        name,
++        description: `${name} probe`,
++        parameters: { type: 'object', properties: { path: { type: 'string' } } },
++        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value as string }] },
++        execute: async () => { searchBodies += 1; return 'searched' },
++      })
++      ctx.tools.register(searchTool('glob'))
++      ctx.tools.register(searchTool('grep'))
++      const before = ctx.sandboxPolicy.resolve({ session: parent.session })
++      let classified: Agent | undefined
++      const authority: RestrictedRoleAuthority = {
++        id: 'reviewer-readonly',
++        registrationGeneration: 'registration-1',
++        executionGeneration: 'execution-1',
++        sandbox: { mode: 'read-only', protectedRoots: ['.env', '.git'] },
++        approval: 'never',
++        toolFilter: { allow: ['glob', 'grep', 'read', 'structured_output'] },
++        classify(agent): RestrictedRoleReceipt {
++          classified = agent
++          return {
++            schema_version: 'dsh.subagent.restricted-role-receipt.v1',
++            role: 'reviewer-readonly',
++            registration_generation: 'registration-1',
++            execution_generation: 'execution-1',
++            parent_session_id: String(parent.id),
++            child_session_id: String(agent.id),
++            workspace_sha256: 'test-only',
++          }
++        },
++      }
++      script.push(
++        toolCallResponse('outside', 'read', { file_path: join(outside, 'secret.txt') }),
++        toolCallResponse('alias', 'read', { file_path: 'outside-link' }),
++        toolCallResponse('protected', 'read', { file_path: '.env' }),
++        toolCallResponse('nested-env', 'read', { file_path: 'service/.env' }),
++        toolCallResponse('env-variant', 'read', { file_path: '.env.local' }),
++        toolCallResponse('nested-git', 'read', { file_path: 'subrepo/.git/config' }),
++        toolCallResponse('credentials', 'read', { file_path: '.credentials.test' }),
++        toolCallResponse('pem', 'read', { file_path: 'keys/deploy.pem' }),
++        toolCallResponse('grep-root', 'grep', { path: '.' }),
++        toolCallResponse('grep-nested-env', 'grep', { path: 'service' }),
++        toolCallResponse('grep-nested-git', 'grep', { path: 'subrepo' }),
++        toolCallResponse('grep-nested-key', 'grep', { path: 'keys' }),
++        toolCallResponse('glob-root', 'glob', { path: '.' }),
++        toolCallResponse('grep-visible', 'grep', { path: 'src/visible.txt' }),
++        toolCallResponse('visible', 'read', { file_path: 'src/visible.txt' }),
++        toolCallResponse('structured', 'structured_output', { inspected: true }),
++      )
++
++      const run = await startInProcessRun({
++        ...spawnRequest(parent, authority),
++        outputSchema: {
++          type: 'object',
++          properties: { inspected: { type: 'boolean' } },
++          required: ['inspected'],
++        },
++      }, {})
++      try {
++        const result = await run.result
++        const child = run.localAgent as Agent
++        const denials = toolResultTexts(child).join('\n')
++        expect(classified).toBe(child)
++        expect(result.structured).toEqual({ inspected: true })
++        expect(denials).toContain('read boundary denied')
++        expect(denials).toContain('protected path denied')
++        expect(denials).toContain('grep target must be an explicit regular file')
++        expect(denials).toContain('searched')
++        expect(denials).toContain('visible')
++        expect(denials).not.toMatch(/nested-env-secret|env-variant-secret|nested-git-secret|credentials-secret|pem-secret/u)
++        expect(searchBodies).toBe(1)
++        expect(ctx.sandboxPolicy.resolve({ session: parent.session })).toEqual(before)
++      } finally {
++        await run.dispose()
++      }
++    } finally {
++      await rm(outside, { recursive: true, force: true })
++    }
++  })
++
+   it('records the parent sandbox override and the approval pin before publishing a spawn child', async () => {
+     const script: Script = []
+     const { ctx, parent } = await setupWalled(script)
+diff --git a/packages/subagent/subagent-spawn-in-process/README.md b/packages/subagent/subagent-spawn-in-process/README.md
+index f1fb96f223..76369b69a4 100644
+--- a/packages/subagent/subagent-spawn-in-process/README.md
++++ b/packages/subagent/subagent-spawn-in-process/README.md
+@@ -12,7 +12,7 @@ The shared driver owns depth checking, persona and tool-filter setup, structured
+ 
+ ## Capabilities
+ 
+-Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` because it controls the child's creation window and can enforce all four features.
++Spawn advertises `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` and `supportsRestrictedRoles: true` because it controls the child's unpublished creation window and can atomically enforce all four features plus host-issued role authority.
+ 
+ ## Config
+ 
+diff --git a/packages/subagent/subagent-spawn-in-process/README.zh.md b/packages/subagent/subagent-spawn-in-process/README.zh.md
+index 95a3b5cdb7..6a2471e686 100644
+--- a/packages/subagent/subagent-spawn-in-process/README.zh.md
++++ b/packages/subagent/subagent-spawn-in-process/README.zh.md
+@@ -12,7 +12,7 @@ spawn 提供方会在当前进程中创建一个全新的子 `Agent`。子 agent
+ 
+ ## 能力
+ 
+-spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }`，因为它控制子 agent 的创建窗口，能够强制执行全部四项功能。
++spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona: true }` 和 `supportsRestrictedRoles: true`，因为它控制子 agent 尚未发布的创建窗口，能够原子地强制执行全部四项功能与宿主签发的角色权限。
+ 
+ ## 配置
+ 
+diff --git a/packages/subagent/subagent-spawn-in-process/src/index.ts b/packages/subagent/subagent-spawn-in-process/src/index.ts
+index dcd036e4ad..552df3a458 100644
+--- a/packages/subagent/subagent-spawn-in-process/src/index.ts
++++ b/packages/subagent/subagent-spawn-in-process/src/index.ts
+@@ -40,6 +40,7 @@ export const Config: z<Config> = z.object({
+  */
+ class SpawnInProcessProvider implements SubagentProvider {
+   readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
++  readonly supportsRestrictedRoles = true
+   // Context contract: a spawned child starts fresh — it never sees the parent conversation.
+   readonly inheritsParentContext = false
+ 
+diff --git a/packages/subagent/subagent/README.md b/packages/subagent/subagent/README.md
+index e84a6b4862..c7b51f03af 100644
+--- a/packages/subagent/subagent/README.md
++++ b/packages/subagent/subagent/README.md
+@@ -16,6 +16,11 @@ The [subagent family overview](../README.md) maps implementations and model-faci
+ | `getProvider(name)` | Return the provider, or `undefined` when absent. |
+ | `list()` | Return provider names in insertion order. |
+ | `start(name, request)` | Validate an ordinary caller request, resolve its detached `one-shot` descriptor, then await the provider until a real one-shot child is published. Fulfillment returns a holder-owned `SubagentRun`; rejection means the provider has already cleaned every unpublished startup resource, while post-publication turn or infrastructure faults settle through the run. Continuable children never enter through this operation. |
++| `configureRoleCapacity({ maxActive, maxQueued })` | Configure the bounded process-wide restricted-role pool before registering roles. A second or late configuration fails loud. |
++| `registerRole(definition)` | Register one immutable trusted one-shot role with fixed provider/route, persona, tools, read-only sandbox and protected roots, approval policy, schema, depth/timeout budget, and per-role capacity. Registration is effect-scoped and removal closes admission, cancels live runs, and drains them. |
++| `listRoles()` | Return registered restricted-role ids without exposing their authority definitions. |
++| `startRole(role, { prompt, parent, signal })` | Start a role without accepting any caller-controlled authority field. Provider support and fixed capabilities are checked before capacity or model work; the unpublished child receives the complete role atomically and the returned run carries a content-free exact-child receipt. |
++| `roleOf(agent)` / `roleStats(role?)` | Resolve the host-authenticated role of an exact live child, or inspect bounded global/per-role admission counters. Labels and session events are not classification authority. |
+ | `startContinuable(spec)` | Establish one durable continuable child and deliver its initial prompt. Resolves with `{ childId, messageId }` when the child's inbox accepts that prompt, without waiting for the turn to start or for the message to reach the Session log; any earlier failure rejects with no ids and rolls the child back entirely. A caller-reserved `childId` is rejected when the live registries or configured persistence already own it. Requires `ctx.agents`, session persistence, and a provider with the `prepareContinuable` capability. |
+ | `followup(parent, childId, content, { source, signal })` | Deliver one later message from the exact live direct parent as the child's next FIFO turn, matching `Agent.followup()` terminology, and return the accepted `MessageId`. A resident child's inbox accepts it directly (waking a waiting Activation); an absent one cold-resumes from its persisted Session. Requires `ctx.agents`; cold resume also requires session persistence. |
+ | `interrupt(targetSessionId, authority)` | Interrupt one live continuable child's current turn under a human durable parent address (`{ kind: 'user', parentSessionId }`) or an exact live ancestor Agent (`{ kind: 'ancestor', agent }`). Admission is synchronous and the effect asynchronous: it issues `Agent.cancel(cause, { keepInbox: true })` and returns without waiting for the target to observe the signal. Unclaimed pending inbox work, the Activation, and published descendants are preserved; work already claimed into the interrupted turn is not requeued. An absent target is an accepted no-op; a wrong parent address or a stale, self-targeting, or non-ancestor caller rejects with `UNAUTHORIZED`. |
+@@ -32,6 +37,8 @@ Follow-up authority comes from the exact live direct parent recorded in the chil
+ 
+ Same-process requests, descriptors, results, and event payloads are trusted typed values borrowed as immutable. The service does not clone or freeze them; serialization and hostile-input validation belong at actual process, worker, persistence, and model boundaries.
+ 
++Restricted-role definitions are the exception: registration validates, clones, and recursively freezes their JSON authority. `startRole()` accepts only task content, exact parent, and cancellation signal. It reserves per-role and global capacity, fuses caller cancellation with the role timeout, and passes an unforgeable same-process authority only to providers that explicitly advertise `supportsRestrictedRoles`. The in-process driver applies the fixed persona/tool filter, read-only sandbox, approval `never`, protected-root registration, and a monotonic no-delegation guard inside the child creation window. It then binds a receipt to the role-registration generation, execution generation, exact parent/child ids, and the canonical workspace digest. Invalid structured output, timeout, cancellation, failed publication, explicit disposal, role removal, and host teardown all settle and dispose the run before releasing permits.
++
+ ## Capabilities
+ 
+ Start-time features are advertised in `provider.capabilities` because the service must reject an unsupported one-shot request before child creation:
+diff --git a/packages/subagent/subagent/README.zh.md b/packages/subagent/subagent/README.zh.md
+index e289863531..1649bfac1c 100644
+--- a/packages/subagent/subagent/README.zh.md
++++ b/packages/subagent/subagent/README.zh.md
+@@ -16,6 +16,11 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
+ | `getProvider(name)` | 返回提供方；不存在时返回 `undefined`。 |
+ | `list()` | 按插入顺序返回提供方名称。 |
+ | `start(name, request)` | 校验普通调用方请求，解析其已分离的 `one-shot` 描述符，然后等待提供方发布真正的一次性子 agent。兑现时返回由持有方拥有的 `SubagentRun`；如果调用被拒绝，提供方已经清理所有尚未发布的启动资源。发布后的轮次故障或基础设施故障则通过该 run 结算。可继续子 agent 绝不通过此操作进入。 |
++| `configureRoleCapacity({ maxActive, maxQueued })` | 在注册角色前配置有界的进程级 restricted-role 容量池；重复或过晚配置会明确失败。 |
++| `registerRole(definition)` | 注册一个不可变的可信一次性角色，固定提供方／路由、persona、工具、只读沙箱与保护根、审批策略、schema、深度／超时预算和每角色容量。注册受 effect 作用域约束；移除时关闭准入、取消在线运行并等待完全停稳。 |
++| `listRoles()` | 返回已注册 restricted-role id，不暴露其权限定义。 |
++| `startRole(role, { prompt, parent, signal })` | 启动角色且不接受任何由调用方控制的权限字段。提供方支持和固定能力会在容量或模型工作前检查；完整角色会原子地装到尚未发布的 child，并返回不含内容的准确 child receipt。 |
++| `roleOf(agent)`／`roleStats(role?)` | 解析准确在线 child 的宿主认证角色，或读取有界的全局／每角色准入计数。标签和会话事件不是分类权限。 |
+ | `startContinuable(spec)` | 建立一个持久化的可继续子 agent，并投递其初始提示词。子 agent 的 inbox 一接受该提示词，调用就会兑现为 `{ childId, messageId }`，无需等待轮次开始，也无需等待消息写入会话日志。在此之前发生的任何失败都会使调用被拒绝，不返回任何 id，并完全回滚该子 agent。如果在线注册表或已配置的持久化已经占用调用方预留的 `childId`，则拒绝该身份。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
+ | `followup(parent, childId, content, { source, signal })` | 将来自确切在线直接父级的一条后续消息作为子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `MessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 waiting 的 Activation）；不驻留的则从其持久化会话冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
+ | `interrupt(targetSessionId, authority)` | 凭人类出示的持久化父级地址 `{ kind: 'user', parentSessionId }`，或确切在线的祖先 Agent `{ kind: 'ancestor', agent }` 进行授权，中断一个在线可继续子级的当前轮次。准入判定同步完成，但取消异步生效：该操作发出 `Agent.cancel(cause, { keepInbox: true })` 后立即返回，不等待目标观察到信号。尚未领取的待处理 inbox 工作、Activation 和已发布的后代均会保留；已经领取到被中断轮次中的工作不会重新入队。目标不存在时视为已接受的空操作；错误的父级地址，或陈旧、指向自身、并非祖先的调用方，会以 `UNAUTHORIZED` 被拒绝。 |
+@@ -32,6 +37,8 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
+ 
+ 同进程请求、描述符、结果和事件 payload 都是可信的类型值，并按不可变约定借用。服务不会克隆或冻结它们；序列化和不可信输入校验属于真实的进程、worker、持久化和模型边界。
+ 
++restricted-role 定义是例外：注册会校验、复制并递归冻结其 JSON 权限。`startRole()` 只接受任务内容、准确 parent 与取消信号；它预留每角色和全局容量，把调用方取消与角色超时合并，并且只向明确声明 `supportsRestrictedRoles` 的提供方传递不可伪造的同进程权限。进程内 driver 会在 child 创建窗口内装入固定 persona／工具限制、只读沙箱、审批 `never`、保护根注册和单调的禁止继续委派 guard，再把 receipt 绑定到角色注册世代、执行世代、准确 parent／child id 与规范工作区摘要。结构化输出无效、超时、取消、发布失败、显式 dispose、角色移除和宿主关闭都会先结算并 dispose run，再释放容量。
++
+ ## 能力
+ 
+ 启动时功能通过 `provider.capabilities` 声明，因为服务必须在创建子 agent 前拒绝不受支持的一次性请求：
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 7582338..93fc289 100644
+index 7582338858..c301bf07e8 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
-@@ -103,11 +103,14 @@ export function childSessionMeta(
+@@ -8,11 +8,13 @@
+  * @module @deepseek-ai/dsh-subagent/child-agent
+  */
+ 
++import { realpathSync, statSync } from 'node:fs'
++import { isAbsolute, relative, resolve, sep } from 'node:path'
+ import type { Context } from '@deepseek-ai/cordis'
+ import type { Agent, AgentOptions, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
+ import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
+ import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+-import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
++import type { ToolExecution, ToolRestriction } from '@deepseek-ai/dsh-tools'
+ // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
+ // to the policy services when composed — delegation consumes both
+ // opportunistically (the documented `ctx.get` pattern), never as a hard dep —
+@@ -26,6 +28,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
+ // them through the tool registry's global layer.
+ import type {} from '@deepseek-ai/dsh-agent-presets'
+ import { delegationDepthOf } from './depth.ts'
++import type { RestrictedRoleAuthority } from './types.ts'
+ 
+ /** Thrown when starting a child would exceed the requested depth cap. */
+ export class SubagentDepthError extends Error {
+@@ -103,11 +106,14 @@ export function childSessionMeta(
    parent: Agent,
    childDepth: number,
    lineageSeedLength: number,
@@ -3959,8 +4485,165 @@ index 7582338..93fc289 100644
      ...agentPreset === undefined ? {} : { agentPreset },
      parentSession: parentHeader.id,
      // Navigation classification only; the descriptor remains the authority
+@@ -125,6 +131,8 @@ export interface ChildComposition {
+   readonly persona?: string | undefined
+   /** Per-child tool scoping. */
+   readonly toolFilter?: ToolRestriction | undefined
++  /** Host-issued authority applied before the child can be published. */
++  readonly restrictedRole?: RestrictedRoleAuthority | undefined
+ }
+ 
+ /**
+@@ -138,6 +146,105 @@ export const SUBAGENT_DELEGATION_CONTEXT
+     + 'When the task needs access beyond that scope, do not retry the denied operation; state the '
+     + 'limitation in your reply so the delegating agent can handle it.'
+ 
++const RESTRICTED_ROLE_PATH_TOOLS = new Set(['glob', 'grep', 'read'])
++const RESTRICTED_ROLE_PROTECTED_DIRECTORIES = new Set([
++  '.aws',
++  '.dsh',
++  '.git',
++  '.gnupg',
++  '.ssh',
++])
++const RESTRICTED_ROLE_PROTECTED_FILES = new Set([
++  '.git-credentials',
++  '.netrc',
++  '.npmrc',
++  '.pypirc',
++  'credentials.yaml',
++  'credentials.yml',
++  'id_dsa',
++  'id_ed25519',
++  'id_ecdsa',
++  'id_rsa',
++])
++
++function plainRecord(value: unknown): value is Record<string, unknown> {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
++  const prototype = Object.getPrototypeOf(value)
++  return prototype === Object.prototype || prototype === null
++}
++
++function containsPath(root: string, candidate: string): boolean {
++  const within = relative(root, candidate)
++  return within === '' || (within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within))
++}
++
++function protectedRestrictedRolePath(workspace: string, candidate: string): boolean {
++  const segments = relative(workspace, candidate).split(sep).filter(Boolean)
++    .map(segment => segment.toLowerCase())
++  if (segments.some(segment => RESTRICTED_ROLE_PROTECTED_DIRECTORIES.has(segment))) return true
++  const basename = segments.at(-1) ?? ''
++  return basename.startsWith('.env')
++    || basename.startsWith('.credentials.')
++    || RESTRICTED_ROLE_PROTECTED_FILES.has(basename)
++    || basename.endsWith('.key')
++    || basename.endsWith('.pem')
++}
++
++function restrictedRolePathDenial(
++  exec: Readonly<ToolExecution>,
++  child: Agent,
++  role: RestrictedRoleAuthority,
++): string | undefined {
++  if (!RESTRICTED_ROLE_PATH_TOOLS.has(exec.name)) return undefined
++  const cwd = child.session.header.cwd
++  if (typeof cwd !== 'string' || cwd.length === 0 || !plainRecord(exec.arguments)) {
++    return `restricted role ${role.id} read boundary is unavailable`
++  }
++  let workspace: string
++  try {
++    workspace = realpathSync.native(cwd)
++  } catch {
++    return `restricted role ${role.id} read boundary is unavailable`
++  }
++  const field = exec.name === 'read' ? 'file_path' : 'path'
++  const rawPath = exec.arguments[field]
++  if (rawPath !== undefined && (typeof rawPath !== 'string' || rawPath.trim().length === 0)) {
++    return `restricted role ${role.id} read arguments are invalid`
++  }
++  const requested = rawPath === undefined ? workspace : resolve(workspace, rawPath)
++  let canonical: string
++  try {
++    canonical = realpathSync.native(requested)
++  } catch {
++    return `restricted role ${role.id} read target is invalid`
++  }
++  if (!containsPath(workspace, canonical)) {
++    return `restricted role ${role.id} read boundary denied`
++  }
++  if (protectedRestrictedRolePath(workspace, canonical)) {
++    return `restricted role ${role.id} protected path denied`
++  }
++  const target = statSync(canonical)
++  if (exec.name === 'grep' && !target.isFile()) {
++    return `restricted role ${role.id} grep target must be an explicit regular file`
++  }
++  const searchDirectory = exec.name === 'glob' && target.isDirectory()
++  for (const configured of role.sandbox.protectedRoots) {
++    const candidate = isAbsolute(configured) ? configured : resolve(workspace, configured)
++    let protectedRoot: string
++    try {
++      protectedRoot = realpathSync.native(candidate)
++    } catch {
++      protectedRoot = candidate
++    }
++    if (containsPath(protectedRoot, canonical)
++      || (searchDirectory && containsPath(canonical, protectedRoot))) {
++      return `restricted role ${role.id} protected path denied`
++    }
++  }
++  return undefined
++}
++
+ /**
+  * Compose one child inside its creation window: join its parent's preset,
+  * register the fixed delegation-scope statement, then apply the child's own
+@@ -171,7 +278,40 @@ export function applyChildComposition(
+   if (composition.persona !== undefined) {
+     childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
+   }
+-  if (composition.toolFilter !== undefined) childCtx.tools.restrict(composition.toolFilter)
++  const role = composition.restrictedRole
++  if (composition.toolFilter !== undefined) {
++    // structured_output is a per-child scoped registration, while restrict()
++    // intentionally accepts global names only. The role guard below still
++    // enforces the complete fixed allow/deny set across both surfaces.
++    const restriction = role === undefined
++      ? composition.toolFilter
++      : {
++          ...composition.toolFilter.allow === undefined
++            ? {}
++            : { allow: composition.toolFilter.allow.filter(name => name !== 'structured_output') },
++          ...composition.toolFilter.deny === undefined
++            ? {}
++            : { deny: composition.toolFilter.deny.filter(name => name !== 'structured_output') },
++        }
++    if (restriction.allow !== undefined || restriction.deny !== undefined) {
++      childCtx.tools.restrict(restriction)
++    }
++  }
++  if (role !== undefined) {
++    const child = childCtx.agent as Agent
++    child.session.append('sandbox/mode', { mode: role.sandbox.mode, source: 'delegation' })
++    child.session.append('approval/policy', { policy: role.approval, source: 'delegation' })
++    const allow = role.toolFilter.allow === undefined ? undefined : new Set(role.toolFilter.allow)
++    const deny = new Set(role.toolFilter.deny ?? [])
++    childCtx.tools.guard(exec => {
++      if (exec.agent !== child || exec.name === 'subagent'
++        || (allow !== undefined && !allow.has(exec.name)) || deny.has(exec.name)) {
++        return `restricted role ${role.id} cannot execute ${JSON.stringify(exec.name)}`
++      }
++      return restrictedRolePathDenial(exec, child, role)
++    })
++    role.classify(child)
++  }
+ }
+ 
+ /** Policy seeded onto a child session's log at the delegation boundary. */
 diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index 652a3ba..29d5de1 100644
+index 652a3ba6c8..29d5de1f00 100644
 --- a/packages/subagent/subagent/src/continuation.ts
 +++ b/packages/subagent/subagent/src/continuation.ts
 @@ -49,7 +49,17 @@ import {
@@ -4142,7 +4825,7 @@ index 652a3ba..29d5de1 100644
        childId,
        // The durable lineage, not merely the caller: creation stamps this same
 diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
-index 6d9dede..ff5624f 100644
+index 6d9dedee75..ff5624fbff 100644
 --- a/packages/subagent/subagent/src/descriptor.ts
 +++ b/packages/subagent/subagent/src/descriptor.ts
 @@ -24,6 +24,7 @@
@@ -4278,10 +4961,25 @@ index 6d9dede..ff5624f 100644
    const snapshot = snapshotJsonValue(candidate)
    if (snapshot === undefined) {
 diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index 45b96a2..8484137 100644
+index 45b96a2311..ab794e93a0 100644
 --- a/packages/subagent/subagent/src/index.ts
 +++ b/packages/subagent/subagent/src/index.ts
-@@ -41,6 +41,12 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
+@@ -31,16 +31,30 @@
+  * @module @deepseek-ai/dsh-subagent
+  */
+ 
+-import { Context, Service } from '@deepseek-ai/cordis'
++import { createHash, randomUUID } from 'node:crypto'
++import { realpathSync } from 'node:fs'
++import { Context, FiberState, Service } from '@deepseek-ai/cordis'
++import type { Fiber } from '@deepseek-ai/cordis'
+ import { scopeTarget } from '@deepseek-ai/dsh-scope'
+ import type { Scoped } from '@deepseek-ai/dsh-scope'
+-import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
++import { assertObjectJsonSchema, validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
+ import type { Agent } from '@deepseek-ai/dsh-agent'
+ import type { SessionId } from '@deepseek-ai/dsh-session'
  import type {
    ContinuableCreateRequest,
    ContinuableCreateSpec,
@@ -4291,10 +4989,15 @@ index 45b96a2..8484137 100644
 +  ContinuableWorkspacePrepared,
 +  ContinuableWorkspaceProvider,
 +  ContinuableWorkspaceSelection,
++  RestrictedRoleAuthority,
++  RestrictedRoleDefinition,
++  RestrictedRoleReceipt,
++  RestrictedRoleRun,
++  RestrictedRoleStartRequest,
    ResolvedSubagentStartRequest,
    SubagentCapabilities,
    SubagentProvider,
-@@ -74,6 +80,12 @@ export { SubagentRunId } from './types.ts'
+@@ -74,6 +88,17 @@ export { SubagentRunId } from './types.ts'
  export type {
    ContinuableCreateRequest,
    ContinuableCreateSpec,
@@ -4304,19 +5007,231 @@ index 45b96a2..8484137 100644
 +  ContinuableWorkspacePrepared,
 +  ContinuableWorkspaceProvider,
 +  ContinuableWorkspaceSelection,
++  RestrictedRoleAuthority,
++  RestrictedRoleDefinition,
++  RestrictedRoleReceipt,
++  RestrictedRoleRun,
++  RestrictedRoleStartRequest,
    ResolvedSubagentStartRequest,
    SubagentCapabilities,
    SubagentProvider,
-@@ -170,6 +182,7 @@ declare module '@deepseek-ai/cordis' {
+@@ -167,9 +192,211 @@ declare module '@deepseek-ai/cordis' {
+   }
+ }
+ 
++const ROLE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
++const ROLE_MAX_ACTIVE = 8
++const ROLE_MAX_QUEUED = 128
++const ROLE_MAX_TIMEOUT_MS = 1_800_000
++
++function roleCancellation(signal: AbortSignal): SubagentError {
++  return new SubagentError(
++    'restricted-role start was cancelled',
++    'CANCELLED',
++    signal.reason instanceof Error ? { cause: signal.reason } : undefined,
++  )
++}
++
++type RoleWaiter = {
++  readonly entry: RegisteredRole
++  readonly signal: AbortSignal
++  readonly resolve: (release: () => void) => void
++  readonly reject: (error: unknown) => void
++  readonly onAbort: () => void
++}
++
++class RoleCapacity {
++  private active = 0
++  private readonly waiting: RoleWaiter[] = []
++  private closedError: Error | undefined
++
++  constructor(private readonly maxActive: number, private readonly maxQueued: number) {}
++
++  acquire(entry: RegisteredRole, signal: AbortSignal): Promise<() => void> {
++    if (this.closedError !== undefined) return Promise.reject(this.closedError)
++    if (entry.closing) {
++      return Promise.reject(new SubagentError(`restricted role "${entry.definition.id}" is disposing`, 'ROLE_DISPOSING'))
++    }
++    if (signal.aborted) return Promise.reject(roleCancellation(signal))
++    if (this.active < this.maxActive && entry.active < entry.definition.maxActive) {
++      this.active += 1
++      entry.active += 1
++      return Promise.resolve(this.release(entry))
++    }
++    if (this.waiting.length >= this.maxQueued || entry.queued >= entry.definition.maxQueued) {
++      return Promise.reject(new SubagentError('restricted-role capacity queue is full', 'ROLE_CAPACITY'))
++    }
++    return new Promise((resolve, reject) => {
++      const waiter: RoleWaiter = {
++        entry,
++        signal,
++        resolve,
++        reject,
++        onAbort: () => {
++          const index = this.waiting.indexOf(waiter)
++          if (index >= 0) {
++            this.waiting.splice(index, 1)
++            entry.queued -= 1
++            this.drain()
++          }
++          reject(roleCancellation(signal))
++        },
++      }
++      signal.addEventListener('abort', waiter.onAbort, { once: true })
++      entry.queued += 1
++      this.waiting.push(waiter)
++    })
++  }
++
++  closeRole(entry: RegisteredRole, error: Error): void {
++    for (let index = this.waiting.length - 1; index >= 0; index -= 1) {
++      const waiter = this.waiting[index]
++      if (waiter?.entry !== entry) continue
++      this.waiting.splice(index, 1)
++      entry.queued -= 1
++      waiter.signal.removeEventListener('abort', waiter.onAbort)
++      waiter.reject(error)
++    }
++    this.drain()
++  }
++
++  close(error: Error): void {
++    if (this.closedError !== undefined) return
++    this.closedError = error
++    for (const waiter of this.waiting.splice(0)) {
++      waiter.entry.queued -= 1
++      waiter.signal.removeEventListener('abort', waiter.onAbort)
++      waiter.reject(error)
++    }
++  }
++
++  snapshot(entry?: RegisteredRole): { active: number; queued: number } {
++    if (entry !== undefined) return { active: entry.active, queued: entry.queued }
++    return { active: this.active, queued: this.waiting.length }
++  }
++
++  private release(entry: RegisteredRole): () => void {
++    let released = false
++    return () => {
++      if (released) return
++      released = true
++      this.active -= 1
++      entry.active -= 1
++      this.drain()
++    }
++  }
++
++  private drain(): void {
++    while (this.closedError === undefined && this.active < this.maxActive) {
++      const waiter = this.waiting[0]
++      if (waiter === undefined) return
++      // One process-wide FIFO owns both limits. Do not consume a global active
++      // permit while waiting for the head request's role permit.
++      if (waiter.entry.active >= waiter.entry.definition.maxActive) return
++      this.waiting.shift()
++      waiter.entry.queued -= 1
++      waiter.signal.removeEventListener('abort', waiter.onAbort)
++      this.active += 1
++      waiter.entry.active += 1
++      waiter.resolve(this.release(waiter.entry))
++    }
++  }
++}
++
++type RegisteredRole = {
++  readonly definition: RestrictedRoleDefinition
++  readonly generation: string
++  readonly controllers: Set<AbortController>
++  readonly results: Set<Promise<unknown>>
++  active: number
++  queued: number
++  closing: boolean
++}
++
++function record(value: unknown): value is Record<string, unknown> {
++  return value !== null && typeof value === 'object' && !Array.isArray(value)
++}
++
++function exactKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
++  return Object.keys(value).every(key => allowed.includes(key))
++}
++
++function boundedInteger(value: unknown, maximum: number): value is number {
++  return Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= maximum
++}
++
++function stringList(value: unknown): value is string[] {
++  return Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0)
++    && new Set(value).size === value.length
++}
++
++function freezeJson<T>(value: T): T {
++  if (value !== null && typeof value === 'object') {
++    Object.freeze(value)
++    for (const child of Object.values(value)) freezeJson(child)
++  }
++  return value
++}
++
++function normalizeRole(value: RestrictedRoleDefinition): RestrictedRoleDefinition {
++  if (!record(value) || !exactKeys(value, [
++    'id', 'provider', 'persona', 'agentOptions', 'toolFilter', 'sandbox', 'approval',
++    'outputSchema', 'maxDepth', 'timeoutMs', 'maxActive', 'maxQueued',
++  ]) || typeof value.id !== 'string' || !ROLE_ID.test(value.id)
++    || typeof value.provider !== 'string' || value.provider.length === 0
++    || typeof value.persona !== 'string' || value.persona.length === 0
++    || !record(value.toolFilter) || !exactKeys(value.toolFilter, ['allow', 'deny'])
++    || (value.toolFilter.allow === undefined && value.toolFilter.deny === undefined)
++    || (value.toolFilter.allow !== undefined && !stringList(value.toolFilter.allow))
++    || (value.toolFilter.deny !== undefined && !stringList(value.toolFilter.deny))
++    || !record(value.sandbox) || !exactKeys(value.sandbox, ['mode', 'protectedRoots'])
++    || value.sandbox.mode !== 'read-only' || !stringList(value.sandbox.protectedRoots)
++    || value.approval !== 'never'
++    || !boundedInteger(value.maxDepth, Number.MAX_SAFE_INTEGER)
++    || !boundedInteger(value.timeoutMs, ROLE_MAX_TIMEOUT_MS)
++    || !boundedInteger(value.maxActive, ROLE_MAX_ACTIVE)
++    || !boundedInteger(value.maxQueued, ROLE_MAX_QUEUED)
++    || (value.agentOptions !== undefined && (!record(value.agentOptions)
++      || !exactKeys(value.agentOptions, ['provider', 'model', 'maxTokens'])
++      || (value.agentOptions.provider !== undefined && typeof value.agentOptions.provider !== 'string')
++      || (value.agentOptions.model !== undefined && typeof value.agentOptions.model !== 'string')
++      || (value.agentOptions.maxTokens !== undefined
++        && !boundedInteger(value.agentOptions.maxTokens, Number.MAX_SAFE_INTEGER))))) {
++    throw new SubagentError('restricted-role definition is invalid', 'INVALID_ROLE_DEFINITION')
++  }
++  assertSubagentMaxDepth(value.maxDepth)
++  assertObjectJsonSchema(value.outputSchema)
++  return freezeJson(structuredClone(value))
++}
++
++function assertRoleRequest(value: RestrictedRoleStartRequest): void {
++  if (!record(value) || !exactKeys(value, ['prompt', 'parent', 'signal'])
++    || !Array.isArray(value.prompt) || !record(value.parent)
++    || !(value.signal instanceof AbortSignal)) {
++    throw new SubagentError('restricted-role start request is invalid', 'INVALID_ROLE_REQUEST')
++  }
++}
++
  /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
  export class SubagentRuntime extends Service {
    private providers = new Map<string, SubagentProvider>()
 +  private workspaceProviders = new Map<string, ContinuableWorkspaceProvider>()
++  private roles = new Map<string, RegisteredRole>()
++  private agentRegistry: Context['agents'] | undefined
++  private readonly roleAgents = new WeakMap<Agent, RestrictedRoleReceipt>()
++  private globalRoleCapacity = new RoleCapacity(ROLE_MAX_ACTIVE, ROLE_MAX_QUEUED)
++  private roleCapacityConfigured = false
++  private readonly activeRoleControllers = new Set<AbortController>()
++  private readonly activeRoleResults = new Set<Promise<unknown>>()
++  private rolesClosing = false
    private continuations: SubagentContinuationManager | undefined
    /** Deployment contributions composed into unpublished continuable children. */
    private readonly setupRegistry = new SubagentActivationSetupRegistry()
-@@ -186,6 +199,9 @@ export class SubagentRuntime extends Service {
+@@ -184,20 +411,54 @@ export class SubagentRuntime extends Service {
+     super(ctx, 'subagents')
+     this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
      ctx.inject(['agents'], (childCtx: Context) => {
++      this.agentRegistry = childCtx.agents
        const manager = new SubagentContinuationManager(childCtx, {
          prepareContinuable: (name, request) => this.prepareContinuable(name, request),
 +        snapshotWorkspace: (selection, parent) => this.snapshotWorkspace(selection, parent),
@@ -4325,7 +5240,49 @@ index 45b96a2..8484137 100644
          observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
        }, this.setupRegistry)
        this.continuations = manager
-@@ -237,6 +253,18 @@ export class SubagentRuntime extends Service {
+       childCtx.effect(() => () => {
+         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
+         if (this.continuations === manager) this.continuations = undefined
++        if (this.agentRegistry === childCtx.agents) this.agentRegistry = undefined
+       }, 'subagents.continuationBinding()')
+     })
+     ctx.inject(['sessionProjections'], (projectionCtx) => {
+       projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
+       projectionCtx.sessionProjections.register(subagentIdentityProjectionDefinition)
+     })
++    ctx.on('internal/status', (fiber) => {
++      if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
++        this.beginRoleShutdown()
++      }
++    })
++    ctx.effect(() => async () => {
++      this.beginRoleShutdown()
++      await Promise.allSettled([...this.activeRoleResults])
++    }, 'subagents.restrictedRoles()')
++  }
++
++  /** Whether one unloading fiber owns this service's lifecycle. */
++  private hasLifecycleAncestor(candidate: Fiber): boolean {
++    let fiber = this.ctx.fiber
++    while (true) {
++      if (fiber === candidate) return true
++      const parent = fiber.parent.fiber
++      if (parent === fiber) return false
++      fiber = parent
++    }
++  }
++
++  /** Synchronously close admission before effect disposal begins. */
++  private beginRoleShutdown(): void {
++    if (this.rolesClosing) return
++    this.rolesClosing = true
++    const error = new SubagentError('restricted-role runtime is disposing', 'ROLE_DISPOSING')
++    this.globalRoleCapacity.close(error)
++    for (const controller of this.activeRoleControllers) controller.abort(error)
+   }
+ 
+   /**
+@@ -237,6 +498,18 @@ export class SubagentRuntime extends Service {
      return this.requireContinuations().followup(parent, childId, content, options)
    }
  
@@ -4344,7 +5301,7 @@ index 45b96a2..8484137 100644
    /**
     * Interrupt one live continuable child's current turn under a human parent
     * address or an exact live ancestor Agent. Fire-and-return: the cancel
-@@ -291,6 +319,60 @@ export class SubagentRuntime extends Service {
+@@ -291,6 +564,60 @@ export class SubagentRuntime extends Service {
      )
    }
  
@@ -4405,11 +5362,383 @@ index 45b96a2..8484137 100644
    /**
     * Close continuable admission below exact live parent Agents, stop only their
     * visible descendant Activations synchronously, then await admitted scoped
+@@ -417,6 +744,297 @@ export class SubagentRuntime extends Service {
+     return [...this.providers.keys()]
+   }
+ 
++  /**
++   * Configure the process-wide restricted-role pool before registering roles.
++   * @param limits - bounded global active and queued admissions.
++   * @returns the effect disposer for this capacity generation.
++   */
++  configureRoleCapacity(limits: { readonly maxActive: number; readonly maxQueued: number }): () => void {
++    if (!record(limits) || !exactKeys(limits, ['maxActive', 'maxQueued'])
++      || !boundedInteger(limits.maxActive, ROLE_MAX_ACTIVE)
++      || !boundedInteger(limits.maxQueued, ROLE_MAX_QUEUED)) {
++      throw new SubagentError('restricted-role global capacity is invalid', 'INVALID_ROLE_DEFINITION')
++    }
++    if (this.roleCapacityConfigured || this.roles.size > 0
++      || this.globalRoleCapacity.snapshot().active > 0 || this.globalRoleCapacity.snapshot().queued > 0) {
++      throw new SubagentError('restricted-role global capacity is already configured or active', 'ROLE_CAPACITY')
++    }
++    const capacity = new RoleCapacity(limits.maxActive, limits.maxQueued)
++    return this.ctx.effect(function* (this: SubagentRuntime) {
++      this.roleCapacityConfigured = true
++      this.globalRoleCapacity = capacity
++      yield () => {
++        capacity.close(new SubagentError('restricted-role global capacity was removed', 'ROLE_DISPOSING'))
++        if (this.globalRoleCapacity === capacity) {
++          this.globalRoleCapacity = new RoleCapacity(ROLE_MAX_ACTIVE, ROLE_MAX_QUEUED)
++          this.roleCapacityConfigured = false
++        }
++      }
++    }.bind(this), 'subagents.configureRoleCapacity()')
++  }
++
++  /**
++   * Register one immutable host-issued one-shot role.
++   * @param definition - complete trusted authority fixed for this role id.
++   * @returns the effect disposer that closes and drains this role generation.
++   */
++  registerRole(definition: RestrictedRoleDefinition): () => void {
++    const normalized = normalizeRole(definition)
++    const entry: RegisteredRole = {
++      definition: normalized,
++      generation: randomUUID(),
++      controllers: new Set(),
++      results: new Set(),
++      active: 0,
++      queued: 0,
++      closing: false,
++    }
++    return this.ctx.effect(() => {
++      if (this.roles.has(normalized.id)) {
++        throw new SubagentError(`a restricted role named "${normalized.id}" is already registered`, 'DUPLICATE_ROLE')
++      }
++      this.roles.set(normalized.id, entry)
++      return async () => {
++        if (this.roles.get(normalized.id) === entry) this.roles.delete(normalized.id)
++        entry.closing = true
++        const error = new SubagentError(`restricted role "${normalized.id}" was removed`, 'NO_ROLE')
++        this.globalRoleCapacity.closeRole(entry, error)
++        for (const controller of entry.controllers) controller.abort(error)
++        await Promise.allSettled([...entry.results])
++      }
++    }, 'subagents.registerRole()')
++  }
++
++  /**
++   * List trusted role ids in registration order.
++   * @returns registered ids without their authority definitions.
++   */
++  listRoles(): string[] {
++    return [...this.roles.keys()]
++  }
++
++  /**
++   * Return the host-authenticated role of one exact live child.
++   * @param agent - exact child Agent object to classify.
++   * @returns its role id while live, or undefined.
++   */
++  roleOf(agent: Agent): string | undefined {
++    return this.roleAgents.get(agent)?.role
++  }
++
++  /**
++   * Read bounded operational counters without exposing child identities.
++   * @param role - optional role id; omission selects the global pool.
++   * @returns active and queued admission counts.
++   */
++  roleStats(role?: string): { active: number; queued: number } {
++    if (role === undefined) return this.globalRoleCapacity.snapshot()
++    const entry = this.roles.get(role)
++    if (entry === undefined) throw new SubagentError(`no restricted role registered for "${role}"`, 'NO_ROLE')
++    return this.globalRoleCapacity.snapshot(entry)
++  }
++
++  /**
++   * Start one child whose complete authority comes from a registered role.
++   * @param roleId - trusted registered role to select.
++   * @param request - caller-controlled task, exact parent, and cancellation only.
++   * @returns a published authenticated role run after atomic composition.
++   */
++  async startRole(roleId: string, request: RestrictedRoleStartRequest): Promise<RestrictedRoleRun> {
++    assertRoleRequest(request)
++    if (this.rolesClosing) throw new SubagentError('restricted-role runtime is disposing', 'ROLE_DISPOSING')
++    const entry = this.roles.get(roleId)
++    if (entry === undefined) throw new SubagentError(`no restricted role registered for "${roleId}"`, 'NO_ROLE')
++    if (entry.closing) throw new SubagentError(`restricted role "${roleId}" is disposing`, 'ROLE_DISPOSING')
++    const provider = this.expectProvider(entry.definition.provider)
++    if (provider.supportsRestrictedRoles !== true) {
++      throw new SubagentError(
++        `subagent provider "${provider.name}" does not support restricted roles`,
++        'UNSUPPORTED_CAPABILITY',
++      )
++    }
++    const fixedRequest: SubagentStartRequest = {
++      label: entry.definition.id,
++      prompt: request.prompt,
++      parent: request.parent,
++      signal: request.signal,
++      ...entry.definition.agentOptions === undefined ? {} : { agentOptions: entry.definition.agentOptions },
++      outputSchema: entry.definition.outputSchema,
++      maxDepth: entry.definition.maxDepth,
++      toolFilter: entry.definition.toolFilter,
++      persona: entry.definition.persona,
++    }
++    // Capability rejection is an admission decision: it must happen before a
++    // permit, timeout, child, model, or tool body exists.
++    this.assertCapabilities(provider, fixedRequest)
++    const agents = this.agentRegistry
++    if (agents === undefined || agents.get(request.parent.id) !== request.parent) {
++      throw new SubagentError('restricted-role parent identity is invalid', 'ROLE_IDENTITY_INVALID')
++    }
++
++    const controller = new AbortController()
++    const onAbort = (): void => controller.abort(request.signal.reason)
++    request.signal.addEventListener('abort', onAbort, { once: true })
++    if (request.signal.aborted) onAbort()
++    const timeout = setTimeout(() => {
++      controller.abort(new SubagentError(`restricted role "${roleId}" timed out`, 'ROLE_TIMEOUT'))
++    }, entry.definition.timeoutMs)
++    this.activeRoleControllers.add(controller)
++    entry.controllers.add(controller)
++    let settleStart!: () => void
++    const startSettled = new Promise<void>((resolve) => { settleStart = resolve })
++    this.activeRoleResults.add(startSettled)
++    entry.results.add(startSettled)
++
++    let releaseCapacity: (() => void) | undefined
++    let providerRun: SubagentRun | undefined
++    let classifiedAgent: Agent | undefined
++    let roleReceipt: RestrictedRoleReceipt | undefined
++    let settled = false
++    const release = (): void => {
++      if (settled) return
++      settled = true
++      clearTimeout(timeout)
++      request.signal.removeEventListener('abort', onAbort)
++      this.activeRoleControllers.delete(controller)
++      entry.controllers.delete(controller)
++      if (classifiedAgent !== undefined) this.roleAgents.delete(classifiedAgent)
++      releaseCapacity?.()
++    }
++
++    try {
++      releaseCapacity = await this.globalRoleCapacity.acquire(entry, controller.signal)
++
++      const executionGeneration = randomUUID()
++      let classificationOpen = true
++      const authority: RestrictedRoleAuthority = Object.freeze({
++        id: entry.definition.id,
++        registrationGeneration: entry.generation,
++        executionGeneration,
++        sandbox: entry.definition.sandbox,
++        approval: entry.definition.approval,
++        toolFilter: entry.definition.toolFilter,
++        classify: (agent: Agent): RestrictedRoleReceipt => {
++          if (!classificationOpen || classifiedAgent !== undefined) {
++            throw new SubagentError('restricted-role provider classified more than one child', 'ROLE_IDENTITY_INVALID')
++          }
++          const header = agent.session?.header
++          if (header === undefined || String(header.id) !== String(agent.id)
++            || String(header.parentSession) !== String(request.parent.id)
++            || typeof header.cwd !== 'string' || header.cwd.length === 0
++            || agents.get(agent.id) !== undefined) {
++            throw new SubagentError('restricted-role child identity is invalid', 'ROLE_IDENTITY_INVALID')
++          }
++          const canonicalWorkspace = realpathSync.native(header.cwd)
++          const receipt: RestrictedRoleReceipt = Object.freeze({
++            schema_version: 'dsh.subagent.restricted-role-receipt.v1',
++            role: entry.definition.id,
++            registration_generation: entry.generation,
++            execution_generation: executionGeneration,
++            parent_session_id: String(request.parent.id),
++            child_session_id: String(agent.id),
++            workspace_sha256: `sha256:${createHash('sha256').update(canonicalWorkspace).digest('hex')}`,
++          })
++          classifiedAgent = agent
++          roleReceipt = receipt
++          this.roleAgents.set(agent, receipt)
++          return receipt
++        },
++      })
++      const roleRequest: SubagentStartRequest = {
++        ...fixedRequest,
++        signal: controller.signal,
++      }
++      const descriptor = snapshotSubagentDescriptor({
++        mode: 'one-shot',
++        provider: provider.name,
++        label: entry.definition.id,
++      })
++      try {
++        providerRun = observeRun(this.emitLifecycle, provider.name, request.parent, await provider.start({
++          ...roleRequest,
++          descriptor,
++          restrictedRole: authority,
++        }))
++      } finally {
++        classificationOpen = false
++      }
++      if (providerRun.localAgent === undefined || classifiedAgent !== providerRun.localAgent
++        || roleReceipt === undefined || String(providerRun.id) !== roleReceipt.child_session_id
++        || agents.get(providerRun.id) !== providerRun.localAgent
++        || agents.get(request.parent.id) !== request.parent) {
++        controller.abort(new SubagentError('restricted-role provider did not publish the authenticated child', 'ROLE_IDENTITY_INVALID'))
++        await providerRun.dispose()
++        throw new SubagentError('restricted-role provider did not publish the authenticated child', 'ROLE_IDENTITY_INVALID')
++      }
++      if (controller.signal.aborted || entry.closing || this.rolesClosing) {
++        await providerRun.dispose()
++        throw controller.signal.reason instanceof Error
++          ? controller.signal.reason
++          : new SubagentError('restricted-role runtime is disposing', 'ROLE_DISPOSING')
++      }
++
++      const ownedRun = providerRun
++      const validatedResult = ownedRun.result.then((outcome) => {
++        if (controller.signal.aborted) {
++          throw controller.signal.reason instanceof SubagentError
++            ? controller.signal.reason
++            : roleCancellation(controller.signal)
++        }
++        const violations = validateJsonSchemaValue(entry.definition.outputSchema, outcome.structured)
++        let encoded: string | undefined
++        try {
++          encoded = JSON.stringify(outcome.structured)
++        } catch {}
++        if (violations.length > 0 || encoded === undefined || Buffer.byteLength(encoded, 'utf8') > 1024 * 1024) {
++          throw new SubagentError('restricted-role output is invalid', 'ROLE_OUTPUT_INVALID')
++        }
++        return outcome
++      })
++      const result = validatedResult.finally(async () => {
++        try {
++          await ownedRun.dispose()
++        } finally {
++          release()
++        }
++      })
++      this.activeRoleResults.add(result)
++      entry.results.add(result)
++      void result.then(
++        () => {
++          this.activeRoleResults.delete(result)
++          entry.results.delete(result)
++        },
++        () => {
++          this.activeRoleResults.delete(result)
++          entry.results.delete(result)
++        },
++      )
++      const receipt = roleReceipt
++      return Object.freeze({
++        id: ownedRun.id,
++        localAgent: ownedRun.localAgent,
++        result,
++        roleReceipt: receipt,
++        dispose: async (): Promise<void> => {
++          if (!controller.signal.aborted) {
++            controller.abort(new SubagentError(`restricted role "${roleId}" was disposed`, 'CANCELLED'))
++          }
++          await ownedRun.dispose()
++          await result.then(() => undefined, () => undefined)
++        },
++      })
++    } catch (error) {
++      if (providerRun !== undefined) await providerRun.dispose().catch(() => undefined)
++      release()
++      throw error
++    } finally {
++      this.activeRoleResults.delete(startSettled)
++      entry.results.delete(startSettled)
++      settleStart()
++    }
++  }
++
+   /**
+    * Establish a published child on the named provider. Capability and semantic
+    * checks run before delegation. Provider ownership lasts until its promise
+@@ -428,6 +1046,9 @@ export class SubagentRuntime extends Service {
+    * @returns the published holder-owned run.
+    */
+   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
++    if ('restrictedRole' in request) {
++      throw new SubagentError('ordinary subagent starts cannot carry restricted-role authority', 'INVALID_ROLE_REQUEST')
++    }
+     const provider = this.expectProvider(name)
+     this.assertCapabilities(provider, request)
+     assertSubagentMaxDepth(request.maxDepth)
 diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
-index 1797855..7e95e69 100644
+index 17978550ab..bc517a775b 100644
 --- a/packages/subagent/subagent/src/types.ts
 +++ b/packages/subagent/subagent/src/types.ts
-@@ -191,6 +191,56 @@ export interface ContinuableCreateSpec {
+@@ -155,6 +155,63 @@ export interface SubagentStartRequest {
+ export interface ResolvedSubagentStartRequest extends SubagentStartRequest {
+   /** Detached descriptor a session-backed provider persists in the child log. */
+   readonly descriptor: SubagentDescriptorData
++  /** Host-issued restricted-role authority. Ordinary callers cannot supply it. */
++  readonly restrictedRole?: RestrictedRoleAuthority
++}
++
++/** Immutable trusted definition registered during host or bundle initialization. */
++export interface RestrictedRoleDefinition {
++  readonly id: string
++  readonly provider: string
++  readonly persona: string
++  /** Fixed child route. Omission inherits the exact parent route. */
++  readonly agentOptions?: AgentOptions
++  readonly toolFilter: ToolRestriction
++  /** v1 roles are always confined read-only; roots are retained for bounded audit identity. */
++  readonly sandbox: { readonly mode: 'read-only'; readonly protectedRoots: readonly string[] }
++  readonly approval: 'never'
++  readonly outputSchema: ObjectJsonSchema
++  readonly maxDepth: number
++  readonly timeoutMs: number
++  readonly maxActive: number
++  readonly maxQueued: number
++}
++
++/** The only caller-controlled fields accepted by a restricted-role start. */
++export interface RestrictedRoleStartRequest {
++  readonly prompt: ContentBlock[]
++  readonly parent: Agent
++  readonly signal: AbortSignal
++}
++
++/** Content-free exact identity returned for one host-issued role execution. */
++export interface RestrictedRoleReceipt {
++  readonly schema_version: 'dsh.subagent.restricted-role-receipt.v1'
++  readonly role: string
++  readonly registration_generation: string
++  readonly execution_generation: string
++  readonly parent_session_id: string
++  readonly child_session_id: string
++  readonly workspace_sha256: string
++}
++
++/** A restricted one-shot run with its exact host receipt. */
++export interface RestrictedRoleRun extends SubagentRun {
++  readonly roleReceipt: RestrictedRoleReceipt
++}
++
++/**
++ * Same-process authority carried only from {@link SubagentRuntime.startRole}
++ * into a provider that explicitly supports atomic restricted-role creation.
++ */
++export interface RestrictedRoleAuthority {
++  readonly id: string
++  readonly registrationGeneration: string
++  readonly executionGeneration: string
++  readonly sandbox: RestrictedRoleDefinition['sandbox']
++  readonly approval: 'never'
++  readonly toolFilter: ToolRestriction
++  classify(agent: Agent): RestrictedRoleReceipt
+ }
+ 
+ /**
+@@ -191,6 +248,56 @@ export interface ContinuableCreateSpec {
    readonly seed?: readonly SessionEvent[]
  }
  
@@ -4466,8 +5795,17 @@ index 1797855..7e95e69 100644
  /**
   * Why a subagent run ended. Merge-extensible (a backend may add variants);
   * consumers branch on the known cases and fall through `default`. The known
+@@ -300,6 +407,8 @@ export interface SubagentProvider {
+    * It says nothing about tool registration, injected services, or authority inheritance.
+    */
+   readonly inheritsParentContext: boolean
++  /** True only when the provider applies `restrictedRole` inside unpublished child setup. */
++  readonly supportsRestrictedRoles?: true
+   /**
+    * Establish a ONE-SHOT child and return its handle after publication.
+    * The service has already validated that every requested start-time
 diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index 6cf1aea..3aaade4 100644
+index 6cf1aea5a8..3aaade41da 100644
 --- a/packages/subagent/subagent/tests/continuation.spec.ts
 +++ b/packages/subagent/subagent/tests/continuation.spec.ts
 @@ -180,6 +180,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
@@ -4641,8 +5979,550 @@ index 6cf1aea..3aaade4 100644
          mode: 'continuable',
          provider: 'spawn',
          label: 'child task',
+diff --git a/packages/subagent/subagent/tests/service.spec.ts b/packages/subagent/subagent/tests/service.spec.ts
+index 05e9785611..fc511d22f9 100644
+--- a/packages/subagent/subagent/tests/service.spec.ts
++++ b/packages/subagent/subagent/tests/service.spec.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+-import { Context } from '@deepseek-ai/cordis'
++import { Context, Service } from '@deepseek-ai/cordis'
+ import { type Agent } from '@deepseek-ai/dsh-agent'
+ 
+ import { HarnessError } from '@deepseek-ai/dsh-llm'
+@@ -11,6 +11,7 @@ import SubagentRuntime, {
+   SubagentError,
+   assertSubagentMaxDepth,
+   type ResolvedSubagentStartRequest,
++  type RestrictedRoleDefinition,
+   type SubagentCapabilities,
+   type SubagentProvider,
+   type SubagentResult,
+@@ -20,8 +21,82 @@ import SubagentRuntime, {
+ } from '@deepseek-ai/dsh-subagent'
+ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+ 
+-function fakeParent(id = 'parent-1'): Agent {
+-  return { id: SessionId(id) } as unknown as Agent
++interface TestAgentStore {
++  get(id: SessionId): Agent | undefined
++  publish(agent: Agent): () => void
++}
++
++class TestAgentRegistry extends Service implements TestAgentStore {
++  private readonly agents = new Map<string, Agent>()
++
++  constructor(ctx: Context) { super(ctx, 'agents') }
++
++  get(id: SessionId): Agent | undefined { return this.agents.get(String(id)) }
++
++  publish(agent: Agent): () => void {
++    this.agents.set(String(agent.id), agent)
++    return () => { if (this.agents.get(String(agent.id)) === agent) this.agents.delete(String(agent.id)) }
++  }
++}
++
++function fakeParent(id = 'parent-1', authoritative?: TestAgentStore): Agent {
++  const local = new Map<string, Agent>()
++  const agents = authoritative ?? {
++    get: (agentId: SessionId) => local.get(String(agentId)),
++    publish(agent: Agent) {
++      local.set(String(agent.id), agent)
++      return () => { if (local.get(String(agent.id)) === agent) local.delete(String(agent.id)) }
++    },
++  }
++  const parent = {
++    id: SessionId(id),
++    ctx: { agents },
++  } as unknown as Agent
++  agents.publish(parent)
++  fakeAgentRegistries.set(parent, agents)
++  return parent
++}
++
++const fakeAgentRegistries = new WeakMap<Agent, TestAgentStore>()
++
++function classifyAndPublish(request: ResolvedSubagentStartRequest, agent: Agent): () => void {
++  request.restrictedRole?.classify(agent)
++  return publishAgent(request.parent, agent)
++}
++
++function publishAgent(parent: Agent, agent: Agent): () => void {
++  const registry = fakeAgentRegistries.get(parent)
++  if (registry === undefined) throw new Error('test parent lacks its fake registry')
++  return registry.publish(agent)
++}
++
++class PendingPublicationProvider implements SubagentProvider {
++  readonly name = 'role-provider'
++  readonly capabilities = ALL_CAPS
++  readonly inheritsParentContext = false
++  readonly supportsRestrictedRoles = true
++  private finishStart!: () => void
++  private markStarted!: () => void
++  readonly started = new Promise<void>((resolve) => { this.markStarted = resolve })
++
++  finish(): void { this.finishStart() }
++
++  async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
++    const id = SessionId('pending-publication-child')
++    const localAgent = {
++      id,
++      session: { header: { id, parentSession: request.parent.id, cwd: process.cwd() }, append() {} },
++    } as unknown as Agent
++    request.restrictedRole?.classify(localAgent)
++    this.markStarted()
++    await new Promise<void>((resolve) => { this.finishStart = resolve })
++    const unpublish = publishAgent(request.parent, localAgent)
++    let settle!: () => void
++    const result = new Promise<SubagentResult>((resolve) => {
++      settle = () => resolve({ output: [], structured: {}, stopReason: 'aborted' })
++    })
++    return { id, localAgent, result, async dispose() { unpublish(); settle() } }
++  }
+ }
+ 
+ const ALL_CAPS: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+@@ -53,19 +128,111 @@ class StubProvider implements SubagentProvider {
+   async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
+     this.startCount += 1
+     this.lastRequest = request
++    const id = SessionId(`child:${this.name}:${request.parent.id}`)
++    const authority = request.restrictedRole
++    let localAgent: Agent | undefined
++    let unpublish = (): void => {}
++    if (authority !== undefined) {
++      localAgent = ({
++          id,
++          session: {
++            header: { id, parentSession: request.parent.id, cwd: process.cwd() },
++            append() {},
++          },
++        } as unknown as Agent)
++      unpublish = classifyAndPublish(request, localAgent)
++    }
+     return {
+-      id: SessionId(`child:${this.name}:${request.parent.id}`),
+-      localAgent: undefined,
++      id,
++      localAgent,
+       result: Promise.resolve(this.outcome),
+-      async dispose() {},
++      async dispose() { unpublish() },
++    }
++  }
++}
++
++function roleDefinition(overrides: Partial<RestrictedRoleDefinition> = {}): RestrictedRoleDefinition {
++  return {
++    id: 'reviewer-readonly',
++    provider: 'role-provider',
++    persona: 'You are a read-only reviewer.',
++    agentOptions: { model: 'fixed-review-model', maxTokens: 2048 },
++    toolFilter: { allow: ['read', 'grep'] },
++    sandbox: { mode: 'read-only', protectedRoots: [] },
++    approval: 'never',
++    outputSchema: { type: 'object', properties: {}, additionalProperties: false },
++    maxDepth: 1,
++    timeoutMs: 5_000,
++    maxActive: 1,
++    maxQueued: 1,
++    ...overrides,
++  }
++}
++
++class DeferredRoleProvider implements SubagentProvider {
++  readonly name = 'role-provider'
++  readonly capabilities = ALL_CAPS
++  readonly inheritsParentContext = false
++  readonly supportsRestrictedRoles = true
++  startCount = 0
++
++  async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
++    this.startCount += 1
++    const id = SessionId(`deferred-${this.startCount}`)
++    const localAgent = {
++      id,
++      session: { header: { id, parentSession: request.parent.id, cwd: process.cwd() }, append() {} },
++    } as unknown as Agent
++    const unpublish = classifyAndPublish(request, localAgent)
++    let settle!: (result: SubagentResult) => void
++    const result = new Promise<SubagentResult>(resolve => { settle = resolve })
++    let disposed = false
++    return {
++      id,
++      localAgent,
++      result,
++      async dispose() {
++        if (disposed) return
++        disposed = true
++        unpublish()
++        settle({ output: [], stopReason: 'aborted' })
++      },
+     }
+   }
+ }
+ 
+-async function service(): Promise<{ ctx: Context; subagents: SubagentRuntime }> {
++class AbortAwareRoleProvider implements SubagentProvider {
++  readonly name = 'role-provider'
++  readonly capabilities = ALL_CAPS
++  readonly inheritsParentContext = false
++  readonly supportsRestrictedRoles = true
++
++  async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
++    const id = SessionId('abort-aware-child')
++    const localAgent = {
++      id,
++      session: { header: { id, parentSession: request.parent.id, cwd: process.cwd() }, append() {} },
++    } as unknown as Agent
++    const unpublish = classifyAndPublish(request, localAgent)
++    let settle!: () => void
++    const result = new Promise<SubagentResult>((resolve) => {
++      settle = () => resolve({ output: [], structured: {}, stopReason: 'aborted' })
++      request.signal.addEventListener('abort', settle, { once: true })
++    })
++    return { id, localAgent, result, async dispose() { unpublish(); settle() } }
++  }
++}
++
++async function service(withAgents = false): Promise<{
++  ctx: Context
++  subagents: SubagentRuntime
++  parent(id?: string): Agent
++}> {
+   const ctx = new Context()
++  if (withAgents) await ctx.plugin(TestAgentRegistry)
+   await ctx.plugin(SubagentRuntime)
+-  return { ctx, subagents: ctx.subagents }
++  const agents = withAgents ? ctx.agents as unknown as TestAgentStore : undefined
++  return { ctx, subagents: ctx.subagents, parent: (id = 'parent-1') => fakeParent(id, agents) }
+ }
+ 
+ describe('SubagentRuntime', () => {
+@@ -90,6 +257,273 @@ describe('SubagentRuntime', () => {
+     expect(subagents.getProvider('alpha')).toBeUndefined()
+   })
+ 
++  it('registers immutable restricted roles and keeps authority out of the caller request', async () => {
++    const { subagents, parent } = await service(true)
++    const provider = Object.assign(new StubProvider('role-provider', ALL_CAPS, {
++      output: [{ type: 'text', text: 'ok' }],
++      structured: {},
++      stopReason: 'completed',
++    }), {
++      supportsRestrictedRoles: true as const,
++    })
++    subagents.registerProvider(provider)
++
++    const definition = { ...roleDefinition() }
++    const dispose = subagents.registerRole(definition)
++    definition.persona = 'caller mutated the borrowed input'
++    expect(subagents.listRoles()).toEqual(['reviewer-readonly'])
++
++    await expect(subagents.startRole('reviewer-readonly', {
++      prompt: [{ type: 'text', text: 'inspect the change' }],
++      parent: parent(),
++      signal: new AbortController().signal,
++      persona: 'widened by caller',
++    } as never)).rejects.toMatchObject({ code: 'INVALID_ROLE_REQUEST' })
++    expect(provider.startCount).toBe(0)
++
++    const run = await subagents.startRole('reviewer-readonly', {
++      prompt: [{ type: 'text', text: 'inspect the change' }],
++      parent: parent(),
++      signal: new AbortController().signal,
++    })
++    expect(provider.lastRequest).toMatchObject({
++      persona: 'You are a read-only reviewer.',
++      agentOptions: { model: 'fixed-review-model', maxTokens: 2048 },
++      toolFilter: { allow: ['read', 'grep'] },
++      maxDepth: 1,
++    })
++    expect(run.roleReceipt).toMatchObject({
++      schema_version: 'dsh.subagent.restricted-role-receipt.v1',
++      role: 'reviewer-readonly',
++      parent_session_id: 'parent-1',
++    })
++    expect(Object.isFrozen(run.roleReceipt)).toBe(true)
++    expect(subagents.roleOf(run.localAgent as Agent)).toBe('reviewer-readonly')
++    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
++
++    dispose()
++    expect(subagents.listRoles()).toEqual([])
++  })
++
++  it('rejects malformed restricted-role output with a stable typed error', async () => {
++    const { subagents, parent } = await service(true)
++    const provider = Object.assign(new StubProvider('role-provider'), {
++      supportsRestrictedRoles: true as const,
++    })
++    subagents.registerProvider(provider)
++    subagents.registerRole(roleDefinition())
++
++    const run = await subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: parent(), signal: new AbortController().signal,
++    })
++    await expect(run.result).rejects.toMatchObject({ code: 'ROLE_OUTPUT_INVALID' })
++    expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 0, queued: 0 })
++  })
++
++  it('rejects a forged parent whose private registry self-authenticates it', async () => {
++    const subject = await service(true)
++    const provider = Object.assign(new StubProvider('role-provider'), {
++      supportsRestrictedRoles: true as const,
++    })
++    subject.subagents.registerProvider(provider)
++    subject.subagents.registerRole(roleDefinition())
++    subject.parent('exact-parent')
++    const forged = fakeParent('exact-parent')
++
++    await expect(subject.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: forged, signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
++    expect(provider.startCount).toBe(0)
++  })
++
++  it('rejects malformed, duplicate, unknown, unsupported, and forged roles before provider execution', async () => {
++    const { subagents } = await service()
++    const unsupported = new StubProvider('role-provider')
++    subagents.registerProvider(unsupported)
++
++    expect(() => { subagents.registerRole(roleDefinition({ id: 'Reviewer' })) })
++      .toThrow(expect.objectContaining({ code: 'INVALID_ROLE_DEFINITION' }))
++    const dispose = subagents.registerRole(roleDefinition())
++    expect(() => { subagents.registerRole(roleDefinition()) })
++      .toThrow(expect.objectContaining({ code: 'DUPLICATE_ROLE' }))
++    await expect(subagents.startRole('missing', {
++      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'NO_ROLE' })
++    await expect(subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: fakeParent(), signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CAPABILITY' })
++    await expect(subagents.start('role-provider', {
++      ...baseRequest(), restrictedRole: {},
++    } as never)).rejects.toMatchObject({ code: 'INVALID_ROLE_REQUEST' })
++    expect(unsupported.startCount).toBe(0)
++    dispose()
++  })
++
++  it('bounds role admission, cancels queued callers, and releases every permit on disposal', async () => {
++    const { subagents, parent } = await service(true)
++    const provider = new DeferredRoleProvider()
++    subagents.registerProvider(provider)
++    subagents.registerRole(roleDefinition())
++    const start = (signal = new AbortController().signal) => subagents.startRole('reviewer-readonly', {
++      prompt: [{ type: 'text', text: 'inspect' }], parent: parent(), signal,
++    })
++
++    const first = await start()
++    const queuedController = new AbortController()
++    const queued = start(queuedController.signal)
++    await vi.waitFor(() => { expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 1, queued: 1 }) })
++    await expect(start()).rejects.toMatchObject({ code: 'ROLE_CAPACITY' })
++    expect(provider.startCount).toBe(1)
++
++    queuedController.abort()
++    await expect(queued).rejects.toMatchObject({ code: 'CANCELLED' })
++    expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 1, queued: 0 })
++    await first.dispose()
++    expect(subagents.roleStats()).toEqual({ active: 0, queued: 0 })
++    expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 0, queued: 0 })
++
++    const after = await start()
++    expect(provider.startCount).toBe(2)
++    await after.dispose()
++    expect(subagents.roleStats('reviewer-readonly')).toEqual({ active: 0, queued: 0 })
++  })
++
++  it('applies one configured global pool across distinct roles', async () => {
++    const { subagents, parent } = await service(true)
++    const provider = new DeferredRoleProvider()
++    subagents.registerProvider(provider)
++    subagents.configureRoleCapacity({ maxActive: 1, maxQueued: 1 })
++    subagents.registerRole(roleDefinition({ id: 'reviewer-a', maxActive: 2 }))
++    subagents.registerRole(roleDefinition({ id: 'reviewer-b', maxActive: 2 }))
++    const request = { prompt: [], parent: parent(), signal: new AbortController().signal }
++
++    const first = await subagents.startRole('reviewer-a', request)
++    const second = subagents.startRole('reviewer-b', request)
++    await vi.waitFor(() => { expect(subagents.roleStats()).toEqual({ active: 1, queued: 1 }) })
++    await expect(subagents.startRole('reviewer-b', request)).rejects.toMatchObject({ code: 'ROLE_CAPACITY' })
++    await first.dispose()
++    const admitted = await second
++    await admitted.dispose()
++    expect(subagents.roleStats()).toEqual({ active: 0, queued: 0 })
++  })
++
++  it('bounds every per-role waiter under the one global FIFO queue ceiling', async () => {
++    const { subagents, parent } = await service(true)
++    const provider = new DeferredRoleProvider()
++    subagents.registerProvider(provider)
++    subagents.configureRoleCapacity({ maxActive: 1, maxQueued: 2 })
++    subagents.registerRole(roleDefinition({ id: 'reviewer-a', maxQueued: 2 }))
++    subagents.registerRole(roleDefinition({ id: 'reviewer-b', maxQueued: 2 }))
++    const request = { prompt: [], parent: parent(), signal: new AbortController().signal }
++
++    const first = await subagents.startRole('reviewer-a', request)
++    const second = subagents.startRole('reviewer-a', request)
++    const third = subagents.startRole('reviewer-b', request)
++    await vi.waitFor(() => { expect(subagents.roleStats()).toEqual({ active: 1, queued: 2 }) })
++    expect(subagents.roleStats('reviewer-a')).toEqual({ active: 1, queued: 1 })
++    expect(subagents.roleStats('reviewer-b')).toEqual({ active: 0, queued: 1 })
++    await expect(subagents.startRole('reviewer-b', request)).rejects.toMatchObject({ code: 'ROLE_CAPACITY' })
++
++    await first.dispose()
++    await (await second).dispose()
++    await (await third).dispose()
++    expect(subagents.roleStats()).toEqual({ active: 0, queued: 0 })
++  })
++
++  it('rejects detached and already-live role children before granting role identity', async () => {
++    const detached = await service(true)
++    detached.subagents.registerProvider(Object.assign(new StubProvider('role-provider'), {
++      supportsRestrictedRoles: true as const,
++      async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
++        const id = SessionId('detached-child')
++        const localAgent = {
++          id,
++          session: { header: { id, parentSession: request.parent.id, cwd: process.cwd() }, append() {} },
++        } as unknown as Agent
++        request.restrictedRole?.classify(localAgent)
++        return { id, localAgent, result: Promise.resolve({ output: [], structured: {}, stopReason: 'completed' }), async dispose() {} }
++      },
++    }))
++    detached.subagents.registerRole(roleDefinition())
++    await expect(detached.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: detached.parent(), signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
++
++    const live = await service(true)
++    live.subagents.registerProvider(Object.assign(new StubProvider('role-provider'), {
++      supportsRestrictedRoles: true as const,
++      async start(request: ResolvedSubagentStartRequest): Promise<SubagentRun> {
++        const id = SessionId('already-live-child')
++        const localAgent = {
++          id,
++          session: { header: { id, parentSession: request.parent.id, cwd: process.cwd() }, append() {} },
++        } as unknown as Agent
++        publishAgent(request.parent, localAgent)
++        request.restrictedRole?.classify(localAgent)
++        return { id, localAgent, result: Promise.resolve({ output: [], structured: {}, stopReason: 'completed' }), async dispose() {} }
++      },
++    }))
++    live.subagents.registerRole(roleDefinition())
++    await expect(live.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: live.parent(), signal: new AbortController().signal,
++    })).rejects.toMatchObject({ code: 'ROLE_IDENTITY_INVALID' })
++  })
++
++  it('waits for unpublished provider startup rollback during role removal and host teardown', async () => {
++    const roleOwned = await service(true)
++    const roleProvider = new PendingPublicationProvider()
++    roleOwned.subagents.registerProvider(roleProvider)
++    const removeRole = roleOwned.subagents.registerRole(roleDefinition())
++    const roleStart = roleOwned.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: roleOwned.parent(), signal: new AbortController().signal,
++    })
++    await roleProvider.started
++    let roleRemoved = false
++    const removal = Promise.resolve(removeRole()).then(() => { roleRemoved = true })
++    await Promise.resolve()
++    expect(roleRemoved).toBe(false)
++    roleProvider.finish()
++    await expect(roleStart).rejects.toMatchObject({ code: 'NO_ROLE' })
++    await removal
++
++    const hostOwned = await service(true)
++    const hostProvider = new PendingPublicationProvider()
++    hostOwned.subagents.registerProvider(hostProvider)
++    hostOwned.subagents.registerRole(roleDefinition())
++    const hostStart = hostOwned.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: hostOwned.parent(), signal: new AbortController().signal,
++    })
++    await hostProvider.started
++    let hostDisposed = false
++    const disposal = hostOwned.ctx.fiber.dispose().then(() => { hostDisposed = true })
++    await Promise.resolve()
++    expect(hostDisposed).toBe(false)
++    hostProvider.finish()
++    await expect(hostStart).rejects.toMatchObject({ code: 'ROLE_DISPOSING' })
++    await disposal
++  })
++
++  it('surfaces timeout and host teardown as typed outcomes and drains the live run', async () => {
++    const timed = await service(true)
++    timed.subagents.registerProvider(new AbortAwareRoleProvider())
++    timed.subagents.registerRole(roleDefinition({ timeoutMs: 10 }))
++    const timedRun = await timed.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: timed.parent(), signal: new AbortController().signal,
++    })
++    await expect(timedRun.result).rejects.toMatchObject({ code: 'ROLE_TIMEOUT' })
++    expect(timed.subagents.roleStats()).toEqual({ active: 0, queued: 0 })
++
++    const hosted = await service(true)
++    hosted.subagents.registerProvider(new AbortAwareRoleProvider())
++    hosted.subagents.registerRole(roleDefinition())
++    const hostedRun = await hosted.subagents.startRole('reviewer-readonly', {
++      prompt: [], parent: hosted.parent(), signal: new AbortController().signal,
++    })
++    const disposal = hosted.ctx.fiber.dispose()
++    await expect(hostedRun.result).rejects.toMatchObject({ code: 'ROLE_DISPOSING' })
++    await disposal
++  })
++
+   it('rolls registration back when provider-added throws', async () => {
+     const { ctx, subagents } = await service()
+     ctx.on('subagent/provider-added', () => { throw new Error('added boom') })
+@@ -116,7 +550,9 @@ describe('SubagentRuntime', () => {
+     expect(provider.lastRequest).toEqual({
+       ...request,
+       descriptor: {
+-        version: SUBAGENT_DESCRIPTOR_VERSION,
++        // One-shot children retain the durable v2 wire shape. Descriptor v3
++        // is reserved for the continuable workspace contract.
++        version: 2,
+         mode: 'one-shot',
+         provider: 'one-shot',
+       },
+@@ -331,11 +767,14 @@ describe('subagent descriptors', () => {
+     expect(foldSubagentDescriptor([])).toBeUndefined()
+     const minimal = snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'spawn' })
+     expect(minimal).toEqual({
+-      version: SUBAGENT_DESCRIPTOR_VERSION,
++      version: 2,
+       mode: 'one-shot',
+       provider: 'spawn',
+     })
+-    expect(foldSubagentDescriptor([event(minimal)])).toEqual(minimal)
++    expect(foldSubagentDescriptor([event(minimal)])).toEqual({
++      ...minimal,
++      version: SUBAGENT_DESCRIPTOR_VERSION,
++    })
+     expect(snapshotSubagentDescriptor({
+       mode: 'one-shot',
+       provider: 'spawn',
+@@ -351,6 +790,7 @@ describe('subagent descriptors', () => {
+       persona: 'reviewer',
+       toolFilter: { allow: ['read'], deny: ['bash'] },
+     }
++    const legacyComplete = { ...complete, version: 2 }
+     expect(snapshotSubagentDescriptor({
+       mode: 'continuable',
+       provider: complete.provider,
+@@ -359,8 +799,8 @@ describe('subagent descriptors', () => {
+       agentModel: complete.agentModel,
+       persona: complete.persona,
+       toolFilter: complete.toolFilter,
+-    })).toEqual(complete)
+-    expect(foldSubagentDescriptor([event(complete)])).toEqual(complete)
++    })).toEqual(legacyComplete)
++    expect(foldSubagentDescriptor([event(legacyComplete)])).toEqual(complete)
+     expect(foldSubagentDescriptor([
+       event({
+         version: SUBAGENT_DESCRIPTOR_VERSION,
 diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
-index 261f614..2686bec 100644
+index 261f614fba..2686bec756 100644
 --- a/packages/subprocess/subprocess-local/src/index.ts
 +++ b/packages/subprocess/subprocess-local/src/index.ts
 @@ -35,6 +35,11 @@ import { LocalTerminalHandle } from './terminal.ts'
@@ -4674,7 +6554,7 @@ index 261f614..2686bec 100644
      // Release ownership only once the whole TREE is gone, not at direct-child
      // settlement — a TERM-trapping helper that outlives the leader must stay
 diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
-index 433ba01..b7d93c2 100644
+index 433ba01791..b7d93c2973 100644
 --- a/packages/subprocess/subprocess-local/src/spawn.ts
 +++ b/packages/subprocess/subprocess-local/src/spawn.ts
 @@ -7,12 +7,27 @@
@@ -5036,7 +6916,7 @@ index 433ba01..b7d93c2 100644
      })
      child.on('exit', (exitCode, signal) => {
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfa..02b4977 100644
+index 1f21dfaaa1..02b4977972 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 @@ -1,4 +1,5 @@
@@ -5399,7 +7279,7 @@ index 1f21dfa..02b4977 100644
      const result = await finish(spawnSubprocess(spec('echo oops >&2')))
      expect(result.exitCode).toBe(0)
 diff --git a/packages/subprocess/subprocess/src/index.ts b/packages/subprocess/subprocess/src/index.ts
-index a741315..08d9319 100644
+index a7413159f9..08d9319f5b 100644
 --- a/packages/subprocess/subprocess/src/index.ts
 +++ b/packages/subprocess/subprocess/src/index.ts
 @@ -100,6 +100,14 @@ declare module '@deepseek-ai/cordis' {
@@ -5442,7 +7322,7 @@ index a741315..08d9319 100644
     * Allocate a real terminal and start one owned process session. This is the
     * only non-pipe process primitive: implementations own terminal byte I/O,
 diff --git a/scripts/gen-cordis-catalog.ts b/scripts/gen-cordis-catalog.ts
-index 522e98d..9a1b197 100644
+index 522e98df96..805345407e 100644
 --- a/scripts/gen-cordis-catalog.ts
 +++ b/scripts/gen-cordis-catalog.ts
 @@ -138,6 +138,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
@@ -5461,7 +7341,17 @@ index 522e98d..9a1b197 100644
    PreparedLlmCall: 'llm-streaming.md',
    LlmRuntime: 'llm-streaming.md',
    StreamChunk: 'llm-streaming.md',
-@@ -460,11 +462,16 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
+@@ -426,6 +428,9 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
+   SubagentRun: 'subagent.md',
+   SubagentRuntime: 'subagent.md',
+   SubagentStartRequest: 'subagent.md',
++  RestrictedRoleDefinition: 'subagent.md',
++  RestrictedRoleRun: 'subagent.md',
++  RestrictedRoleStartRequest: 'subagent.md',
+   AssembleContext: 'system-prompt.md',
+   PromptContext: 'system-prompt.md',
+   PromptSection: 'system-prompt.md',
+@@ -460,11 +465,16 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
    ToolExecutionMode: 'tools.md',
    ToolExecutionResult: 'tools.md',
    ToolExecutionToken: 'tools.md',
