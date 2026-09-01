@@ -8,18 +8,19 @@
 - Profile: tracking
 - Plan branch: `feat/enable-root-agent-docs`
 - Current sprint: Sprint 1
-- Status: ready-for-close
-- Current task: none
-- Next task: merge PR #160 and complete strict issue closeout
+- Status: complete
+- Current task: complete
+- Next task: none
 - Blockers: none; baseline repair PR #157 merged as `6591ca470073864782529b8f905c86fa0a0ca13e`
 - Last updated: 2026-09-01
+- Branch/commit/PR: sympoies/dsh-runtime-kit#160 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/160>)
 
 ## Task Ledger
 
 | ID | Title | Status | Evidence | Notes |
 | --- | --- | --- | --- | --- |
 | 1.1 | Freeze and implement the root catalog contract | done | evaluation: generic preflight returned zero documents and no validation; RED: focused owner test failed ENOENT; GREEN: owner test, strict edit/delivery preflight, DSH context, and strict audit passed | Root catalog keeps repository and packaged DSH ownership separate |
-| 1.2 | Document load timing and complete repository validation | done | Node 24 routine gates, pinned semantic smoke, package inspection, and hosted compatibility 6/6 passed; testing, maintainability, and red-team follow-up reviews passed | PR #160 is ready for final delivery |
+| 1.2 | Document load timing and complete repository validation | done | Node 24 routine gates, pinned semantic smoke, package inspection, and hosted compatibility 6/6 passed; testing, maintainability, and red-team follow-up reviews passed | PR #160 merged; strict issue closeout complete |
 
 ## Validation Log
 
@@ -49,3 +50,7 @@
 - 2026-09-01: All six hosted PR checks passed, including the package semantic
   catalog gate, macOS runtime health, retained rc.7/rc.8 rows, and pinned plus
   upstream-next rc.2 acceptance.
+
+## Handoff
+
+- Tracking issue <https://github.com/sympoies/dsh-runtime-kit/issues/159> is closed; terminal execution state is synchronized. No closeout or merge action remains.
