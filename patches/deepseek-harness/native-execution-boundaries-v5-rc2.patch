@@ -4146,7 +4146,7 @@ index fd1ebff2be..35a2d8e7a3 100644
    }
  
 diff --git a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
-index aa7437be81..4072dbbdde 100644
+index aa7437be81..a8a549572e 100644
 --- a/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
 +++ b/packages/subagent/subagent-in-process-driver/tests/inheritance.spec.ts
 @@ -4,7 +4,7 @@
@@ -4190,7 +4190,7 @@ index aa7437be81..4072dbbdde 100644
    }
  }
  
-@@ -79,6 +85,157 @@ function toolResultTexts(agent: Agent): string[] {
+@@ -79,6 +85,163 @@ function toolResultTexts(agent: Agent): string[] {
  }
  
  describe('in-process policy inheritance', () => {
@@ -4312,7 +4312,11 @@ index aa7437be81..4072dbbdde 100644
 +        toolCallResponse('credentials', 'read', { file_path: '.credentials.test' }),
 +        toolCallResponse('pem', 'read', { file_path: 'keys/deploy.pem' }),
 +        toolCallResponse('grep-root', 'grep', { path: '.' }),
++        toolCallResponse('grep-nested-env', 'grep', { path: 'service' }),
++        toolCallResponse('grep-nested-git', 'grep', { path: 'subrepo' }),
++        toolCallResponse('grep-nested-key', 'grep', { path: 'keys' }),
 +        toolCallResponse('glob-root', 'glob', { path: '.' }),
++        toolCallResponse('grep-visible', 'grep', { path: 'src/visible.txt' }),
 +        toolCallResponse('visible', 'read', { file_path: 'src/visible.txt' }),
 +        toolCallResponse('structured', 'structured_output', { inspected: true }),
 +      )
@@ -4333,9 +4337,11 @@ index aa7437be81..4072dbbdde 100644
 +        expect(result.structured).toEqual({ inspected: true })
 +        expect(denials).toContain('read boundary denied')
 +        expect(denials).toContain('protected path denied')
++        expect(denials).toContain('grep target must be an explicit regular file')
++        expect(denials).toContain('searched')
 +        expect(denials).toContain('visible')
 +        expect(denials).not.toMatch(/nested-env-secret|env-variant-secret|nested-git-secret|credentials-secret|pem-secret/u)
-+        expect(searchBodies).toBe(0)
++        expect(searchBodies).toBe(1)
 +        expect(ctx.sandboxPolicy.resolve({ session: parent.session })).toEqual(before)
 +      } finally {
 +        await run.dispose()
@@ -4437,7 +4443,7 @@ index e289863531..1649bfac1c 100644
  
  启动时功能通过 `provider.capabilities` 声明，因为服务必须在创建子 agent 前拒绝不受支持的一次性请求：
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 7582338858..1f942e8b13 100644
+index 7582338858..c301bf07e8 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
 @@ -8,11 +8,13 @@
@@ -4488,7 +4494,7 @@ index 7582338858..1f942e8b13 100644
  }
  
  /**
-@@ -138,6 +146,101 @@ export const SUBAGENT_DELEGATION_CONTEXT
+@@ -138,6 +146,105 @@ export const SUBAGENT_DELEGATION_CONTEXT
      + 'When the task needs access beyond that scope, do not retry the denied operation; state the '
      + 'limitation in your reply so the delegating agent can handle it.'
  
@@ -4570,7 +4576,11 @@ index 7582338858..1f942e8b13 100644
 +  if (protectedRestrictedRolePath(workspace, canonical)) {
 +    return `restricted role ${role.id} protected path denied`
 +  }
-+  const searchDirectory = exec.name !== 'read' && statSync(canonical).isDirectory()
++  const target = statSync(canonical)
++  if (exec.name === 'grep' && !target.isFile()) {
++    return `restricted role ${role.id} grep target must be an explicit regular file`
++  }
++  const searchDirectory = exec.name === 'glob' && target.isDirectory()
 +  for (const configured of role.sandbox.protectedRoots) {
 +    const candidate = isAbsolute(configured) ? configured : resolve(workspace, configured)
 +    let protectedRoot: string
@@ -4590,7 +4600,7 @@ index 7582338858..1f942e8b13 100644
  /**
   * Compose one child inside its creation window: join its parent's preset,
   * register the fixed delegation-scope statement, then apply the child's own
-@@ -171,7 +274,40 @@ export function applyChildComposition(
+@@ -171,7 +278,40 @@ export function applyChildComposition(
    if (composition.persona !== undefined) {
      childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: composition.persona })
    }
