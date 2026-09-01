@@ -142,6 +142,7 @@ const cancellationPid = join(workspace, '.git', 'dsh-contained-body.pid')
 const cancellationHeartbeat = join(workspace, '.git', 'dsh-contained-body.heartbeat')
 const crashMarker = join(workspace, '.git', 'dsh-crash-body-started')
 const providerProbePath = join(hookRoot, 'provider-mismatch-probe.json')
+const mismatchCompanion = join(temporaryRoot, 'unauthenticated-agent-docs')
 const validationCommand = `node -e ${JSON.stringify(
   `require('node:fs').appendFileSync(${JSON.stringify(validationMarker)},${JSON.stringify(`${validationToken}\n`)},{mode:0o600})`,
 )}`
@@ -443,17 +444,18 @@ digest = ${JSON.stringify(policyDigest)}
     const crashRecovery = runPhase(candidateProfile, 'crash-recover', crashSession)
 
     const mismatchProfile = 'authoritative-mismatch'
-    enterStep('provider-mismatch-install')
+    enterStep('companion-identity-mismatch-install')
     installMismatchProfile(mismatchProfile, candidatePackage)
     rmSync(providerProbePath, { force: true })
+    writeFileSync(mismatchCompanion, '#!/bin/sh\nexit 99\n', { mode: 0o500 })
     const mismatchProcess = processIdentity('candidate-old-provider-mismatch')
-    enterStep('provider-mismatch')
+    enterStep('companion-identity-mismatch')
     const mismatch = spawnSync(pnpmBin, ['dsh', '--profile', mismatchProfile], {
       cwd: dshRoot,
       env: {
         ...baseEnvironment,
-        ...nilsEnvironment('baseline'),
-        ...nilsCompatibilityCandidateEnvironment(candidateFeature, true),
+        ...nilsEnvironment('candidate'),
+        DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion,
         DSH_ACCEPTANCE_PHASE: 'provider-mismatch-probe',
         DSH_ACCEPTANCE_SESSION_ID: 'acceptance-mismatch',
         DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: mismatchProcess,

@@ -2005,6 +2005,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join\(binDir, 'main-agent'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join\(binDir, 'agent-session'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
+  assert.match(
+    authoritativeSmoke,
+    /DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion/u,
+    'the negative health leg must inject a deterministic unauthenticated companion',
+  )
   assert.doesNotMatch(packedSmoke, /id: 'native-main-agent-lane'/u)
   assert.match(packedSmoke, /id: 'subagent'[\s\S]*main-agent:host-workspace-before-prompt/u)
   assert.doesNotMatch(
