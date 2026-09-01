@@ -216,55 +216,56 @@ these layers as a general hostile-code boundary.
 Specialist review is one DSH-native tool, not eight model-authored personas or
 an external agent runtime. `src/review/index.js` loads exactly eight packaged
 persona files at server startup and accepts only `{ task, roles }`. Quick review
-is exclusive; selected focused or specialist roles run through a bounded
-runtime-global semaphore shared across simultaneous tool calls. Red-team is
+is exclusive. Runtime-kit registers every persona as one immutable DSH
+restricted-role definition with a fixed spawn route, structured output schema,
+inspection-only tool filter, read-only sandbox and protected roots, approval
+`never`, depth/timeout budget, and per-role capacity. Red-team is
 invalid alone and starts only after the first wave settles, either because the
 caller preselected it or because a first-wave structured finding is critical.
 It receives a byte-bounded rendering of prior structured evidence marked as
-untrusted. Each child must conclude through rc.7 `outputSchema`; the runtime
-validates semantic and UTF-8 byte invariants again, injects the server-owned
-specialist identity, and serializes deterministic nils-compatible JSONL.
-Results preserve requested order, expose no child IDs or continuation handles,
-and every native run is disposed before its semaphore permit is released. One
-caller abort signal cancels the whole wave and joins every published child;
-runtime disposal closes queued admission, aborts active waves, and drains child
-disposal before teardown settles. Queued acquisitions have a separate
-runtime-global ceiling; overflow returns `reviewer-overloaded` without retaining
-another task or publishing a child.
+untrusted. Runtime-kit starts a role with task content, the exact parent, and a
+cancellation signal only; callers cannot supply persona, provider, tools,
+sandbox, approval, model options, schema, depth, timeout, or capacity. Each
+child must conclude through DSH structured output; runtime-kit validates
+semantic and UTF-8 byte invariants again, injects the server-owned specialist
+identity, and serializes deterministic nils-compatible JSONL.
+
+DSH owns the bounded process-wide and per-role FIFO admission pools. Provider
+capability checks happen before capacity or model work; queue overflow,
+cancellation, timeout, role removal, and host teardown are typed and release no
+permit until the run is settled and disposed. Results preserve requested order
+and expose no child IDs or continuation handles. Runtime-kit keeps only the
+review-wave controller needed for ordered orchestration and joins every run on
+caller cancellation or plugin disposal.
 The reviewer runtime is a child plugin gated on `agents`, `subagents`, and
-`tools`. Its exact-Agent authority is created by the parent before child
-activation, so an absent subagent provider leaves that authority empty while
-the parent policy, skills, context, and finish-line runtime continue to load.
+`tools`. An absent or role-incapable subagent provider leaves that optional
+surface unavailable while the parent policy, skills, context, and finish-line
+runtime continue to load.
 The runtime service exposes a bounded snapshot for both optional children so a
 caller can distinguish pending activation from active service and a rejected
 activation. Failed snapshots retain only the stable reason and exception name;
 details remain in the ordinary runtime log.
 
-Reviewer classification is a process-local authority boundary. The runtime
-opens an `AsyncLocalStorage` admission only around rc.7's trusted in-process
-`spawn` call. The synchronous `agent/created` event must publish exactly one
-registry-owned child with the expected parent and `origin: subagent`; the exact
-`Agent` object is then recorded in a `WeakMap`. A role event is appended for
-audit only and cannot authenticate a resumed, forged, or ordinary session.
-After the provider copies the parent's standing policy, the runtime appends a
-final `sandbox/mode: read-only` override and installs a guard through that
-child's scoped `tools` service.
+Reviewer classification is a DSH host authority boundary. The service clones
+and recursively freezes each trusted definition, issues a generation-bound
+same-process authority only to providers that advertise restricted-role
+support, and requires the provider to classify exactly one unpublished child.
+The immutable receipt binds role-registration and execution generations, exact
+parent and child session ids, and a digest of the canonical workspace. `roleOf`
+recognizes only that exact live Agent object; labels, session events, copied
+objects, ordinary starts, and caller-supplied fields grant no role authority.
 
-The guard is monotonic and capability-based rather than prompt-based. It
-allows only the fixed local inspection surface (`read`, single-file `grep`,
-`glob`, and structured completion) and denies every other name, including image
-read, runtime context, skills, agent listing, Bash, write/edit/replace, code
-mode, nested tool calls, subagent delegation, recursive specialist review, and
-outbound web fetch/search. Every path-bearing inspection is canonicalized
-against the exact session workspace; symlink escapes and credential-bearing
-paths are rejected before the tool body. DSH evaluates this guard
-after the extensible pre-tool waterfall but before any tool body. The broader
-nils edit/operation/finish-line lifecycle therefore recognizes only the exact
-authenticated reviewer and steps aside; the scoped guard remains the final
-pre-body authority. Ordinary and forged Agents cannot enter that exception and
-continue through full nils policy. The read-only sandbox is a second boundary
-for allowed inspection tools; tool filtering and persona compliance are not
-required for the denial guarantee.
+Inside the unpublished child scope, the in-process driver first joins the
+parent agent preset and preserves the parent `meta.cwd`, then atomically mounts
+the fixed persona and tool filter, protected-root policy, `sandbox/mode:
+read-only`, `approval/policy: never`, and a final monotonic guard. The guard
+allows only `read`, `grep`, `glob`, and structured completion and always denies
+delegation, even if a malformed definition attempted to list it. The broader
+nils lifecycle recognizes a reviewer only through DSH `roleOf`; ordinary and
+forged Agents continue through full policy. Data-policy projection remains the
+owner of sensitive tool arguments and results, while the read-only sandbox and
+protected-root policy independently prevent mutation through aliases and
+symlinks.
 
 ## Finish-line lifecycle
 
@@ -524,7 +525,7 @@ seam below binds one registry-owned execution to one exact definition.
 `src/prerequisite/index.js` assigns process-local identities to the exact
 Agent, runtime workspace generation, and visible `ToolDefinition` object. It
 uses the version-scoped `tools.bindPrerequisite` seam supplied by
-the `native-execution-boundaries-v4` release artifact selected through
+the `native-execution-boundaries-v5` release artifact selected through
 `compatibility/dsh-patches.json`.
 The default mutation surface (`bash`, `write`, `edit`,
 `str_replace_editor`, and `runtime_kit_governed_commit`) requires the named

@@ -317,11 +317,10 @@ export function normalizeSandboxEscalationRequest({
  *
  * @param {Context} ctx
  * @param {{ agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} }} config
- * @param {{roleOf(agent: import('@deepseek-ai/dsh-agent').Agent): string | undefined}} [reviewers]
  * @param {{ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}} [dshRuntime]
  * @param {ReturnType<typeof createChildPluginStatus>} [childPlugins]
  */
-export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugins = createChildPluginStatus()) {
+export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createChildPluginStatus()) {
   if (dshRuntime === undefined) {
     throw new TypeError('dsh-runtime-kit: validated DSH runtime dependencies are required')
   }
@@ -557,7 +556,13 @@ export function applyPolicy(ctx, config = {}, reviewers, dshRuntime, childPlugin
   let closing = false
 
   /** @param {import('@deepseek-ai/dsh-agent').Agent | undefined} agent */
-  const isReviewer = agent => agent !== undefined && reviewers?.roleOf(agent) !== undefined
+  const isReviewer = (agent) => {
+    if (agent === undefined) return false
+    const subagents = /** @type {{roleOf?: (agent: import('@deepseek-ai/dsh-agent').Agent) => string | undefined} | undefined} */ (
+      ctx.get('subagents')
+    )
+    return subagents?.roleOf?.(agent)?.startsWith('reviewer-') === true
+  }
 
   /** @param {string} name */
   const dataPolicySource = (name) => {

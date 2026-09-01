@@ -328,7 +328,12 @@
   ],
   "optional_runtime_surface": [
     "subagents.start",
-    "subagents.getProvider"
+    "subagents.getProvider",
+    "subagents.configureRoleCapacity",
+    "subagents.registerRole",
+    "subagents.startRole",
+    "subagents.roleOf",
+    "subagents.roleStats"
   ],
   "artifact_limits": {
     "compressed_bytes": 134217728,

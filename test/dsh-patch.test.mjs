@@ -48,13 +48,13 @@ test('the checked-in DSH patch preserves the host environment only in danger-ful
   }
 })
 
-test('the consolidated native patch adds the bounded goal and host-workspace boundaries', async () => {
+test('the consolidated native patch adds goal, workspace, and restricted-role boundaries', async () => {
   const manifest = JSON.parse(
     await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
   assert.equal(manifest.patches.length, 1)
   const patch = manifest.patches[0]
-  assert.equal(patch.id, 'native-execution-boundaries-v4')
+  assert.equal(patch.id, 'native-execution-boundaries-v5')
   assert.deepEqual(
     Object.keys(patch.targets).filter(path => path.startsWith('packages/goal/goal/')).sort(),
     [
@@ -65,12 +65,15 @@ test('the consolidated native patch adds the bounded goal and host-workspace bou
   assert.deepEqual(
     Object.keys(patch.targets).filter(path => path.startsWith('packages/subagent/subagent/')).sort(),
     [
+      'packages/subagent/subagent/README.md',
+      'packages/subagent/subagent/README.zh.md',
       'packages/subagent/subagent/src/child-agent.ts',
       'packages/subagent/subagent/src/continuation.ts',
       'packages/subagent/subagent/src/descriptor.ts',
       'packages/subagent/subagent/src/index.ts',
       'packages/subagent/subagent/src/types.ts',
       'packages/subagent/subagent/tests/continuation.spec.ts',
+      'packages/subagent/subagent/tests/service.spec.ts',
     ],
   )
   for (const selected of patchArtifacts(patch)) {
@@ -89,6 +92,10 @@ test('the consolidated native patch adds the bounded goal and host-workspace bou
     assert.match(source, /Sole terminal data-policy provider/u)
     assert.match(source, /for \(const block of content\)[\s\S]*projectForPersistence/u)
     assert.doesNotMatch(source, /Promise\.all\([\s\S]{0,500}projectForPersistence/u)
+    assert.match(source, /startRole\(roleId: string, request: RestrictedRoleStartRequest\)/u)
+    assert.match(source, /supportsRestrictedRoles: true/u)
+    assert.match(source, /restricted role .* cannot execute/u)
+    assert.match(source, /dsh\.subagent\.restricted-role-receipt\.v1/u)
   }
 })
 

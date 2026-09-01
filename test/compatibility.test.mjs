@@ -412,6 +412,11 @@ test('DSH core runtime preflight does not require optional subagent services', (
   assert.deepEqual(DSH_RC7_OPTIONAL_RUNTIME_SURFACE, [
     'subagents.start',
     'subagents.getProvider',
+    'subagents.configureRoleCapacity',
+    'subagents.registerRole',
+    'subagents.startRole',
+    'subagents.roleOf',
+    'subagents.roleStats',
   ])
   assert.equal(DSH_RC7_RUNTIME_SURFACE.some(path => path.startsWith('subagents.')), false)
   assert.equal(assertDshRc7Runtime(validRuntime()).compatible, true)

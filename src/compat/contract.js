@@ -97,6 +97,11 @@ export const DSH_RC7_RUNTIME_SURFACE = Object.freeze([
 export const DSH_RC7_OPTIONAL_RUNTIME_SURFACE = Object.freeze([
   'subagents.start',
   'subagents.getProvider',
+  'subagents.configureRoleCapacity',
+  'subagents.registerRole',
+  'subagents.startRole',
+  'subagents.roleOf',
+  'subagents.roleStats',
 ])
 
 export const DSH_RC7_ARTIFACT_LIMITS = Object.freeze({

@@ -44,7 +44,7 @@ const dshRuntime = Object.freeze({
 
 test('policy activation requires the authenticated DSH echo classifier', () => {
   assert.throws(
-    () => applyPolicy({}, {}, undefined, {
+    () => applyPolicy({}, {}, {
       ...dshRuntime,
       isNonWideningSandboxEcho: undefined,
     }),
@@ -477,6 +477,7 @@ function harness({
       async flush(candidate) { return candidate === session },
     },
     get(name) {
+      if (name === 'subagents') return reviewers
       if (name === 'shell') {
         return {
           sandboxMode: 'danger-full-access',
@@ -836,7 +837,7 @@ function harness({
     agentDocsStateHome: '/runtime/state',
     nilsCompatibilityCandidate: 'typed-data-policy-protected-roots',
     ...config,
-  }, reviewers, dshRuntime)
+  }, dshRuntime)
   let lifecycleStarted = false
   let nextStep = 1
 
