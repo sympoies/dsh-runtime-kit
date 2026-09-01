@@ -98,7 +98,7 @@ Two exact DSH `0.1.1-rc.2` compositions are supported:
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
   `@deepseek-ai/dsh-base`,
-  `@deepseek-harness-tui/dsh-tui@0.10.0-beta.3`, then
+  `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4`, then
   `@sympoies/dsh-runtime-kit` in that order.
 
 Unknown profile names contain only the base bundle. They are neither equivalent
@@ -112,8 +112,8 @@ profile linker and peer settings while recording the TUI release's explicit
 `false` lifecycle decisions. Those package-install decisions do not restrict
 the agent's host CLI or `PATH`.
 
-After installing the authenticated 0.10.0-beta.3 archive and before starting
-the TUI, apply the exact beta.2/beta.3-on-DSH-rc.2 compatibility repair:
+After installing the authenticated 0.10.0-beta.4 archive and before starting
+the TUI, apply the narrowed beta.4-on-DSH-rc.2 compatibility repair:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
@@ -123,14 +123,14 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
 The command accepts only the exact package name, version, `package.json` bytes,
 patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
-Unknown or partially patched packages fail closed. The repair removes the
+Unknown or partially patched packages fail closed. Beta.4 already carries the
+upstream asynchronous history persistence from dsh-TUI #593, so runtime-kit no
+longer patches input dispatch or lock retries. The remaining repair removes the
 prerelease's alpha-only package-inventory override, which the selected DSH rc.2
-base bundle does not provide, and moves lock retries off the prompt submission
-stack so history persistence remains best-effort without delaying command
-dispatch.
-Before reading history, it also restricts owner-owned legacy data directories
-and files to 0700/0600 and refuses unexpected or symlinked paths. Apply, check,
-and reverse always authenticate and move both package targets together.
+base bundle does not provide, and restricts owner-owned legacy history data
+directories and files to 0700/0600 before reading them. Unexpected or symlinked
+paths are refused. Apply, check, and reverse authenticate both remaining target
+differences together.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

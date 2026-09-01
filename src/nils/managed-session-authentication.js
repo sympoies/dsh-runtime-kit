@@ -14,6 +14,10 @@ const WORK_CONTEXT_SET_ENVELOPE_SCHEMA = 'cli.agent-session.work-context-set.v1'
 const WORK_CONTEXT_SET_SCHEMA = 'agent-session.work-context-set-result.v1'
 const WORK_CONTEXT_SCHEMA = 'agent-session.work-context.v1'
 const CONFLICT_EVALUATION_SCHEMA = 'agent-session.conflict-evaluation.v1'
+const BASELINE_SCOPE_UNAVAILABLE = new Set([
+  'repository-unavailable',
+  'uncovered-mutation-scope',
+])
 const BASELINE_INTENT = 'project-dev'
 const BASELINE_TIER = 'L2'
 const BASELINE_SUMMARY = 'DSH project-dev session'
@@ -129,6 +133,25 @@ function validBaselineClaim(envelope, candidate) {
       || (context.intent === BASELINE_INTENT
         && context.tier === BASELINE_TIER
         && context.summary === BASELINE_SUMMARY))
+}
+
+/**
+ * A managed Agent Console may intentionally start outside a repository (for
+ * example from the operator's home directory). The principal is still valid,
+ * but nils cannot create the optional project baseline until a repository is
+ * selected. Accept only the released, typed work-context failures for that
+ * condition; every transport, schema, storage, and claim failure stays closed.
+ *
+ * @param {unknown} envelope
+ */
+function baselineScopeUnavailable(envelope) {
+  if (!isRecord(envelope)) return false
+  const outer = /** @type {Record<string, any>} */ (envelope)
+  return outer.schema_version === WORK_CONTEXT_SET_ENVELOPE_SCHEMA
+    && outer.ok === false
+    && isRecord(outer.error)
+    && BASELINE_SCOPE_UNAVAILABLE.has(outer.error.code)
+    && isBoundedText(outer.error.message, 512)
 }
 
 /** @param {number} deadlineAt */
@@ -283,7 +306,9 @@ export function applyManagedSessionAuthentication(
         timeoutMs: remainingAuthenticationMs(deadlineAt),
         env: candidate,
       })
-      if (!baseline.ok || !validBaselineClaim(baseline.envelope, candidate)) {
+      if (!baseline.ok
+        || (!validBaselineClaim(baseline.envelope, candidate)
+          && !baselineScopeUnavailable(baseline.envelope))) {
         throw new Error('dsh-runtime-kit: managed session baseline claim unavailable')
       }
       const principal = Object.freeze({

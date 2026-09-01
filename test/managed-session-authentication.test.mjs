@@ -81,6 +81,17 @@ function workContextSet(
   }
 }
 
+function workContextFailure(code) {
+  return {
+    schema_version: 'cli.agent-session.work-context-set.v1',
+    ok: false,
+    error: {
+      code,
+      message: 'operation target could not be proven inside the physical checkout boundary',
+    },
+  }
+}
+
 function harness({
   environment = principalEnvironment,
   envelope = readiness(environment),
@@ -165,8 +176,8 @@ async function waitFor(predicate, timeoutMs = 1_000) {
   }
 }
 
-function topLevelAgent(id = 'dsh-controller-one') {
-  return { session: { header: { id, cwd: '/workspace/project' } } }
+function topLevelAgent(id = 'dsh-controller-one', cwd = '/workspace/project') {
+  return { session: { header: { id, cwd } } }
 }
 
 test('always-on managed-session authentication binds before an optional child plugin activates', async () => {
@@ -225,6 +236,93 @@ test('managed-session authentication is available to startup lifecycle owners be
   })
   assert.deepEqual(bridge.resolve('dsh-controller-one'), principal)
   assert.equal(subject.spawned.length, 2)
+})
+
+for (const code of ['uncovered-mutation-scope', 'repository-unavailable']) {
+  test(`managed-session authentication permits ${code} without a baseline claim`, async () => {
+    const subject = harness({
+      response(spec) {
+        return spec.argv[1] === 'work-context'
+          ? workContextFailure(code)
+          : readiness()
+      },
+    })
+    const bridge = createManagedSessionBridge()
+    applyManagedSessionAuthentication(subject.ctx, {
+      mainAgentCli: '/bin/true',
+      agentSessionCli: '/bin/true',
+    }, bridge, principalEnvironment)
+
+    const entered = await subject.listeners.get('agent/pre-step')[0](
+      { agent: topLevelAgent('home-console', '/home/operator'), signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(entered, { kind: 'enter', messages: [] })
+    assert.equal(subject.spawned.length, 2)
+    assert.deepEqual(bridge.resolve('home-console'), {
+      sessionId: 'console-session-one',
+      environment: principalEnvironment,
+    })
+  })
+}
+
+for (const [description, mutate] of [
+  ['wrong envelope schema', envelope => { envelope.schema_version = 'cli.untrusted.v1' }],
+  ['empty error message', envelope => { envelope.error.message = '' }],
+  ['oversized error message', envelope => { envelope.error.message = 'x'.repeat(513) }],
+]) {
+  test(`managed-session authentication rejects allowed scope code with ${description}`, async () => {
+    const malformed = workContextFailure('uncovered-mutation-scope')
+    mutate(malformed)
+    const subject = harness({
+      response(spec) {
+        return spec.argv[1] === 'work-context' ? malformed : readiness()
+      },
+    })
+    const bridge = createManagedSessionBridge()
+    applyManagedSessionAuthentication(subject.ctx, {
+      mainAgentCli: '/bin/true',
+      agentSessionCli: '/bin/true',
+    }, bridge, principalEnvironment)
+
+    const rejected = await subject.listeners.get('agent/pre-step')[0](
+      { agent: topLevelAgent(), signal: new AbortController().signal },
+      async () => ({ kind: 'enter', messages: [] }),
+    )
+
+    assert.deepEqual(rejected, {
+      kind: 'reject',
+      reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+    })
+    assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+  })
+}
+
+test('managed-session authentication rejects unrelated typed baseline failures', async () => {
+  const subject = harness({
+    response(spec) {
+      return spec.argv[1] === 'work-context'
+        ? workContextFailure('coordination-store-corrupt')
+        : readiness()
+    },
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {
+    mainAgentCli: '/bin/true',
+    agentSessionCli: '/bin/true',
+  }, bridge, principalEnvironment)
+
+  const rejected = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal },
+    async () => ({ kind: 'enter', messages: [] }),
+  )
+
+  assert.deepEqual(rejected, {
+    kind: 'reject',
+    reason: 'dsh-runtime-kit:managed-session-authentication-failed',
+  })
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
 })
 
 test('managed-session authentication fails before bridge binding on an invalid baseline claim result', async () => {

@@ -45,18 +45,18 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.10.0-beta.3',
-    specifier: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.3',
+    version: '0.10.0-beta.4',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4',
     source: {
       repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
-      tag: 'v0.10.0-beta.3',
+      tag: 'v0.10.0-beta.4',
       tag_ref_type: 'commit',
-      revision: '470997e848a92f0c57aacbc4d05b8f9eda667d94',
+      revision: 'f7db605713a861b28c004b2dc18813bb74d61154',
     },
     artifact: {
-      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.3.tgz',
-      integrity: 'sha512-V9aB+rAekEHMVGch8s/2epVc1kp8YSceQuxcbhvBmJp3ta/9gLFpFOFOalrmbI7ZpcUEi6qj1B12/l9GZyhVQQ==',
-      shasum: 'f79537b012ffc690f9cc540c29d339aea727eeb3',
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.4.tgz',
+      integrity: 'sha512-+DAyd7uWgSibjxiTtC/SFODt/TdNrrmS9dSAYP53VNAhA6sFcJATp1qPNhG/31coVM+mb5HmZD5rwX60MC/cCQ==',
+      shasum: '293aec6bb30a0edb74cb3eaf7417aba6d8036885',
     },
   },
   bundles: [
@@ -159,7 +159,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.1-rc.2',
-    tui_version: '0.10.0-beta.3',
+    tui_version: '0.10.0-beta.4',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -179,7 +179,7 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
-test('the Agent Console release and installed-package patch select the same TUI', () => {
+test('the Agent Console release and narrowed rc.2 compatibility patch select the same TUI', () => {
   const patchManifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -187,8 +187,11 @@ test('the Agent Console release and installed-package patch select the same TUI'
   assert.equal(patchManifest.package_name, EXPECTED_CONTRACT.tui.package)
   assert.deepEqual(
     Object.keys(patchManifest.patches[0].validated_releases),
-    ['0.10.0-beta.2', EXPECTED_CONTRACT.tui.version],
+    [EXPECTED_CONTRACT.tui.version],
   )
+  assert.equal(patchManifest.patches[0].id, 'beta-4-rc2-compat-v1')
+  const patch = readFileSync(join(projectRoot, patchManifest.patches[0].path), 'utf8')
+  assert.doesNotMatch(patch, /Atomics\.wait|sleepSync/u)
 })
 
 test('the Agent Console install contract preserves DSH profile settings and disables unneeded TUI builds', () => {

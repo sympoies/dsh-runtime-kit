@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in beta.2/beta.3 patch removes synchronous waits and the alpha-only inventory row', async () => {
+test('the checked-in beta.4 patch keeps upstream async history and removes only remaining rc.2 drift', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -138,10 +138,7 @@ test('the checked-in beta.2/beta.3 patch removes synchronous waits and the alpha
   const patch = validated.patches[0]
   const bytes = await readFile(join(projectRoot, patch.path))
   assert.equal(sha256(bytes), patch.sha256)
-  assert.deepEqual(Object.keys(patch.validated_releases), [
-    '0.10.0-beta.2',
-    '0.10.0-beta.3',
-  ])
+  assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.0-beta.4'])
   assert.deepEqual(Object.keys(patch.targets), [
     'cordis.patch.yml',
     'lib/types/history.js',
@@ -149,17 +146,15 @@ test('the checked-in beta.2/beta.3 patch removes synchronous waits and the alpha
   const additions = bytes.toString('utf8').split('\n')
     .filter(line => line.startsWith('+') && !line.startsWith('+++'))
     .join('\n')
-  assert.match(additions, /setTimeout/u)
-  assert.match(additions, /\.unref\?\.\(\)/u)
   assert.match(additions, /lstat/u)
   assert.match(additions, /chmod/u)
   assert.match(additions, /lstatSync/u)
   assert.match(additions, /chmodSync/u)
   assert.match(additions, /prepareHistoryStorageSync/u)
   assert.match(additions, /process\.getuid/u)
-  assert.match(additions, /mode: 0o700/u)
-  assert.match(additions, /mode: 0o600/u)
-  assert.doesNotMatch(additions, /Atomics\.wait/u)
+  assert.match(additions, /0o700/u)
+  assert.match(additions, /0o600/u)
+  assert.doesNotMatch(bytes.toString('utf8'), /Atomics\.wait|sleepSync/u)
   assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
   const removals = bytes.toString('utf8').split('\n')
     .filter(line => line.startsWith('-') && !line.startsWith('---'))
