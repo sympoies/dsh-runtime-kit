@@ -27,16 +27,37 @@ Install the package dependencies without running dependency lifecycle scripts:
 npm ci --ignore-scripts
 ```
 
-Before editing, read `AGENTS.md` and run the repository's declared development
-preflight:
+Before editing, load the repository policy through the product-native entrypoint
+(`AGENTS.md`, or Claude's `CLAUDE.md` import) and run the declared edit-phase
+preflight. `--require-declared-intent` prevents a missing or undiscovered root
+catalog from passing as an empty success:
 
 ```sh
-agent-docs preflight --intent project-dev
+agent-docs preflight --intent project-dev --phase edit \
+  --strict --require-declared-intent
 ```
 
-The packaged `agent-docs/` catalog is a DSH runtime asset. It provides compact
-model-facing `project-dev` guidance after activation; it is not the canonical
-owner of this repository's contributor documentation.
+Two catalogs intentionally coexist. The repository-root `AGENT_DOCS.toml`
+routes contributor work in this checkout. The packaged
+`agent-docs/AGENT_DOCS.toml` is a DSH runtime asset whose home-scoped paths
+resolve inside the installed `agent-docs/` directory; it is not the owner of
+repository contributor routing and must not be copied over the root catalog.
+
+| Owner | Document | Products | Intent / phase | Required | Load timing |
+| --- | --- | --- | --- | --- | --- |
+| Harness | `AGENTS.md` | Codex, Hermes, DSH | session policy | yes | Loaded by each harness at session start; it is deliberately not duplicated in either catalog. |
+| Harness | `CLAUDE.md` → `@AGENTS.md` | Claude | session policy | yes | Claude loads its native project entrypoint at session start, which imports the complete repository policy from `AGENTS.md`; neither file is duplicated in a catalog. |
+| Root catalog | `PROJECT_DEV_EDIT.md` | Codex, Claude, Hermes | `project-dev` / `edit` | yes | Loaded on every repository edit preflight as the runtime-neutral compact contributor contract. |
+| Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Available on demand for setup, ownership, validation, or delivery detail; it is not mandatory prompt context. |
+| Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`, imported by Claude through `CLAUDE.md`) makes reading it mandatory before proposing work outside this repository. |
+| Packaged DSH catalog | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Loaded from the activated DSH home catalog. DSH is excluded from the root document entries so it never receives a duplicate copy. |
+
+The root catalog's `project-dev` validation contract applies to Codex, Claude,
+Hermes, and DSH when they work in this repository. Run its three commands after
+the final mutation and before declaring the task complete: `npm test`,
+`npm run typecheck`, and `npm run benchmark:policy`. Architecture, operations,
+acceptance, and retained evidence remain on-demand references reached through
+the source-of-truth list below; they are not automatic model context.
 
 ## Source-of-truth boundaries
 
@@ -72,9 +93,12 @@ npm run typecheck
 npm run benchmark:policy
 ```
 
-The GitHub package matrix runs these commands on Node.js 24. It also
-benchmarks the packed runtime through the released `agent-hook` and validates
-the selected DSH public package closure.
+The GitHub package matrix runs these commands on Node.js 24. It also uses the
+pinned released `agent-docs` and `agent-hook` binaries to audit the root
+catalog, resolve every Codex/Claude/Hermes phase, prove packaged DSH document
+isolation, and classify all three DSH validation commands through the
+authoritative finish-line resolver. The remaining jobs benchmark the packed
+runtime and validate the selected DSH public package closure.
 
 For documentation-only changes, also check whitespace, local Markdown links,
 and the publishable package contents:

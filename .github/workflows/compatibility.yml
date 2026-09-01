@@ -42,6 +42,11 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.27.29-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
+      - name: Validate repository agent-docs loading contract
+        env:
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.29-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.29-x86_64-unknown-linux-gnu/bin/agent-hook
+        run: npm run test:agent-docs-catalog
       - name: Provision systemd user scope for released Git trust smoke
         run: |
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
