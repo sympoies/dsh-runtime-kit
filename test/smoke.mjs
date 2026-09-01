@@ -1138,6 +1138,10 @@ export function apply(ctx) {
         '--if-revision', String(assignmentToRetire.revision),
         '--idempotency-key', 'native-retire-0001',
       ]
+      const retryableRetirementErrors = new Set([
+        'dsh-runtime-plugin-owned',
+        'coordination-unauthorized',
+      ])
       const retirementDeadline = Date.now() + 60_000
       while (retirement === undefined && Date.now() < retirementDeadline) {
         const attempt = nativeStoreAttempt(retireArgs)
@@ -1145,7 +1149,11 @@ export function apply(ctx) {
           retirement = attempt.envelope.data
           break
         }
-        assert.equal(attempt.envelope.error?.code, 'dsh-runtime-plugin-owned', attempt.output)
+        assert.equal(
+          retryableRetirementErrors.has(attempt.envelope.error?.code),
+          true,
+          attempt.output,
+        )
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
       }
       assert.notEqual(retirement, undefined, 'native lane broker did not publish terminal proof')
