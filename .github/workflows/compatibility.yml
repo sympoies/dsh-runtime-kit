@@ -182,13 +182,6 @@ jobs:
           echo "a9c4a88038d66d538605fd1ded630fca342e1025372f24896254f4e34e5916a8  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          rollback_archive="$RUNNER_TEMP/nils-cli-v1.27.29-x86_64-unknown-linux-gnu.tar.gz"
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            --output "$rollback_archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.29/nils-cli-v1.27.29-x86_64-unknown-linux-gnu.tar.gz"
-          echo "4a169d28032ace8e6d696c9385e3096dbea6e5e1ea17c492b9b0f4094f8b5f21  $rollback_archive" \
-            | sha256sum --check --strict
-          tar -xzf "$rollback_archive" -C "$RUNNER_TEMP"
       - name: Provision native full-host acceptance services
         if: matrix.channel == 'pinned'
         run: |
@@ -257,11 +250,11 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
           DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
           DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
-          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.29-x86_64-unknown-linux-gnu/bin" \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/bin" \
           DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2 \
-          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=e6f50a34d68e7a6638eb104e423dcacd116c4071 \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"b97eb058b756168249d8adc6b35b7e57333196c05e1380eecd9a43e3b423dd3a","agent-docs":"83080958f26bffd11a5b60081267367d95f9a25b0823f80d56f4f319595890b3"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"75ac5435d3afb6dc129cf6179f71d3289004ef335942674a9bbce58cd0ad8cd0","agent-docs":"095f0a33e73727be984e8601871034353e70bea7229e95f304b6e37195e96c71"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"b97eb058b756168249d8adc6b35b7e57333196c05e1380eecd9a43e3b423dd3a","agent-docs":"83080958f26bffd11a5b60081267367d95f9a25b0823f80d56f4f319595890b3"}' \
           DSH_ACCEPTANCE_DSH_VERSION="${{ matrix.dsh_version }}" \
           DSH_ACCEPTANCE_DSH_REVISION="${{ matrix.revision }}" \
           PNPM_BIN="$(command -v pnpm)" \
@@ -337,13 +330,6 @@ jobs:
           echo "9abc71134df9bdb04ff0a8d718fe91ad2e034c6f74b47c5af8d23a94735964e2  $archive" \
             | shasum -a 256 --check
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          rollback_archive="$RUNNER_TEMP/nils-cli-v1.27.29-aarch64-apple-darwin.tar.gz"
-          curl --fail --location --proto '=https' --tlsv1.2 \
-            --output "$rollback_archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.27.29/nils-cli-v1.27.29-aarch64-apple-darwin.tar.gz"
-          echo "5d65f5f7982910d7aa69466e054b9a05cf4453d6ce7aa26df47ad1643bdff5cf  $rollback_archive" \
-            | shasum -a 256 --check
-          tar -xzf "$rollback_archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime-health smoke on macOS
         working-directory: dsh-runtime-kit
         env:
@@ -385,11 +371,11 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
           DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
           DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
-          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.29-aarch64-apple-darwin/bin" \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.27.34-aarch64-apple-darwin/bin" \
           DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2 \
-          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=e6f50a34d68e7a6638eb104e423dcacd116c4071 \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"60ae88def2459e35e1c672f40650d44f433146571674b909caead7bad710d65c","agent-docs":"c6128a9d16610c536882116b2256aa1fc3786749c4a8f89f602f2a65912c7870"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"6cf18e4e86563704284835d4c04437f7d74aadf8caa2ce0f2b0f81d1a84d2195","agent-docs":"1ea127194cee10b382ac016da15ac6a9dcc5d08b1a8c57819adadb288af7e230"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"60ae88def2459e35e1c672f40650d44f433146571674b909caead7bad710d65c","agent-docs":"c6128a9d16610c536882116b2256aa1fc3786749c4a8f89f602f2a65912c7870"}' \
           DSH_ACCEPTANCE_DSH_VERSION=0.1.2-alpha.4 \
           DSH_ACCEPTANCE_DSH_REVISION=4e84901e6471b79ec0338099867ebb4606d12bb5 \
           PNPM_BIN="$(command -v pnpm)" \

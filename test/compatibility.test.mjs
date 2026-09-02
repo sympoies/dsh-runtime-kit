@@ -855,11 +855,11 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /nils-cli-v1\.27\.34-aarch64-apple-darwin\.tar\.gz/)
   assert.match(workflow, /9abc71134df9bdb04ff0a8d718fe91ad2e034c6f74b47c5af8d23a94735964e2/)
   assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=e6f50a34d68e7a6638eb104e423dcacd116c4071/)
-  assert.match(workflow, /nils-cli-v1\.27\.29-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /4a169d28032ace8e6d696c9385e3096dbea6e5e1ea17c492b9b0f4094f8b5f21/)
-  assert.match(workflow, /nils-cli-v1\.27\.29-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /5d65f5f7982910d7aa69466e054b9a05cf4453d6ce7aa26df47ad1643bdff5cf/)
+  // The rollback baseline is the alpha.4 promotion on nils-cli 1.27.34, so the
+  // baseline leg reuses the candidate release and no older archive is fetched.
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.27\.34-x86_64-unknown-linux-gnu\/bin"/)
+  assert.doesNotMatch(workflow, /1\.27\.29|e6f50a34d68e7a6638eb104e423dcacd116c4071|rollback_archive/)
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
   assert.match(macosJob, /node-version: 24/)
