@@ -174,8 +174,14 @@ export function apply(ctx) {
       await ctx.plugin(WorkspaceLease)
       const service = ctx.get('workspaceLease')
       if (service === undefined) throw new Error('workspace lease service did not activate')
+      const target = { workspaceKey: 'key:packed-smoke', root: '/' }
       disposeProvider = service.registerProvider({
         protocolVersion: WORKSPACE_LEASE_PROTOCOL_VERSION,
+        async resolve(request) {
+          sequence.push('resolve:' + request.toolName)
+          if (request.toolName !== 'workspace_mutation_probe') return { kind: 'not-required' }
+          return { kind: 'targets', targets: [target] }
+        },
         async bind(request) {
           sequence.push('bind')
           return {
@@ -184,6 +190,7 @@ export function apply(ctx) {
             workspaceId: 'workspace:packed-smoke',
             generation: 'generation:1',
             state: 'owned',
+            target,
           }
         },
         async begin() {
@@ -224,7 +231,7 @@ export function apply(ctx) {
       }))
       await handle.agent.whenIdle()
       const ref = await service.ref(handle.agent)
-      state = service.state(handle.agent, ref)
+      state = await service.state(handle.agent, ref)
       opaque = Object.isFrozen(ref)
         && Object.keys(ref).length === 0
         && JSON.stringify(ref) === '{}'
@@ -269,10 +276,17 @@ export function apply(ctx) {
   assert.deepEqual(receipt, {
     schema_version: 'dsh-runtime-kit.workspace-lease-smoke.v1',
     dshVersion: dshManifest.version,
-    protocolVersion: 1,
+    protocolVersion: 2,
     state: 'owned',
     opaque: true,
-    sequence: ['bind', 'begin', 'body', 'complete:succeeded', 'release'],
+    sequence: [
+      'bind',
+      'resolve:workspace_mutation_probe',
+      'begin',
+      'body',
+      'complete:succeeded',
+      'release',
+    ],
     result: {
       isError: false,
       value: 'mutated',

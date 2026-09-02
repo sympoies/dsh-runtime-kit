@@ -17,9 +17,16 @@ Responsibilities are intentionally split:
   commands, and machine-readable contracts.
 
 The runtime-owned workspace service follows the same split: DSH supplies exact
-agent/session/tool lifecycle, runtime-kit binds that public lifecycle to opaque
-host authority, and nils-cli owns canonical Git/worktree identity plus durable
-cross-process leases and fencing. The exported contract is documented in
+agent/session/tool lifecycle, runtime-kit selects and binds per-repository
+authority from that public lifecycle, and nils-cli owns operation
+classification, canonical Git/worktree identity, and durable cross-process
+leases and fencing. A session's startup cwd is a contextual anchor, not a
+permission boundary: a live lineage owns an authority *set* of zero or more
+lazily acquired repository bindings, and a lease denial is local to the exact
+repository target it names. Workspace leases coordinate governed Git mutation;
+they never grant or remove host filesystem authority, and future access
+isolation is implemented by containing the whole DSH runtime rather than by
+leases. The exported contract is documented in
 [Workspace identity and leases](workspace-leases.md). The default bundle
 activates that service and its strict nils provider before registering runtime
 policy, so every agent mutation is classified at the native DSH tool boundary.
@@ -194,9 +201,9 @@ helper-disabled trusted Git boundary.
 interfaces. The tool schema contains only conventional message fields and one
 full expected HEAD. Its target is always the canonical live Session cwd; there
 is no `repo`, `workdir`, message-file, amend, fixup, or default-branch option.
-The WorkspaceLease guard acquires same-session mutation authority before the
-tool body, while native nils policy independently requires the exact linked
-worktree and its pinned remote-default projection. JavaScript then resolves
+The WorkspaceLease guard acquires mutation authority for that exact repository
+target before the tool body, while native nils policy independently requires
+the exact linked worktree and its pinned remote-default projection. JavaScript then resolves
 the configured `semantic-commit` executable, spawns one literal argv vector,
 joins cancellation and teardown, and exposes only a strict bounded commit
 receipt. Branch, staging, expected-head, hooks, and signing behavior remain
