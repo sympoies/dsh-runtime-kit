@@ -7,6 +7,8 @@ import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-executi
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 import {
+  WORKSPACE_LEASE_MAX_TARGET_PATH_BYTES as MAX_TARGET_PATH_BYTES,
+  WORKSPACE_LEASE_MAX_TARGETS as MAX_TARGETS,
   WORKSPACE_LEASE_PROTOCOL_VERSION,
   WORKSPACE_LEASE_UNAVAILABLE,
   WorkspaceLease,
@@ -28,8 +30,6 @@ const MAX_INPUT_BYTES = 256 * 1024
 const MAX_OUTPUT_BYTES = 64 * 1024
 const MAX_ERROR_BYTES = 8 * 1024
 const MAX_TEXT_BYTES = 1_024
-const MAX_TARGETS = 16
-const MAX_TARGET_PATH_BYTES = 4_096
 const PRINTABLE_TEXT = /^[^\u0000-\u001f\u007f]+$/u
 const PROVIDER_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u
 const DENIED_STATES = new Set([

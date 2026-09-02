@@ -204,6 +204,7 @@ export const WORKSPACE_LEASE_PROTOCOL_VERSION = 2
  * @property {Promise<void> | undefined} draining
  * @property {Promise<AnchorClassification> | undefined} anchor
  * @property {AbortController | undefined} anchorController
+ * @property {string | undefined} anchorTarget
  * @property {WorkspaceRef | undefined} ref
  */
 
@@ -217,6 +218,7 @@ export const WORKSPACE_LEASE_PROTOCOL_VERSION = 2
 /**
  * @typedef BoundWorkspace
  * @property {AgentSlot} owner
+ * @property {AgentSlot} acquirer
  * @property {Agent['session']} session
  * @property {ProviderSlot} provider
  * @property {string} workspaceKey
@@ -296,6 +298,14 @@ export const WORKSPACE_REF_INVALID = 'WORKSPACE_REF_INVALID'
 
 /** Conservative bound on the repository targets one execution may claim. */
 export const WORKSPACE_LEASE_MAX_TARGETS = 16
+/**
+ * A canonical repository root is a filesystem path, so it is bounded by the
+ * path limit rather than by the 512-byte bound the generic provider-text
+ * helper applies to opaque identifiers. Both the transport and the service
+ * must agree on it: a root the transport accepts and the service then rejects
+ * would surface an authenticated target as an opaque provider fault.
+ */
+export const WORKSPACE_LEASE_MAX_TARGET_PATH_BYTES = 4_096
 
 /** Stable, typed workspace authority failure preserved by the DSH tool pipeline. */
 export class WorkspaceLeaseError extends HarnessError {
@@ -418,8 +428,11 @@ function frozenTarget(value) {
     throw unavailable('workspace lease provider returned an invalid target')
   }
   const candidate = /** @type {Partial<WorkspaceLeaseTarget>} */ (value)
-  const root = nonEmpty(candidate.root, 'target root')
-  if (!isAbsolute(root)) {
+  const root = candidate.root
+  if (typeof root !== 'string'
+    || !printableProviderText.test(root)
+    || Buffer.byteLength(root, 'utf8') > WORKSPACE_LEASE_MAX_TARGET_PATH_BYTES
+    || !isAbsolute(root)) {
     throw unavailable('workspace lease provider returned an invalid target root')
   }
   return Object.freeze({
@@ -768,6 +781,7 @@ export class WorkspaceLease extends Service {
         draining: undefined,
         anchor: undefined,
         anchorController: undefined,
+        anchorTarget: undefined,
         ref: undefined,
       }
       this.#agentSlots.set(agent, slot)
@@ -807,17 +821,28 @@ export class WorkspaceLease extends Service {
     slot.lifecycle = new AbortController()
     slot.anchor = undefined
     slot.anchorController = undefined
+    slot.anchorTarget = undefined
     if (slot.ref !== undefined) this.#refs.delete(slot.ref)
     const ref = /** @type {WorkspaceRef} */ (Object.freeze(Object.create(null)))
     slot.ref = ref
     this.#refs.set(ref, { agent: slot.agent, slot })
     // Acquisition must never overlap the release of the generation it
     // replaces: the same durable workspace would report a live foreign owner.
-    slot.draining = this.#releaseAll(slot, 'session-rebound').then(() => {}, () => {})
-    void slot.draining.then(() => {
-      if (slot.disposed || slot.epoch !== epoch) return
-      this.#startAnchor(slot)
-    })
+    // A generation that could not be surrendered may still be held durably, so
+    // the drain's failure has to reach whoever waits on it: minting a second
+    // generation for that workspace would contend with our own stale one and
+    // report it as a foreign owner. The separate no-op catch only stops the
+    // rejection from being unhandled; it does not hide it from awaiters.
+    const drained = this.#releaseAll(slot, 'session-rebound')
+    void drained.catch(() => {})
+    slot.draining = drained
+    void drained.then(
+      () => {
+        if (slot.disposed || slot.epoch !== epoch) return
+        this.#startAnchor(slot)
+      },
+      () => {},
+    )
   }
 
   /**
@@ -832,13 +857,21 @@ export class WorkspaceLease extends Service {
     const provider = this.#provider
     if (provider === undefined || provider.stopping) return undefined
     if (slot.anchor !== undefined) return slot.anchor
-    // A child lineage inherits its ancestor's anchor authority; binding again
-    // would make one lineage contend with itself on one physical worktree.
+    // A child lineage inherits its ancestor's anchor authority when it starts
+    // in the same worktree; binding again would make one lineage contend with
+    // itself on one physical worktree. A member that starts in a *different*
+    // worktree classifies its own anchor instead, so its `state()` and
+    // `denialState()` describe the repository it is actually in rather than
+    // its ancestor's.
     const owner = this.#authoritySlot(slot)
-    if (owner !== slot) {
+    if (owner !== slot && owner.session.header.cwd === slot.session.header.cwd) {
       const inherited = this.#startAnchor(owner)
       if (inherited === undefined) return undefined
       slot.anchor = inherited
+      void inherited.then(
+        () => { slot.anchorTarget = owner.anchorTarget },
+        () => {},
+      )
       return inherited
     }
     const session = slot.session
@@ -867,7 +900,8 @@ export class WorkspaceLease extends Service {
         await this.#releaseGeneration(provider, session, result, 'session-rebound')
         throw unavailable('workspace lease anchor lifecycle changed after bind')
       }
-      const binding = this.#adoptBinding(slot, provider, session, result)
+      const binding = this.#adoptBinding(owner, slot, provider, session, result)
+      slot.anchorTarget = binding.workspaceKey
       return { state: binding.initialState }
     })()
     slot.anchor = anchor
@@ -957,17 +991,23 @@ export class WorkspaceLease extends Service {
   }
 
   /**
+   * The authority slot owns the durable generation, but the slot that acquired
+   * it owns its release: a descendant that binds a repository its ancestor
+   * never touched must surrender that generation when the descendant is
+   * disposed, not when the whole lineage ends.
    * @param {AgentSlot} owner
+   * @param {AgentSlot} acquirer
    * @param {ProviderSlot} provider
    * @param {Agent['session']} session
    * @param {WorkspaceLeaseBound} result
    * @returns {BoundWorkspace}
    */
-  #adoptBinding(owner, provider, session, result) {
+  #adoptBinding(owner, acquirer, provider, session, result) {
     const target = frozenTarget(result.target)
     /** @type {BoundWorkspace} */
     const binding = {
       owner,
+      acquirer,
       session,
       provider,
       workspaceKey: target.workspaceKey,
@@ -1022,16 +1062,20 @@ export class WorkspaceLease extends Service {
     const key = target.workspaceKey
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const existing = owner.bindings.get(key)
-      if (existing !== undefined
-        && !existing.released
-        && existing.failure === undefined
-        && !existing.provider.stopping) return existing
+      if (existing !== undefined && this.#bindingUsable(existing)) return existing
       const inflight = owner.acquisitions.get(key)
       if (inflight !== undefined) {
         await inflight.catch(() => {})
         continue
       }
-      const session = slot.session
+      // The durable generation is owned by the lineage root, so the root is the
+      // principal recorded at bind and replayed by every later begin, complete
+      // and release. It has to be the same identity throughout: the boundary
+      // authenticates each call against the session digest captured at bind,
+      // so acquiring as a descendant and then operating as the root would be
+      // rejected as a stale binding.
+      const session = owner.session
+      const exact = slot.session
       const acquisition = (async () => {
         const result = await this.#invokeBind(
           provider,
@@ -1045,11 +1089,15 @@ export class WorkspaceLease extends Service {
         )
         if (result.kind === 'denied') throw providerError(result)
         if (result.kind === 'not-required') return undefined
-        if (slot.disposed || slot.session !== session || provider.stopping) {
+        if (slot.disposed
+          || slot.session !== exact
+          || owner.disposed
+          || owner.session !== session
+          || provider.stopping) {
           await this.#releaseGeneration(provider, session, result, 'session-rebound')
           throw unavailable('workspace lease acquisition lost lifecycle authority')
         }
-        return this.#adoptBinding(owner, provider, session, result)
+        return this.#adoptBinding(owner, slot, provider, session, result)
       })()
       owner.acquisitions.set(key, acquisition)
       try {
@@ -1241,7 +1289,9 @@ export class WorkspaceLease extends Service {
       }, signal)
     } catch (error) {
       if (binding.failure !== undefined) throw binding.failure
-      if (binding.released || binding.provider.stopping || binding.lifecycle.signal.aborted) {
+      // A transport error is only ambiguous while the generation is still
+      // usable; once it is retired the loss of authority is the honest cause.
+      if (!this.#bindingUsable(binding) || binding.lifecycle.signal.aborted) {
         throw unavailable('workspace lease admission lost lifecycle authority')
       }
       throw error instanceof WorkspaceLeaseError
@@ -1269,6 +1319,33 @@ export class WorkspaceLease extends Service {
   }
 
   /**
+   * One place that decides whether a generation is still usable authority. A
+   * new terminal condition must be added here and nowhere else; the admission
+   * and guard paths below ask this question about the same binding at
+   * different times, and they must not be able to disagree.
+   * @param {BoundWorkspace} binding
+   * @returns {boolean}
+   */
+  #bindingUsable(binding) {
+    return !binding.released
+      && binding.failure === undefined
+      && !binding.provider.stopping
+  }
+
+  /**
+   * Whether this generation is still the one its owning authority set names
+   * for that repository. Identity is read through `binding.owner`, the same
+   * map the retirement paths delete from, so a lineage change cannot make the
+   * check and the mutation disagree about which map they mean.
+   * @param {BoundWorkspace} binding
+   * @returns {boolean}
+   */
+  #bindingCurrent(binding) {
+    return this.#bindingUsable(binding)
+      && binding.owner.bindings.get(binding.workspaceKey) === binding
+  }
+
+  /**
    * @param {AgentSlot} slot
    * @param {number} epoch
    * @param {ExecutionIdentity} identity
@@ -1282,11 +1359,7 @@ export class WorkspaceLease extends Service {
       || identity.agent.session !== slot.session
       || !matchesExecution(identity, exec)
       || signal.aborted) return true
-    const owner = this.#authoritySlot(slot)
-    return bindings.some(binding => binding.released
-      || binding.failure !== undefined
-      || binding.provider.stopping
-      || owner.bindings.get(binding.workspaceKey) !== binding)
+    return bindings.some(binding => !this.#bindingCurrent(binding))
   }
 
   /** @param {readonly BoundWorkspace[]} bindings */
@@ -1316,15 +1389,8 @@ export class WorkspaceLease extends Service {
       || authorization.agent.session !== slot.session) {
       return changedAuthorizationReason
     }
-    const owner = this.#authoritySlot(slot)
     for (const operation of operations) {
-      const { binding } = operation
-      if (binding.released
-        || binding.failure !== undefined
-        || binding.provider.stopping
-        || owner.bindings.get(binding.workspaceKey) !== binding) {
-        return changedAuthorizationReason
-      }
+      if (!this.#bindingCurrent(operation.binding)) return changedAuthorizationReason
     }
     return undefined
   }
@@ -1544,6 +1610,27 @@ export class WorkspaceLease extends Service {
   }
 
   /**
+   * Drop any anchor classification that was derived from this generation, in
+   * the owning slot and in every lineage member aliasing it, so the next
+   * `state()` or `denialState()` re-derives instead of reporting a retired
+   * generation as live authority.
+   * @param {BoundWorkspace} binding
+   */
+  #forgetAnchor(binding) {
+    if (binding.owner.anchorTarget !== binding.workspaceKey) return
+    binding.owner.anchor = undefined
+    binding.owner.anchorController = undefined
+    binding.owner.anchorTarget = undefined
+    for (const candidate of this.#liveSlots) {
+      if (candidate.anchorController === undefined
+        && candidate.anchorTarget === binding.workspaceKey) {
+        candidate.anchor = undefined
+        candidate.anchorTarget = undefined
+      }
+    }
+  }
+
+  /**
    * Losing one repository generation aborts only that repository's operations
    * and retires only its slot in the authority set. Unrelated repositories
    * keep independent authority, and the next operation targeting the lost
@@ -1560,6 +1647,13 @@ export class WorkspaceLease extends Service {
     if (binding.owner.bindings.get(binding.workspaceKey) === binding) {
       binding.owner.bindings.delete(binding.workspaceKey)
     }
+    this.#forgetAnchor(binding)
+    // A generation lost to a transport failure may still be held durably by
+    // the boundary: the renew and complete failure paths cannot tell a lost
+    // lease from an unreachable one. Retiring the map entry alone would leave
+    // it held until process exit, so surrender it the way a superseded
+    // generation is surrendered.
+    void this.#releaseBinding(binding, 'session-rebound').catch(() => {})
     for (const operation of binding.operations) operation.authority.abort(failure)
     if (binding.operations.size > 0) {
       for (const owner of new Set(
@@ -1588,6 +1682,16 @@ export class WorkspaceLease extends Service {
     await Promise.allSettled(pending)
     const bindings = [...slot.bindings.values()]
     slot.bindings.clear()
+    // A generation this slot acquired lives in its lineage root's authority
+    // set, not its own, so releasing only `slot.bindings` would strand it --
+    // still renewing, still holding the durable worktree -- for as long as the
+    // ancestor session lives. Surrender exactly what this slot acquired.
+    for (const candidate of this.#liveSlots) {
+      if (candidate === slot) continue
+      for (const binding of candidate.bindings.values()) {
+        if (binding.acquirer === slot && !bindings.includes(binding)) bindings.push(binding)
+      }
+    }
     const results = await Promise.allSettled(
       bindings.map(binding => this.#releaseBinding(binding, reason)),
     )
@@ -1613,6 +1717,7 @@ export class WorkspaceLease extends Service {
       if (binding.owner.bindings.get(binding.workspaceKey) === binding) {
         binding.owner.bindings.delete(binding.workspaceKey)
       }
+      this.#forgetAnchor(binding)
       if (binding.renewTimer !== undefined) clearTimeout(binding.renewTimer)
       binding.renewTimer = undefined
       const releaseCause = unavailable(`workspace lease binding is releasing (${reason})`)

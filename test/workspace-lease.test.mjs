@@ -722,10 +722,23 @@ test('one live lineage owns one shared authority set', async () => {
     'one lineage presents one durable owner per repository',
   )
 
+  // A child that starts in its own worktree classifies and owns that
+  // repository, so disposing it surrenders exactly that generation and leaves
+  // the shared anchor generation it was borrowing untouched.
+  const sharedBindingId = calls.begin[0][0].bindingId
   await child.ctx.fiber.dispose()
-  assert.equal(calls.release.length, 0, 'disposing a child releases no shared authority')
+  assert.deepEqual(
+    calls.release.map(([request]) => request.bindingId === sharedBindingId),
+    [false],
+    'disposing a child releases its own generation and never the shared one',
+  )
   await parent.ctx.fiber.dispose()
-  assert.equal(calls.release.length, 1)
+  assert.equal(calls.release.length, 2)
+  assert.equal(
+    calls.release.filter(([request]) => request.bindingId === sharedBindingId).length,
+    1,
+    'the shared generation is released exactly once, by its lineage root',
+  )
 })
 
 test('an independent top-level session reaches the provider on its own', async () => {
@@ -896,4 +909,176 @@ test('a quarantine capability registration remains identity-exact', async () => 
     TypeError,
   )
   stop()
+})
+
+test('acquisition never overlaps the release of the generation it replaces', async () => {
+  // Release is what makes a rebind honest: until the prior generation is
+  // surrendered, the same durable workspace still reports a live foreign owner
+  // to any other session. An instantly-resolving release cannot observe that,
+  // so this gates it open explicitly.
+  let openRelease
+  const gate = new Promise(resolve => { openRelease = resolve })
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    release: async () => { await gate },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent')
+  publish(ctx, agent)
+  await ctx.workspaceLease.state(agent, await ctx.workspaceLease.ref(agent))
+  assert.equal(calls.bind.length, 1)
+
+  agentEvents(ctx, agent).emit('agent/session-start', { source: 'clear' })
+  const rebound = (async () => ctx.workspaceLease.state(
+    agent,
+    await ctx.workspaceLease.ref(agent),
+  ))()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(calls.release.length, 1, 'the prior generation is being surrendered')
+  assert.equal(
+    calls.bind.length,
+    1,
+    'the next generation must not be minted while the prior release is in flight',
+  )
+  openRelease()
+  assert.equal(await rebound, 'owned')
+  assert.equal(calls.bind.length, 2)
+})
+
+test('a release failure keeps the next generation unminted', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    release: async () => { throw new Error('durable release failed') },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent')
+  publish(ctx, agent)
+  await ctx.workspaceLease.state(agent, await ctx.workspaceLease.ref(agent))
+  ctx.tools.register(writeTool(sequence))
+
+  // A generation that could not be surrendered must not be superseded: the
+  // durable worktree may still be held, so the next operation fails closed
+  // rather than acquiring a second generation for the same workspace.
+  agentEvents(ctx, agent).emit('agent/session-start', { source: 'clear' })
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:after-failed-release')
+  assert.equal(result.isError, true)
+  assert.equal(sequence.length, 0, 'no body runs on top of an unsurrendered generation')
+  assert.equal(calls.bind.length, 1, 'no second generation is minted for that workspace')
+})
+
+test('a blocked post-execute decision still completes the granted operation', async () => {
+  const sequence = []
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  // A downstream block prevents the body, so tools/post-execute is the only
+  // remaining owner of the terminal outcome. Losing it would leak an
+  // operationId and fence with no completion.
+  ctx.tools.guard(() => 'denied by test')
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:blocked')
+  assert.equal(result.isError, true)
+  assert.equal(sequence.length, 0, 'the tool body must not run')
+  assert.equal(calls.complete.length, 1, 'the granted operation must reach a terminal outcome')
+  assert.notEqual(calls.complete[0][0].outcome, 'succeeded')
+})
+
+test('malformed provider responses fail closed instead of becoming authority', async () => {
+  for (const [label, overrides] of [
+    ['bound-state', { bind: async () => ({
+      kind: 'bound',
+      bindingId: 'binding:x',
+      workspaceId: 'workspace:x',
+      generation: 'generation:x',
+      state: 'dirty',
+      target: REPO_A,
+    }) }],
+    ['bind-kind', { bind: async () => ({ kind: 'renewed' }) }],
+    ['begin-kind', { begin: async () => ({ kind: 'bound' }) }],
+    ['empty-operation-id', { begin: async () => ({ kind: 'granted', operationId: '', fence: 'fence:x' }) }],
+    ['non-object', { bind: async () => 'bound' }],
+  ]) {
+    const sequence = []
+    const { selected } = provider({ resolve: writeTargets, ...overrides })
+    const ctx = await harness(selected)
+    const agent = stubAgent('agent')
+    publish(ctx, agent)
+    ctx.tools.register(writeTool(sequence))
+    const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:' + label)
+    assert.equal(result.isError, true, label + ' must not be admitted')
+    assert.equal(sequence.length, 0, label + ' must not reach a tool body')
+  }
+})
+
+test('untrusted provider denial text never reaches a tool error', async () => {
+  const sequence = []
+  const { selected } = provider({
+    resolve: writeTargets,
+    bind: async () => ({
+      kind: 'denied',
+      state: 'dirty',
+      code: 'not a code',
+      reason: 'injected ' + 'x'.repeat(2048),
+    }),
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:injected')
+  assert.equal(result.isError, true)
+  assert.equal(sequence.length, 0)
+  const text = JSON.stringify(result)
+  assert.ok(!text.includes('injected'), 'a malformed denial must be replaced, not echoed')
+  assert.ok(!text.includes('not a code'), 'a non-conforming code must be replaced')
+})
+
+test('concurrent operations on one repository join a single acquisition', async () => {
+  let openBind
+  const gate = new Promise(resolve => { openBind = resolve })
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const base = selected.bind.bind(selected)
+  selected.bind = async (request, signal) => {
+    if (request.target !== undefined) await gate
+    return base(request, signal)
+  }
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent', '/workspace/plain')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+  // Two executions targeting one workspace key must share one bind, or one
+  // lineage would contend with itself for a repository it already holds.
+  const both = Promise.all([
+    runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:c1'),
+    runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/two.js' }, 'call:c2'),
+  ])
+  await new Promise(resolve => setImmediate(resolve))
+  openBind()
+  const results = await both
+  assert.deepEqual(results.map(result => result.isError), [false, false])
+  assert.equal(
+    calls.bind.filter(([request]) => request.target?.workspaceKey === REPO_A.workspaceKey).length,
+    1,
+    'one workspace key must be acquired exactly once',
+  )
+  assert.equal(calls.begin.length, 2, 'each execution still receives its own fence')
+})
+
+test('a disposed lineage grants no authority and admits no execution', async () => {
+  const sequence = []
+  const { selected } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('agent')
+  publish(ctx, agent)
+  const ref = await ctx.workspaceLease.ref(agent)
+  ctx.tools.register(writeTool(sequence))
+  await agent.ctx.fiber.dispose()
+
+  await assert.rejects(ctx.workspaceLease.ref(agent), WorkspaceLeaseError)
+  await assert.rejects(ctx.workspaceLease.state(agent, ref), WorkspaceLeaseError)
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:disposed')
+  assert.equal(result.isError, true)
+  assert.equal(sequence.length, 0, 'a disposed lineage must not reach a tool body')
 })

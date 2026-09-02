@@ -198,7 +198,7 @@ difference.
 | `artifact_export` to a workspace-relative path | Lazily acquire/reuse that repository's binding and fence it |
 | `artifact_export` to the `download` class | Proceeds; writes no repository path, so no lease |
 | Governed commit with a repository anchor | Lazily acquire/reuse the anchor repository's binding and fence it |
-| Governed commit with no anchor | Refused as unresolvable rather than admitted unscoped |
+| Governed commit with no anchor | Refused rather than admitted unscoped; surfaces as `WORKSPACE_LEASE_UNAVAILABLE`, since `resolve` has no typed denial |
 | Mutation in a dirty checkout this session does not own | Deny only that mutation, typed `WORKSPACE_DIRTY`; session stays usable |
 | Mutation in a worktree another live session owns | Deny only that mutation, typed `WORKSPACE_FOREIGN_ACTIVE` |
 | Same-session resume of owned dirty work | Authenticated recovery for that binding, unchanged |
@@ -209,13 +209,20 @@ difference.
 
 Protocol v1 denied every tool in a session whose anchor was dirty, so issue
 \#102 added a bootstrap quarantine that admitted a small set of exact
-definitions. Under v2 an anchor denial no longer denies unrelated tools, so
-that quarantine is a **compatibility and recovery surface**, not the normal
-execution path. `registerQuarantineCapability` still binds an exception to a
-definition object identity and the exact live global tool, and the default
-bundle still registers DSH's `skill`, `get_goal`, `create_goal`, and
-`update_goal` controls plus `runtime_context`, `workspace_recovery`, and
-`workspace_recovery_handoff`.
+definitions. That exception existed only for the session-wide dirty denial, and
+v2 removed the denial: an anchor denial is now local to the repository it
+names, so no tool needs excepting from it.
+
+`registerQuarantineCapability` and `trackQuarantineCapabilities` therefore
+grant nothing under v2. The admission and guard paths do not consult the
+registered set, and the default bundle's registrations have no effect. They are
+retained only so a bundle that still calls them does not break, and their
+removal is tracked separately; do not read them as an admission exception.
+
+A provider that is entirely unavailable -- no `agent-hook`, an unparsable
+response, a stopping provider -- is a different and broader failure: it denies
+before classification, so it denies every tool. The quarantine never covered
+that in v1 either, and v2 does not change it.
 
 `workspace_recovery({})` returns only the canonical checkout path,
 branch/head identity, bounded dirty path names and typed status states, the

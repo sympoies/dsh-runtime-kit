@@ -68,7 +68,7 @@ function renderResult(value) {
     && entry.head !== null
   ))
   const lines = [
-    `Workspace quarantine inspection: ${value.state}.`,
+    `Workspace repository inspection: ${value.state}.`,
     value.lease === null
       ? 'Workspace lease: bound or unmanaged.'
       : `Workspace lease: ${value.lease.state} (${value.lease.code}).`,
@@ -100,7 +100,7 @@ function renderResult(value) {
   }
   if (value.handoff !== null) {
     lines.push(`Verified clean handoff path=${quoted(value.handoff.path)} branch=${quoted(value.handoff.branch)} head=${quoted(value.handoff.head)}.`)
-    lines.push('Ask the host operator to start a fresh Agent Console session with that exact cwd; this quarantined session cannot transfer lease authority.')
+    lines.push('This session keeps working elsewhere; a fresh Agent Console session at that exact cwd is only needed when the governed work targets this checkout, because lease authority does not transfer.')
   } else if (eligible.length > 0) {
     lines.push('Call workspace_recovery_handoff with one exact candidate path, then ask the host operator to start a fresh Agent Console session there.')
   } else {
