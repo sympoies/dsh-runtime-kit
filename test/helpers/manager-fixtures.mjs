@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto'
 
 import {
   computeDocumentDigest,
@@ -185,9 +185,28 @@ export function compositionLock(resolved) {
   return receipt
 }
 
-export function signingFixture() {
-  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
-  const der = publicKey.export({ format: 'der', type: 'spki' })
+// PKCS8 prefix for a raw Ed25519 seed, so a fixed seed yields a fixed key.
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex')
+
+/**
+ * Derive one fixture signing key from `identity`. The key is fixed, not random:
+ * a fresh keypair per call made every fixture signature fresh random bytes, and
+ * `assertSecretFree` rejects a value matching its secret patterns, so a
+ * `base64url` signature containing an `sk-` run failed the suite about once in
+ * 75,000 signatures. A fixed seed makes every fixture signature deterministic,
+ * so the guard either always accepts these documents or always rejects them.
+ * Pass a distinct `identity` for a test that needs a second, unrelated signer.
+ */
+export function signingFixture(identity = 'default') {
+  const seed = createHash('sha256')
+    .update(`dsh-runtime-kit/test/manager-fixtures/signing/v1/${identity}`)
+    .digest()
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
+    format: 'der',
+    type: 'pkcs8',
+  })
+  const der = createPublicKey(privateKey).export({ format: 'der', type: 'spki' })
   return {
     privateKey,
     keyId: 'ed25519:test-assertion',

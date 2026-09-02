@@ -1607,7 +1607,7 @@ test('trust failures are strict and correlated before their typed code is expose
 
 test('signed documents cannot select a digest-valid bundle outside the verified lineage', async () => {
   const trustedSigning = signingFixture()
-  const untrustedSigning = signingFixture()
+  const untrustedSigning = signingFixture('untrusted')
   const trustedBundle = trustBundle(trustedSigning)
   const untrustedBundle = trustBundle(untrustedSigning, { bundleId: 'unreachable-bundle' })
   const head = {
@@ -2213,4 +2213,57 @@ test('mediated host serializes same-key writes and rejects receipt overexposure'
   assert.equal(staleResult.code, 'state-conflict')
   assert.equal(staleResult.observedState, 'Drained')
   assert.equal(staleBrokerCalls, 0)
+})
+
+test('manager fixture signing is deterministic so no signature can trip the secret guard', () => {
+  const signing = signingFixture()
+  assert.equal(signingFixture().publicKeyHex, signing.publicKeyHex)
+  assert.notEqual(signingFixture('untrusted').publicKeyHex, signing.publicKeyHex)
+
+  const prior = trustBundle(signing)
+  const next = trustBundle(signing, { bundleId: 'bundle-2' })
+  const transition = trustTransition(prior, next, signing, 1, [])
+  assert.equal(trustTransition(prior, next, signing, 1, []).signature, transition.signature)
+
+  // The fixture signature is the value that used to reach assertSecretFree by
+  // chance: a random base64url signature can contain an `sk-` run about once
+  // in 75,000 signatures. A fixed key makes the bytes stable, so this holds on
+  // every run instead of almost every run.
+  for (const pattern of [/(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{4,}/u,
+    /(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9_]{4,}/u,
+    /(?:^|[^A-Za-z0-9])github_pat_[A-Za-z0-9_]{4,}/u,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/u]) {
+    assert.doesNotMatch(transition.signature, pattern)
+  }
+
+  // The guard itself still rejects a genuinely secret-shaped value on the same
+  // field, so removing the randomness does not weaken the invariant.
+  const resolved = composition()
+  const lockReceipt = compositionLock(resolved)
+  const instanceIdentity = identity()
+  const seal = admissionSeal(resolved, lockReceipt, instanceIdentity, signing, prior)
+  const request = {
+    apiVersion: 'runtime.sympoies.dev/v1', kind: 'MediatedHostActionRequest',
+    requestId: 'host-secret-guard-request', identity: structuredClone(instanceIdentity),
+    pluginDescriptorDigest: TWO_DIGEST, pluginId: 'github-review', actionId: 'publish-review',
+    actionClass: 'provider-write', inputSchemaDigest: ONE_DIGEST,
+    outputSchemaDigest: THREE_DIGEST, payload: { reviewDigest: ONE_DIGEST },
+    targetScopeDigest: TWO_DIGEST, budgetDebit: { 'provider-writes': '1' },
+    expectedState: 'Locked', publisherEpoch: '1', actionNonce: 'secret-guard-action',
+    idempotencyKey: 'secret-guard-action-key', requestDigest: ZERO_DIGEST,
+    runtimeAssertion: null, runtimeAssertionDigest: null,
+  }
+  request.requestDigest = computeSemanticRequestDigest(request)
+  request.runtimeAssertion = runtimeAssertion(
+    seal, instanceIdentity, signing, prior, 'host.action', request.requestDigest,
+  )
+  request.runtimeAssertionDigest = request.runtimeAssertion.metadata.digest
+  assert.equal(validateMediatedHostActionRequest(request), request)
+
+  const leaked = structuredClone(request)
+  leaked.runtimeAssertion.signature = 'sk-live-abcdefghijklmnop'
+  assert.throws(
+    () => validateMediatedHostActionRequest(leaked),
+    error => error instanceof RuntimeManagerError && error.code === 'secret-shaped-value',
+  )
 })
