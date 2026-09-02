@@ -128,19 +128,42 @@ contends on the canonical worktree.
 The runtime never trusts a raw path supplied by the model, and never claims a
 fence it cannot enforce.
 
+The test is whether the operation's own declared arguments prove the repository
+it mutates — not whether it happens to be a shell.
+
 - Structured file mutations expose exact path arguments. The provider
   canonicalizes them in the host boundary — resolving symlinks, binding a
   non-existent leaf to its nearest existing ancestor, and deriving the physical
   Git worktree identity — and returns the exact targets.
+- `artifact_export` proves its target through `destination.path` when
+  `destination.class` is `workspace`, a path its own schema constrains to be
+  workspace-relative. The `download` class writes nothing into a repository and
+  proves no target.
+- `runtime_kit_governed_commit` declares no path because it has no target to
+  choose: it always commits the canonical live Session cwd. The anchor is
+  therefore the whole proof, and with no anchor the commit is refused rather
+  than admitted unscoped. This is the operation the lease exists to coordinate,
+  and it is the only producer of the durable terminal-outcome record that
+  authenticated recovery reads.
 - An operation with no repository target, a read-only form, an unknown tool, or
   an arbitrary full-host shell program resolves to `not-required` and runs as an
   unscoped native host operation. Its repository effects cannot be proven by
   inspecting a startup directory, so the runtime neither fences it nor blocks
   it. Behavioral policy still applies to it in full.
-- Multi-target operations acquire every canonical target, in the provider's
-  deterministic order, before any fence is granted. If a protected target is
-  denied, every already-granted sibling operation receives a terminal outcome
-  and no tool body runs.
+- For a shell that is a deliberate trade-off, not an oversight: a `workdir`
+  fence is defeated by `cd` inside the command string, so honouring one would
+  claim coverage the boundary cannot enforce. It does mean shell mutations lose
+  the v1 cross-session exclusivity, dirty and uncertain-outcome gates.
+- The fence lands on the workspace the runtime **names** for an operation. The
+  boundary authenticates that target against the durable binding, but does not
+  prove it is the target this call's own arguments would resolve to; binding it
+  to the exact call facts is tracked as `sympoies/nils-cli#1606`.
+- The wire admits multiple canonical targets per operation, acquired in the
+  provider's deterministic order before any fence is granted, with every
+  already-granted sibling receiving a terminal outcome if a protected target is
+  denied. Every operation classified today yields at most one target, so that
+  path is the contract for a future multi-path tool rather than a rule
+  exercised now.
 
 Strong filesystem isolation, if later required, is a container responsibility.
 
@@ -154,9 +177,15 @@ no binding and no session-wide denial; the session keeps full host authority and
 only mutations of that one checkout are denied. A non-repository or absent
 anchor returns `not-required` and mints no authority at all.
 
-Because every v2 `bound` result names the exact repository target it owns, the
-eager anchor binding and a later lazy acquisition of that same repository
-converge on one generation instead of contending with each other.
+Every v2 `bound` result names the exact repository target it owns, including its
+`workspace_key`. The runtime keys its authority set by that key and reuses the
+existing binding for any later target that resolves to it, so the eager anchor
+binding and a later lazy acquisition of that same repository converge on one
+generation. That convergence is this runtime's obligation, not something the
+boundary does for it: a second bind of a workspace this session already owns is
+denied `foreign-active` exactly like a genuinely foreign holder, so a runtime
+that skipped the keying would contend with itself and could not tell the
+difference.
 
 ## Behavior matrix
 
@@ -166,6 +195,10 @@ converge on one generation instead of contending with each other.
 | Read another repository | Proceeds; no mutation fence |
 | Structured mutation in clean worktree A | Lazily acquire/reuse binding A and fence it |
 | Later structured mutation in clean worktree B | Lazily acquire/reuse independent binding B |
+| `artifact_export` to a workspace-relative path | Lazily acquire/reuse that repository's binding and fence it |
+| `artifact_export` to the `download` class | Proceeds; writes no repository path, so no lease |
+| Governed commit with a repository anchor | Lazily acquire/reuse the anchor repository's binding and fence it |
+| Governed commit with no anchor | Refused as unresolvable rather than admitted unscoped |
 | Mutation in a dirty checkout this session does not own | Deny only that mutation, typed `WORKSPACE_DIRTY`; session stays usable |
 | Mutation in a worktree another live session owns | Deny only that mutation, typed `WORKSPACE_FOREIGN_ACTIVE` |
 | Same-session resume of owned dirty work | Authenticated recovery for that binding, unchanged |
