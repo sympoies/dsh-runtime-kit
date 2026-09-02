@@ -290,12 +290,19 @@ digest = ${JSON.stringify(digest)}
   writeFileSync(driverPath, `
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CallId, createUserMessage, LlmAdapter } from ${JSON.stringify(llmModuleUrl)}
+import * as llmModule from ${JSON.stringify(llmModuleUrl)}
 import { defineTool } from ${JSON.stringify(toolsModuleUrl)}
 import { applyNilsWorkspaceLease } from ${JSON.stringify(providerModuleUrl)}
 import { createWorkspaceRecoveryTools } from ${JSON.stringify(recoveryModuleUrl)}
 import { createNilsWorkspaceRecoveryClient } from ${JSON.stringify(recoveryClientModuleUrl)}
 import { createRuntimeContextTool } from ${JSON.stringify(contextModuleUrl)}
+
+const { createUserMessage, LlmAdapter } = llmModule
+const CallId = llmModule.ToolCallId ?? llmModule.CallId
+
+function sessionEvents(session) {
+  return typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events
+}
 
 const marker = ${JSON.stringify(marker)}
 const root = process.env.DSH_WORKSPACE_LEASE_NATIVE_ROOT
@@ -527,7 +534,7 @@ export function apply(ctx) {
       }))
       await dirtyHandle.agent.whenIdle()
       const goal = ctx.goals.get(dirtyHandle.agent)
-      const goalEvent = dirtyHandle.agent.session.events.find(event =>
+      const goalEvent = sessionEvents(dirtyHandle.agent.session).find(event =>
         event.type === 'tool/result'
           && event.data.message.source.callId === 'workspace-native-dirty-goal')
       dirtyGoalResult = {

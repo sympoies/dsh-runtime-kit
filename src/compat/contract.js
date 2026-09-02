@@ -12,20 +12,30 @@ const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+
 const CHANNELS = Object.freeze(['pinned', 'upstream-next'])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const SUPPORTED_DSH_RELEASES = Object.freeze({
-  '0.1.0-rc.7': Object.freeze({
-    ref: 'refs/tags/dsh-v0.1.0-rc.7',
-    revision: '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
-  }),
   '0.1.0-rc.8': Object.freeze({
     ref: 'refs/tags/dsh-v0.1.0-rc.8',
     revision: '141eb6fef83422698aef7a981029e843e8161534',
+    cordis: '4.0.1',
   }),
   '0.1.1-rc.2': Object.freeze({
     ref: 'refs/tags/dsh-v0.1.1-rc.2',
     revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
+    cordis: '4.0.1',
+  }),
+  '0.1.2-alpha.4': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.2-alpha.4',
+    revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
+    cordis: '4.0.2',
   }),
 })
 const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
+const SUPPORTED_CORDIS_RELEASES = Object.freeze(['4.0.1', '4.0.2'])
+const SUPPORTED_CORDIS_VERSION_RANGE = SUPPORTED_CORDIS_RELEASES.join(' || ')
+const DSH_SUPPORT_POLICY = Object.freeze({
+  kind: 'rolling-latest-releases',
+  maximum_releases: 3,
+  promotion: 'add newest release and retire the oldest release in the same change',
+})
 
 export const DSH_RC7_RUNTIME_MODULES = Object.freeze({
   '@deepseek-ai/dsh-bash-local': Object.freeze({
@@ -49,22 +59,22 @@ export const DSH_RC7_RUNTIME_MODULES = Object.freeze({
 })
 
 export const DSH_RC7_PEER_VERSIONS = Object.freeze({
-  '@deepseek-ai/cordis': '4.0.1',
-  '@deepseek-ai/dsh-agent': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-fs': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-llm': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7',
-  '@deepseek-ai/dsh-tools': '0.1.0-rc.7',
+  '@deepseek-ai/cordis': '4.0.2',
+  '@deepseek-ai/dsh-agent': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-bash-local': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-fs': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-llm': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-sandbox': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-subagent': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-subprocess': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-tools': '0.1.2-alpha.4',
 })
 
 const DSH_RC7_PEER_RANGES = Object.freeze(Object.fromEntries(
   Object.keys(DSH_RC7_PEER_VERSIONS).map(name => [
     name,
-    name === '@deepseek-ai/cordis' ? '4.0.1' : SUPPORTED_DSH_VERSION_RANGE,
+    name === '@deepseek-ai/cordis' ? SUPPORTED_CORDIS_VERSION_RANGE : SUPPORTED_DSH_VERSION_RANGE,
   ]),
 ))
 
@@ -172,6 +182,15 @@ export function validateDshCompatibilityManifest(input) {
       'DSH compatibility manifest identity is invalid',
     )
   }
+  if (!sameRecord(
+    requireRecord(manifest.support_policy, 'DSH support policy is missing'),
+    DSH_SUPPORT_POLICY,
+  )) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH support policy must retain exactly the latest three reviewed releases',
+    )
+  }
   const channels = requireRecord(manifest.channels, 'DSH compatibility channels are missing')
   if (Object.keys(channels).sort().join('\0') !== [...CHANNELS].sort().join('\0')) {
     throw new DshCompatibilityError(
@@ -210,7 +229,7 @@ export function validateDshCompatibilityManifest(input) {
   )) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
-      'DSH public package contracts must exactly match the rc.7 peer surface',
+      'DSH public package contracts must exactly match the production peer surface',
     )
   }
   for (const [name, value] of Object.entries(packages)) {
@@ -293,7 +312,7 @@ export function validateDshCompatibilityManifest(input) {
     || manifest.runtime_surface.join('\0') !== DSH_RC7_RUNTIME_SURFACE.join('\0')) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
-      'DSH runtime surface does not match the rc.7 adapter',
+      'DSH runtime surface does not match the production adapter',
     )
   }
   if (!Array.isArray(manifest.optional_runtime_surface)
@@ -301,7 +320,7 @@ export function validateDshCompatibilityManifest(input) {
       !== DSH_RC7_OPTIONAL_RUNTIME_SURFACE.join('\0')) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
-      'DSH optional runtime surface does not match the rc.7 child plugins',
+      'DSH optional runtime surface does not match the production child plugins',
     )
   }
   const artifactLimits = requireRecord(
@@ -311,7 +330,7 @@ export function validateDshCompatibilityManifest(input) {
   if (!sameRecord(artifactLimits, DSH_RC7_ARTIFACT_LIMITS)) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
-      'DSH artifact limits do not match the rc.7 staging boundary',
+      'DSH artifact limits do not match the production staging boundary',
     )
   }
   const performance = requireRecord(manifest.performance, 'DSH performance contract is missing')
@@ -392,13 +411,13 @@ export function assertDshRc7Runtime(ctx) {
   if (missing.length > 0) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-      `DeepSeek Harness is missing rc.7 public runtime capabilities: ${missing.join(', ')}`,
-      { adapter: 'dsh-rc7', missing },
+      `DeepSeek Harness is missing required public runtime capabilities: ${missing.join(', ')}`,
+      { adapter: 'dsh-rolling-v1', missing },
     )
   }
   return Object.freeze({
     schema_version: 'dsh-runtime-kit.dsh-runtime-report.v1',
-    adapter: 'dsh-rc7',
+    adapter: 'dsh-rolling-v1',
     compatible: true,
   })
 }
@@ -444,7 +463,7 @@ export async function loadDshRc7Runtime(options = {}) {
   for (const [specifier, expectedVersion] of Object.entries(DSH_RC7_PEER_RANGES)) {
     const version = await packageVersion(specifier)
     const supported = specifier === '@deepseek-ai/cordis'
-      ? version === expectedVersion
+      ? typeof version === 'string' && SUPPORTED_CORDIS_RELEASES.includes(version)
       : typeof version === 'string' && Object.hasOwn(SUPPORTED_DSH_RELEASES, version)
     if (!supported) {
       const diagnosticVersion = /** @type {Record<string, string>} */ (
@@ -464,11 +483,22 @@ export async function loadDshRc7Runtime(options = {}) {
       }
     }
   }
+  if (missing.length === 0) {
+    const selectedDshVersion = /** @type {string} */ (
+      selectedDshVersions.values().next().value
+    )
+    const expectedCordisVersion = /** @type {Record<string, {cordis: string}>} */ (
+      SUPPORTED_DSH_RELEASES
+    )[selectedDshVersion].cordis
+    if (versions['@deepseek-ai/cordis'] !== expectedCordisVersion) {
+      missing.push(`@deepseek-ai/cordis:version:${expectedCordisVersion}`)
+    }
+  }
   if (missing.length > 0) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
       `Installed DSH peer identities do not match one reviewed release: ${missing.join(', ')}`,
-      { adapter: 'dsh-rc7', missing },
+      { adapter: 'dsh-rolling-v1', missing },
     )
   }
   for (const [specifier, exports] of Object.entries(DSH_RC7_RUNTIME_MODULES)) {
@@ -490,7 +520,7 @@ export async function loadDshRc7Runtime(options = {}) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
       `Installed DSH runtime values do not match the reviewed release: ${missing.join(', ')}`,
-      { adapter: 'dsh-rc7', missing },
+      { adapter: 'dsh-rolling-v1', missing },
     )
   }
   const bash = namespaces.get('@deepseek-ai/dsh-bash-local')

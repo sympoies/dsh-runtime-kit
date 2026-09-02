@@ -40,8 +40,8 @@ const EXPECTED_CONTRACT = Object.freeze({
   schema_version: 'dsh-runtime-kit.agent-console-profile.v2',
   profile: 'dsh-tui',
   dsh: {
-    version: '0.1.1-rc.2',
-    revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
+    version: '0.1.2-alpha.4',
+    revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
@@ -158,7 +158,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v2',
     compatible: true,
     profile: 'dsh-tui',
-    dsh_version: '0.1.1-rc.2',
+    dsh_version: '0.1.2-alpha.4',
     tui_version: '0.10.0-beta.4',
     controller_route: {
       provider: 'codex-proxy',
@@ -179,7 +179,7 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
-test('the Agent Console release and narrowed rc.2 compatibility patch select the same TUI', () => {
+test('the Agent Console release and history-permission patch select the same TUI', () => {
   const patchManifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -189,7 +189,7 @@ test('the Agent Console release and narrowed rc.2 compatibility patch select the
     Object.keys(patchManifest.patches[0].validated_releases),
     [EXPECTED_CONTRACT.tui.version],
   )
-  assert.equal(patchManifest.patches[0].id, 'beta-4-rc2-compat-v1')
+  assert.equal(patchManifest.patches[0].id, 'beta-4-history-permissions-v1')
   const patch = readFileSync(join(projectRoot, patchManifest.patches[0].path), 'utf8')
   assert.doesNotMatch(patch, /Atomics\.wait|sleepSync/u)
 })

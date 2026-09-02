@@ -46,6 +46,7 @@ const BROKER_STATUS_SCHEMA = 'agent-session.coordination-broker.v1'
 const LANE_SCHEMA = 'dsh-runtime-kit.main-agent-lane.v2'
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
+const QUEUE_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.queuePrompt')
 const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
   runInitialize: 'main_agent_run_initialize',
   workerLaunch: 'main_agent_worker_launch',
@@ -56,6 +57,29 @@ const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
   workerAccept: 'main_agent_worker_accept',
   runCloseout: 'main_agent_run_closeout',
 })
+
+/**
+ * Queue one host-authored revision prompt across the legacy service method and
+ * the alpha.4 symbol-keyed host capability.
+ * @param {SubagentRuntime} subagents
+ * @param {any} parent
+ * @param {any} childId
+ * @param {any[]} content
+ * @param {AbortSignal} signal
+ */
+async function queueRevisionPrompt(subagents, parent, childId, content, signal) {
+  const source = { kind: /** @type {const} */ ('plugin'), plugin: 'dsh-runtime-kit' }
+  const queuePrompt = /** @type {any} */ (subagents)[QUEUE_SUBAGENT_PROMPT]
+  if (typeof queuePrompt === 'function') {
+    await queuePrompt.call(subagents, parent, childId, content, source, signal)
+    return
+  }
+  const followup = /** @type {any} */ (subagents).followup
+  if (typeof followup !== 'function') {
+    throw new TypeError('subagent host prompt queue is unavailable')
+  }
+  await followup.call(subagents, parent, childId, content, { source, signal })
+}
 
 /** Canonical owner inventory consumed by runtime registration and health admission. */
 export const MAIN_AGENT_TOOL_INVENTORY = Object.freeze({
@@ -739,7 +763,12 @@ export function applyMainAgentMode(ctx, config = {}) {
   // Per-child lane hardening: a monotonic deny-only guard (authority) plus the
   // environment instruction section (guidance). The host-issued root child is
   // bound by its DSH-reserved id; descendants inherit membership by lineage.
-  ctx.subagents.registerContinuableSetup((childCtx) => {
+  const registerContinuableSetup
+    = /** @type {any} */ (ctx.subagents).registerContinuableSetup
+  if (typeof registerContinuableSetup !== 'function') {
+    throw new TypeError('subagent continuable setup registry is unavailable')
+  }
+  registerContinuableSetup.call(ctx.subagents, (/** @type {Context} */ childCtx) => {
     const agent = /** @type {any} */ (childCtx).agent
     const childHeader = dshRc7SessionHeader(agent)
     const parentSession = childHeader.parentSession
@@ -1857,7 +1886,8 @@ export function applyMainAgentMode(ctx, config = {}) {
       let delivered = false
       let deliveryError
       try {
-        await ctx.subagents.followup(
+        await queueRevisionPrompt(
+          ctx.subagents,
           /** @type {any} */ (lane.parent),
           /** @type {any} */ (lane.childId),
           [{
@@ -1869,10 +1899,7 @@ export function applyMainAgentMode(ctx, config = {}) {
               + ` \`${LANE_CHECKPOINT_TOOL}\` using the assignment's current revision.`,
             ].join('\n'),
           }],
-          {
-            source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
-            signal: exec.signal,
-          },
+          exec.signal,
         )
         delivered = true
       } catch (error) {

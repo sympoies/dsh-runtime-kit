@@ -157,6 +157,7 @@ function createContext({
   startContinuable,
   children = [],
   followupFailure = false,
+  hostPromptQueue = false,
   drainFailure = false,
   closeContinuable,
   lifecycleEvents = [],
@@ -311,6 +312,20 @@ function createContext({
         if (drainFailure) throw new Error('drain failed')
       },
     },
+  }
+  if (hostPromptQueue) {
+    delete ctx.subagents.followup
+    ctx.subagents[Symbol.for('dsh.subagent.queuePrompt')] = async (
+      parent,
+      childId,
+      content,
+      source,
+      signal,
+    ) => {
+      followups.push({ parent, childId, content, options: { source, signal } })
+      if (followupFailure) throw new Error('inbox rejected the message')
+      return 'message-2'
+    }
   }
   return {
     ctx,
@@ -1927,6 +1942,7 @@ async function launchedLane(scratch, options = {}) {
     envelope: options.envelope ?? workerStartEnvelope(livenessFile),
     children: options.children,
     followupFailure: options.followupFailure,
+    hostPromptQueue: options.hostPromptQueue,
     drainFailure: options.drainFailure,
     closeContinuable: options.closeContinuable,
     lifecycleEvents: options.lifecycleEvents,
@@ -2126,6 +2142,38 @@ test('request-changes records the fenced decision first, then delivers it into t
   assert.match(delivery.content[0].text, /the diff misses the regression test/)
   assert.match(delivery.content[0].text, /main_agent_checkpoint/)
   assert.deepEqual(delivery.options.source, { kind: 'plugin', plugin: 'dsh-runtime-kit' })
+})
+
+test('request-changes uses the alpha.4 symbol-keyed host prompt queue', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  const envelope = (spec) => (spec.argv.includes('request-changes')
+    ? {
+      schema_version: 'cli.main-agent.worker-request-changes.v1',
+      ok: true,
+      data: { schema_version: 'main-agent.worker-request-changes-result.v1', assignment: { revision: 5 } },
+    }
+    : start)
+  const { harness } = await launchedLane(scratch, { envelope, hostPromptQueue: true })
+
+  const returned = await harness.registeredTools.get('main_agent_worker_request_changes').execute(
+    {
+      assignment_id: 'assignment-one',
+      if_revision: 4,
+      reason: 'exercise the alpha host queue',
+      idempotency_key: 'changes-alpha-4',
+    },
+    controllerExec(),
+  )
+
+  assert.equal(returned.delivered, true)
+  assert.equal(harness.followups.length, 1)
+  assert.deepEqual(harness.followups[0].options.source, {
+    kind: 'plugin',
+    plugin: 'dsh-runtime-kit',
+  })
 })
 
 test('a failed delivery reports the transport gap without unwinding the durable decision', async (t) => {

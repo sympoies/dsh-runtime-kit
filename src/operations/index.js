@@ -314,7 +314,8 @@ function reviewedDshRevision(version) {
   if (typeof version !== 'string' || !plainRecord(DSH_COMPATIBILITY.validated_releases)) return null
   const release = DSH_COMPATIBILITY.validated_releases[version]
   if (!plainRecord(release)
-    || Object.keys(release).sort().join(',') !== 'ref,revision'
+    || Object.keys(release).sort().join(',') !== 'cordis,ref,revision'
+    || (release.cordis !== '4.0.1' && release.cordis !== '4.0.2')
     || typeof release.ref !== 'string'
     || typeof release.revision !== 'string'
     || !/^[a-f0-9]{40}$/.test(release.revision)) return null

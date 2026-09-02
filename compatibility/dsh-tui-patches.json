@@ -3,14 +3,10 @@
   "package_name": "@deepseek-harness-tui/dsh-tui",
   "patches": [
     {
-      "id": "beta-4-rc2-compat-v1",
-      "path": "patches/dsh-tui/beta-4-rc2-compat.patch",
-      "sha256": "5dcb545219a68b55689c69e959c771f9ff84b1c6ec25091c58e5af572e1a3f60",
+      "id": "beta-4-history-permissions-v1",
+      "path": "patches/dsh-tui/beta-4-history-permissions.patch",
+      "sha256": "c9db943f8a7792c12db62cec1999adf2e5035febb6f501916c9c4404e429234b",
       "targets": {
-        "cordis.patch.yml": {
-          "before_sha256": "64415bc91615b5bf66a7b0d99a1bf3bf892b8b9b9f8c7999237d1b6f1f0aa0ac",
-          "after_sha256": "289bff622f6d9efe591249348ecb19a269822cf06cd1d7205cb738d8464f5229"
-        },
         "lib/types/history.js": {
           "before_sha256": "af8b9135a13dcfd4d3763c318a046edaa1660d58507350d94b7f67a44b88c74c",
           "after_sha256": "ec712f5279eb72bf4ed2e9cb344ef14b2a914cb7114581b44c460356eb076dfb"

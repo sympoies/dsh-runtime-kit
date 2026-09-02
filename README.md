@@ -50,18 +50,21 @@ tools, sandbox, approvals, skills, and subagents.
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
-| Cordis | `4.0.1` |
+| DeepSeek Harness | `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` |
+| Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
 
-The package deliberately does not claim compatibility with DSH release
-candidates after rc.2 or the eventual stable `0.1.x` line. See the
+The package deliberately supports a rolling window of exactly three reviewed
+DSH releases. Promoting a newer release retires the oldest in the same change;
+unlisted releases are unsupported. The exact dependency pairs are rc.8/4.0.1,
+rc.2/4.0.1, and alpha.4/4.0.2; cross-version DSH/Cordis combinations are not
+admitted. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.
 
 Every supported DSH checkout must carry the authenticated
-`native-execution-boundaries-v2` patch before runtime-kit is activated. It adds
+`native-execution-boundaries-v5` patch before runtime-kit is activated. It adds
 the exact tool-prerequisite transaction boundary, the native pre-waterfall
 model guard, fail-closed descriptor-bound subprocess execution for
 authenticated companion snapshots, one optional synchronous GoalService
@@ -93,7 +96,7 @@ is considered complete.
 
 ## Install and activate
 
-Two exact DSH `0.1.1-rc.2` compositions are supported:
+Two exact DSH `0.1.2-alpha.4` compositions are supported:
 
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with

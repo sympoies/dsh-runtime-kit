@@ -3,10 +3,16 @@ import { test } from 'node:test'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import * as llmModule from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+
+const CallId = llmModule.ToolCallId ?? llmModule.CallId
+
+function sessionEvents(session) {
+  return typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events
+}
 
 import {
   WORKSPACE_LEASE_PROTOCOL_VERSION,
@@ -25,6 +31,7 @@ function stubAgent(rawId, cwd = '/workspace', parentSession) {
     id,
     createdAt: 0,
     cwd,
+    isSeeded: false,
     ...(parentSession === undefined ? {} : { parentSession: SessionId(parentSession) }),
   })
   const cancellations = []
@@ -266,7 +273,7 @@ test('session-object replacement cannot retarget an existing agent binding', asy
   publish(ctx, agent)
   const ref = await ctx.workspaceLease.ref(agent)
   const original = agent.session
-  agent.session = Session.create(agent.id, original.events, original.header)
+  agent.session = Session.create(agent.id, sessionEvents(original), original.header)
   let ran = false
   ctx.tools.register({
     ...echoTool(),
@@ -318,7 +325,7 @@ test('session replacement while admission is pending cannot inherit a granted op
     agent,
   })
   await beginStarted
-  agent.session = Session.create(agent.id, agent.session.events, agent.session.header)
+  agent.session = Session.create(agent.id, sessionEvents(agent.session), agent.session.header)
   finishBegin()
   const result = await execution
 

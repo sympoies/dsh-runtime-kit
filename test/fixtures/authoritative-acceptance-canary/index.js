@@ -2,8 +2,15 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { CallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
+import * as llmModule from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+
+const { LlmAdapter, createUserMessage } = llmModule
+const CallId = llmModule.ToolCallId ?? llmModule.CallId
+
+function sessionEvents(session) {
+  return typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events
+}
 
 import {
   createBodyExecutionCounter,
@@ -137,7 +144,7 @@ function goalView(goal, events) {
 function goalRoundFollowups(agent) {
   const queued = [...agent.inbox.nextStep, ...agent.inbox.nextTurn]
     .filter(message => message.source?.kind === 'goal' && message.source.round > 0)
-  const admitted = agent.session.events
+  const admitted = sessionEvents(agent.session)
     .filter(event => event.type === 'user/message'
       && event.data.source.kind === 'goal' && event.data.source.round > 0)
   return queued.length + admitted.length
@@ -670,20 +677,20 @@ export function apply(ctx) {
 
       if (['positive', 'candidate-upgrade'].includes(phase)) {
         goal = await prepareScenarioCanaryGoalAtDriverCheckpoint(ctx, handle.agent)
-        goalBefore = goalView(goal, handle.agent.session.events)
+        goalBefore = goalView(goal, sessionEvents(handle.agent.session))
         firstVerdict = verdictView(acceptance?.verdict(handle.agent))
         try {
           ctx.goals.complete(handle.agent, goal)
         } catch (error) {
           denial = { code: error?.code, aggregate: error?.aggregate }
         }
-        goalAfterDenial = goalView(ctx.goals.get(handle.agent), handle.agent.session.events)
+        goalAfterDenial = goalView(ctx.goals.get(handle.agent), sessionEvents(handle.agent.session))
       } else if (acceptanceEnabled && !['agent-disposal', 'crash-start'].includes(phase)) {
         const existing = ctx.goals.get(handle.agent)
         goal = existing === undefined || existing.phase === 'complete'
           ? ctx.goals.create(handle.agent, { objective: 'prove authoritative acceptance' })
           : existing
-        goalBefore = goalView(goal, handle.agent.session.events)
+        goalBefore = goalView(goal, sessionEvents(handle.agent.session))
       }
 
       if (phase === 'restart-check') {
@@ -745,7 +752,7 @@ export function apply(ctx) {
             }))
           }),
         ])
-        const matchingCalls = handle.agent.session.events.filter(event => {
+        const matchingCalls = sessionEvents(handle.agent.session).filter(event => {
           if (event.type !== 'tool/call' || event.data.name !== 'bash') return false
           try {
             return JSON.parse(event.data.arguments).command === cancellationCommand
@@ -825,7 +832,7 @@ export function apply(ctx) {
           throw new Error('legacy validation unavailable: ' + JSON.stringify({
             results,
             turn_stops: turnStops,
-            events: handle.agent.session.events.flatMap(event => {
+            events: sessionEvents(handle.agent.session).flatMap(event => {
               if (event.type === 'tool/call') {
                 return [{ type: event.type, name: event.data.name, call_id: event.data.callId }]
               }
@@ -897,7 +904,7 @@ export function apply(ctx) {
         && ['positive', 'candidate-upgrade'].includes(phase)) {
         goalAfterCompletion = goalView(
           ctx.goals.complete(handle.agent, goal),
-          handle.agent.session.events,
+          sessionEvents(handle.agent.session),
         )
       }
 

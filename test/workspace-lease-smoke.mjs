@@ -123,10 +123,13 @@ try {
   const overlayPath = join(temporaryRoot, 'workspace-lease.patch.yml')
 
   writeFileSync(driverPath, `
-import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import * as llmModule from ${JSON.stringify(llmModuleUrl)}
 import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { defineTool } from ${JSON.stringify(toolsModuleUrl)}
 import WorkspaceLease, { WORKSPACE_LEASE_PROTOCOL_VERSION } from ${JSON.stringify(workspaceLeaseModuleUrl)}
+
+const { LlmAdapter, createUserMessage } = llmModule
+const CallId = llmModule.ToolCallId ?? llmModule.CallId
 
 const marker = ${JSON.stringify(marker)}
 const sessionId = SessionId('workspace-lease-packed-smoke')

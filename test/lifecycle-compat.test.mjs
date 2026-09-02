@@ -83,6 +83,32 @@ function agentFixture({
   }
 }
 
+function snapshotAgentFixture(options = {}) {
+  const agent = agentFixture(options)
+  const events = agent.session.events
+  delete agent.session.events
+  agent.session.snapshotEvents = () => events
+  return { agent, events }
+}
+
+function indexedAgentFixture(options = {}) {
+  const agent = agentFixture(options)
+  const events = agent.session.events
+  let snapshots = 0
+  delete agent.session.events
+  Object.defineProperties(agent.session, {
+    seq: { get: () => events.length },
+    eventAt: { value: index => events[index] },
+    snapshotEvents: {
+      value: () => {
+        snapshots += 1
+        return [...events]
+      },
+    },
+  })
+  return { agent, events, snapshotCount: () => snapshots }
+}
+
 function execution(agent, token, {
   callId = 'call-1',
   rootCallId = callId,
@@ -184,6 +210,56 @@ test('all rc.7 lifecycle boundaries share content-free session, step, and call c
       turn: 2,
     },
   })
+})
+
+test('the rolling adapter correlates alpha.4 snapshot-only session logs', async () => {
+  const { agent, events } = snapshotAgentFixture({ id: 'alpha-4-session' })
+  const subject = createDshRc7Compatibility({ agents: { list: () => [] } })
+  subject.sessionStart({ agent, source: 'startup' })
+
+  await subject.preStep({
+    agent,
+    messages: [],
+    turn: 1,
+    step: 1,
+    signal: new AbortController().signal,
+  }, async () => ({ kind: 'enter', messages: [] }))
+  events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+  )
+
+  const exec = execution(agent, Symbol('alpha-4-token'))
+  assert.equal(subject.beginTool(exec).ok, true)
+  assert.equal(subject.postTool(exec), true)
+  assert.equal(subject.result(exec), true)
+  assert.equal(subject.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }), true)
+})
+
+test('alpha.4 indexed session logs avoid repeated full-history snapshots', async () => {
+  const { agent, events, snapshotCount } = indexedAgentFixture({
+    id: 'alpha-4-indexed-session',
+    events: Array.from(
+      { length: 100_000 },
+      (_, index) => ({ type: 'assistant/chunk', data: { index } }),
+    ),
+  })
+  events.push(
+    { type: 'turn/start', data: { turn: 1 } },
+    { type: 'step/start', data: { turn: 1, step: 1 } },
+  )
+  const subject = createDshRc7Compatibility({ agents: { list: () => [agent] } })
+  const exec = execution(agent, Symbol('alpha-4-indexed-token'))
+
+  assert.equal(subject.beginTool(exec).ok, true)
+  assert.equal(subject.matchesTool(exec), true)
+  assert.equal(subject.postTool(exec), true)
+  assert.equal(subject.result(exec), true)
+  assert.equal(snapshotCount(), 0)
 })
 
 test('opaque tokens keep parallel calls distinct even when visible call facts match', async () => {

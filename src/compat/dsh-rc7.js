@@ -91,7 +91,7 @@ export async function filesystemSkillsApply() {
  * @property {number | undefined} durableTurn
  * @property {number | undefined} durableStep
  * @property {number} eventCount
- * @property {Agent['session']['events'][number] | undefined} lastEvent
+ * @property {unknown | undefined} lastEvent
  * @property {boolean} historyValid
  */
 
@@ -143,14 +143,42 @@ function sessionIdentity(agent) {
   }
 }
 
-/** @param {Agent['session']['events']} events */
+/** @typedef {{ length: number, at(index: number): any }} SessionLog */
+
+/**
+ * Read through either the alpha.4 indexed session-log boundary or one stable
+ * legacy snapshot. The indexed route avoids copying the complete log at every
+ * lifecycle boundary while retaining exact object-identity prefix checks.
+ * @param {Agent['session']} session
+ * @returns {SessionLog}
+ */
+function sessionLog(session) {
+  const candidate = /** @type {any} */ (session)
+  if (Number.isSafeInteger(candidate.seq)
+    && candidate.seq >= 0
+    && typeof candidate.eventAt === 'function') {
+    return {
+      length: candidate.seq,
+      at: index => candidate.eventAt(index),
+    }
+  }
+  const events = typeof candidate.snapshotEvents === 'function'
+    ? candidate.snapshotEvents()
+    : Array.isArray(candidate.events) ? candidate.events : []
+  return {
+    length: events.length,
+    at: index => events[index],
+  }
+}
+
+/** @param {SessionLog} events */
 function deriveOpenPosition(events) {
   /** @type {number | undefined} */
   let candidateTurn
   /** @type {number | undefined} */
   let candidateStep
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
+    const event = events.at(index)
     if (event === undefined) continue
     const data = /** @type {Record<string, unknown>} */ (event.data)
     if (candidateTurn !== undefined) {
@@ -194,7 +222,7 @@ function deriveOpenPosition(events) {
  * content-bearing events do not enter the retained position.
  *
  * @param {DurablePosition} position
- * @param {Agent['session']['events'][number]} event
+ * @param {any} event
  * @returns {DurablePosition}
  */
 function foldLifecycleEvent(position, event) {
@@ -250,7 +278,7 @@ export function createDshRc7Compatibility(ctx) {
     if (!open || typeof agent !== 'object' || agent === null) return undefined
     const identity = sessionIdentity(agent)
     if (identity === undefined) return undefined
-    const events = agent.session.events ?? []
+    const events = sessionLog(agent.session)
     const position = deriveOpenPosition(events)
     /** @type {SessionContext} */
     const context = {
@@ -261,7 +289,7 @@ export function createDshRc7Compatibility(ctx) {
       durableTurn: position.turn,
       durableStep: position.step,
       eventCount: events.length,
-      lastEvent: events.at(-1),
+      lastEvent: events.at(events.length - 1),
       historyValid: true,
     }
     sessions.set(agent, context)
@@ -270,7 +298,7 @@ export function createDshRc7Compatibility(ctx) {
 
   /** @param {Agent} agent @param {SessionContext} context */
   function refreshPosition(agent, context) {
-    const events = agent.session.events ?? []
+    const events = sessionLog(agent.session)
     const eventCount = events.length
     if (!context.historyValid || context.session !== agent.session) {
       context.turn = undefined
@@ -279,13 +307,13 @@ export function createDshRc7Compatibility(ctx) {
     }
     const appendOnly = eventCount >= context.eventCount
       && (context.eventCount === 0
-        || events[context.eventCount - 1] === context.lastEvent)
+        || events.at(context.eventCount - 1) === context.lastEvent)
     /** @type {DurablePosition} */
     let position
     if (appendOnly) {
       position = { turn: context.durableTurn, step: context.durableStep }
       for (let index = context.eventCount; index < eventCount; index += 1) {
-        const event = events[index]
+        const event = events.at(index)
         if (event !== undefined) position = foldLifecycleEvent(position, event)
       }
     } else {
@@ -296,7 +324,7 @@ export function createDshRc7Compatibility(ctx) {
       position = { turn: undefined, step: undefined }
     }
     context.eventCount = eventCount
-    context.lastEvent = events.at(-1)
+    context.lastEvent = events.at(eventCount - 1)
     context.durableTurn = position.turn
     context.durableStep = position.step
     context.turn = position.turn

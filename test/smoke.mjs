@@ -54,16 +54,16 @@ assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
-  '@deepseek-ai/cordis': '4.0.1',
-  '@deepseek-ai/dsh-agent': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-fs': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-llm': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-subagent': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
-  '@deepseek-ai/dsh-tools': '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2',
+  '@deepseek-ai/cordis': '4.0.1 || 4.0.2',
+  '@deepseek-ai/dsh-agent': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-bash-local': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-fs': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-llm': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-sandbox': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-subagent': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-subprocess': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
+  '@deepseek-ai/dsh-tools': '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -666,8 +666,15 @@ description = "packed native Main Agent lane"
   writeFileSync(nativeDriver, `
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import * as llmModule from ${JSON.stringify(llmModuleUrl)}
 import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
+
+const { LlmAdapter, createUserMessage } = llmModule
+const makeCallId = llmModule.ToolCallId ?? llmModule.CallId
+
+function sessionEvents(session) {
+  return typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events
+}
 
 export const name = 'dsh-runtime-kit-native-main-agent-smoke'
 export const inject = ['agents', 'llm', 'tools', 'workspaceLease', 'subagents', 'mainAgentOrchestration']
@@ -689,7 +696,7 @@ let crashTriggered = false
 const childTools = []
 
 function call(name, value, suffix) {
-  const id = CallId('native-main-agent-' + suffix)
+  const id = makeCallId('native-main-agent-' + suffix)
   const args = JSON.stringify(value)
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -1631,10 +1638,10 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
-    'patches/deepseek-harness/native-execution-boundaries-v5-rc7.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
-    'patches/dsh-tui/beta-4-rc2-compat.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
+    'patches/dsh-tui/beta-4-history-permissions.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -1813,13 +1820,20 @@ try {
     ? pathToFileURL(join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js')).href
     : '@deepseek-ai/dsh-scope'
   writeFileSync(driverPath, `
-import { CallId, LlmAdapter, createUserMessage } from ${JSON.stringify(llmModuleUrl)}
+import * as llmModule from ${JSON.stringify(llmModuleUrl)}
 import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { scopeOf } from ${JSON.stringify(scopeModuleSpecifier)}
 import { rmSync } from 'node:fs'
 ${agentConsoleTuiPackage === undefined
     ? ''
     : "import { inspectAgentConsoleRc7Profile } from '@sympoies/dsh-runtime-kit/agent-console-profile'"}
+
+const { LlmAdapter, createUserMessage } = llmModule
+const makeCallId = llmModule.ToolCallId ?? llmModule.CallId
+
+function sessionEvents(session) {
+  return typeof session.snapshotEvents === 'function' ? session.snapshotEvents() : session.events
+}
 
 const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === undefined
     ? undefined
@@ -1853,7 +1867,7 @@ export const inject = [
 ]
 
 function toolCallResponse(name, value, suffix) {
-  const id = CallId('dsh-runtime-kit-smoke-' + suffix)
+  const id = makeCallId('dsh-runtime-kit-smoke-' + suffix)
   const args = JSON.stringify(value)
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
@@ -2608,10 +2622,10 @@ export function apply(ctx) {
         model: requestConfig?.model ?? agent.options.model,
         reasoningEffort: requestConfig?.reasoningEffort ?? agent.options.reasoningEffort,
       }
-      const sandboxEvent = [...agent.session.events]
+      const sandboxEvent = [...sessionEvents(agent.session)]
         .reverse()
         .find(event => event.type === 'sandbox/mode')
-      const approvalEvent = [...agent.session.events]
+      const approvalEvent = [...sessionEvents(agent.session)]
         .reverse()
         .find(event => event.type === 'approval/policy')
       const agentConsoleObservation = agentConsoleProfileFacts === undefined
@@ -2674,7 +2688,9 @@ export function apply(ctx) {
         reviewResult,
         reviewerMutationResult,
         reviewerChildRole,
-        reviewerChildEvents: reviewerChild?.session.events.map(event => event.type),
+        reviewerChildEvents: reviewerChild === undefined
+          ? undefined
+          : sessionEvents(reviewerChild.session).map(event => event.type),
         reviewerChildLive: reviewerChild === undefined
           ? undefined
           : ctx.agents.get(reviewerChild.id) === reviewerChild,
@@ -2698,7 +2714,7 @@ export function apply(ctx) {
           dataPolicyResults,
           dataPolicyAudits,
           errors,
-          sessionEvents: agent.session.events,
+          sessionEvents: sessionEvents(agent.session),
         }).includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL),
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
@@ -2708,7 +2724,7 @@ export function apply(ctx) {
         healthAuditSentinelVisibility: adapter.healthAuditSentinelVisibility,
         lifecycle,
         errors,
-        sessionEvents: agent.session.events.map(event => event.type),
+        sessionEvents: sessionEvents(agent.session).map(event => event.type),
         exactCorrelation: preExec !== undefined
           && postExec?.token === preExec.token
           && finalExec?.token === preExec.token
@@ -2794,7 +2810,7 @@ export function apply(ctx) {
                 candidate.isError !== true)
           || dataPolicyAudits.length < 9
           || dataPolicyAudits.some(audit => !Array.isArray(audit.matched_rule_ids))
-          || JSON.stringify({ dataPolicyAudits, errors, sessionEvents: agent.session.events })
+          || JSON.stringify({ dataPolicyAudits, errors, sessionEvents: sessionEvents(agent.session) })
             .includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL))) {
         process.exitCode = 1
       }
