@@ -105,6 +105,14 @@ failure state). `ctx.workspaceLease.denialState(agent)` projects only the
 stable anchor denial state and code for diagnostics. Neither method reports or
 grants authority over any other repository in the set.
 
+`ctx.workspaceLease.targets(exec)` projects the canonical repository roots the
+provider authenticated for one exact live execution, resolving them once and
+sharing that single decision with this service's own admission. It carries no
+lease authority, and an empty array means the provider proved the operation
+touches no repository. The finish-line ledger consumes it so that an edit
+generation is attributed to the repository the operation targets instead of the
+session anchor; nothing else may use it to select authority.
+
 The provider receives host-authenticated protocol and request IDs, session and
 parent-session IDs, the immutable session anchor, the session-start source, and
 exact DSH tool correlation. `resolve` and `begin` also receive DSH's
