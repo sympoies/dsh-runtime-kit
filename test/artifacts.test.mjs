@@ -24,8 +24,10 @@ import { test } from 'node:test'
 
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import * as llmModule from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+
+const CallId = llmModule.ToolCallId ?? llmModule.CallId
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 
@@ -76,6 +78,7 @@ function stubAgent(rawId, cwd, parentSession) {
     version: SESSION_FORMAT_VERSION,
     id,
     createdAt: 0,
+    isSeeded: false,
     ...(cwd === undefined ? {} : { cwd }),
     ...(parentSession === undefined ? {} : { parentSession: SessionId(parentSession) }),
   })
