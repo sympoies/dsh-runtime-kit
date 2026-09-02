@@ -191,6 +191,8 @@ test('the TUI patch entry records an optional authenticated upstream reference',
       { state: 'declined', url: 'https://github.com/example/upstream/issues/1', released_in: '0.2.0' },
       { state: 'not-reported', note: 'extra' },
       { state: 'merged', url: 'https://github.com/example/upstream/pull/7', released_in: '' },
+      { state: 'reported', url: 'https://localhost:8080/upstream/issues/1' },
+      { state: 'reported', url: 'https://dsh-tui.local/upstream/issues/1' },
       'not-reported',
       null,
     ]) {

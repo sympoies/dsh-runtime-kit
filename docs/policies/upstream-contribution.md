@@ -159,7 +159,10 @@ exactly within these rules:
   `declined`, or `stale`.
 - `url` is required for every state except `not-reported`, and is rejected for
   `not-reported` — an unreported patch has no public link to record.
-- `url` must be an `https` URL with no embedded credentials.
+- `url` must be an `https` URL with no embedded credentials, and its host must
+  be publicly reachable. A loopback, private, link-local, or local-only host is
+  rejected: it cannot serve a link anyone else can open, so it is never a
+  usable removal signal.
 - `released_in` is optional, and permitted only when `state` is `merged`. A
   merged fix that has not shipped yet simply omits it.
 - No other key is accepted.
