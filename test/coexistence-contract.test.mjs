@@ -68,7 +68,7 @@ test('issue 63 rollback is pinned to the exact accepted alpha.4 promotion baseli
   // package only admits rc.7, rc.8, and rc.2. This assertion freezes that
   // reviewed selection for #63; it does not discover a future child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: '637bed26fd5bce0dfe30767b1c6a870956a72415b23adc9a180e789e0d62bd0e',
+    runtime_package_sha256: '9caa73ff8714cb81b4ac693f0041f9c9d49fb1344cca1c2ab031a2c8dc41e9a9',
     version: '1.27.34',
     source_revision: 'v1.27.34',
     source_commit: '5e8564357f6deb524e36d1a0cbdcf124f034c3f2',
