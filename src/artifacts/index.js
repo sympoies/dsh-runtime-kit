@@ -114,7 +114,7 @@ function isProvider(value) {
   if (value === null || typeof value !== 'object') return false
   const candidate = /** @type {Record<string, unknown>} */ (value)
   return Array.isArray(candidate.capabilities)
-    && ['init', 'list', 'load', 'begin', 'publish', 'read', 'remove', 'removeMany', 'claimGeneration', 'releaseGeneration', 'generationAlive']
+    && ['init', 'list', 'load', 'begin', 'publish', 'read', 'remove', 'removeMany', 'claimGeneration', 'releaseGeneration', 'generationAlive', 'listGenerations']
       .every(name => typeof candidate[name] === 'function')
 }
 
@@ -682,21 +682,36 @@ export class ArtifactService extends Service {
       const records = await this.#provided(() => this.#provider.list(), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
       /** @type {Map<string, boolean>} */
       const liveness = new Map()
+      const alive = async (/** @type {string} */ generation) => {
+        let known = liveness.get(generation)
+        if (known === undefined) {
+          known = generation === this.generation
+            || await this.#provided(() => this.#provider.generationAlive(generation), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
+          liveness.set(generation, known)
+        }
+        return known
+      }
       const targets = []
       for (const record of records) {
         if (this.#expired(record)) {
           targets.push(record)
           continue
         }
-        if (!reclaimDeadSessions || record.retention_class !== 'session' || record.generation === this.generation) continue
-        let alive = liveness.get(record.generation)
-        if (alive === undefined) {
-          alive = await this.#provided(() => this.#provider.generationAlive(record.generation), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
-          liveness.set(record.generation, alive)
-        }
-        if (!alive) targets.push(record)
+        if (!reclaimDeadSessions || record.retention_class !== 'session') continue
+        if (!await alive(record.generation)) targets.push(record)
       }
       await this.#removeBatch(targets)
+      if (reclaimDeadSessions) {
+        // Release the claims of dead generations that no surviving record
+        // references, so abnormal exits do not accumulate claim files.
+        const removed = new Set(targets.map(record => record.id))
+        const referenced = new Set(records.filter(record => !removed.has(record.id)).map(record => record.generation))
+        const claimed = await this.#provided(() => this.#provider.listGenerations(), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
+        for (const generation of claimed) {
+          if (referenced.has(generation) || await alive(generation)) continue
+          await this.#provided(() => this.#provider.releaseGeneration(generation), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
+        }
+      }
       return Object.freeze({ reclaimed: targets.length })
     })
   }

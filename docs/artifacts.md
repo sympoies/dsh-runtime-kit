@@ -81,8 +81,9 @@ counts stay exact under concurrent writers.
   `session`-class records of every generation whose owning process is provably
   gone (released claim, missing claim, or dead pid), regardless of how that
   process exited. Records of a sibling host that is still running on the same
-  store are never touched. A resumed session therefore keeps only its
-  `retained` artifacts.
+  store are never touched, and the claim of a dead generation is released once
+  no surviving record references it. A resumed session therefore keeps only
+  its `retained` artifacts.
 - `retained` artifacts are reclaimed on explicit disposal or at expiry
   (default 7 days).
 - Reclamation touches only records owned by the target lifecycle and removes a

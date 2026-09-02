@@ -30,6 +30,7 @@ import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from './reco
  * @property {(generation: string) => Promise<void>} claimGeneration
  * @property {(generation: string) => Promise<void>} releaseGeneration
  * @property {(generation: string) => Promise<boolean>} generationAlive
+ * @property {() => Promise<readonly string[]>} listGenerations
  */
 
 /**
@@ -426,6 +427,21 @@ export class LocalArtifactProvider {
     } catch (error) {
       throw unavailable('artifact generation could not be claimed', error)
     }
+  }
+
+  /** Every generation that currently holds a claim file. */
+  async listGenerations() {
+    this.#requireInit()
+    let entries
+    try {
+      entries = await readdir(join(this.root, 'generations'))
+    } catch (error) {
+      throw unavailable('artifact generation claims are unreadable', error)
+    }
+    return Object.freeze(entries
+      .filter(entry => /^[0-9a-f-]{36}\.json$/.test(entry))
+      .map(entry => `generation:${entry.slice(0, -'.json'.length)}`)
+      .sort())
   }
 
   /** @param {string} generation */

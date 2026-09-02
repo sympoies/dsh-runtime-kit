@@ -155,6 +155,10 @@ export class MemoryArtifactProvider {
     return this.#generations.has(generation)
   }
 
+  async listGenerations() {
+    return Object.freeze([...this.#generations].sort())
+  }
+
   /** @param {readonly ArtifactRecord[]} records */
   async removeMany(records) {
     this.#check('remove')

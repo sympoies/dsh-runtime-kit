@@ -545,8 +545,8 @@ test('a second live host sharing the store never reclaims a sibling\'s session-c
   assert.equal((await hostB.service.records()).some(entry => entry.ref === live.ref), true)
 
   // A dead claim (a pid that no longer exists) is reclaimed by the next start.
-  const deadGeneration = 'generation:00000000-0000-4000-8000-000000000dead'
-  await writeFile(join(root, 'generations', '00000000-0000-4000-8000-000000000dead.json'), JSON.stringify({ pid: 2 ** 22 - 3, started_at: new Date().toISOString() }), { mode: 0o600 })
+  const deadGeneration = 'generation:00000000-0000-4000-8000-00000000dead'
+  await writeFile(join(root, 'generations', '00000000-0000-4000-8000-00000000dead.json'), JSON.stringify({ pid: 2 ** 22 - 3, started_at: new Date().toISOString() }), { mode: 0o600 })
   const deadProvider = new LocalArtifactProvider({ root })
   await deadProvider.init()
   const deadStaging = await deadProvider.begin({ id: 'ef'.repeat(16), maxBytes: 1024 })
@@ -578,7 +578,8 @@ test('a second live host sharing the store never reclaims a sibling\'s session-c
   await hostC.ctx.fiber.dispose()
   const hostD = await harness({ root })
   assert.equal((await hostD.service.records()).some(entry => entry.ref === live.ref), false)
-  assert.deepEqual(await readdir(join(root, 'generations')), [`${hostD.service.generation.slice('generation:'.length)}.json`, '00000000-0000-4000-8000-000000000dead.json'].sort())
+  // Dead claims whose records are gone are released so abnormal exits do not accumulate claim files.
+  assert.deepEqual(await readdir(join(root, 'generations')), [`${hostD.service.generation.slice('generation:'.length)}.json`])
 })
 
 test('expiry, explicit disposal, and owner disposal reclaim only the targeted lifecycle', async () => {
@@ -780,12 +781,53 @@ test('export honors host sandbox protected roots, the store root, and the post-o
   await assert.rejects(stat(join(outside, 'raced.txt')), { code: 'ENOENT' }, 'no file may land behind the swapped symlink')
   assert.deepEqual(await readdir(outside), [])
 
+  // Race: the ancestor is a symbolic link into the outside directory when the
+  // destination is opened, and is restored to a real directory before the
+  // identity check runs (swap, then swap back). The lexical destination then
+  // no longer resolves, and the created inode behind the symlink must still be
+  // removed.
+  const originalOpen = fsPromises.open
+  await rm(join(workspace, 'reports'), { recursive: true, force: true })
+  await mkdir(join(workspace, 'reports'))
+  // The link appears after the ancestor walk (provider read hook) and is
+  // swapped back to a real directory right after the O_CREAT open.
+  fsPromises.open = async (...args) => {
+    const handle = await originalOpen(...args)
+    if (String(args[0]) === join(workspace, 'reports', 'swapped.txt') && typeof args[1] === 'number' && (args[1] & constants.O_CREAT) !== 0) {
+      await rm(join(workspace, 'reports'), { recursive: false, force: true })
+      await mkdir(join(workspace, 'reports'))
+    }
+    return handle
+  }
+  syncBuiltinESMExports()
+  try {
+    class LinkInProvider extends MemoryArtifactProvider {
+      async read(record, signal) {
+        await rm(join(workspace, 'reports'), { recursive: true, force: true })
+        await symlink(outside, join(workspace, 'reports'))
+        return super.read(record, signal)
+      }
+    }
+    const linkIn = await harness({ provider: new LinkInProvider() })
+    const linker = stubAgent('linker', workspace)
+    publish(linkIn.ctx, linker)
+    const linkedRecord = await writeArtifact(linkIn.service, linker, 'swapped back')
+    await rejectsWithCode(
+      linkIn.service.exportArtifact(linker, linkedRecord.ref, { class: 'workspace', path: 'reports/swapped.txt' }, testSignal),
+      ARTIFACT_CODES.EXPORT_DESTINATION_INVALID,
+    )
+    assert.deepEqual(await readdir(outside), [], 'the inode created behind the swapped link is removed')
+    assert.deepEqual(await readdir(join(workspace, 'reports')), [])
+  } finally {
+    fsPromises.open = originalOpen
+    syncBuiltinESMExports()
+  }
+
   // Race after the identity check: the parent directory is renamed out of the
   // workspace while the bytes are being written. The written inode must not
   // be left behind at its new location.
   await rm(join(workspace, 'reports'), { recursive: true, force: true })
   const moved = await temporaryDirectory('artifacts-moved-')
-  const originalOpen = fsPromises.open
   fsPromises.open = async (...args) => {
     const handle = await originalOpen(...args)
     if (String(args[0]) === join(workspace, 'reports', 'moved.txt') && typeof args[1] === 'number' && (args[1] & constants.O_CREAT) !== 0) {
