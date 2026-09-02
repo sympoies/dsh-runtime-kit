@@ -186,7 +186,9 @@ profiles, and live lane re-adoption after a harness restart remain outside this
 contract. Managed continuation metadata can reconstruct an exact host-issued
 workspace only when its registered provider reauthenticates the same persisted
 cwd and renews the nils workspace lease; stale liveness sidecars never grant
-that authority.
+that authority. Under WorkspaceLease v2 that anchor is context only: a denied
+anchor lease no longer quarantines the session, and a session may coordinate
+several repositories without restarting.
 
 The TUI is an explicit prerelease promotion. Do not replace the exact specifier
 with npm's moving `latest` tag. Keep the previous beta.3 profile receipt and

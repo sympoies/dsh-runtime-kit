@@ -61,6 +61,8 @@ const dshHome = join(temporaryRoot, 'dsh-home')
 const repository = join(temporaryRoot, 'repository')
 const linkedWorktree = join(temporaryRoot, 'linked-worktree')
 const dirtyRepository = join(temporaryRoot, 'dirty-repository')
+const cleanRepository = join(temporaryRoot, 'clean-repository')
+const plainDirectory = join(temporaryRoot, 'plain-directory')
 const agentHookStateDir = join(temporaryRoot, 'agent-hook-state')
 const agentHookPolicy = join(temporaryRoot, 'agent-hook-policy.toml')
 const agentHookConfig = join(temporaryRoot, 'agent-hook-config.toml')
@@ -85,6 +87,8 @@ Object.assign(environment, {
   DSH_WORKSPACE_LEASE_NATIVE_ROOT: repository,
   DSH_WORKSPACE_LEASE_NATIVE_LINKED: linkedWorktree,
   DSH_WORKSPACE_LEASE_NATIVE_DIRTY: dirtyRepository,
+  DSH_WORKSPACE_LEASE_NATIVE_CLEAN: cleanRepository,
+  DSH_WORKSPACE_LEASE_NATIVE_PLAIN: plainDirectory,
 })
 
 function run(command, args, options = {}) {
@@ -174,6 +178,19 @@ try {
   run('/usr/bin/git', [
     'worktree', 'add', '--quiet', '--detach', linkedWorktree, 'HEAD',
   ], { cwd: repository })
+
+  // An unrelated clean repository and a non-repository directory prove that a
+  // dirty anchor never reduces this session's authority elsewhere.
+  mkdirSync(cleanRepository, { recursive: true, mode: 0o700 })
+  run('/usr/bin/git', ['init', '--quiet', '--initial-branch=main'], { cwd: cleanRepository })
+  writeFileSync(join(cleanRepository, 'tracked.txt'), 'clean\n', { mode: 0o600 })
+  run('/usr/bin/git', ['add', 'tracked.txt'], { cwd: cleanRepository })
+  run('/usr/bin/git', [
+    '-c', 'user.name=DSH Runtime Kit',
+    '-c', 'user.email=dsh-runtime-kit@example.invalid',
+    'commit', '--quiet', '-m', 'test: initialize clean cross-repository fixture',
+  ], { cwd: cleanRepository })
+  mkdirSync(plainDirectory, { recursive: true, mode: 0o700 })
 
   mkdirSync(dirtyRepository, { recursive: true, mode: 0o700 })
   run('/usr/bin/git', ['init', '--quiet', '--initial-branch=main'], { cwd: dirtyRepository })
@@ -308,7 +325,15 @@ const marker = ${JSON.stringify(marker)}
 const root = process.env.DSH_WORKSPACE_LEASE_NATIVE_ROOT
 const linked = process.env.DSH_WORKSPACE_LEASE_NATIVE_LINKED
 const dirty = process.env.DSH_WORKSPACE_LEASE_NATIVE_DIRTY
+const clean = process.env.DSH_WORKSPACE_LEASE_NATIVE_CLEAN
+const plain = process.env.DSH_WORKSPACE_LEASE_NATIVE_PLAIN
 const handoff = process.env.DSH_WORKSPACE_LEASE_NATIVE_HANDOFF
+
+// The exact overlapping mutations that must hold two independent fences.
+const overlapping = new Map([
+  [join(root, 'root.txt'), 'root'],
+  [join(linked, 'linked.txt'), 'linked'],
+])
 
 export const name = 'workspace-lease-native-smoke-driver'
 export const inject = ['agents', 'goals', 'llm', 'skills', 'subprocess', 'tools']
@@ -365,6 +390,9 @@ export function apply(ctx) {
     let dirtySkillResult
     let dirtyContextResult
     let dirtyGoalResult
+    let dirtyNonRepositoryResult
+    let dirtyCrossRepositoryResult
+    let dirtyUnscopedResult
     try {
       await applyNilsWorkspaceLease(ctx, {
         agentHook: ${JSON.stringify(agentHookBin)},
@@ -427,31 +455,38 @@ export function apply(ctx) {
       ctx.tools.register(runtimeContext)
       service.registerQuarantineCapability(runtimeContext)
       ctx.llm.registerAdapter(['quarantine-goal-smoke'], new QuarantineGoalAdapter())
+      if (ctx.tools.get('write') === undefined) {
+        throw new Error('the real DSH write tool is unavailable')
+      }
+      // Registered without prepend, so it runs after the lease service has
+      // already admitted and fenced each call: both overlapping writes hold
+      // their own repository fence at the same moment.
+      ctx.on('tools/execute', async (exec, next) => {
+        const path = exec.name === 'write' ? exec.arguments?.file_path : undefined
+        const label = typeof path === 'string' ? overlapping.get(path) : undefined
+        if (label === undefined) return next()
+        bodyStarts.push(label)
+        if (bodyStarts.length === 2) releaseParallel()
+        await Promise.race([
+          parallel,
+          new Promise((_, reject) => setTimeout(
+            () => reject(new Error('parallel workspace mutation did not overlap')),
+            5_000,
+          )),
+        ])
+        const result = await next()
+        bodyWrites.push(label)
+        return result
+      })
       ctx.tools.register(defineTool({
-        name: 'workspace_mutation_probe',
-        description: 'mutate one accepted workspace after the native lease gate',
-        parameters: {
-          label: { type: 'string' },
-          target: { type: 'string' },
-        },
+        name: 'unscoped_host_probe',
+        description: 'prove an unclassifiable native host operation still runs',
+        parameters: {},
         output: {
           schema: { type: 'string' },
           render: (_args, value) => [{ type: 'text', text: value }],
         },
-        async execute(args) {
-          bodyStarts.push(args.label)
-          if (bodyStarts.length === 2) releaseParallel()
-          await Promise.race([
-            parallel,
-            new Promise((_, reject) => setTimeout(
-              () => reject(new Error('parallel workspace mutation did not overlap')),
-              5_000,
-            )),
-          ])
-          writeFileSync(join(args.target, args.label + '.txt'), args.label + '\\n')
-          bodyWrites.push(args.label)
-          return args.label
-        },
+        async execute() { return 'unscoped' },
       }))
 
       const rootHandle = await ctx.agents.create({
@@ -471,8 +506,11 @@ export function apply(ctx) {
       peerResult = await ctx.tools.execute({
         signal: new AbortController().signal,
         callId: CallId('workspace-native-peer-call'),
-        name: 'workspace_mutation_probe',
-        arguments: { label: 'peer-must-not-run', target: root },
+        name: 'write',
+        arguments: {
+          file_path: join(root, 'peer-must-not-run.txt'),
+          content: 'peer-must-not-run\\n',
+        },
         agent: peerHandle.agent,
       })
 
@@ -488,15 +526,15 @@ export function apply(ctx) {
         ctx.tools.execute({
           signal: new AbortController().signal,
           callId: CallId('workspace-native-root-call'),
-          name: 'workspace_mutation_probe',
-          arguments: { label: 'root', target: root },
+          name: 'write',
+          arguments: { file_path: join(root, 'root.txt'), content: 'root\\n' },
           agent: rootHandle.agent,
         }),
         ctx.tools.execute({
           signal: new AbortController().signal,
           callId: CallId('workspace-native-linked-call'),
-          name: 'workspace_mutation_probe',
-          arguments: { label: 'linked', target: linked },
+          name: 'write',
+          arguments: { file_path: join(linked, 'linked.txt'), content: 'linked\\n' },
           agent: linkedHandle.agent,
         }),
       ])
@@ -545,11 +583,35 @@ export function apply(ctx) {
           phase: goal.phase,
         },
       }
+      dirtyUnscopedResult = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-dirty-unscoped'),
+        name: 'unscoped_host_probe',
+        arguments: {},
+        agent: dirtyHandle.agent,
+      })
+      dirtyNonRepositoryResult = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-dirty-nonrepo'),
+        name: 'write',
+        arguments: { file_path: join(plain, 'notes.txt'), content: 'notes\\n' },
+        agent: dirtyHandle.agent,
+      })
+      dirtyCrossRepositoryResult = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-dirty-cross'),
+        name: 'write',
+        arguments: { file_path: join(clean, 'cross.txt'), content: 'cross\\n' },
+        agent: dirtyHandle.agent,
+      })
       dirtyMutationResult = await ctx.tools.execute({
         signal: new AbortController().signal,
         callId: CallId('workspace-native-dirty-mutation'),
-        name: 'workspace_mutation_probe',
-        arguments: { label: 'dirty-must-not-run', target: dirty },
+        name: 'write',
+        arguments: {
+          file_path: join(dirty, 'dirty-must-not-run.txt'),
+          content: 'dirty-must-not-run\\n',
+        },
         agent: dirtyHandle.agent,
       })
       dirtyHandoffResult = await ctx.tools.execute({
@@ -582,6 +644,9 @@ export function apply(ctx) {
         dirtySkillResult,
         dirtyContextResult,
         dirtyGoalResult,
+        dirtyNonRepositoryResult,
+        dirtyCrossRepositoryResult,
+        dirtyUnscopedResult,
       }) + '\\n')
       ctx.get('appExit')?.(process.exitCode ?? 0)
     }
@@ -604,9 +669,11 @@ export function apply(ctx) {
   assert.equal(receipt.peerResult.isError, true, JSON.stringify(receipt.peerResult))
   assert.match(receipt.peerResult.content[0].text, /another live session owns this workspace/)
   assert.equal(receipt.rootResult.isError, false, JSON.stringify(receipt.rootResult))
-  assert.equal(receipt.rootResult.value, 'root')
+  assert.equal(receipt.rootResult.value.operation, 'create')
+  assert.equal(receipt.rootResult.value.after, 'root\n')
   assert.equal(receipt.linkedResult.isError, false, JSON.stringify(receipt.linkedResult))
-  assert.equal(receipt.linkedResult.value, 'linked')
+  assert.equal(receipt.linkedResult.value.operation, 'create')
+  assert.equal(receipt.linkedResult.value.after, 'linked\n')
   assert.deepEqual([...receipt.bodyStarts].sort(), ['linked', 'root'])
   assert.deepEqual([...receipt.bodyWrites].sort(), ['linked', 'root'])
   assert.equal(receipt.dirtyRecoveryResult.isError, false, JSON.stringify(receipt.dirtyRecoveryResult))
@@ -632,6 +699,25 @@ export function apply(ctx) {
     receipt.dirtyGoalResult.goal.objective,
     'Complete packed dirty-workspace quarantine acceptance.',
   )
+  assert.equal(
+    receipt.dirtyUnscopedResult.isError,
+    false,
+    JSON.stringify(receipt.dirtyUnscopedResult),
+  )
+  assert.equal(receipt.dirtyUnscopedResult.value, 'unscoped')
+  assert.equal(
+    receipt.dirtyNonRepositoryResult.isError,
+    false,
+    JSON.stringify(receipt.dirtyNonRepositoryResult),
+  )
+  assert.equal(readFileSync(join(plainDirectory, 'notes.txt'), 'utf8'), 'notes\n')
+  assert.equal(
+    receipt.dirtyCrossRepositoryResult.isError,
+    false,
+    JSON.stringify(receipt.dirtyCrossRepositoryResult),
+  )
+  assert.equal(readFileSync(join(cleanRepository, 'cross.txt'), 'utf8'), 'cross\n')
+  assert.equal(workspaceStateFiles(agentHookStateDir, cleanRepository).length, 1)
   assert.equal(receipt.dirtyMutationResult.isError, true, JSON.stringify(receipt.dirtyMutationResult))
   assert.match(receipt.dirtyMutationResult.content[0].text, /workspace has uncommitted state/)
   assert.equal(receipt.dirtyHandoffResult.isError, false, JSON.stringify(receipt.dirtyHandoffResult))
@@ -664,6 +750,8 @@ export function apply(ctx) {
     distinctWorktreesOverlapped: true,
     dirtyBootstrapQuarantined: true,
     cleanManagedHandoffVerified: true,
+    dirtyAnchorKeptFullHostAuthority: true,
+    crossRepositoryMutationFenced: true,
   }) + '\n')
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })

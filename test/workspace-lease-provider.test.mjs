@@ -22,34 +22,42 @@ function agentHookArgs(...args) {
   ]
 }
 
+const TARGET = { workspace_key: 'wlk1.opaque', root: '/workspace/project' }
+
 function responseFor(action, request, overrides = {}) {
   const data = {
+    resolve: {
+      schema_version: 'agent-hook.workspace-lease.resolve-result.v2',
+      kind: 'targets',
+      targets: [TARGET],
+    },
     bind: {
-      schema_version: 'agent-hook.workspace-lease.bind-result.v1',
+      schema_version: 'agent-hook.workspace-lease.bind-result.v2',
       kind: 'bound',
       binding_id: 'wlb1.opaque',
       workspace_id: 'wlw1.opaque',
       generation: 'wlg1.opaque',
       state: 'owned',
+      target: TARGET,
       renew_after_ms: 10_000,
     },
     begin: {
-      schema_version: 'agent-hook.workspace-lease.begin-result.v1',
+      schema_version: 'agent-hook.workspace-lease.begin-result.v2',
       kind: 'granted',
       operation_id: 'wlo1.opaque',
       fence: 'wlf1.opaque',
     },
     complete: {
-      schema_version: 'agent-hook.workspace-lease.complete-result.v1',
+      schema_version: 'agent-hook.workspace-lease.complete-result.v2',
       kind: 'completed',
     },
     renew: {
-      schema_version: 'agent-hook.workspace-lease.renew-result.v1',
+      schema_version: 'agent-hook.workspace-lease.renew-result.v2',
       kind: 'renewed',
       renew_after_ms: 10_000,
     },
     release: {
-      schema_version: 'agent-hook.workspace-lease.release-result.v1',
+      schema_version: 'agent-hook.workspace-lease.release-result.v2',
       kind: 'released',
     },
   }[action]
@@ -151,8 +159,10 @@ function fixture({
   }
 }
 
+const target = { workspaceKey: 'wlk1.opaque', root: '/workspace/project' }
+
 const binding = {
-  version: 1,
+  version: 2,
   requestId: 'request-1',
   sessionId: 'session-1',
   parentSessionId: 'parent-1',
@@ -161,15 +171,27 @@ const binding = {
   generation: 'wlg1.opaque',
 }
 
-test('the nils provider projects every exact WorkspaceLease v1 lifecycle call', async () => {
+test('the nils provider projects every exact WorkspaceLease v2 lifecycle call', async () => {
   const subject = fixture()
 
+  assert.deepEqual(await subject.provider.resolve({
+    version: 2,
+    requestId: 'resolve-request',
+    sessionId: 'session-1',
+    parentSessionId: 'parent-1',
+    anchorCwd: '/workspace/project',
+    callId: 'call-1',
+    rootCallId: 'root-1',
+    toolName: 'edit',
+    arguments: { path: '/workspace/project/private.txt', replacement: 'secret' },
+    nested: false,
+  }, new AbortController().signal), { kind: 'targets', targets: [target] })
   assert.deepEqual(await subject.provider.bind({
-    version: 1,
+    version: 2,
     requestId: 'bind-request',
     sessionId: 'session-1',
     parentSessionId: 'parent-1',
-    cwd: '/workspace/project',
+    target,
     source: 'startup',
   }, new AbortController().signal), {
     kind: 'bound',
@@ -177,12 +199,14 @@ test('the nils provider projects every exact WorkspaceLease v1 lifecycle call', 
     workspaceId: 'wlw1.opaque',
     generation: 'wlg1.opaque',
     state: 'owned',
+    target,
     renewAfterMs: 10_000,
   })
   assert.deepEqual(await subject.provider.begin({
     ...binding,
     requestId: 'begin-request',
     bindingState: 'owned',
+    target,
     callId: 'call-1',
     rootCallId: 'root-1',
     toolName: 'edit',
@@ -214,6 +238,7 @@ test('the nils provider projects every exact WorkspaceLease v1 lifecycle call', 
   }, new AbortController().signal)
 
   assert.deepEqual(subject.spawns.map(call => call.spec.argv), [
+    agentHookArgs('workspace-lease', 'resolve', '--format', 'json'),
     agentHookArgs('workspace-lease', 'bind', '--format', 'json'),
     agentHookArgs('workspace-lease', 'begin', '--format', 'json'),
     agentHookArgs('workspace-lease', 'complete', '--format', 'json'),
@@ -221,20 +246,34 @@ test('the nils provider projects every exact WorkspaceLease v1 lifecycle call', 
     agentHookArgs('workspace-lease', 'release', '--format', 'json'),
   ])
   assert.deepEqual(subject.spawns[0].request, {
-    schema_version: 'agent-hook.workspace-lease.bind.v1',
-    version: 1,
+    schema_version: 'agent-hook.workspace-lease.resolve.v2',
+    version: 2,
+    request_id: 'resolve-request',
+    session_id: 'session-1',
+    parent_session_id: 'parent-1',
+    anchor_cwd: '/workspace/project',
+    call_id: 'call-1',
+    root_call_id: 'root-1',
+    tool_name: 'edit',
+    arguments: { path: '/workspace/project/private.txt', replacement: 'secret' },
+    nested: false,
+  })
+  assert.deepEqual(subject.spawns[1].request, {
+    schema_version: 'agent-hook.workspace-lease.bind.v2',
+    version: 2,
     request_id: 'bind-request',
     session_id: 'session-1',
     parent_session_id: 'parent-1',
-    cwd: '/workspace/project',
+    target: { workspace_key: 'wlk1.opaque', root: '/workspace/project' },
     source: 'startup',
   })
-  assert.deepEqual(subject.spawns[1].request, {
-    schema_version: 'agent-hook.workspace-lease.begin.v1',
-    version: 1,
+  assert.deepEqual(subject.spawns[2].request, {
+    schema_version: 'agent-hook.workspace-lease.begin.v2',
+    version: 2,
     request_id: 'begin-request',
     session_id: 'session-1',
     parent_session_id: 'parent-1',
+    target: { workspace_key: 'wlk1.opaque', root: '/workspace/project' },
     binding_id: 'wlb1.opaque',
     workspace_id: 'wlw1.opaque',
     generation: 'wlg1.opaque',
@@ -248,7 +287,7 @@ test('the nils provider projects every exact WorkspaceLease v1 lifecycle call', 
   assert.equal(subject.spawns.every(call => call.spec.cwd === '/runtime/agent-hook/state'), true)
   assert.deepEqual(subject.spawns[0].spec.env, isolatedNilsEnvironment(undefined))
   assert.doesNotMatch(JSON.stringify(subject.spawns[0].spec.argv), /private\.txt|secret/)
-  assert.equal(subject.provider.protocolVersion, 1)
+  assert.equal(subject.provider.protocolVersion, 2)
 })
 
 test('provider denial and lost responses preserve only stable bounded facts', async () => {
@@ -262,6 +301,7 @@ test('provider denial and lost responses preserve only stable bounded facts', as
         binding_id: undefined,
         workspace_id: undefined,
         generation: undefined,
+        target: undefined,
         renew_after_ms: undefined,
       })
       if (action === 'renew') return responseFor(action, request, {
@@ -276,10 +316,10 @@ test('provider denial and lost responses preserve only stable bounded facts', as
   })
 
   assert.deepEqual(await subject.provider.bind({
-    version: 1,
+    version: 2,
     requestId: 'bind-request',
     sessionId: 'session-1',
-    cwd: '/workspace/project',
+    target,
     source: 'resume',
   }, new AbortController().signal), {
     kind: 'denied',
@@ -299,7 +339,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
   const malformed = fixture({ responder: () => ({ ok: true }) })
   await assert.rejects(
     malformed.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'bind-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -311,7 +351,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
   const lossy = fixture({ lossy: true })
   await assert.rejects(
     lossy.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'bind-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -322,7 +362,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
   const mismatch = fixture({ exitCode: 69 })
   await assert.rejects(
     mismatch.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'bind-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -333,7 +373,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
   const unquiescent = fixture({ waitForExit: 'pending', teardownTimeoutMs: 10 })
   await assert.rejects(
     unquiescent.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'bind-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -342,7 +382,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
   )
   await assert.rejects(
     unquiescent.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'second-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -355,7 +395,7 @@ test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', 
 test('concurrency, caller cancellation, timeout, and disposal are bounded', async () => {
   const subject = fixture({ pending: true, maxActive: 1, timeoutMs: 20 })
   const first = subject.provider.bind({
-    version: 1,
+    version: 2,
     requestId: 'first-request',
     sessionId: 'session-1',
     source: 'startup',
@@ -364,7 +404,7 @@ test('concurrency, caller cancellation, timeout, and disposal are bounded', asyn
 
   await assert.rejects(
     subject.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'overloaded-request',
       sessionId: 'session-2',
       source: 'startup',
@@ -378,7 +418,7 @@ test('concurrency, caller cancellation, timeout, and disposal are bounded', asyn
   cancelled.abort()
   await assert.rejects(
     subject.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'cancelled-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -389,7 +429,7 @@ test('concurrency, caller cancellation, timeout, and disposal are bounded', asyn
   await subject.dispose()
   await assert.rejects(
     subject.provider.bind({
-      version: 1,
+      version: 2,
       requestId: 'disposed-request',
       sessionId: 'session-1',
       source: 'startup',
@@ -407,7 +447,7 @@ test('workspace lease holds its authenticated descriptor scope across delayed re
     resolutionPending: true,
   })
   const pending = subject.provider.bind({
-    version: 1,
+    version: 2,
     requestId: 'descriptor-bind-request',
     sessionId: 'session-1',
     source: 'startup',
@@ -433,7 +473,7 @@ test('workspace lease holds its authenticated descriptor scope across delayed re
 test('a portable agent-hook name is resolved without ambient repository selection', async () => {
   const subject = fixture({ agentHook: 'agent-hook' })
   await subject.provider.bind({
-    version: 1,
+    version: 2,
     requestId: 'bind-request',
     sessionId: 'session-1',
     source: 'startup',
@@ -476,10 +516,10 @@ test('native composition activates WorkspaceLease before registering the nils pr
     agentHookStateDir: '/runtime/agent-hook/state',
   })
 
-  assert.equal(registered?.protocolVersion, 1)
+  assert.equal(registered?.protocolVersion, 2)
   assert.deepEqual(order, [
     ['plugin', 'WorkspaceLease'],
     ['effect', 'dsh-runtime-kit nils workspace lease provider'],
-    ['provider', 1],
+    ['provider', 2],
   ])
 })

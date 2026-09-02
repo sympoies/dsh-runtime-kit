@@ -7,6 +7,8 @@ import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-executi
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 import {
+  WORKSPACE_LEASE_MAX_TARGET_PATH_BYTES as MAX_TARGET_PATH_BYTES,
+  WORKSPACE_LEASE_MAX_TARGETS as MAX_TARGETS,
   WORKSPACE_LEASE_PROTOCOL_VERSION,
   WORKSPACE_LEASE_UNAVAILABLE,
   WorkspaceLease,
@@ -16,6 +18,7 @@ import {
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('@deepseek-ai/dsh-subprocess').SubprocessHandle} SubprocessHandle */
 /** @typedef {import('./index.js').WorkspaceLeaseProvider} WorkspaceLeaseProvider */
+/** @typedef {import('./index.js').WorkspaceLeaseTarget} WorkspaceLeaseTarget */
 
 const DEFAULT_TIMEOUT_MS = 5_000
 const MAX_TIMEOUT_MS = 30_000
@@ -39,7 +42,7 @@ const DENIED_STATES = new Set([
 
 /**
  * @typedef ActiveRequest
- * @property {'bind' | 'begin' | 'complete' | 'renew' | 'release'} action
+ * @property {'resolve' | 'bind' | 'begin' | 'complete' | 'renew' | 'release'} action
  * @property {AbortController} controller
  * @property {SubprocessHandle | undefined} handle
  * @property {'caller' | 'timeout' | 'disposed' | 'degraded' | undefined} cause
@@ -127,6 +130,42 @@ function bindingWire(request) {
   }
 }
 
+/**
+ * The runtime never invents a target. It echoes back the exact object the
+ * provider authenticated, so a model-supplied path cannot select authority.
+ * @param {WorkspaceLeaseTarget} target
+ */
+function targetWire(target) {
+  if (target === null || typeof target !== 'object') throw unavailable()
+  if (typeof target.root !== 'string'
+    || !isAbsolute(target.root)
+    || target.root.includes('\0')
+    || Buffer.byteLength(target.root, 'utf8') > MAX_TARGET_PATH_BYTES) throw unavailable()
+  return {
+    workspace_key: requiredWireText(target.workspaceKey, 'target workspace key'),
+    root: target.root,
+  }
+}
+
+/** @param {import('./index.js').WorkspaceLeaseResolveRequest} request */
+function resolveWire(request) {
+  if (request.anchorCwd !== undefined
+    && (typeof request.anchorCwd !== 'string'
+      || !isAbsolute(request.anchorCwd)
+      || request.anchorCwd.includes('\0'))) throw unavailable()
+  if (typeof request.nested !== 'boolean') throw unavailable()
+  return {
+    schema_version: 'agent-hook.workspace-lease.resolve.v2',
+    ...bindingWire(request),
+    ...(request.anchorCwd === undefined ? {} : { anchor_cwd: request.anchorCwd }),
+    call_id: requiredWireText(request.callId, 'call id'),
+    root_call_id: requiredWireText(request.rootCallId, 'root call id'),
+    tool_name: requiredWireText(request.toolName, 'tool name'),
+    arguments: request.arguments,
+    nested: request.nested,
+  }
+}
+
 /** @param {import('./index.js').WorkspaceLeaseBindRequest} request */
 function bindWire(request) {
   if (request.cwd !== undefined
@@ -134,10 +173,12 @@ function bindWire(request) {
       || !isAbsolute(request.cwd)
       || request.cwd.includes('\0'))) throw unavailable()
   if (!['startup', 'resume', 'clear', 'compact'].includes(request.source)) throw unavailable()
+  if (request.target !== undefined && request.cwd !== undefined) throw unavailable()
   return {
-    schema_version: 'agent-hook.workspace-lease.bind.v1',
+    schema_version: 'agent-hook.workspace-lease.bind.v2',
     ...bindingWire(request),
     ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+    ...(request.target === undefined ? {} : { target: targetWire(request.target) }),
     source: request.source,
   }
 }
@@ -147,8 +188,9 @@ function beginWire(request) {
   if (!['owned', 'unmanaged'].includes(request.bindingState)
     || typeof request.nested !== 'boolean') throw unavailable()
   return {
-    schema_version: 'agent-hook.workspace-lease.begin.v1',
+    schema_version: 'agent-hook.workspace-lease.begin.v2',
     ...bindingWire(request),
+    target: targetWire(request.target),
     binding_id: requiredWireText(request.bindingId, 'binding id'),
     workspace_id: requiredWireText(request.workspaceId, 'workspace id'),
     generation: requiredWireText(request.generation, 'generation'),
@@ -165,7 +207,7 @@ function beginWire(request) {
 function completeWire(request) {
   if (!['succeeded', 'failed', 'cancelled'].includes(request.outcome)) throw unavailable()
   return {
-    schema_version: 'agent-hook.workspace-lease.complete.v1',
+    schema_version: 'agent-hook.workspace-lease.complete.v2',
     ...bindingWire(request),
     binding_id: requiredWireText(request.bindingId, 'binding id'),
     workspace_id: requiredWireText(request.workspaceId, 'workspace id'),
@@ -185,7 +227,7 @@ function completeWire(request) {
 /** @param {import('./index.js').WorkspaceLeaseRenewRequest} request */
 function renewWire(request) {
   return {
-    schema_version: 'agent-hook.workspace-lease.renew.v1',
+    schema_version: 'agent-hook.workspace-lease.renew.v2',
     ...bindingWire(request),
     binding_id: requiredWireText(request.bindingId, 'binding id'),
     workspace_id: requiredWireText(request.workspaceId, 'workspace id'),
@@ -199,7 +241,7 @@ function releaseWire(request) {
     throw unavailable()
   }
   return {
-    schema_version: 'agent-hook.workspace-lease.release.v1',
+    schema_version: 'agent-hook.workspace-lease.release.v2',
     ...bindingWire(request),
     binding_id: requiredWireText(request.bindingId, 'binding id'),
     workspace_id: requiredWireText(request.workspaceId, 'workspace id'),
@@ -247,12 +289,62 @@ function denial(data, schema) {
   }
 }
 
+/** @param {unknown} value @returns {WorkspaceLeaseTarget} */
+function target(value) {
+  const data = record(value)
+  if (data === undefined
+    || !exactKeys(data, ['workspace_key', 'root'])
+    || !text(data.workspace_key)
+    || typeof data.root !== 'string'
+    || !isAbsolute(data.root)
+    || data.root.includes('\0')
+    || Buffer.byteLength(data.root, 'utf8') > MAX_TARGET_PATH_BYTES) throw unavailable()
+  return { workspaceKey: data.workspace_key, root: data.root }
+}
+
+/** @param {unknown} raw */
+function resolveResult(raw) {
+  const schema = 'agent-hook.workspace-lease.resolve-result.v2'
+  const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-resolve.v1')
+  if (data.kind === 'not-required') {
+    if (!exactKeys(data, ['schema_version', 'kind']) || data.schema_version !== schema) {
+      throw unavailable()
+    }
+    return { kind: /** @type {const} */ ('not-required') }
+  }
+  if (!exactKeys(data, ['schema_version', 'kind', 'targets'])
+    || data.schema_version !== schema
+    || data.kind !== 'targets'
+    || !Array.isArray(data.targets)
+    || data.targets.length === 0
+    || data.targets.length > MAX_TARGETS) throw unavailable()
+  const targets = data.targets.map(target)
+  if (new Set(targets.map(entry => entry.workspaceKey)).size !== targets.length) {
+    throw unavailable()
+  }
+  return { kind: /** @type {const} */ ('targets'), targets }
+}
+
 /** @param {unknown} raw */
 function bindResult(raw) {
-  const schema = 'agent-hook.workspace-lease.bind-result.v1'
+  const schema = 'agent-hook.workspace-lease.bind-result.v2'
   const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-bind.v1')
   if (data.kind === 'denied') return denial(data, schema)
-  const required = ['schema_version', 'kind', 'binding_id', 'workspace_id', 'generation', 'state']
+  if (data.kind === 'not-required') {
+    if (!exactKeys(data, ['schema_version', 'kind']) || data.schema_version !== schema) {
+      throw unavailable()
+    }
+    return { kind: /** @type {const} */ ('not-required') }
+  }
+  const required = [
+    'schema_version',
+    'kind',
+    'binding_id',
+    'workspace_id',
+    'generation',
+    'state',
+    'target',
+  ]
   const expected = data.renew_after_ms === undefined ? required : [...required, 'renew_after_ms']
   if (!exactKeys(data, expected)
     || data.schema_version !== schema
@@ -268,13 +360,14 @@ function bindResult(raw) {
     workspaceId: data.workspace_id,
     generation: data.generation,
     state: data.state,
+    target: target(data.target),
     ...(data.renew_after_ms === undefined ? {} : { renewAfterMs: data.renew_after_ms }),
   }
 }
 
 /** @param {unknown} raw */
 function beginResult(raw) {
-  const schema = 'agent-hook.workspace-lease.begin-result.v1'
+  const schema = 'agent-hook.workspace-lease.begin-result.v2'
   const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-begin.v1')
   if (data.kind === 'denied') return denial(data, schema)
   if (data.kind === 'not-required') {
@@ -297,7 +390,7 @@ function beginResult(raw) {
 
 /** @param {unknown} raw */
 function completeResult(raw) {
-  const schema = 'agent-hook.workspace-lease.complete-result.v1'
+  const schema = 'agent-hook.workspace-lease.complete-result.v2'
   const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-complete.v1')
   if (!exactKeys(data, ['schema_version', 'kind'])
     || data.schema_version !== schema
@@ -306,7 +399,7 @@ function completeResult(raw) {
 
 /** @param {unknown} raw */
 function renewResult(raw) {
-  const schema = 'agent-hook.workspace-lease.renew-result.v1'
+  const schema = 'agent-hook.workspace-lease.renew-result.v2'
   const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-renew.v1')
   if (data.kind === 'lost') {
     const lost = denial({ ...data, kind: 'denied' }, schema)
@@ -326,7 +419,7 @@ function renewResult(raw) {
 
 /** @param {unknown} raw */
 function releaseResult(raw) {
-  const schema = 'agent-hook.workspace-lease.release-result.v1'
+  const schema = 'agent-hook.workspace-lease.release-result.v2'
   const data = envelopeData(raw, 'cli.agent-hook.workspace-lease-release.v1')
   if (!exactKeys(data, ['schema_version', 'kind'])
     || data.schema_version !== schema
@@ -422,7 +515,7 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
   ctx.effect(() => dispose, 'dsh-runtime-kit nils workspace lease provider')
 
   /**
-   * @param {'bind' | 'begin' | 'complete' | 'renew' | 'release'} action
+   * @param {'resolve' | 'bind' | 'begin' | 'complete' | 'renew' | 'release'} action
    * @param {Record<string, unknown>} request
    * @param {AbortSignal} signal
    */
@@ -523,6 +616,9 @@ export function createNilsWorkspaceLeaseProvider(ctx, config = {}) {
 
   return Object.freeze({
     protocolVersion: WORKSPACE_LEASE_PROTOCOL_VERSION,
+    async resolve(request, signal) {
+      return resolveResult(await invoke('resolve', resolveWire(request), signal))
+    },
     async bind(request, signal) {
       return bindResult(await invoke('bind', bindWire(request), signal))
     },
