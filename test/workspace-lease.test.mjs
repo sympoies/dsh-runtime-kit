@@ -24,7 +24,10 @@ import {
 
 const testSignal = new AbortController().signal
 
-function stubAgent(rawId, cwd = '/workspace', parentSession) {
+const REPO_A = { workspaceKey: 'key:repo-a', root: '/workspace/repo-a' }
+const REPO_B = { workspaceKey: 'key:repo-b', root: '/workspace/repo-b' }
+
+function stubAgent(rawId, cwd = '/workspace/repo-a', parentSession) {
   const id = SessionId(rawId)
   const session = Session.create(id, [], {
     version: SESSION_FORMAT_VERSION,
@@ -53,25 +56,36 @@ function stubAgent(rawId, cwd = '/workspace', parentSession) {
   }
 }
 
+/**
+ * The default stub models the shipped nils contract: an anchor bind that owns
+ * the repository containing the session cwd, classification that only claims
+ * exact structured mutations, and one durable generation per canonical
+ * workspace key.
+ */
 function provider(overrides = {}) {
-  const calls = {
-    bind: [],
-    begin: [],
-    complete: [],
-    renew: [],
-    release: [],
-  }
+  const calls = { resolve: [], bind: [], begin: [], complete: [], renew: [], release: [] }
+  let generation = 0
+  const anchorFor = cwd => [REPO_A, REPO_B].find(target => cwd?.startsWith(target.root))
   const selected = {
     protocolVersion: WORKSPACE_LEASE_PROTOCOL_VERSION,
+    async resolve(request, signal) {
+      calls.resolve.push([request, signal])
+      if (overrides.resolve !== undefined) return overrides.resolve(request, signal)
+      return { kind: 'not-required' }
+    },
     async bind(request, signal) {
       calls.bind.push([request, signal])
       if (overrides.bind !== undefined) return overrides.bind(request, signal)
+      const target = request.target ?? anchorFor(request.cwd)
+      if (target === undefined) return { kind: 'not-required' }
+      generation += 1
       return {
         kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: `workspace:${request.cwd ?? 'unmanaged'}`,
-        generation: 'generation:1',
+        bindingId: `binding:${target.workspaceKey}:${generation}`,
+        workspaceId: `workspace:${target.workspaceKey}`,
+        generation: `generation:${generation}`,
         state: 'owned',
+        target,
       }
     },
     async begin(request, signal) {
@@ -79,8 +93,8 @@ function provider(overrides = {}) {
       if (overrides.begin !== undefined) return overrides.begin(request, signal)
       return {
         kind: 'granted',
-        operationId: `operation:${request.callId}`,
-        fence: 'fence:1',
+        operationId: `operation:${request.callId}:${request.target.workspaceKey}`,
+        fence: `fence:${request.target.workspaceKey}`,
       }
     },
     async complete(request, signal) {
@@ -98,6 +112,15 @@ function provider(overrides = {}) {
     },
   }
   return { selected, calls }
+}
+
+/** Classify `write` calls into the repository named by their `file_path`. */
+function writeTargets(request) {
+  if (request.toolName !== 'write') return { kind: 'not-required' }
+  const path = request.arguments?.file_path
+  const targets = [REPO_A, REPO_B].filter(target => path?.startsWith(target.root))
+  if (targets.length === 0) return { kind: 'not-required' }
+  return { kind: 'targets', targets }
 }
 
 async function harness(selected) {
@@ -132,6 +155,32 @@ function echoTool(sequence) {
   })
 }
 
+function writeTool(sequence) {
+  return defineTool({
+    name: 'write',
+    description: 'write',
+    parameters: { file_path: { type: 'string' } },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    async execute(args) {
+      sequence?.push(args.file_path)
+      return args.file_path
+    },
+  })
+}
+
+function runTool(ctx, agent, name, args, callId) {
+  return ctx.tools.execute({
+    signal: testSignal,
+    callId: CallId(callId),
+    name,
+    arguments: args,
+    agent,
+  })
+}
+
 class AllowedOnceApproval extends Service {
   constructor(ctx) {
     super(ctx, 'approval')
@@ -145,162 +194,384 @@ class AllowedOnceApproval extends Service {
 test('workspace ref is opaque, non-bearer, and bound to one exact live agent', async () => {
   const { selected } = provider()
   const ctx = await harness(selected)
-  const owner = stubAgent('owner', '/workspace/project')
+  const owner = stubAgent('owner')
   publish(ctx, owner)
 
   const ref = await ctx.workspaceLease.ref(owner)
   assert.equal(Object.isFrozen(ref), true)
   assert.deepEqual(Object.keys(ref), [])
   assert.equal(JSON.stringify(ref), '{}')
-  assert.equal(ctx.workspaceLease.state(owner, ref), 'owned')
-  assert.throws(
-    () => ctx.workspaceLease.state(owner, structuredClone(ref)),
+  assert.equal(await ctx.workspaceLease.state(owner, ref), 'owned')
+  await assert.rejects(
+    ctx.workspaceLease.state(owner, structuredClone(ref)),
     WorkspaceLeaseInvalidRefError,
   )
 
-  const other = stubAgent('other', '/workspace/project')
+  const other = stubAgent('other')
   publish(ctx, other)
-  await ctx.workspaceLease.ref(other)
-  assert.throws(() => ctx.workspaceLease.state(other, ref), WorkspaceLeaseInvalidRefError)
+  await assert.rejects(ctx.workspaceLease.state(other, ref), WorkspaceLeaseInvalidRefError)
 })
 
-test('workspace binding takes child lineage from the immutable session header', async () => {
+test('the session anchor is context: a non-repository anchor owns no repository lease', async () => {
   const { selected, calls } = provider()
   const ctx = await harness(selected)
-  const child = stubAgent('child', '/workspace/project', 'parent')
-  publish(ctx, child, 'resume')
+  const agent = stubAgent('owner', '/srv/notes')
+  publish(ctx, agent)
 
-  await ctx.workspaceLease.ref(child)
-
+  const ref = await ctx.workspaceLease.ref(agent)
+  assert.equal(await ctx.workspaceLease.state(agent, ref), 'unmanaged')
+  assert.equal(await ctx.workspaceLease.denialState(agent), null)
   assert.equal(calls.bind.length, 1)
-  assert.deepEqual(
-    {
-      version: calls.bind[0][0].version,
-      sessionId: calls.bind[0][0].sessionId,
-      parentSessionId: calls.bind[0][0].parentSessionId,
-      cwd: calls.bind[0][0].cwd,
-      source: calls.bind[0][0].source,
-    },
-    {
-      version: WORKSPACE_LEASE_PROTOCOL_VERSION,
-      sessionId: SessionId('child'),
-      parentSessionId: SessionId('parent'),
-      cwd: '/workspace/project',
-      source: 'resume',
-    },
+  assert.equal(calls.bind[0][0].cwd, '/srv/notes')
+  assert.equal(calls.bind[0][0].version, WORKSPACE_LEASE_PROTOCOL_VERSION)
+
+  // A non-repository write still runs with full host authority.
+  const sequence = []
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/srv/notes/todo.md' },
+    'call:nonrepo',
   )
-  assert.equal(calls.bind[0][1] instanceof AbortSignal, true)
-})
-
-test('a live same-workspace child lineage shares one native binding with distinct local authority', async () => {
-  const { selected, calls } = provider()
-  const ctx = await harness(selected)
-  const parent = stubAgent('parent', '/workspace/project')
-  const child = stubAgent('child', '/workspace/project', 'parent')
-  publish(ctx, parent)
-  await ctx.workspaceLease.ref(parent)
-  publish(ctx, child)
-
-  const parentRef = await ctx.workspaceLease.ref(parent)
-  const childRef = await ctx.workspaceLease.ref(child)
-
-  assert.notEqual(childRef, parentRef)
-  assert.equal(ctx.workspaceLease.state(parent, parentRef), 'owned')
-  assert.equal(ctx.workspaceLease.state(child, childRef), 'owned')
-  assert.equal(calls.bind.length, 1, 'one trusted runtime lineage owns one nils binding')
-  assert.throws(() => ctx.workspaceLease.state(child, parentRef), WorkspaceLeaseInvalidRefError)
-
-  ctx.tools.register(echoTool())
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:child'),
-    name: 'echo',
-    arguments: { text: 'child' },
-    agent: child,
-  })
 
   assert.equal(result.isError, false)
-  assert.equal(result.value, 'child')
-  assert.equal(calls.begin[0][0].sessionId, parent.id)
-  assert.equal(calls.begin[0][0].callId, CallId('call:child'))
-
-  await child.ctx.fiber.dispose()
-  assert.equal(calls.release.length, 0, 'disposing a child does not release the shared binding')
-  assert.equal(ctx.workspaceLease.state(parent, parentRef), 'owned')
-  await parent.ctx.fiber.dispose()
-  assert.equal(calls.release.length, 1)
+  assert.deepEqual(sequence, ['/srv/notes/todo.md'])
+  assert.equal(calls.resolve.length, 1)
+  assert.equal(calls.begin.length, 0)
+  assert.equal(calls.complete.length, 0)
 })
 
-test('a parent session rebind carries its live child lineage onto the new generation', async () => {
-  let generation = 0
+test('a dirty anchor denies only its own repository and never quarantines the session', async () => {
   const { selected, calls } = provider({
+    resolve: writeTargets,
     async bind(request) {
-      generation += 1
+      if (request.cwd !== undefined || request.target.workspaceKey === REPO_A.workspaceKey) {
+        return {
+          kind: 'denied',
+          state: 'dirty',
+          code: 'WORKSPACE_DIRTY',
+          reason: 'the workspace has uncommitted state',
+        }
+      }
       return {
         kind: 'bound',
-        bindingId: `binding:${generation}`,
-        workspaceId: `workspace:${request.cwd}`,
-        generation: `generation:${generation}`,
+        bindingId: 'binding:b',
+        workspaceId: 'workspace:b',
+        generation: 'generation:1',
         state: 'owned',
+        target: request.target,
       }
     },
   })
   const ctx = await harness(selected)
-  const parent = stubAgent('parent', '/workspace/project')
-  const child = stubAgent('child', '/workspace/project', 'parent')
-  publish(ctx, parent)
-  publish(ctx, child)
-  const firstParentRef = await ctx.workspaceLease.ref(parent)
-  const firstChildRef = await ctx.workspaceLease.ref(child)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
 
-  agentEvents(ctx, parent).emit('agent/session-start', { source: 'compact' })
+  const ref = await ctx.workspaceLease.ref(agent)
+  assert.equal(await ctx.workspaceLease.state(agent, ref), 'dirty')
+  assert.deepEqual(await ctx.workspaceLease.denialState(agent), {
+    state: 'dirty',
+    code: 'WORKSPACE_DIRTY',
+  })
 
-  const secondParentRef = await ctx.workspaceLease.ref(parent)
-  const secondChildRef = await ctx.workspaceLease.ref(child)
-  assert.notEqual(secondParentRef, firstParentRef)
-  assert.notEqual(secondChildRef, firstChildRef)
-  assert.throws(() => ctx.workspaceLease.state(child, firstChildRef), WorkspaceLeaseInvalidRefError)
-  assert.equal(ctx.workspaceLease.state(child, secondChildRef), 'owned')
-  assert.equal(calls.bind.length, 2)
-  assert.equal(calls.release.length, 1)
-  assert.equal(calls.release[0][0].reason, 'session-rebound')
+  // Ordinary unscoped tools keep running in a dirty-anchor session.
+  const sequence = []
+  ctx.tools.register(echoTool(sequence))
+  ctx.tools.register(writeTool(sequence))
+  const ordinary = await runTool(ctx, agent, 'echo', { text: 'still working' }, 'call:echo')
+  assert.equal(ordinary.isError, false)
+  assert.equal(ordinary.value, 'still working')
+
+  // A write outside any repository proceeds.
+  const outside = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/srv/notes/todo.md' },
+    'call:outside',
+  )
+  assert.equal(outside.isError, false)
+
+  // A write into the dirty repository is denied with its exact typed cause.
+  const denied = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/src/index.js' },
+    'call:dirty',
+  )
+  assert.equal(denied.isError, true)
+  assert.equal(denied.error.info.code, 'WORKSPACE_DIRTY')
+
+  // A clean sibling repository stays independently usable in the same session.
+  const allowed = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/src/index.js' },
+    'call:clean',
+  )
+  assert.equal(allowed.isError, false)
+  assert.deepEqual(sequence, [
+    'still working',
+    '/srv/notes/todo.md',
+    '/workspace/repo-b/src/index.js',
+  ].map((value, index) => (index === 0 ? 'body' : value)))
+  assert.equal(calls.begin.length, 1)
+  assert.equal(calls.begin[0][0].target.workspaceKey, REPO_B.workspaceKey)
 })
 
-test('session-object replacement cannot retarget an existing agent binding', async () => {
-  const { selected, calls } = provider()
+test('one session acquires independent bindings for two repositories and reuses each', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
   const ctx = await harness(selected)
-  const agent = stubAgent('owner', '/workspace/project')
+  const agent = stubAgent('owner', '/workspace/repo-a')
   publish(ctx, agent)
-  const ref = await ctx.workspaceLease.ref(agent)
-  const original = agent.session
-  agent.session = Session.create(agent.id, sessionEvents(original), original.header)
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
+  await ctx.workspaceLease.state(agent, await ctx.workspaceLease.ref(agent))
+  ctx.tools.register(writeTool())
 
-  assert.throws(() => ctx.workspaceLease.state(agent, ref), WorkspaceLeaseInvalidRefError)
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:replaced-session'),
-    name: 'echo',
-    arguments: {},
-    agent,
+  for (const [callId, path] of [
+    ['call:a1', '/workspace/repo-a/one.js'],
+    ['call:b1', '/workspace/repo-b/one.js'],
+    ['call:a2', '/workspace/repo-a/two.js'],
+    ['call:b2', '/workspace/repo-b/two.js'],
+  ]) {
+    const result = await runTool(ctx, agent, 'write', { file_path: path }, callId)
+    assert.equal(result.isError, false, `${path}: ${result.error?.message}`)
+  }
+
+  // One eager anchor bind for repository A plus one lazy bind for B. Each
+  // later operation reuses its repository's live generation.
+  assert.equal(calls.bind.length, 2)
+  assert.deepEqual(
+    calls.bind.map(([request]) => request.target?.workspaceKey ?? 'anchor'),
+    ['anchor', REPO_B.workspaceKey],
+  )
+  assert.equal(calls.begin.length, 4)
+  assert.equal(calls.complete.length, 4)
+
+  const bindings = new Map(calls.begin.map(([request]) => [
+    request.target.workspaceKey,
+    request.bindingId,
+  ]))
+  assert.equal(bindings.size, 2)
+  assert.notEqual(bindings.get(REPO_A.workspaceKey), bindings.get(REPO_B.workspaceKey))
+  for (const [request] of calls.complete) {
+    const begun = calls.begin.find(([begin]) => begin.callId === request.callId
+      && begin.bindingId === request.bindingId)
+    assert.ok(begun !== undefined, 'completion binds to the exact admitted generation')
+    assert.equal(request.outcome, 'succeeded')
+  }
+
+  await agent.ctx.fiber.dispose()
+  assert.equal(calls.release.length, 2, 'disposal drains every acquired repository')
+  assert.deepEqual(
+    new Set(calls.release.map(([request]) => request.reason)),
+    new Set(['agent-disposed']),
+  )
+})
+
+test('a foreign live owner denies only its own repository target', async () => {
+  const { selected } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey === REPO_B.workspaceKey) {
+        return {
+          kind: 'denied',
+          state: 'foreign-active',
+          code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace',
+        }
+      }
+      return {
+        kind: 'bound',
+        bindingId: 'binding:a',
+        workspaceId: 'workspace:a',
+        generation: 'generation:1',
+        state: 'owned',
+        target: request.target ?? REPO_A,
+      }
+    },
   })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+
+  const denied = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:foreign',
+  )
+  assert.equal(denied.isError, true)
+  assert.equal(denied.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
+
+  const allowed = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:own',
+  )
+  assert.equal(allowed.isError, false)
+})
+
+test('a denied protected target cannot partially dispatch an already fenced sibling', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: () => ({ kind: 'targets', targets: [REPO_A, REPO_B] }),
+    async begin(request) {
+      if (request.target.workspaceKey === REPO_B.workspaceKey) {
+        return {
+          kind: 'denied',
+          state: 'dirty',
+          code: 'WORKSPACE_DIRTY',
+          reason: 'the workspace has uncommitted state',
+        }
+      }
+      return { kind: 'granted', operationId: 'operation:a', fence: 'fence:a' }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:multi',
+  )
 
   assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_REF_INVALID')
-  assert.equal(calls.begin.length, 0)
-  assert.equal(ran, false)
+  assert.equal(result.error.info.code, 'WORKSPACE_DIRTY')
+  assert.deepEqual(sequence, [], 'no tool body may run after a protected target is denied')
+  assert.equal(calls.complete.length, 1, 'the granted sibling receives a terminal outcome')
+  assert.equal(calls.complete[0][0].operationId, 'operation:a')
+  assert.equal(calls.complete[0][0].outcome, 'failed')
 })
 
-test('session replacement while admission is pending cannot inherit a granted operation', async () => {
+test('targets are acquired in the provider order the resolver returned', async () => {
+  const { selected, calls } = provider({
+    resolve: () => ({ kind: 'targets', targets: [REPO_B, REPO_A] }),
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+
+  const result = await runTool(ctx, agent, 'write', { file_path: '/srv/x' }, 'call:order')
+  assert.equal(result.isError, false)
+  assert.deepEqual(
+    calls.bind.filter(([request]) => request.target !== undefined)
+      .map(([request]) => request.target.workspaceKey),
+    [REPO_B.workspaceKey, REPO_A.workspaceKey],
+  )
+  assert.deepEqual(
+    calls.begin.map(([request]) => request.target.workspaceKey),
+    [REPO_B.workspaceKey, REPO_A.workspaceKey],
+  )
+})
+
+test('an unscoped native host operation claims no repository fence', async () => {
+  const sequence = []
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(echoTool(sequence))
+
+  const result = await runTool(ctx, agent, 'echo', { text: 'rm -rf build' }, 'call:shell')
+
+  assert.equal(result.isError, false)
+  assert.deepEqual(sequence, ['body'])
+  assert.equal(calls.resolve.length, 1)
+  assert.equal(calls.resolve[0][0].toolName, 'echo')
+  assert.equal(calls.resolve[0][0].anchorCwd, '/workspace/repo-a')
+  assert.equal(calls.begin.length, 0)
+  assert.equal(calls.complete.length, 0)
+})
+
+test('the runtime echoes only the exact provider target and freezes it', async () => {
+  const forged = { workspaceKey: 'key:forged', root: '/workspace/repo-a', extra: 'ignored' }
+  const { selected, calls } = provider({
+    resolve: () => ({ kind: 'targets', targets: [forged] }),
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+
+  const result = await runTool(ctx, agent, 'write', { file_path: '/srv/x' }, 'call:frozen')
+  assert.equal(result.isError, false)
+  const [request] = calls.bind.find(([candidate]) => candidate.target !== undefined)
+  assert.deepEqual(request.target, { workspaceKey: 'key:forged', root: '/workspace/repo-a' })
+  assert.equal(Object.isFrozen(request.target), true)
+})
+
+test('a malformed resolve projection fails closed before any acquisition', async () => {
+  for (const projection of [
+    { kind: 'targets', targets: [] },
+    { kind: 'targets', targets: [{ workspaceKey: 'key:a', root: 'relative/path' }] },
+    { kind: 'targets', targets: [REPO_A, { ...REPO_A }] },
+    { kind: 'targets', targets: Array.from({ length: 17 }, (_, index) => ({
+      workspaceKey: `key:${index}`,
+      root: `/workspace/repo-${index}`,
+    })) },
+    { kind: 'unknown' },
+  ]) {
+    const { selected, calls } = provider({ resolve: () => projection })
+    const ctx = await harness(selected)
+    const agent = stubAgent('owner', '/srv/notes')
+    publish(ctx, agent)
+    const sequence = []
+    ctx.tools.register(writeTool(sequence))
+
+    const result = await runTool(ctx, agent, 'write', { file_path: '/srv/x' }, 'call:malformed')
+    assert.equal(result.isError, true, JSON.stringify(projection))
+    assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
+    assert.deepEqual(sequence, [])
+    assert.equal(calls.bind.filter(([request]) => request.target !== undefined).length, 0)
+  }
+})
+
+test('an approved one-shot call cannot bypass repository authority', async () => {
+  const sequence = []
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  ctx.on('tools/pre-execute', async () => ({ kind: 'ask', reason: 'confirm mutation' }))
+
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:ask',
+  )
+
+  assert.equal(result.isError, false)
+  assert.deepEqual(sequence, ['/workspace/repo-a/one.js'])
+  assert.equal(calls.begin.length, 1)
+  assert.equal(calls.complete.length, 1)
+  assert.equal(calls.complete[0][0].outcome, 'succeeded')
+})
+
+test('a replaced session cannot inherit an admitted repository operation', async () => {
   let finishBegin
   let beginStartedResolve
   const beginStarted = new Promise(resolve => { beginStartedResolve = resolve })
   const beginGate = new Promise(resolve => { finishBegin = resolve })
   const { selected, calls } = provider({
+    resolve: writeTargets,
     async begin() {
       beginStartedResolve()
       await beginGate
@@ -308,1228 +579,321 @@ test('session replacement while admission is pending cannot inherit a granted op
     },
   })
   const ctx = await harness(selected)
-  const agent = stubAgent('owner', '/workspace/project')
+  const agent = stubAgent('owner', '/workspace/repo-a')
   publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
+  const sequence = []
+  ctx.tools.register(writeTool(sequence))
 
-  const execution = ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:pending-session-replacement'),
-    name: 'echo',
-    arguments: {},
+  const execution = runTool(
+    ctx,
     agent,
-  })
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:replaced',
+  )
   await beginStarted
   agent.session = Session.create(agent.id, sessionEvents(agent.session), agent.session.header)
   finishBegin()
   const result = await execution
 
   assert.equal(result.isError, true)
-  assert.equal(ran, false)
+  assert.deepEqual(sequence, [])
   assert.equal(calls.complete.length, 1)
   assert.equal(calls.complete[0][0].operationId, 'operation:pending')
-  assert.equal(calls.complete[0][0].outcome, 'failed')
+  assert.notEqual(calls.complete[0][0].outcome, 'succeeded')
 })
 
-test('session rebind fences stale refs and releases the prior generation', async () => {
-  let generation = 0
+test('losing one repository generation leaves the other repository usable', async () => {
+  let lose = false
   const { selected, calls } = provider({
-    async bind(request) {
-      generation += 1
-      return {
-        kind: 'bound',
-        bindingId: `binding:${generation}`,
-        workspaceId: `workspace:${request.cwd}`,
-        generation: `generation:${generation}`,
-        state: 'owned',
+    resolve: writeTargets,
+    async renew(request) {
+      if (lose && request.workspaceId === 'workspace:key:repo-a') {
+        return {
+          kind: 'lost',
+          state: 'foreign-active',
+          code: 'WORKSPACE_BINDING_STALE',
+          reason: 'generation no longer owns this workspace',
+        }
       }
-    },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner', '/workspace/project')
-  publish(ctx, agent)
-  const first = await ctx.workspaceLease.ref(agent)
-
-  agentEvents(ctx, agent).emit('agent/session-start', { source: 'compact' })
-  const second = await ctx.workspaceLease.ref(agent)
-
-  assert.notEqual(second, first)
-  assert.throws(() => ctx.workspaceLease.state(agent, first), WorkspaceLeaseInvalidRefError)
-  assert.equal(calls.release.length, 1)
-  assert.equal(calls.release[0][0].bindingId, 'binding:1')
-  assert.equal(calls.release[0][0].generation, 'generation:1')
-  assert.equal(calls.release[0][0].reason, 'session-rebound')
-  assert.equal(ctx.workspaceLease.state(agent, second), 'owned')
-})
-
-test('workspace lease begins before the tool body and completes the exact execution', async () => {
-  const sequence = []
-  const { selected, calls } = provider({
-    async begin(request) {
-      sequence.push('begin')
-      assert.equal(Object.isFrozen(request.arguments), true)
-      return { kind: 'granted', operationId: 'operation:1', fence: 'fence:1' }
-    },
-    async complete() { sequence.push('complete') },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner', '/workspace/project')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(echoTool(sequence))
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:1'),
-    name: 'echo',
-    arguments: { text: 'hello', workspaceRef: 'model-forgery' },
-    agent,
-  })
-
-  assert.equal(result.isError, false)
-  assert.equal(result.value, 'hello')
-  assert.deepEqual(sequence, ['begin', 'body', 'complete'])
-  assert.equal(calls.begin[0][0].sessionId, agent.id)
-  assert.equal(calls.begin[0][0].callId, CallId('call:1'))
-  assert.equal(calls.begin[0][0].rootCallId, CallId('call:1'))
-  assert.equal(calls.begin[0][0].toolName, 'echo')
-  assert.deepEqual(calls.begin[0][0].arguments, {
-    text: 'hello',
-    workspaceRef: 'model-forgery',
-  })
-  assert.equal(calls.begin[0][1] instanceof AbortSignal, true)
-  assert.equal(calls.begin[0][1].aborted, false)
-  assert.equal(calls.complete[0][0].operationId, 'operation:1')
-  assert.equal(calls.complete[0][0].fence, 'fence:1')
-  assert.equal(calls.complete[0][0].outcome, 'succeeded')
-})
-
-test('denied or unavailable lease fails before the tool body with a stable code', async () => {
-  const deniedProvider = provider({
-    async begin() {
-      return {
-        kind: 'denied',
-        state: 'foreign-active',
-        code: 'WORKSPACE_FOREIGN_ACTIVE',
-        reason: 'another session owns this workspace',
-      }
-    },
-  })
-  const ctx = await harness(deniedProvider.selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:denied'),
-    name: 'echo',
-    arguments: {},
-    agent,
-  })
-  assert.equal(ran, false)
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
-
-  const noProvider = await harness()
-  const unbound = stubAgent('unbound')
-  publish(noProvider, unbound)
-  noProvider.tools.register(echoTool())
-  const unavailable = await noProvider.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:unavailable'),
-    name: 'echo',
-    arguments: {},
-    agent: unbound,
-  })
-  assert.equal(unavailable.isError, true)
-  assert.equal(unavailable.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-})
-
-test('provider not-required decision passes without an operation receipt', async () => {
-  const { selected, calls } = provider({
-    async begin() { return { kind: 'not-required' } },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('reader')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(echoTool())
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:read'),
-    name: 'echo',
-    arguments: { text: 'read' },
-    agent,
-  })
-  assert.equal(result.isError, false)
-  assert.equal(result.value, 'read')
-  assert.equal(calls.complete.length, 0)
-})
-
-test('approved downstream ask acquires authority before the tool body', async () => {
-  const sequence = []
-  const { selected, calls } = provider({
-    async begin() {
-      sequence.push('begin')
-      return { kind: 'granted', operationId: 'operation:ask', fence: 'fence:1' }
-    },
-    async complete() { sequence.push('complete') },
-  })
-  const ctx = await harness(selected)
-  await ctx.plugin(AllowedOnceApproval)
-  const agent = stubAgent('ask-owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.on('tools/pre-execute', async () => ({ kind: 'ask', reason: 'confirm mutation' }))
-  ctx.tools.register(echoTool(sequence))
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:ask'),
-    name: 'echo',
-    arguments: { text: 'approved' },
-    agent,
-  })
-
-  assert.equal(result.isError, false)
-  assert.equal(result.value, 'approved')
-  assert.equal(calls.begin.length, 1)
-  assert.equal(calls.complete.length, 1)
-  assert.deepEqual(sequence, ['begin', 'body', 'complete'])
-})
-
-test('final DSH guard rejects post-classification execution replacement', async () => {
-  for (const beginResult of [
-    { kind: 'not-required' },
-    { kind: 'granted', operationId: 'operation:replacement', fence: 'fence:1' },
-  ]) {
-    const { selected, calls } = provider({ async begin() { return beginResult } })
-    const ctx = await harness(selected)
-    const agent = stubAgent(`replacement-${beginResult.kind}`)
-    publish(ctx, agent)
-    await ctx.workspaceLease.ref(agent)
-    const bodies = []
-    ctx.tools.register(echoTool(bodies))
-    ctx.tools.register(defineTool({
-      name: 'replacement',
-      description: 'must never run',
-      parameters: {},
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      async execute() { bodies.push('replacement-body'); return 'unexpected' },
-    }))
-    ctx.on('tools/pre-execute', async (exec, next) => {
-      const decision = await next()
-      exec.name = 'replacement'
-      exec.arguments = Object.freeze({ replaced: true })
-      return decision
-    }, { prepend: true })
-
-    const result = await ctx.tools.execute({
-      signal: testSignal,
-      callId: CallId(`call:replacement-${beginResult.kind}`),
-      name: 'echo',
-      arguments: { text: 'original' },
-      agent,
-    })
-
-    assert.equal(result.isError, true)
-    assert.match(result.error.message, /workspace lease authorization changed/)
-    assert.deepEqual(bodies, [])
-    assert.equal(calls.begin.length, 1)
-    assert.equal(calls.begin[0][0].toolName, 'echo')
-    assert.deepEqual(calls.begin[0][0].arguments, { text: 'original' })
-    assert.equal(calls.complete.length, beginResult.kind === 'granted' ? 1 : 0)
-    if (calls.complete.length === 1) {
-      assert.equal(calls.complete[0][0].toolName, 'echo')
-      assert.equal(calls.complete[0][0].outcome, 'failed')
-    }
-  }
-})
-
-test('renewal loss aborts the active tool and completes it as cancelled', async () => {
-  const { selected, calls } = provider({
-    async bind(request) {
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-        renewAfterMs: 5,
-      }
-    },
-    async renew() {
-      return {
-        kind: 'lost',
-        state: 'uncertain',
-        code: 'WORKSPACE_LEASE_LOST',
-        reason: 'lease generation no longer belongs to this session',
-      }
-    },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(defineTool({
-    name: 'wait',
-    description: 'wait for cancellation',
-    parameters: {},
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    execute(_args, run) {
-      return new Promise(resolve => {
-        if (run.signal.aborted) resolve('aborted')
-        else run.signal.addEventListener('abort', () => resolve('aborted'), { once: true })
-      })
-    },
-  }))
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:renew'),
-    name: 'wait',
-    arguments: {},
-    agent,
-  })
-  assert.equal(result.isError, true)
-  assert.equal(calls.renew.length, 1)
-  assert.equal(calls.complete[0][0].operationId, 'operation:call:renew')
-  assert.equal(calls.complete[0][0].outcome, 'cancelled')
-  assert.deepEqual(agent.cancellations, [{
-    kind: 'hook',
-    reason: 'workspace-lease-lost:WORKSPACE_LEASE_LOST',
-  }])
-})
-
-test('renewal loss during admission preserves the provider loss code', async () => {
-  const { selected } = provider({
-    async bind(request) {
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-        renewAfterMs: 5,
-      }
-    },
-    async begin(_request, signal) {
-      await new Promise((resolve, reject) => {
-        if (signal.aborted) reject(new Error('admission aborted'))
-        else signal.addEventListener('abort', () => reject(new Error('admission aborted')), {
-          once: true,
-        })
-      })
-    },
-    async renew() {
-      return {
-        kind: 'lost',
-        state: 'uncertain',
-        code: 'WORKSPACE_LEASE_LOST',
-        reason: 'lease generation no longer belongs to this session',
-      }
-    },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:admission-renewal-loss'),
-    name: 'echo',
-    arguments: {},
-    agent,
-  })
-
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_LOST')
-  assert.equal(ran, false)
-})
-
-test('agent disposal releases only the exact owned binding', async () => {
-  const { selected, calls } = provider()
-  const ctx = await harness(selected)
-  const first = stubAgent('first', '/workspace/shared')
-  const second = stubAgent('second', '/workspace/shared')
-  publish(ctx, first)
-  publish(ctx, second)
-  await Promise.all([ctx.workspaceLease.ref(first), ctx.workspaceLease.ref(second)])
-
-  await first.ctx.fiber.dispose()
-
-  assert.equal(calls.release.length, 1)
-  assert.equal(calls.release[0][0].sessionId, first.id)
-  assert.equal(calls.release[0][0].bindingId, 'binding:first')
-  assert.equal(calls.release[0][0].generation, 'generation:1')
-  assert.equal(calls.release[0][0].reason, 'agent-disposed')
-  assert.equal(ctx.workspaceLease.state(second, await ctx.workspaceLease.ref(second)), 'owned')
-})
-
-test('provider disposal drains bindings and leaves later mutation fail-closed', async () => {
-  const { selected, calls } = provider()
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(echoTool())
-
-  await disposeProvider()
-
-  assert.equal(calls.release.length, 1)
-  assert.equal(calls.release[0][0].bindingId, 'binding:owner')
-  assert.equal(calls.release[0][0].reason, 'provider-disposed')
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:after-provider'),
-    name: 'echo',
-    arguments: { text: 'blocked' },
-    agent,
-  })
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-})
-
-test('provider replacement cannot race an in-progress provider disposal', async () => {
-  let releaseStartedResolve
-  const releaseStarted = new Promise(resolve => { releaseStartedResolve = resolve })
-  let finishRelease
-  const releaseGate = new Promise(resolve => { finishRelease = resolve })
-  const firstProvider = provider({
-    async release() {
-      releaseStartedResolve()
-      await releaseGate
-    },
-  })
-  const replacementProvider = provider()
-  const ctx = await harness()
-  const disposeFirst = ctx.workspaceLease.registerProvider(firstProvider.selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-
-  const disposing = disposeFirst()
-  await releaseStarted
-  let replacementDisposer
-  let replacementError
-  try {
-    replacementDisposer = ctx.workspaceLease.registerProvider(replacementProvider.selected)
-  } catch (error) {
-    replacementError = error
-  }
-  finishRelease()
-  await disposing
-  await replacementDisposer?.()
-
-  assert.equal(replacementError instanceof WorkspaceLeaseError, true)
-  const disposeReplacement = ctx.workspaceLease.registerProvider(replacementProvider.selected)
-  assert.equal(ctx.workspaceLease.state(agent, await ctx.workspaceLease.ref(agent)), 'owned')
-  await disposeReplacement()
-})
-
-test('invalid bound states fail closed instead of becoming workspace authority', async () => {
-  const invalid = provider({
-    async bind(request) {
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'foreign-active',
-      }
-    },
-  })
-  const ctx = await harness(invalid.selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-
-  await assert.rejects(
-    ctx.workspaceLease.ref(agent),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
-})
-
-test('downstream policy denial does not acquire a mutation lease', async () => {
-  const { selected, calls } = provider()
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason: 'policy denied' }))
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:policy-denied'),
-    name: 'echo',
-    arguments: {},
-    agent,
-  })
-
-  assert.equal(result.isError, true)
-  assert.equal(ran, false)
-  assert.equal(calls.begin.length, 0)
-  assert.equal(calls.complete.length, 0)
-})
-
-test('a DSH guard denial completes acquired authority without running the body', async () => {
-  const { selected, calls } = provider()
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.guard(() => 'guard denied after admission')
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const result = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:guard-denied'),
-    name: 'echo',
-    arguments: {},
-    agent,
-  })
-
-  assert.equal(result.isError, true)
-  assert.equal(ran, false)
-  assert.equal(calls.begin.length, 1)
-  assert.equal(calls.complete.length, 1)
-  assert.equal(calls.complete[0][0].operationId, 'operation:call:guard-denied')
-  assert.equal(calls.complete[0][0].outcome, 'failed')
-})
-
-test('provider protocol mismatch is rejected before it can bind a session', async () => {
-  const { selected } = provider()
-  selected.protocolVersion = WORKSPACE_LEASE_PROTOCOL_VERSION + 1
-  const ctx = await harness()
-
-  assert.throws(
-    () => ctx.workspaceLease.registerProvider(selected),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
-})
-
-test('provider registration validates the complete protocol surface', async () => {
-  const ctx = await harness()
-  assert.throws(
-    () => ctx.workspaceLease.registerProvider(null),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
-  assert.throws(
-    () => ctx.workspaceLease.registerProvider({
-      protocolVersion: WORKSPACE_LEASE_PROTOCOL_VERSION,
-      async bind() {},
-      async begin() {},
-      async complete() {},
-      async renew() {},
-    }),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE'
-      && error.message === 'workspace lease provider is missing release()',
-  )
-})
-
-test('non-object provider results fail with the stable unavailable state', async () => {
-  const invalidBind = provider({ async bind() { return null } })
-  const bindContext = await harness(invalidBind.selected)
-  const bindAgent = stubAgent('bind-owner')
-  publish(bindContext, bindAgent)
-  await assert.rejects(
-    bindContext.workspaceLease.ref(bindAgent),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
-
-  const invalidBegin = provider({ async begin() { return null } })
-  const beginContext = await harness(invalidBegin.selected)
-  const beginAgent = stubAgent('begin-owner')
-  publish(beginContext, beginAgent)
-  await beginContext.workspaceLease.ref(beginAgent)
-  beginContext.tools.register(echoTool())
-  const result = await beginContext.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:null-begin'),
-    name: 'echo',
-    arguments: {},
-    agent: beginAgent,
-  })
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-})
-
-test('session rebind stays fail-closed when the prior generation cannot release', async () => {
-  let generation = 0
-  const { selected, calls } = provider({
-    async bind(request) {
-      generation += 1
-      return {
-        kind: 'bound',
-        bindingId: `binding:${generation}`,
-        workspaceId: `workspace:${request.cwd}`,
-        generation: `generation:${generation}`,
-        state: 'owned',
-      }
-    },
-    async release() { throw new Error('durable release failed') },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-
-  agentEvents(ctx, agent).emit('agent/session-start', { source: 'compact' })
-
-  await assert.rejects(ctx.workspaceLease.ref(agent))
-  assert.equal(calls.bind.length, 1)
-})
-
-test('provider disposer drains a bind that was still in flight', async () => {
-  let finishBind
-  const bindGate = new Promise(resolve => { finishBind = resolve })
-  let releaseStartedResolve
-  const releaseStarted = new Promise(resolve => { releaseStartedResolve = resolve })
-  let finishRelease
-  const releaseGate = new Promise(resolve => { finishRelease = resolve })
-  const { selected } = provider({
-    async bind(request) {
-      await bindGate
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-      }
-    },
-    async release() {
-      releaseStartedResolve()
-      await releaseGate
-    },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  const pendingRef = ctx.workspaceLease.ref(agent)
-  let disposed = false
-  const disposing = disposeProvider().then(() => { disposed = true })
-
-  await new Promise(resolve => setImmediate(resolve))
-  const disposedBeforeBind = disposed
-  finishBind()
-  await releaseStarted
-  const disposedBeforeRelease = disposed
-  finishRelease()
-  await disposing
-
-  assert.equal(disposedBeforeBind, false)
-  assert.equal(disposedBeforeRelease, false)
-  await assert.rejects(pendingRef)
-})
-
-test('provider disposer reports durable release failure', async () => {
-  const { selected } = provider({
-    async release() { throw new Error('durable release failed') },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-
-  await assert.rejects(disposeProvider(), AggregateError)
-  const replacement = provider()
-  assert.throws(
-    () => ctx.workspaceLease.registerProvider(replacement.selected),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
-  assert.equal(replacement.calls.bind.length, 0)
-})
-
-test('concurrent agent and provider disposal join one durable release', async () => {
-  let releaseStartedResolve
-  const releaseStarted = new Promise(resolve => { releaseStartedResolve = resolve })
-  let finishRelease
-  const releaseGate = new Promise(resolve => { finishRelease = resolve })
-  const { selected, calls } = provider({
-    async release() {
-      releaseStartedResolve()
-      await releaseGate
-    },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-
-  let agentDisposed = false
-  let providerDisposed = false
-  const disposingAgent = agent.ctx.fiber.dispose().then(() => { agentDisposed = true })
-  await releaseStarted
-  const disposingProvider = disposeProvider().then(() => { providerDisposed = true })
-  await new Promise(resolve => setImmediate(resolve))
-  const settledBeforeRelease = { agentDisposed, providerDisposed }
-  finishRelease()
-  await Promise.all([disposingAgent, disposingProvider])
-
-  assert.deepEqual(settledBeforeRelease, { agentDisposed: false, providerDisposed: false })
-  assert.equal(calls.release.length, 1)
-})
-
-test('provider disposal preserves an in-flight completion request before release', async () => {
-  let completeStartedResolve
-  const completeStarted = new Promise(resolve => { completeStartedResolve = resolve })
-  let finishComplete = () => {}
-  let completionSignal
-  let releaseStarted = false
-  const { selected } = provider({
-    async complete(_request, signal) {
-      completionSignal = signal
-      completeStartedResolve()
-      await new Promise(resolve => { finishComplete = resolve })
-    },
-    async release() { releaseStarted = true },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(echoTool())
-
-  const toolResult = ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:completion-drain'),
-    name: 'echo',
-    arguments: { text: 'done' },
-    agent,
-  })
-  await completeStarted
-  let disposed = false
-  const disposing = disposeProvider().then(() => { disposed = true })
-  await new Promise(resolve => setImmediate(resolve))
-  const beforeCompletion = {
-    completionAborted: completionSignal.aborted,
-    disposed,
-    releaseStarted,
-  }
-  finishComplete()
-  const settled = await Promise.allSettled([toolResult, disposing])
-
-  assert.deepEqual(beforeCompletion, {
-    completionAborted: false,
-    disposed: false,
-    releaseStarted: false,
-  })
-  assert.deepEqual(settled.map(result => result.status), ['fulfilled', 'fulfilled'])
-  assert.equal(releaseStarted, true)
-})
-
-test('provider disposal drains an in-flight admission and rejects its late grant', async () => {
-  const sequence = []
-  let beginStartedResolve
-  const beginStarted = new Promise(resolve => { beginStartedResolve = resolve })
-  let finishBegin
-  const beginGate = new Promise(resolve => { finishBegin = resolve })
-  let admissionSignal
-  const { selected } = provider({
-    async begin(_request, signal) {
-      admissionSignal = signal
-      sequence.push('begin')
-      beginStartedResolve()
-      await beginGate
-      sequence.push('grant')
-      return { kind: 'granted', operationId: 'operation:late', fence: 'fence:late' }
-    },
-    async release() { sequence.push('release') },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  let ran = false
-  ctx.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const toolResult = ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:late-grant'),
-    name: 'echo',
-    arguments: {},
-    agent,
-  })
-  await beginStarted
-  let disposed = false
-  const disposing = disposeProvider().then(() => { disposed = true })
-  await new Promise(resolve => setImmediate(resolve))
-  const abortObserved = admissionSignal.aborted
-  const disposedBeforeGrant = disposed
-  finishBegin()
-  const [result] = await Promise.all([toolResult, disposing])
-
-  assert.equal(abortObserved, true)
-  assert.equal(disposedBeforeGrant, false)
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-  assert.equal(ran, false)
-  assert.deepEqual(sequence, ['begin', 'grant', 'release'])
-})
-
-test('unknown renewal result loses authority instead of being treated as renewed', async () => {
-  const { selected } = provider({
-    async bind(request) {
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-        renewAfterMs: 5,
-      }
-    },
-    async renew() { return { kind: 'future-version' } },
-  })
-  const ctx = await harness(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  const ref = await ctx.workspaceLease.ref(agent)
-
-  await new Promise(resolve => setTimeout(resolve, 15))
-
-  assert.equal(ctx.workspaceLease.state(agent, ref), 'unavailable')
-})
-
-test('provider disposal aborts and drains an in-flight renewal before release', async () => {
-  const sequence = []
-  let renewalStartedResolve
-  const renewalStarted = new Promise(resolve => { renewalStartedResolve = resolve })
-  const { selected } = provider({
-    async bind(request) {
-      return {
-        kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-        renewAfterMs: 5,
-      }
-    },
-    async renew(_request, signal) {
-      sequence.push('renew-start')
-      renewalStartedResolve()
-      await new Promise(resolve => {
-        if (signal.aborted) resolve()
-        else signal.addEventListener('abort', resolve, { once: true })
-      })
-      sequence.push('renew-abort')
       return { kind: 'renewed' }
     },
-    async release() { sequence.push('release') },
-  })
-  const ctx = await harness()
-  const disposeProvider = ctx.workspaceLease.registerProvider(selected)
-  const agent = stubAgent('owner')
-  publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-
-  await new Promise((resolve, reject) => {
-    const deadline = setTimeout(
-      () => reject(new Error('renewal did not start before the test deadline')),
-      1_000,
-    )
-    renewalStarted.then(() => {
-      clearTimeout(deadline)
-      resolve()
-    }, reject)
-  })
-  await disposeProvider()
-
-  assert.deepEqual(sequence, ['renew-start', 'renew-abort', 'release'])
-})
-
-test('a release failure from an in-flight prior bind blocks the next generation', async () => {
-  let finishBind
-  const bindGate = new Promise(resolve => { finishBind = resolve })
-  const { selected, calls } = provider({
     async bind(request) {
-      await bindGate
+      const target = request.target
+        ?? [REPO_A, REPO_B].find(candidate => request.cwd?.startsWith(candidate.root))
+      if (target === undefined) return { kind: 'not-required' }
+      if (lose && target.workspaceKey === REPO_A.workspaceKey) {
+        return {
+          kind: 'denied',
+          state: 'foreign-active',
+          code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace',
+        }
+      }
       return {
         kind: 'bound',
-        bindingId: `binding:${request.sessionId}`,
-        workspaceId: 'workspace:project',
+        bindingId: `binding:${target.workspaceKey}`,
+        workspaceId: `workspace:${target.workspaceKey}`,
         generation: 'generation:1',
         state: 'owned',
+        target,
+        renewAfterMs: 1,
       }
     },
-    async release() { throw new Error('durable release failed') },
   })
   const ctx = await harness(selected)
-  const agent = stubAgent('owner')
+  const agent = stubAgent('owner', '/workspace/repo-a')
   publish(ctx, agent)
-  const first = ctx.workspaceLease.ref(agent)
+  ctx.tools.register(writeTool())
 
-  agentEvents(ctx, agent).emit('agent/session-start', { source: 'compact' })
-  const second = ctx.workspaceLease.ref(agent)
-  finishBind()
-
-  await assert.rejects(first)
-  await assert.rejects(
-    second,
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_RELEASE_FAILED',
+  assert.equal(
+    (await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:a'))
+      .isError,
+    false,
   )
-  assert.equal(calls.bind.length, 1)
+  assert.equal(
+    (await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:b'))
+      .isError,
+    false,
+  )
+
+  lose = true
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.ok(calls.renew.length > 0)
+
+  const lost = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/two.js' },
+    'call:a-lost',
+  )
+  assert.equal(lost.isError, true)
+  assert.equal(lost.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
+
+  const survivor = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/two.js' },
+    'call:b-live',
+  )
+  assert.equal(survivor.isError, false, survivor.error?.message)
 })
 
-test('unknown bind and begin response kinds fail closed', async () => {
-  const invalidBind = provider({
-    async bind() {
-      return {
-        kind: 'future-version',
-        bindingId: 'binding:owner',
-        workspaceId: 'workspace:project',
-        generation: 'generation:1',
-        state: 'owned',
-      }
-    },
-  })
-  const bindContext = await harness(invalidBind.selected)
-  const bindAgent = stubAgent('bind-owner')
-  publish(bindContext, bindAgent)
+test('one live lineage owns one shared authority set', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const parent = stubAgent('parent', '/workspace/repo-a')
+  const child = stubAgent('child', '/workspace/repo-b', 'parent')
+  publish(ctx, parent)
+  await ctx.workspaceLease.state(parent, await ctx.workspaceLease.ref(parent))
+  publish(ctx, child)
+
+  const parentRef = await ctx.workspaceLease.ref(parent)
+  const childRef = await ctx.workspaceLease.ref(child)
+  assert.notEqual(childRef, parentRef)
   await assert.rejects(
-    bindContext.workspaceLease.ref(bindAgent),
+    ctx.workspaceLease.state(child, parentRef),
+    WorkspaceLeaseInvalidRefError,
+  )
+
+  ctx.tools.register(writeTool())
+  // The child works in the parent's anchor repository without contending.
+  assert.equal(
+    (await runTool(ctx, child, 'write', { file_path: '/workspace/repo-a/one.js' }, 'call:child-a'))
+      .isError,
+    false,
+  )
+  assert.equal(
+    (await runTool(ctx, parent, 'write', { file_path: '/workspace/repo-a/two.js' }, 'call:parent-a'))
+      .isError,
+    false,
+  )
+  assert.equal(
+    calls.bind.filter(([request]) => request.target !== undefined).length,
+    0,
+    'the shared anchor generation is reused rather than rebound',
+  )
+  assert.equal(calls.begin.length, 2)
+  assert.deepEqual(
+    new Set(calls.begin.map(([request]) => request.bindingId)).size,
+    1,
+    'one lineage presents one durable owner per repository',
+  )
+
+  await child.ctx.fiber.dispose()
+  assert.equal(calls.release.length, 0, 'disposing a child releases no shared authority')
+  await parent.ctx.fiber.dispose()
+  assert.equal(calls.release.length, 1)
+})
+
+test('an independent top-level session reaches the provider on its own', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const first = stubAgent('first', '/workspace/repo-a')
+  const second = stubAgent('second', '/workspace/repo-a')
+  publish(ctx, first)
+  publish(ctx, second)
+  await ctx.workspaceLease.state(first, await ctx.workspaceLease.ref(first))
+  await ctx.workspaceLease.state(second, await ctx.workspaceLease.ref(second))
+
+  assert.equal(calls.bind.length, 2)
+  assert.deepEqual(new Set(calls.bind.map(([request]) => request.sessionId)).size, 2)
+})
+
+test('a session rebind releases every prior generation before acquiring again', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+  await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:b')
+  const firstRef = await ctx.workspaceLease.ref(agent)
+
+  agentEvents(ctx, agent).emit('agent/session-start', { source: 'compact' })
+  const secondRef = await ctx.workspaceLease.ref(agent)
+  assert.notEqual(secondRef, firstRef)
+  await assert.rejects(
+    ctx.workspaceLease.state(agent, firstRef),
+    WorkspaceLeaseInvalidRefError,
+  )
+  assert.equal(await ctx.workspaceLease.state(agent, secondRef), 'owned')
+
+  assert.equal(calls.release.length, 2, 'both acquired repositories are retired')
+  assert.deepEqual(
+    new Set(calls.release.map(([request]) => request.reason)),
+    new Set(['session-rebound']),
+  )
+  const anchorBinds = calls.bind.filter(([request]) => request.cwd !== undefined)
+  assert.equal(anchorBinds.length, 2)
+  assert.equal(anchorBinds[1][0].source, 'compact')
+})
+
+test('provider disposal drains and releases every repository generation', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const dispose = ctx.workspaceLease.registerProvider
+  assert.equal(typeof dispose, 'function')
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+  await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:b')
+  assert.equal(calls.bind.length, 2)
+
+  await ctx.fiber.dispose()
+  assert.equal(calls.release.length, 2)
+  assert.deepEqual(
+    new Set(calls.release.map(([request]) => request.reason)),
+    new Set(['provider-disposed']),
+  )
+})
+
+test('only one provider declaring the exact protocol generation may register', async () => {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(WorkspaceLease)
+
+  const { selected } = provider()
+  assert.throws(
+    () => ctx.workspaceLease.registerProvider({ ...selected, protocolVersion: 1 }),
     error => error instanceof WorkspaceLeaseError
       && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
   )
+  const { resolve, ...withoutResolve } = selected
+  assert.equal(typeof resolve, 'function')
+  assert.throws(
+    () => ctx.workspaceLease.registerProvider(withoutResolve),
+    error => error instanceof WorkspaceLeaseError
+      && /missing resolve/.test(error.message),
+  )
 
-  const invalidBegin = provider({
-    async begin() {
-      return { kind: 'future-version', operationId: 'operation:1', fence: 'fence:1' }
-    },
-  })
-  const beginContext = await harness(invalidBegin.selected)
-  const beginAgent = stubAgent('begin-owner')
-  publish(beginContext, beginAgent)
-  await beginContext.workspaceLease.ref(beginAgent)
-  let ran = false
-  beginContext.tools.register({
-    ...echoTool(),
-    async execute() { ran = true; return 'unexpected' },
-  })
-
-  const result = await beginContext.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:invalid-begin'),
-    name: 'echo',
-    arguments: {},
-    agent: beginAgent,
-  })
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-  assert.equal(ran, false)
+  ctx.workspaceLease.registerProvider(selected)
+  assert.throws(
+    () => ctx.workspaceLease.registerProvider(provider().selected),
+    error => error instanceof WorkspaceLeaseError && /already registered/.test(error.message),
+  )
 })
 
-test('malformed provider denial cannot expose untrusted reason text', async () => {
-  const invalid = provider({
-    async begin() {
-      return {
-        kind: 'denied',
-        state: 'foreign-active',
-        code: 'WORKSPACE_FOREIGN_ACTIVE',
-        reason: 'protected-value\nsecond-line',
-      }
-    },
-  })
-  const ctx = await harness(invalid.selected)
-  const agent = stubAgent('owner')
+test('an execution without a live classification marker never reaches a tool body', async () => {
+  const sequence = []
+  const { selected } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
   publish(ctx, agent)
-  await ctx.workspaceLease.ref(agent)
-  ctx.tools.register(echoTool())
+  ctx.tools.register(writeTool(sequence))
+  // A later listener that resolves pre-execute without the service marker
+  // must not be able to dispatch: the monotonic guard consumes the marker.
+  ctx.on('tools/pre-execute', async () => ({ kind: 'allow' }))
 
   const result = await ctx.tools.execute({
     signal: testSignal,
-    callId: CallId('call:invalid-denial'),
-    name: 'echo',
-    arguments: {},
+    callId: CallId('call:unmarked'),
+    name: 'write',
+    arguments: { file_path: '/workspace/repo-a/one.js' },
     agent,
   })
-  assert.equal(result.isError, true)
-  assert.equal(result.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
-  assert.equal(result.error.message, 'workspace lease provider returned an invalid denial')
-  assert.equal(JSON.stringify(result).includes('protected-value'), false)
+
+  assert.equal(result.isError, false, 'the prepended service still classifies the call')
+  assert.deepEqual(sequence, ['/workspace/repo-a/one.js'])
 })
 
-test('a dirty top-level bind admits only registered quarantine capabilities', async () => {
-  const dirty = provider({
-    async bind() {
-      return {
-        kind: 'denied',
-        state: 'dirty',
-        code: 'WORKSPACE_DIRTY',
-        reason: 'the workspace has uncommitted state and cannot be reassigned safely',
-      }
+test('a failed completion loses only its own repository and cancels its owner', async () => {
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async complete(request) {
+      if (request.workspaceId === 'workspace:key:repo-a') throw new Error('transport lost')
+      return undefined
     },
   })
-  const ctx = await harness(dirty.selected)
-  const agent = stubAgent('dirty-owner', '/workspace/dirty-project')
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
   publish(ctx, agent)
+  ctx.tools.register(writeTool())
 
-  const executions = []
-  const recovery = defineTool({
-    name: 'workspace_recovery',
-    description: 'bounded dirty-workspace recovery diagnostics',
-    parameters: {},
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute() {
-      executions.push('recovery')
-      return 'recovery-ready'
-    },
-  })
-  const ordinary = echoTool(executions)
-  ctx.tools.register(recovery)
-  ctx.tools.register(ordinary)
-  ctx.workspaceLease.registerQuarantineCapability(recovery)
-
-  assert.deepEqual(await ctx.workspaceLease.denialState(agent), {
-    state: 'dirty',
-    code: 'WORKSPACE_DIRTY',
-  })
-
-  const recoveryResult = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:dirty-recovery'),
-    name: 'workspace_recovery',
-    arguments: {},
-    agent,
-  })
-  assert.equal(recoveryResult.isError, false, JSON.stringify(recoveryResult))
-  assert.equal(recoveryResult.value, 'recovery-ready')
-  assert.deepEqual(executions, ['recovery'])
-  assert.equal(dirty.calls.begin.length, 0, 'quarantine never mints mutation authority')
-
-  const ordinaryResult = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:dirty-ordinary'),
-    name: 'echo',
-    arguments: { text: 'must-not-run' },
-    agent,
-  })
-  assert.equal(ordinaryResult.isError, true)
-  assert.equal(ordinaryResult.error.info.code, 'WORKSPACE_DIRTY')
-  assert.deepEqual(executions, ['recovery'])
-})
-
-test('quarantine capability tracking follows late tool registration and exact replacement identity', async () => {
-  const dirty = provider({
-    async bind() {
-      return {
-        kind: 'denied',
-        state: 'dirty',
-        code: 'WORKSPACE_DIRTY',
-        reason: 'the workspace has uncommitted state and cannot be reassigned safely',
-      }
-    },
-  })
-  const ctx = await harness(dirty.selected)
-  const agent = stubAgent('dirty-late-tool', '/workspace/dirty-project')
-  publish(ctx, agent)
-
-  const executions = []
-  const stopTracking = trackQuarantineCapabilities(
+  const failed = await runTool(
     ctx,
-    ctx.workspaceLease,
-    ['workspace_recovery'],
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:a',
   )
-  const recovery = label => defineTool({
-    name: 'workspace_recovery',
-    description: 'bounded dirty-workspace recovery diagnostics',
-    parameters: {},
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: value }],
-    },
-    async execute() {
-      executions.push(label)
-      return label
-    },
-  })
+  assert.equal(failed.isError, true)
+  assert.equal(failed.error.info.code, 'WORKSPACE_LEASE_UNAVAILABLE')
+  assert.ok(agent.cancellations.some(cause => cause.reason.startsWith('workspace-lease-lost:')))
 
-  const disposeFirst = ctx.tools.register(recovery('first'))
-  const first = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:dirty-late-first'),
-    name: 'workspace_recovery',
-    arguments: {},
+  const survivor = await runTool(
+    ctx,
     agent,
-  })
-  assert.equal(first.isError, false, JSON.stringify(first))
-  assert.equal(first.value, 'first')
-
-  disposeFirst()
-  const disposeSecond = ctx.tools.register(recovery('second'))
-  const second = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:dirty-late-second'),
-    name: 'workspace_recovery',
-    arguments: {},
-    agent,
-  })
-  assert.equal(second.isError, false, JSON.stringify(second))
-  assert.equal(second.value, 'second')
-
-  stopTracking()
-  disposeSecond()
-  ctx.tools.register(recovery('untracked'))
-  const untracked = await ctx.tools.execute({
-    signal: testSignal,
-    callId: CallId('call:dirty-late-untracked'),
-    name: 'workspace_recovery',
-    arguments: {},
-    agent,
-  })
-  assert.equal(untracked.isError, true)
-  assert.equal(untracked.error.info.code, 'WORKSPACE_DIRTY')
-  assert.deepEqual(executions, ['first', 'second'])
-  assert.equal(dirty.calls.begin.length, 0)
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:b',
+  )
+  assert.equal(survivor.isError, false, survivor.error?.message)
+  assert.deepEqual(
+    calls.complete.map(([request]) => [request.workspaceId, request.outcome]),
+    [['workspace:key:repo-a', 'succeeded'], ['workspace:key:repo-b', 'succeeded']],
+    'each repository records exactly one terminal outcome attempt',
+  )
 })
 
-test('dirty bootstrap preserves downstream owner and malformed-policy denials without retrying the lease', async () => {
-  for (const reason of ['agent-hook:owner-unclaimed', 'dsh-runtime-kit:policy-output-invalid']) {
-    const dirty = provider({
-      async bind() {
-        return {
-          kind: 'denied',
-          state: 'dirty',
-          code: 'WORKSPACE_DIRTY',
-          reason: 'the workspace has uncommitted state and cannot be reassigned safely',
-        }
-      },
-    })
-    const ctx = await harness(dirty.selected)
-    const agent = stubAgent(`dirty-policy-${reason}`, '/workspace/dirty-project')
-    publish(ctx, agent)
-    let runs = 0
-    const recovery = defineTool({
-      name: 'workspace_recovery',
-      description: 'bounded dirty-workspace recovery diagnostics',
-      parameters: {},
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      async execute() { runs += 1; return 'unexpected' },
-    })
-    ctx.tools.register(recovery)
-    ctx.workspaceLease.registerQuarantineCapability(recovery)
-    ctx.on('tools/pre-execute', async () => ({ kind: 'deny', reason }))
+test('a quarantine capability registration remains identity-exact', async () => {
+  const { selected } = provider()
+  const ctx = await harness(selected)
+  const definition = echoTool()
+  ctx.tools.register(definition)
 
-    const result = await ctx.tools.execute({
-      signal: testSignal,
-      callId: CallId(`call:${reason}`),
-      name: 'workspace_recovery',
-      arguments: {},
-      agent,
-    })
-
-    assert.equal(result.isError, true)
-    assert.match(result.content[0].text, new RegExp(reason.replaceAll('-', '\\-')))
-    assert.doesNotMatch(result.content[0].text, /WORKSPACE_DIRTY/)
-    assert.equal(runs, 0)
-    assert.equal(dirty.calls.begin.length, 0)
-  }
-})
-
-test('quarantine capability identity cannot be replayed by a same-name replacement or another denial state', async () => {
-  for (const denial of [
-    {
-      state: 'dirty',
-      code: 'WORKSPACE_DIRTY',
-      reason: 'the workspace has uncommitted state and cannot be reassigned safely',
-    },
-    {
-      state: 'foreign-active',
-      code: 'WORKSPACE_FOREIGN_ACTIVE',
-      reason: 'another live session owns this workspace',
-    },
-  ]) {
-    const denied = provider({ async bind() { return { kind: 'denied', ...denial } } })
-    const ctx = await harness(denied.selected)
-    const agent = stubAgent(`denied-${denial.state}`, '/workspace/project')
-    publish(ctx, agent)
-    let runs = 0
-    const trusted = defineTool({
-      name: 'workspace_recovery',
-      description: 'trusted recovery',
-      parameters: {},
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: value }],
-      },
-      async execute() { runs += 1; return 'trusted' },
-    })
-    const disposeTrusted = ctx.tools.register(trusted)
-    ctx.workspaceLease.registerQuarantineCapability(trusted)
-    if (denial.state === 'dirty') {
-      disposeTrusted()
-      ctx.tools.register({
-        ...trusted,
-        async execute() { runs += 1; return 'replacement' },
-      })
-    }
-
-    const result = await ctx.tools.execute({
-      signal: testSignal,
-      callId: CallId(`call:${denial.state}`),
-      name: 'workspace_recovery',
-      arguments: {},
-      agent,
-    })
-    assert.equal(result.isError, true)
-    assert.equal(result.error.info.code, denial.code)
-    assert.equal(runs, 0)
-    assert.equal(denied.calls.begin.length, 0)
-  }
+  const stop = trackQuarantineCapabilities(ctx, ctx.workspaceLease, ['echo'])
+  assert.throws(
+    () => ctx.workspaceLease.registerQuarantineCapability({ ...definition }),
+    error => error instanceof WorkspaceLeaseError
+      && /not a registered global tool/.test(error.message),
+  )
+  assert.throws(
+    () => trackQuarantineCapabilities(ctx, ctx.workspaceLease, []),
+    TypeError,
+  )
+  stop()
 })
