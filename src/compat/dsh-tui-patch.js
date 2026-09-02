@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto'
 import { lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
+import { checkUpstreamReference } from './upstream-reference.js'
+
 const SCHEMA = 'dsh-runtime-kit.dsh-tui-patches.v1'
 const RECEIPT_SCHEMA = 'dsh-runtime-kit.dsh-tui-patch-receipt.v1'
 const PACKAGE_NAME = '@deepseek-harness-tui/dsh-tui'
@@ -68,6 +70,13 @@ export function validateDshTuiPatchManifest(/** @type {unknown} */ value) {
     throw new DshTuiPatchError(
       'DSH_RUNTIME_KIT_DSH_TUI_PATCH_MANIFEST_INVALID',
       'DSH TUI patch identity is invalid',
+    )
+  }
+  const upstream = checkUpstreamReference(patch.upstream_reference)
+  if (upstream !== undefined) {
+    throw new DshTuiPatchError(
+      'DSH_RUNTIME_KIT_DSH_TUI_PATCH_MANIFEST_INVALID',
+      `DSH TUI patch ${upstream}`,
     )
   }
   const targets = record(patch.targets, 'DSH TUI patch targets are invalid')

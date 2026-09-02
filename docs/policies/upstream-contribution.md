@@ -126,6 +126,26 @@ If it is rejected or becomes stale, retain the downstream workaround and
 record the result with its owner.
 
 When an upstream issue or pull request corresponds to a downstream patch,
-record the public link beside that patch when its manifest supports the field.
-The link is the removal signal: once the fix is released and the supported
-version has moved, remove the patch through its normal authenticated lifecycle.
+record the public link beside that patch in its manifest `upstream_reference`
+field. The link is the removal signal: once the fix is released and the
+supported version has moved, remove the patch through its normal authenticated
+lifecycle.
+
+Both `compatibility/dsh-patches.json` and `compatibility/dsh-tui-patches.json`
+accept the field on their patch entry:
+
+```json
+"upstream_reference": {
+  "state": "not-reported | reported | accepted | merged | declined | stale",
+  "url": "https://github.com/<owner>/<repo>/issues/<n>",
+  "released_in": "<upstream release>"
+}
+```
+
+The field is optional and its absence never blocks patch check, apply,
+reverse, or acceptance. When it is present the manifest validator requires a
+recognized `state`, a public `https` `url` for every state except
+`not-reported`, and `released_in` only once the fix is `merged`. Prefer an
+explicit `not-reported` entry over omitting the field: a patch whose concern is
+downstream-only by policy is a decision, and recording it keeps that decision
+distinguishable from an unreported oversight.

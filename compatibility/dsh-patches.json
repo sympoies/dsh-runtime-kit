@@ -3,6 +3,9 @@
   "patches": [
     {
       "id": "native-execution-boundaries-v5",
+      "upstream_reference": {
+        "state": "not-reported"
+      },
       "release_artifacts": {
         "0.1.0-rc.8": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch",

@@ -694,3 +694,50 @@ test('the DSH patch lifecycle rejects content drift and unknown revisions', asyn
     await rm(value.root, { recursive: true, force: true })
   }
 })
+
+test('the patch entry records an optional authenticated upstream reference', async () => {
+  const checked = JSON.parse(
+    await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+  )
+  assert.deepEqual(checked.patches[0].upstream_reference, { state: 'not-reported' })
+  assert.doesNotThrow(() => validateDshPatchManifest(checked))
+
+  const value = await fixture()
+  try {
+    const patch = value.manifest.patches[0]
+    assert.equal(patch.upstream_reference, undefined)
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    patch.upstream_reference = {
+      state: 'merged',
+      url: 'https://github.com/example/upstream/pull/7',
+      released_in: '0.2.0',
+    }
+    assert.doesNotThrow(() => validateDshPatchManifest(value.manifest))
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    for (const reference of [
+      { state: 'unknown-state', url: 'https://github.com/example/upstream/issues/1' },
+      { state: 'reported' },
+      { state: 'not-reported', url: 'https://github.com/example/upstream/issues/1' },
+      { state: 'reported', url: 'http://github.com/example/upstream/issues/1' },
+      { state: 'reported', url: 'https://token@github.com/example/upstream/issues/1' },
+      { state: 'reported', url: 'https://github.com/example/upstream/issues/1', released_in: '0.2.0' },
+      { state: 'reported', url: 'https://github.com/example/upstream/issues/1', note: 'extra' },
+      [{ state: 'not-reported' }],
+    ]) {
+      const invalid = structuredClone(value.manifest)
+      invalid.patches[0].upstream_reference = reference
+      assert.throws(
+        () => validateDshPatchManifest(invalid),
+        error => error instanceof DshPatchError
+          && error.code === 'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+        JSON.stringify(reference),
+      )
+    }
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})

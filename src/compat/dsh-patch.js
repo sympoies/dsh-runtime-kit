@@ -6,6 +6,8 @@ import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
+import { checkUpstreamReference } from './upstream-reference.js'
+
 const run = promisify(execFile)
 const SCHEMA = 'dsh-runtime-kit.dsh-patches.v1'
 const RECEIPT_SCHEMA = 'dsh-runtime-kit.dsh-patch-receipt.v1'
@@ -67,6 +69,13 @@ export function validateDshPatchManifest(/** @type {unknown} */ value) {
     throw new DshPatchError(
       'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
       'DSH patch identity is invalid',
+    )
+  }
+  const upstream = checkUpstreamReference(patch.upstream_reference)
+  if (upstream !== undefined) {
+    throw new DshPatchError(
+      'DSH_RUNTIME_KIT_DSH_PATCH_MANIFEST_INVALID',
+      `DSH patch ${upstream}`,
     )
   }
   const directArtifact = typeof patch.path === 'string' && relativePath(patch.path)
