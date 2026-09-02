@@ -152,7 +152,8 @@ whose selected sandbox backend cannot express the restriction fails closed
 instead of silently weakening it. Runtime disposal removes the dynamic
 registration. These native controls are the ordinary runtime authority for
 protected-root writes. The JavaScript bundle does not duplicate filesystem or
-platform policy.
+platform policy. The runtime-owned artifact store root is registered through
+the same seam, so model-driven tools cannot write into it directly.
 
 ### Governed policy groups
 
@@ -266,6 +267,34 @@ forged Agents continue through full policy. Data-policy projection remains the
 owner of sensitive tool arguments and results, while the read-only sandbox and
 protected-root policy independently prevent mutation through aliases and
 symlinks.
+
+## Session-owned artifacts
+
+Generated, non-conversational outputs flow through one runtime-owned native
+artifact service (`dshRuntimeArtifacts`) instead of ad hoc host paths. Tools
+exchange opaque `artifact:<hex>` references that never encode a path, digest,
+or session; content identity is a separate verified SHA-256. The service is
+loaded through the public bundle and uses only released public seams: Cordis
+service registration, `ctx.tools.register` with per-call `exec.agent`
+identity, the `agent/disposed` lifecycle event,
+live-agent attestation through `ctx.agents`, the sandbox policy service, and
+the accepted `protect()` protected-root seam for its own store root. It adds no
+DSH source patch and leaves the released image attachment and text spill seams
+unchanged.
+
+Five distinct tools (`artifact_write`, `artifact_present`, `artifact_read`,
+`artifact_export`, `artifact_dispose`) are authorized only from the exact live
+executing agent: the record's owner session and workspace digest must match,
+so a copied reference from another session or workspace is denied before any
+byte is read. Streaming writes stage under the 0700 store root and publish
+atomically; incomplete, cancelled, over-limit, quota-exhausted, and failed
+writes leave nothing readable. Two retention classes (`session`, `retained`)
+are reclaimed only for the targeted owner lifecycle, `session`-class records
+never survive a host restart, references are
+revalidated against the durable record and object after restart, and export
+produces a typed receipt bound to the exact digest without revealing the
+backing location. The contract is documented in
+[Session-owned artifacts](artifacts.md).
 
 ## Finish-line lifecycle
 

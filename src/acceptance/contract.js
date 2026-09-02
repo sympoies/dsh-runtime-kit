@@ -200,6 +200,20 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
     ]),
   }),
   'packed-runtime': Object.freeze({
+    edit: Object.freeze([
+      'finish-line:edit-generation-recorded',
+      'artifact:session-owned-roundtrip-exported-disposed',
+    ]),
+    resume: Object.freeze([
+      'finish-line:session-resumed',
+      'artifact:reference-revalidated-after-restart',
+    ]),
+    'failure-paths': Object.freeze([
+      'policy:blocked-before-body',
+      'policy:short-circuit-bypass-rejected',
+      'artifact:cross-session-reference-denied',
+      'artifact:unsafe-export-denied-before-write',
+    ]),
     'automatic-prerequisite': Object.freeze([
       'prerequisite:mutating-tool-body-gated',
       'prerequisite:code-mode-nested-dispatch-gated',
@@ -674,6 +688,15 @@ function requiredScenarioEvidence(producer, id) {
   }
   if (producer === 'packed-runtime' && id === 'subagent') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime'].subagent
+  }
+  if (producer === 'packed-runtime' && id === 'edit') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime'].edit
+  }
+  if (producer === 'packed-runtime' && id === 'resume') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime'].resume
+  }
+  if (producer === 'packed-runtime' && id === 'failure-paths') {
+    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['failure-paths']
   }
   return []
 }

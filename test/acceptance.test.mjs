@@ -310,7 +310,10 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
     ok: true,
     producer: 'packed-runtime',
     scenarios: [
-      scenario('edit', 'packed-runtime'),
+      scenario('edit', 'packed-runtime', [
+        'finish-line:edit-generation-recorded',
+        'artifact:session-owned-roundtrip-exported-disposed',
+      ]),
       scenario('automatic-prerequisite', 'packed-runtime', [
         'prerequisite:mutating-tool-body-gated',
         'prerequisite:code-mode-nested-dispatch-gated',
@@ -341,7 +344,10 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
           provider_session_fixture_sha256: PROVIDER_SESSION_SHA,
         },
       }),
-      scenario('resume', 'packed-runtime'),
+      scenario('resume', 'packed-runtime', [
+        'finish-line:session-resumed',
+        'artifact:reference-revalidated-after-restart',
+      ]),
       scenario('subagent', 'packed-runtime', [
         'reviewer:native-subagent-completed',
         'main-agent:host-workspace-before-prompt',
@@ -355,7 +361,12 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
         'acceptance:goal-completion-allowed-post-evidence',
       ], { matrix: authoritativeMatrix() }),
       scenario('finish-line', 'packed-runtime'),
-      scenario('failure-paths', 'packed-runtime'),
+      scenario('failure-paths', 'packed-runtime', [
+        'policy:blocked-before-body',
+        'policy:short-circuit-bypass-rejected',
+        'artifact:cross-session-reference-denied',
+        'artifact:unsafe-export-denied-before-write',
+      ]),
     ],
   }
 }
@@ -729,6 +740,27 @@ test('data-policy acceptance requires every native containment marker', () => {
       error => error instanceof AcceptanceError
         && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
       missing,
+    )
+  }
+})
+
+test('artifact acceptance requires every session-owned lifecycle marker', () => {
+  const required = [
+    ['edit', 'artifact:session-owned-roundtrip-exported-disposed'],
+    ['resume', 'artifact:reference-revalidated-after-restart'],
+    ['failure-paths', 'artifact:cross-session-reference-denied'],
+    ['failure-paths', 'artifact:unsafe-export-denied-before-write'],
+  ]
+  assert.doesNotThrow(() => buildAcceptanceSummary(baseInput()))
+  for (const [id, missing] of required) {
+    const input = baseInput()
+    const target = input.runtime.scenarios.find(item => item.id === id)
+    target.evidence = target.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      `${id} without ${missing}`,
     )
   }
 })

@@ -10,7 +10,7 @@ import {
   rm,
   stat,
 } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -71,6 +71,47 @@ function configuredPrivateSkillsDir(config) {
     throw new Error('dsh-runtime-kit: privateSkillsDir is disabled on Windows until ACL trust checks are available')
   }
   return resolve(configured)
+}
+
+const ARTIFACT_LIMIT_FIELDS = Object.freeze({
+  artifactMaxBytes: 'maxArtifactBytes',
+  artifactSessionQuotaBytes: 'sessionQuotaBytes',
+  artifactSessionMaxCount: 'sessionMaxCount',
+  artifactReadMaxBytes: 'readMaxBytes',
+  artifactPreviewMaxBytes: 'previewMaxBytes',
+  artifactSessionTtlMs: 'sessionTtlMs',
+  artifactRetainedTtlMs: 'retainedTtlMs',
+})
+
+/**
+ * Resolve the owner-private artifact store root. It defaults to a
+ * runtime-kit-owned directory below the DSH home so it shares the harness's
+ * private state boundary; an explicit absolute override is accepted.
+ */
+function configuredArtifactsRoot(config) {
+  const configured = config.artifactsRoot ?? process.env.DSH_RUNTIME_KIT_ARTIFACTS_ROOT
+  if (configured !== undefined && configured !== '') {
+    if (typeof configured !== 'string' || !isAbsolute(configured)) {
+      throw new Error('dsh-runtime-kit: artifactsRoot must be an absolute path')
+    }
+    return resolve(configured)
+  }
+  const dshHome = process.env.DSH_HOME
+  const home = dshHome !== undefined && dshHome !== '' ? resolve(dshHome) : join(homedir(), '.dsh')
+  return join(home, 'dsh-runtime-kit', 'artifacts', 'v1')
+}
+
+function artifactLimits(config) {
+  const limits = {}
+  for (const [field, target] of Object.entries(ARTIFACT_LIMIT_FIELDS)) {
+    const value = config[field]
+    if (value === undefined) continue
+    if (!Number.isInteger(value) || value < 1) {
+      throw new TypeError(`dsh-runtime-kit: ${field} must be a positive integer`)
+    }
+    limits[target] = value
+  }
+  return limits
 }
 
 function boundedLimit(value, fallback, hardMaximum, field) {
@@ -525,6 +566,13 @@ export async function apply(ctx, config = {}) {
       TOOL_ABORTED: dshRuntime.TOOL_ABORTED,
     })
     applyPolicy(ctx, runtimeConfig, dshRuntime, childPlugins)
+    const { applyArtifacts } = await import('./src/artifacts/index.js')
+    const { LocalArtifactProvider } = await import('./src/artifacts/local-provider.js')
+    await applyArtifacts(ctx, {
+      provider: new LocalArtifactProvider({ root: configuredArtifactsRoot(config) }),
+      limits: artifactLimits(config),
+      protectedRoots: config.protectedRoots ?? [],
+    })
     const { createWorkspaceRecoveryTools } = await import('./src/workspace-recovery/index.js')
     const { createNilsWorkspaceRecoveryClient } = await import('./src/workspace-recovery/nils-client.js')
     const workspaceRecovery = createWorkspaceRecoveryTools(

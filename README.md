@@ -37,6 +37,10 @@ tools, sandbox, approvals, skills, and subagents.
   reviewer personas and deterministic structured findings.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
   DSH tool pipeline is live.
+- Session-owned artifacts (`artifact_write`, `artifact_present`,
+  `artifact_read`, `artifact_export`, `artifact_dispose`): opaque, non-bearer
+  references for generated outputs with exact-agent authorization, atomic
+  streaming commits, retention classes, and digest-bound export receipts.
 - `runtime_kit_governed_commit`, a structured, no-shell completion path bound
   to the current session-owned non-default managed worktree. It accepts no
   repository/workdir routing and returns a validated `semantic-commit`

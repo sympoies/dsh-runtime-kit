@@ -491,6 +491,7 @@ function cleanSmokeMutations() {
   ]) {
     rmSync(join(projectWorkspace, name), { force: true })
   }
+  rmSync(join(projectWorkspace, 'artifacts'), { recursive: true, force: true })
 }
 
 function resetCheckoutLease() {
@@ -1888,6 +1889,91 @@ function textResponse(text) {
   ]
 }
 
+function artifactRefs(serialized) {
+  const seen = []
+  for (const match of serialized.matchAll(/artifact:[0-9a-f]{32}/g)) {
+    if (!seen.includes(match[0])) seen.push(match[0])
+  }
+  return seen
+}
+
+function artifactSequence(serialized) {
+  const sentinel = process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_SENTINEL ?? 'smoke-artifact-sentinel'
+  const foreignRef = process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_FOREIGN_REF
+  if (foreignRef) {
+    return [
+      toolCallResponse('artifact_present', { ref: foreignRef }, 'artifact-foreign-present'),
+      toolCallResponse('artifact_read', { ref: foreignRef }, 'artifact-foreign-read'),
+      toolCallResponse('artifact_export', {
+        ref: foreignRef,
+        destination: { class: 'workspace', path: 'artifacts/foreign-leak.json' },
+      }, 'artifact-foreign-export'),
+      toolCallResponse('artifact_dispose', { ref: foreignRef }, 'artifact-foreign-dispose'),
+      textResponse('artifact foreign smoke done'),
+    ]
+  }
+  if (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1') {
+    const retainedRef = process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_RETAINED_REF
+    const sessionRef = process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_SESSION_REF
+    return [
+      toolCallResponse('artifact_present', { ref: retainedRef }, 'artifact-resumed-present'),
+      toolCallResponse('artifact_read', { ref: retainedRef }, 'artifact-resumed-read'),
+      toolCallResponse('artifact_present', { ref: sessionRef }, 'artifact-resumed-session-present'),
+      toolCallResponse('artifact_dispose', { ref: retainedRef }, 'artifact-resumed-dispose'),
+      textResponse('artifact resume smoke done'),
+    ]
+  }
+  const refs = artifactRefs(serialized)
+  const sessionRef = refs[0] ?? 'artifact:' + '0'.repeat(32)
+  return [
+    toolCallResponse('artifact_write', {
+      name: 'smoke-report.md',
+      media_type: 'text/markdown',
+      content: '# Smoke report\\n\\n' + sentinel + '\\n',
+    }, 'artifact-write-session'),
+    toolCallResponse('artifact_write', {
+      name: 'smoke-evidence.json',
+      media_type: 'application/json',
+      content: JSON.stringify({ ok: true, sentinel }),
+      retention: 'retained',
+    }, 'artifact-write-retained'),
+    // Left undisposed on purpose: the host must reclaim it when the owner
+    // agent is disposed at process exit.
+    toolCallResponse('artifact_write', {
+      name: 'smoke-orphan.txt',
+      media_type: 'text/plain',
+      content: 'undisposed session artifact',
+    }, 'artifact-write-session-orphan'),
+    toolCallResponse('artifact_present', { ref: sessionRef }, 'artifact-present'),
+    toolCallResponse('artifact_read', { ref: sessionRef }, 'artifact-read'),
+    toolCallResponse('artifact_export', {
+      ref: sessionRef,
+      destination: { class: 'workspace', path: 'artifacts/smoke-report.md' },
+    }, 'artifact-export'),
+    toolCallResponse('artifact_export', {
+      ref: sessionRef,
+      destination: { class: 'download' },
+    }, 'artifact-export-download'),
+    toolCallResponse('artifact_export', {
+      ref: sessionRef,
+      destination: { class: 'workspace', path: '../smoke-escape.md' },
+    }, 'artifact-export-escape'),
+    // The workspace export is a real repository mutation, so the finish-line
+    // requires the declared validation before the turn may stop.
+    toolCallResponse('bash', {
+      command: ${JSON.stringify(validationCommand)},
+      description: 'Run the declared validation after the artifact export',
+    }, 'artifact-validation-one'),
+    toolCallResponse('bash', {
+      command: ${JSON.stringify(validationCommand)},
+      description: 'Rerun the declared validation after its expected first failure',
+    }, 'artifact-validation-two'),
+    toolCallResponse('artifact_dispose', { ref: sessionRef }, 'artifact-dispose'),
+    toolCallResponse('artifact_present', { ref: sessionRef }, 'artifact-present-disposed'),
+    textResponse('artifact smoke done'),
+  ]
+}
+
 class SmokeAdapter extends LlmAdapter {
   totalCalls = 0
   sessionCalls = 0
@@ -1895,6 +1981,7 @@ class SmokeAdapter extends LlmAdapter {
   deliveryCalls = 0
   foreignCalls = 0
   reviewerCalls = 0
+  lastMessages = ''
   contextVisibility = []
   providerContextVisibility = []
   policyContextVisibility = []
@@ -1973,6 +2060,7 @@ class SmokeAdapter extends LlmAdapter {
       return
     }
     const serializedMessages = JSON.stringify(options.messages)
+    this.lastMessages = serializedMessages
     const isForeignDelivery = serializedMessages.includes('attempt the foreign governed commit')
     if (isForeignDelivery) {
       const sequence = [
@@ -2118,6 +2206,8 @@ class SmokeAdapter extends LlmAdapter {
           }, 'data-policy-validation-two'),
           textResponse('data policy smoke done'),
         ]
+      : process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS === '1'
+        ? artifactSequence(serializedMessages)
       : process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
         ? [
           toolCallResponse('review_specialists', {
@@ -2166,6 +2256,7 @@ class SmokeAdapter extends LlmAdapter {
       ]
     if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_DELIVERY_REHEARSAL === '1') {
       sequence.push(
         toolCallResponse('bash', {
@@ -2215,6 +2306,7 @@ class SmokeAdapter extends LlmAdapter {
     }
     if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY !== '1'
+      && process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS !== '1'
       && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1') {
       sequence.push(
         toolCallResponse('runtime_kit_plus_one', { value: 41 }, 'plus-one-call'),
@@ -2276,6 +2368,7 @@ export function apply(ctx) {
       const deliveryValidationResults = []
       const dataPolicyAudits = []
       const dataPolicyResults = []
+      const artifactResults = []
       const errors = []
       ctx.on('dsh-runtime-kit/data-policy-audit', audit => {
         dataPolicyAudits.push(audit)
@@ -2324,6 +2417,34 @@ export function apply(ctx) {
         }
         if (String(exec.agent?.id) === targetId) {
           lifecycle.push('result')
+          if (process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS === '1'
+            && String(exec.name).startsWith('artifact_')) {
+            const value = finalResult?.isError === true ? undefined : finalResult?.value
+            const sentinel = process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_SENTINEL ?? ''
+            artifactResults.push({
+              callId: exec.callId,
+              name: exec.name,
+              isError: finalResult?.isError === true,
+              code: finalResult?.error?.info?.code
+                ?? (/^(ARTIFACT_[A-Z_]+):/.exec(String(finalResult?.error?.message ?? '')) ?? [])[1],
+              errorMessage: finalResult?.isError === true
+                ? String(finalResult?.error?.message ?? '').slice(0, 200)
+                : undefined,
+              ref: value?.ref,
+              sha256: value?.sha256,
+              bytes: value?.bytes,
+              mediaType: value?.media_type,
+              retentionClass: value?.retention_class,
+              destinationClass: value?.destination_class,
+              destinationPath: value?.destination_path,
+              outcome: value?.outcome,
+              encoding: value?.encoding,
+              hasPreview: typeof value?.preview === 'string',
+              previewHasSentinel: typeof value?.preview === 'string' && value.preview.includes(sentinel),
+              contentHasSentinel: typeof value?.content === 'string' && value.content.includes(sentinel),
+              capabilities: Array.isArray(value?.capabilities) ? value.capabilities : undefined,
+            })
+          }
           if (process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY === '1') {
             dataPolicyResults.push({
               callId: exec.callId,
@@ -2721,6 +2842,18 @@ export function apply(ctx) {
           errors,
           sessionEvents: sessionEvents(agent.session),
         }).includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL),
+        artifactResults,
+        finishLineSteers: [...adapter.lastMessages.matchAll(/Finish-line blocked: [^"\\\\]{0,400}/g)].map(match => match[0]),
+        artifactServiceActive: ctx.get('dshRuntimeArtifacts') !== undefined,
+        artifactToolsRegistered: ['artifact_write', 'artifact_present', 'artifact_read', 'artifact_export', 'artifact_dispose']
+          .every(name => ctx.tools.get(name) !== undefined),
+        artifactRootAbsent: process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_ROOT === undefined
+          || !JSON.stringify({
+            artifactResults,
+            errors,
+            sessionEvents: agent.session.events,
+            messages: adapter.lastMessages,
+          }).includes(process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_ROOT),
         contextVisibility: adapter.contextVisibility,
         providerContextVisibility: adapter.providerContextVisibility,
         policyContextVisibility: adapter.policyContextVisibility,
@@ -2775,6 +2908,7 @@ export function apply(ctx) {
       } else if (expectation !== 'health-block'
         && expectation !== 'health-recovery'
         && !dataPolicyEnabled
+        && process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS !== '1'
         && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1'
         && (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
           ? !adapter.contextVisibility.every(Boolean)
@@ -2785,8 +2919,14 @@ export function apply(ctx) {
       }
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER !== '1'
         && !dataPolicyEnabled
+        && process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS !== '1'
         && (expectation === 'allow' || expectation === 'health-recovery')
         && result?.value !== 42) process.exitCode = 1
+      if (process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS === '1'
+        && (artifactResults.length === 0
+          || artifactResults.some(candidate => candidate.isError && candidate.code === undefined))) {
+        process.exitCode = 1
+      }
       if (dataPolicyEnabled
         && (nativeSensitiveExecutions !== 0
           || webFixtureExecutions !== 1
@@ -3729,6 +3869,156 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(codeModeReceipt.pendingPolicyMarkers, 0)
   assert.equal(codeModeReceipt.pendingCorrelations, 0)
 
+  resetCheckoutLease()
+  const artifactSessionId = 'dsh-runtime-kit-smoke-artifacts'
+  const artifactsRoot = join(dshHome, 'dsh-runtime-kit', 'artifacts', 'v1')
+  const artifactSentinel = 'dsh-runtime-kit-smoke-artifact-sentinel-' + createHash('sha256')
+    .update(temporaryRoot)
+    .digest('hex')
+    .slice(0, 16)
+  const artifactReportContent = '# Smoke report\n\n' + artifactSentinel + '\n'
+  const artifactReportSha256 = 'sha256:' + createHash('sha256').update(artifactReportContent).digest('hex')
+  const artifactEnvironment = {
+    ...environment,
+    DSH_RUNTIME_KIT_SMOKE_SESSION_ID: artifactSessionId,
+    DSH_RUNTIME_KIT_SMOKE_ARTIFACTS: '1',
+    DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_ROOT: artifactsRoot,
+    DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_SENTINEL: artifactSentinel,
+  }
+  function readArtifactReceipt(boot, label) {
+    const line = boot.stdout.split('\n').find(candidate => candidate.startsWith(marker))
+    assert.ok(line, `missing ${label} ${marker} output:\n${boot.stdout}\n${boot.stderr}`)
+    const output = `${boot.stdout}\n${boot.stderr}`
+    assert.equal(output.includes(artifactsRoot), false, `${label} output leaked the artifact store root`)
+    const receipt = JSON.parse(line.slice(marker.length))
+    assert.equal(receipt.artifactServiceActive, true, JSON.stringify(receipt.errors))
+    assert.equal(receipt.artifactToolsRegistered, true)
+    assert.equal(receipt.artifactRootAbsent, true)
+    return receipt
+  }
+  function artifactResult(receipt, suffix) {
+    const result = receipt.artifactResults.find(candidate => candidate.callId === 'dsh-runtime-kit-smoke-' + suffix)
+    assert.ok(result, `missing artifact result ${suffix}: ${JSON.stringify(receipt.artifactResults)}`)
+    return result
+  }
+  function artifactStoreState() {
+    assert.equal(statSync(artifactsRoot).mode & 0o777, 0o700)
+    const objects = []
+    for (const bucket of readdirSync(join(artifactsRoot, 'objects'))) {
+      objects.push(...readdirSync(join(artifactsRoot, 'objects', bucket)))
+    }
+    return {
+      index: readdirSync(join(artifactsRoot, 'index')).length,
+      objects: objects.length,
+      staging: readdirSync(join(artifactsRoot, 'tmp')).length,
+    }
+  }
+
+  const artifactBoot = runDsh(['--profile', profile, '--patch', overlayPath], { env: artifactEnvironment })
+  const artifactReceipt = readArtifactReceipt(artifactBoot, 'artifact')
+  assert.equal(artifactReceipt.lifecycle[0], 'session-start:startup')
+  const artifactWrite = artifactResult(artifactReceipt, 'artifact-write-session')
+  assert.equal(artifactWrite.isError, false, JSON.stringify(artifactWrite))
+  assert.match(artifactWrite.ref, /^artifact:[0-9a-f]{32}$/)
+  assert.equal(artifactWrite.sha256, artifactReportSha256)
+  assert.equal(artifactWrite.bytes, Buffer.byteLength(artifactReportContent))
+  assert.equal(artifactWrite.mediaType, 'text/markdown')
+  assert.equal(artifactWrite.retentionClass, 'session')
+  const artifactRetained = artifactResult(artifactReceipt, 'artifact-write-retained')
+  assert.equal(artifactRetained.isError, false, JSON.stringify(artifactRetained))
+  assert.equal(artifactRetained.retentionClass, 'retained')
+  assert.equal(artifactRetained.mediaType, 'application/json')
+  assert.notEqual(artifactRetained.ref, artifactWrite.ref)
+  const artifactPresent = artifactResult(artifactReceipt, 'artifact-present')
+  assert.equal(artifactPresent.isError, false, JSON.stringify(artifactPresent))
+  assert.equal(artifactPresent.ref, artifactWrite.ref)
+  assert.equal(artifactPresent.sha256, artifactReportSha256)
+  assert.equal(artifactPresent.previewHasSentinel, true)
+  assert.deepEqual(artifactPresent.capabilities, ['read', 'present', 'export', 'delete'])
+  const artifactRead = artifactResult(artifactReceipt, 'artifact-read')
+  assert.equal(artifactRead.isError, false, JSON.stringify(artifactRead))
+  assert.equal(artifactRead.encoding, 'utf8')
+  assert.equal(artifactRead.contentHasSentinel, true)
+  const artifactExport = artifactResult(artifactReceipt, 'artifact-export')
+  assert.equal(artifactExport.isError, false, JSON.stringify(artifactExport))
+  assert.equal(artifactExport.destinationClass, 'workspace')
+  assert.equal(artifactExport.destinationPath, 'artifacts/smoke-report.md')
+  assert.equal(artifactExport.sha256, artifactReportSha256)
+  assert.equal(readFileSync(join(projectWorkspace, 'artifacts', 'smoke-report.md'), 'utf8'), artifactReportContent)
+  const artifactDownload = artifactResult(artifactReceipt, 'artifact-export-download')
+  assert.equal(artifactDownload.isError, true)
+  assert.equal(artifactDownload.code, 'ARTIFACT_CAPABILITY_UNSUPPORTED')
+  const artifactEscape = artifactResult(artifactReceipt, 'artifact-export-escape')
+  assert.equal(artifactEscape.isError, true)
+  assert.equal(artifactEscape.code, 'ARTIFACT_EXPORT_DESTINATION_INVALID')
+  assert.equal(existsSync(join(dirname(projectWorkspace), 'smoke-escape.md')), false)
+  const artifactDispose = artifactResult(artifactReceipt, 'artifact-dispose')
+  assert.equal(artifactDispose.isError, false, JSON.stringify(artifactDispose))
+  assert.equal(artifactDispose.outcome, 'disposed')
+  const artifactDisposedPresent = artifactResult(artifactReceipt, 'artifact-present-disposed')
+  assert.equal(artifactDisposedPresent.isError, true)
+  assert.equal(artifactDisposedPresent.code, 'ARTIFACT_NOT_FOUND')
+  const artifactOrphan = artifactResult(artifactReceipt, 'artifact-write-session-orphan')
+  assert.equal(artifactOrphan.isError, false, JSON.stringify(artifactOrphan))
+  assert.equal(artifactOrphan.retentionClass, 'session')
+  // The explicitly disposed record is gone. The undisposed session-class
+  // record is reclaimed at owner-agent disposal when the host disposes its
+  // agents on exit, and otherwise by the next service start's dead-generation
+  // sweep; both outcomes are checked deterministically after the next boot.
+  const afterFirstBoot = artifactStoreState()
+  assert.equal(afterFirstBoot.staging, 0)
+  assert.equal(afterFirstBoot.index, afterFirstBoot.objects)
+  assert.ok(afterFirstBoot.index === 1 || afterFirstBoot.index === 2, JSON.stringify(afterFirstBoot))
+  // The exported file is untracked repository state; remove it so the next
+  // session can claim the shared smoke checkout cleanly.
+  rmSync(join(projectWorkspace, 'artifacts'), { recursive: true, force: true })
+
+  resetCheckoutLease()
+  const foreignArtifactBoot = runDsh(['--profile', profile, '--patch', overlayPath], {
+    env: {
+      ...artifactEnvironment,
+      DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-artifacts-foreign',
+      DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_FOREIGN_REF: artifactRetained.ref,
+    },
+  })
+  const foreignArtifactReceipt = readArtifactReceipt(foreignArtifactBoot, 'foreign artifact')
+  for (const suffix of ['artifact-foreign-present', 'artifact-foreign-read', 'artifact-foreign-export', 'artifact-foreign-dispose']) {
+    const result = artifactResult(foreignArtifactReceipt, suffix)
+    assert.equal(result.isError, true, JSON.stringify(result))
+    assert.equal(result.code, 'ARTIFACT_ACCESS_DENIED', JSON.stringify(result))
+  }
+  assert.equal(existsSync(join(projectWorkspace, 'artifacts', 'foreign-leak.json')), false)
+  // The foreign boot is a fresh host: its startup sweep reclaims the first
+  // host's dead-generation session-class record, so exactly the retained
+  // record remains regardless of how the first host exited.
+  assert.deepEqual(artifactStoreState(), { index: 1, objects: 1, staging: 0 })
+
+  resetCheckoutLease()
+  const resumedArtifactBoot = runDsh(['--profile', profile, '--patch', overlayPath], {
+    env: {
+      ...artifactEnvironment,
+      DSH_RUNTIME_KIT_SMOKE_RESUME: '1',
+      DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_RETAINED_REF: artifactRetained.ref,
+      DSH_RUNTIME_KIT_SMOKE_ARTIFACTS_SESSION_REF: artifactOrphan.ref,
+    },
+  })
+  const resumedArtifactReceipt = readArtifactReceipt(resumedArtifactBoot, 'resumed artifact')
+  assert.equal(resumedArtifactReceipt.lifecycle[0], 'session-start:resume')
+  const resumedPresent = artifactResult(resumedArtifactReceipt, 'artifact-resumed-present')
+  assert.equal(resumedPresent.isError, false, JSON.stringify(resumedPresent))
+  assert.equal(resumedPresent.ref, artifactRetained.ref)
+  assert.equal(resumedPresent.sha256, artifactRetained.sha256)
+  assert.equal(resumedPresent.previewHasSentinel, true)
+  const resumedRead = artifactResult(resumedArtifactReceipt, 'artifact-resumed-read')
+  assert.equal(resumedRead.isError, false, JSON.stringify(resumedRead))
+  assert.equal(resumedRead.contentHasSentinel, true)
+  const resumedSessionPresent = artifactResult(resumedArtifactReceipt, 'artifact-resumed-session-present')
+  assert.equal(resumedSessionPresent.isError, true)
+  assert.equal(resumedSessionPresent.code, 'ARTIFACT_NOT_FOUND')
+  const resumedDispose = artifactResult(resumedArtifactReceipt, 'artifact-resumed-dispose')
+  assert.equal(resumedDispose.isError, false, JSON.stringify(resumedDispose))
+  assert.deepEqual(artifactStoreState(), { index: 0, objects: 0, staging: 0 })
+
   if (dataPolicyCandidateEnabled) {
     resetCheckoutLease()
     const dataPolicyBoot = runDsh(
@@ -3897,7 +4187,15 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     ok: true,
     producer: 'packed-runtime',
     scenarios: [
-      { id: 'edit', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:edit-generation-recorded'] },
+      {
+        id: 'edit',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'finish-line:edit-generation-recorded',
+          'artifact:session-owned-roundtrip-exported-disposed',
+        ],
+      },
       { id: 'validate', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:exact-validation-executed'] },
       { id: 'review', status: 'passed', producer: 'packed-runtime', evidence: ['reviewer:mutation-denied-before-body'] },
       ...(dataPolicyCandidateEnabled
@@ -3932,7 +4230,15 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
           provider_session_fixture_sha256: providerSessionFixtureSha256,
         },
       },
-      { id: 'resume', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:session-resumed'] },
+      {
+        id: 'resume',
+        status: 'passed',
+        producer: 'packed-runtime',
+        evidence: [
+          'finish-line:session-resumed',
+          'artifact:reference-revalidated-after-restart',
+        ],
+      },
       {
         id: 'subagent',
         status: 'passed',
@@ -3959,6 +4265,8 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: [
         'policy:blocked-before-body',
         'policy:short-circuit-bypass-rejected',
+        'artifact:cross-session-reference-denied',
+        'artifact:unsafe-export-denied-before-write',
         ...(deliveryRehearsal ? [
           'governed-commit:stale-expected-head-rejected',
           'governed-commit:foreign-session-denied-before-body',
