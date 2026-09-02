@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
+| nils-cli | `1.27.17` minimum; exactly validated through `1.27.37` |
 
 The package retains exactly the latest three reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
@@ -75,7 +75,7 @@ request, that link belongs in the same field as the patch's removal signal;
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and seven acceptance binary
 hashes, plus the macOS ARM64 archive and runtime-health companion hashes. The
-validated v1.27.34 `review-specialists` requires every delivery finding to
+validated v1.27.37 `review-specialists` requires every delivery finding to
 declare `actionable: true` or `actionable: false`; packed review acceptance
 proves the former becomes one native line or file thread while the latter stays
 in the summary only. The same release preserves `not-in-repository` as an exact

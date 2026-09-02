@@ -850,15 +850,17 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.27\.34-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /a9c4a88038d66d538605fd1ded630fca342e1025372f24896254f4e34e5916a8/)
-  assert.match(workflow, /nils-cli-v1\.27\.34-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /9abc71134df9bdb04ff0a8d718fe91ad2e034c6f74b47c5af8d23a94735964e2/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2/)
-  // The rollback baseline is the alpha.4 promotion on nils-cli 1.27.34, so the
-  // baseline leg reuses the candidate release and no older archive is fetched.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=5e8564357f6deb524e36d1a0cbdcf124f034c3f2/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.27\.34-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /nils-cli-v1\.27\.37-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /bda942ee83e9cdc02ab29a7ba3ac97a4c76aafeb2b53f88297bdc330a255577b/)
+  assert.match(workflow, /nils-cli-v1\.27\.37-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /584641aacba0faae210a61963283e8707fd70558e29fa97d67075ff4dc573429/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=3fd3a9bd089247405ec2be219234a7a24f54a98c/)
+  // The baseline leg runs the same packed candidate package, and the runtime
+  // fails closed on companion identities outside its validated release, so the
+  // baseline must use the candidate's nils release rather than an older archive.
+  // `rollback_validation` keeps the frozen #63 package anchor separately.
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=3fd3a9bd089247405ec2be219234a7a24f54a98c/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.27\.37-x86_64-unknown-linux-gnu\/bin"/)
   assert.doesNotMatch(workflow, /1\.27\.29|e6f50a34d68e7a6638eb104e423dcacd116c4071|rollback_archive/)
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))

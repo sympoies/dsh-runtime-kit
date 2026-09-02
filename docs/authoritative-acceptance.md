@@ -149,7 +149,7 @@ rebuild the pristine DSH host libraries and smoke the unpatched process.
 
 ## Released dependency
 
-The implementation requires the independently authenticated nils-cli v1.27.34
+The implementation requires the independently authenticated nils-cli v1.27.37
 release. It contains exact non-repository finish-line operation classification
 from PR #1595 and strict delivery-mode review actionability from PR #1582,
 so every finding explicitly selects either a native owner thread or a
