@@ -108,9 +108,11 @@ the 0.10 interaction and plugin surfaces, repairs beta.1's startup failure,
 and includes #593's asynchronous history persistence; these remain upstream
 TUI behaviors rather than runtime-kit patches. The narrowed package repair
 recorded in `compatibility/dsh-tui-patches.json` migrates retained, owner-owned
-history data to private modes before reading it and refuses unexpected or
-symlinked paths. DSH alpha.4 natively provides the package-inventory plugin, so
-the former rc.2-only TUI configuration removal is no longer applied.
+history data to private modes before reading it, refuses unexpected or
+symlinked paths, and maps beta.4's legacy read-only session-event view to DSH
+alpha.4's public cached snapshot interface. DSH alpha.4 natively provides the
+package-inventory plugin, so the former rc.2-only TUI configuration removal is
+no longer applied.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.

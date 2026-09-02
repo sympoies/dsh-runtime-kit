@@ -116,7 +116,7 @@ profile linker and peer settings while recording the TUI release's explicit
 the agent's host CLI or `PATH`.
 
 After installing the authenticated 0.10.0-beta.4 archive and before starting
-the TUI, apply the narrowed beta.4-on-DSH-rc.2 compatibility repair:
+the TUI, apply the narrowed beta.4 runtime repair:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
@@ -128,12 +128,12 @@ patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
 Unknown or partially patched packages fail closed. Beta.4 already carries the
 upstream asynchronous history persistence from dsh-TUI #593, so runtime-kit no
-longer patches input dispatch or lock retries. The remaining repair removes the
-prerelease's alpha-only package-inventory override, which the selected DSH rc.2
-base bundle does not provide, and restricts owner-owned legacy history data
-directories and files to 0700/0600 before reading them. Unexpected or symlinked
-paths are refused. Apply, check, and reverse authenticate both remaining target
-differences together.
+longer patches input dispatch or lock retries. The remaining repair maps
+beta.4's legacy read-only `session.events` view to alpha.4's public cached
+`snapshotEvents()` API and restricts owner-owned legacy history data directories
+and files to 0700/0600 before reading them. Unexpected or symlinked paths are
+refused. Apply, check, and reverse authenticate both target differences
+together.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

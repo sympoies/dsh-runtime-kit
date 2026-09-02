@@ -179,7 +179,7 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
-test('the Agent Console release and history-permission patch select the same TUI', () => {
+test('the Agent Console release and runtime patch select the same TUI', () => {
   const patchManifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -189,9 +189,15 @@ test('the Agent Console release and history-permission patch select the same TUI
     Object.keys(patchManifest.patches[0].validated_releases),
     [EXPECTED_CONTRACT.tui.version],
   )
-  assert.equal(patchManifest.patches[0].id, 'beta-4-history-permissions-v1')
+  assert.equal(patchManifest.patches[0].id, 'beta-4-runtime-compat-v1')
   const patch = readFileSync(join(projectRoot, patchManifest.patches[0].path), 'utf8')
   assert.doesNotMatch(patch, /Atomics\.wait|sleepSync/u)
+  assert.match(patch, /snapshotEvents/u)
+})
+
+test('the Agent Console smoke adapter advertises its configured reasoning effort', () => {
+  const smokeSource = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  assert.match(smokeSource, /reasoning:\s*\{\s*efforts:\s*\[\{ id: 'high', name: 'high' \}\]\s*\}/)
 })
 
 test('the Agent Console install contract preserves DSH profile settings and disables unneeded TUI builds', () => {
@@ -227,6 +233,9 @@ test('public Agent Console smoke consumes the contract-pinned TUI specifier', ()
     step?.env?.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE,
     EXPECTED_CONTRACT.tui.specifier,
   )
+  assert.match(step?.run ?? '', /\.dsh-runtime-kit-ci-nils/u)
+  assert.match(step?.run ?? '', /chmod 0700/u)
+  assert.match(step?.run ?? '', /AGENT_HOOK_BIN="\$trusted_nils\/bin\/agent-hook"/u)
 })
 
 test('public Agent Console smoke authenticates the contract tarball before local install', () => {

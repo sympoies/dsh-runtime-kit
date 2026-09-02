@@ -89,3 +89,53 @@ diff --git a/lib/types/history.js b/lib/types/history.js
  }
  /**
   * Stable id for a history entry (keeps React keys distinct across identical texts).
+diff --git a/lib/types/dsh-adapter/plugin.js b/lib/types/dsh-adapter/plugin.js
+--- a/lib/types/dsh-adapter/plugin.js
++++ b/lib/types/dsh-adapter/plugin.js
+@@ -66,6 +66,22 @@ import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, supportsTabStatus, wrapForMult
+  * recompose: latch the decision.
+  */
+ let lastBootedFullscreen;
++function ensureSessionEventsCompatibility(session) {
++    if ('events' in session)
++        return;
++    if (typeof session.snapshotEvents !== 'function')
++        throw new Error('dsh-tui: session event log API is unavailable');
++    const prototype = Object.getPrototypeOf(session);
++    if (prototype === null || Object.getOwnPropertyDescriptor(prototype, 'events') !== undefined)
++        throw new Error('dsh-tui: session event log compatibility cannot be installed');
++    Object.defineProperty(prototype, 'events', {
++        configurable: true,
++        enumerable: false,
++        get() {
++            return this.snapshotEvents();
++        },
++    });
++}
+ /**
+  * Extract the startup prompt from raw app argv. `--resume <session>` selects
+  * a persisted session and must not leak its id into the conversation.
+@@ -1459,6 +1475,7 @@ async function resolveAgent(ctx, requestedSessionId, configuredRoute, startupRou
+         const resumeId = SessionId(requestedSessionId);
+         const existing = ctx.agents.get(resumeId);
+         if (existing !== undefined) {
++            ensureSessionEventsCompatibility(existing.session);
+             return { agent: existing, agentPreset: runningPresetOf(existing.session) };
+         }
+         try {
+@@ -1481,6 +1498,7 @@ async function resolveAgent(ctx, requestedSessionId, configuredRoute, startupRou
+                 agentOptions: resumeOptions,
+                 ...(composed.setup === undefined ? {} : { setup: composed.setup }),
+             });
++            ensureSessionEventsCompatibility(resumed.agent.session);
+             // Status-line route on resume: the route the session actually
+             // continues on — a complete cordis.yml pin, else the route its own
+             // request/header records carry (a bare log yields undefined and the
+@@ -1535,6 +1553,7 @@ async function resolveAgent(ctx, requestedSessionId, configuredRoute, startupRou
+         const message = error instanceof Error ? error.message : String(error);
+         throw new Error(`dsh-tui: failed to create agent (provider=${route.provider}, model=${route.model}): ${message}`);
+     });
++    ensureSessionEventsCompatibility(created.agent.session);
+     return { agent: created.agent, handle: created, agentPreset: composed.agentPreset, route };
+ }
+ /**

@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in beta.4 patch keeps upstream async history and hardens legacy file permissions', async () => {
+test('the checked-in beta.4 patch keeps upstream async history and adapts the alpha.4 session log', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -139,7 +139,10 @@ test('the checked-in beta.4 patch keeps upstream async history and hardens legac
   const bytes = await readFile(join(projectRoot, patch.path))
   assert.equal(sha256(bytes), patch.sha256)
   assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.0-beta.4'])
-  assert.deepEqual(Object.keys(patch.targets), ['lib/types/history.js'])
+  assert.deepEqual(Object.keys(patch.targets), [
+    'lib/types/history.js',
+    'lib/types/dsh-adapter/plugin.js',
+  ])
   const additions = bytes.toString('utf8').split('\n')
     .filter(line => line.startsWith('+') && !line.startsWith('+++'))
     .join('\n')
@@ -151,6 +154,8 @@ test('the checked-in beta.4 patch keeps upstream async history and hardens legac
   assert.match(additions, /process\.getuid/u)
   assert.match(additions, /0o700/u)
   assert.match(additions, /0o600/u)
+  assert.match(additions, /ensureSessionEventsCompatibility/u)
+  assert.match(additions, /snapshotEvents/u)
   assert.doesNotMatch(bytes.toString('utf8'), /Atomics\.wait|sleepSync/u)
   assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
   assert.doesNotMatch(bytes.toString('utf8'), /plugin-package-inventory-deepseek/u)

@@ -215,10 +215,15 @@ jobs:
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4'
-        run: npm run test:smoke
+        run: |
+          trusted_nils="$HOME/.dsh-runtime-kit-ci-nils"
+          install -d -m 0700 "$trusted_nils"
+          cp -a "$RUNNER_TEMP/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/." "$trusted_nils/"
+          chmod 0700 "$trusted_nils"
+          AGENT_HOOK_BIN="$trusted_nils/bin/agent-hook" \
+          AGENT_DOCS_BIN="$trusted_nils/bin/agent-docs" \
+            npm run test:smoke
       - name: Reverse authenticated DSH patch
         if: always()
         working-directory: dsh-runtime-kit

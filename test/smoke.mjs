@@ -1641,7 +1641,7 @@ try {
     'patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
-    'patches/dsh-tui/beta-4-history-permissions.patch',
+    'patches/dsh-tui/beta-4-runtime-compat.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -1902,7 +1902,12 @@ class SmokeAdapter extends LlmAdapter {
   healthContextVisibility = []
   healthAuditSentinelVisibility = []
   resolveModel(provider, model) {
-    return Promise.resolve({ provider, id: model, name: model })
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      reasoning: { efforts: [{ id: 'high', name: 'high' }] },
+    })
   }
   async *stream(options) {
     this.totalCalls += 1
