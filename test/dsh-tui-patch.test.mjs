@@ -160,3 +160,52 @@ test('the checked-in beta.4 patch keeps upstream async history and adapts the al
   assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
   assert.doesNotMatch(bytes.toString('utf8'), /plugin-package-inventory-deepseek/u)
 })
+
+test('the TUI patch entry records an optional authenticated upstream reference', async () => {
+  const checked = JSON.parse(
+    await readFile(join(projectRoot, 'compatibility', 'dsh-tui-patches.json'), 'utf8'),
+  )
+  assert.deepEqual(checked.patches[0].upstream_reference, { state: 'not-reported' })
+  assert.doesNotThrow(() => validateDshTuiPatchManifest(checked))
+
+  const value = await fixture()
+  try {
+    const patch = value.manifest.patches[0]
+    assert.equal(patch.upstream_reference, undefined)
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    patch.upstream_reference = {
+      state: 'merged',
+      url: 'https://github.com/ccch1mneyyy/dsh-TUI/pull/593',
+    }
+    assert.doesNotThrow(() => validateDshTuiPatchManifest(value.manifest))
+    assert.equal((await manage(value, 'apply')).after, 'patched')
+    assert.equal((await manage(value, 'reverse')).after, 'pristine')
+
+    for (const reference of [
+      { state: 'unknown-state', url: 'https://github.com/example/upstream/issues/1' },
+      { state: 'reported' },
+      { state: 'not-reported', url: 'https://github.com/example/upstream/issues/1' },
+      { state: 'stale', url: 'not-a-url' },
+      { state: 'declined', url: 'https://github.com/example/upstream/issues/1', released_in: '0.2.0' },
+      { state: 'not-reported', note: 'extra' },
+      { state: 'merged', url: 'https://github.com/example/upstream/pull/7', released_in: '' },
+      { state: 'reported', url: 'https://localhost:8080/upstream/issues/1' },
+      { state: 'reported', url: 'https://dsh-tui.local/upstream/issues/1' },
+      'not-reported',
+      null,
+    ]) {
+      const invalid = structuredClone(value.manifest)
+      invalid.patches[0].upstream_reference = reference
+      assert.throws(
+        () => validateDshTuiPatchManifest(invalid),
+        error => error instanceof DshTuiPatchError
+          && error.code === 'DSH_RUNTIME_KIT_DSH_TUI_PATCH_MANIFEST_INVALID',
+        JSON.stringify(reference),
+      )
+    }
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})

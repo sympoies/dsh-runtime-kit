@@ -4,6 +4,9 @@
   "patches": [
     {
       "id": "beta-4-runtime-compat-v1",
+      "upstream_reference": {
+        "state": "not-reported"
+      },
       "path": "patches/dsh-tui/beta-4-runtime-compat.patch",
       "sha256": "cb6d7701ec9c20f21941684bdd69f6d2de5bc483f6e47ba8a12d2d26fcb93d11",
       "targets": {

@@ -37,7 +37,9 @@ Cordis composition so the public contract and runtime admission stay aligned.
 authoritative for the only logical downstream DSH patch: each reviewed
 release's artifact digest, its exact target before/after hashes, and the three
 reviewed release revisions. The
-package does not fork, vendor, or propose this integration upstream. The patch
+package does not fork, vendor, or propose this integration upstream, which the
+entry records as an explicit `upstream_reference` state of `not-reported`
+rather than leaving to prose. The patch
 manager accepts only a pristine or exactly patched checkout and emits a typed
 receipt for check, apply, or reverse.
 
@@ -63,7 +65,11 @@ typed check/apply/reverse receipt. The
 [upstream history repair](https://github.com/ccch1mneyyy/dsh-TUI/pull/593) is
 included in beta.4 and is no longer part of the downstream diff. The remaining
 authenticated target only migrates owner-owned legacy history paths to private
-modes before reading them; it is separate from #593's async lock repair.
+modes before reading them; it is separate from #593's async lock repair and has
+no upstream counterpart, so the entry's `upstream_reference` state is
+`not-reported`. Once a downstream patch does have an upstream issue or pull
+request, that link belongs in the same field as the patch's removal signal;
+`docs/policies/upstream-contribution.md` owns the states and their rules.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
