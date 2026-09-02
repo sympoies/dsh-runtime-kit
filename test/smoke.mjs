@@ -3961,8 +3961,14 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   const artifactOrphan = artifactResult(artifactReceipt, 'artifact-write-session-orphan')
   assert.equal(artifactOrphan.isError, false, JSON.stringify(artifactOrphan))
   assert.equal(artifactOrphan.retentionClass, 'session')
-  // Only the retained record may survive the owner agent's disposal at exit.
-  assert.deepEqual(artifactStoreState(), { index: 1, objects: 1, staging: 0 })
+  // The explicitly disposed record is gone. The undisposed session-class
+  // record is reclaimed at owner-agent disposal when the host disposes its
+  // agents on exit, and otherwise by the next service start's dead-generation
+  // sweep; both outcomes are checked deterministically after the next boot.
+  const afterFirstBoot = artifactStoreState()
+  assert.equal(afterFirstBoot.staging, 0)
+  assert.equal(afterFirstBoot.index, afterFirstBoot.objects)
+  assert.ok(afterFirstBoot.index === 1 || afterFirstBoot.index === 2, JSON.stringify(afterFirstBoot))
   // The exported file is untracked repository state; remove it so the next
   // session can claim the shared smoke checkout cleanly.
   rmSync(join(projectWorkspace, 'artifacts'), { recursive: true, force: true })
@@ -3982,6 +3988,9 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     assert.equal(result.code, 'ARTIFACT_ACCESS_DENIED', JSON.stringify(result))
   }
   assert.equal(existsSync(join(projectWorkspace, 'artifacts', 'foreign-leak.json')), false)
+  // The foreign boot is a fresh host: its startup sweep reclaims the first
+  // host's dead-generation session-class record, so exactly the retained
+  // record remains regardless of how the first host exited.
   assert.deepEqual(artifactStoreState(), { index: 1, objects: 1, staging: 0 })
 
   resetCheckoutLease()
