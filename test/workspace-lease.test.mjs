@@ -1082,3 +1082,92 @@ test('a disposed lineage grants no authority and admits no execution', async () 
   assert.equal(result.isError, true)
   assert.equal(sequence.length, 0, 'a disposed lineage must not reach a tool body')
 })
+
+test('one execution resolves its repository targets once for the ledger and admission', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+  const observed = []
+  // Registered without prepend, so it runs inside the service's own
+  // downstream waterfall exactly where the finish-line ledger sits.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    observed.push(await ctx.workspaceLease.targets(exec))
+    return next()
+  })
+
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:b',
+  )
+
+  assert.equal(result.isError, false, result.error?.message)
+  assert.deepEqual(observed, [[REPO_B.root]])
+  assert.equal(Object.isFrozen(observed[0]), true)
+  assert.equal(calls.resolve.length, 1, 'the ledger and the admission share one provider decision')
+  assert.equal(calls.begin.length, 1)
+  assert.equal(calls.begin[0][0].target.workspaceKey, REPO_B.workspaceKey)
+})
+
+test('an unscoped operation projects no repository target', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(echoTool())
+  const observed = []
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    observed.push(await ctx.workspaceLease.targets(exec))
+    return next()
+  })
+
+  assert.equal((await runTool(ctx, agent, 'echo', { text: 'hi' }, 'call:echo')).isError, false)
+  assert.deepEqual(observed, [[]])
+  assert.equal(calls.resolve.length, 1)
+  assert.equal(calls.begin.length, 0)
+})
+
+test('a target projection is refused for anything but one exact live execution', async () => {
+  const { selected } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  const foreign = stubAgent('foreign', '/workspace/repo-a')
+
+  const exec = name => ({
+    agent: name,
+    token: Symbol('token'),
+    callId: CallId('call:projection'),
+    rootCallId: CallId('call:projection'),
+    name: 'write',
+    arguments: { file_path: '/workspace/repo-b/one.js' },
+    signal: testSignal,
+  })
+
+  // An execution with no attached agent owns no repository claim.
+  assert.deepEqual(await ctx.workspaceLease.targets(exec(undefined)), [])
+
+  // A canonical repository root is exactly what `denialState` withholds, so a
+  // projection is available only for an execution this boundary is admitting.
+  // A fabricated execution is refused even for the live, correctly-sessioned
+  // agent, so no composed caller can use this surface as a path-disclosure or
+  // provider-probe oracle for paths it chose itself.
+  for (const [label, candidate] of [
+    ['live agent', agent],
+    ['unregistered agent', foreign],
+  ]) {
+    await assert.rejects(
+      ctx.workspaceLease.targets(exec(candidate)),
+      error => error instanceof WorkspaceLeaseError
+        && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
+      `a fabricated execution must be refused for the ${label}`,
+    )
+  }
+
+  // The admitted path is proven by the two projection cases above, which both
+  // run through a real dispatch rather than a fabricated execution.
+})

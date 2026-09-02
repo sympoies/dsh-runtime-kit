@@ -20,6 +20,7 @@ function fixture({
   requiresFinishLine,
   allowsNonRepositoryDelegation,
   authenticatePrincipal,
+  resolveEditRoots,
   sessionCwd = '/workspace/project',
 } = {}) {
   const effects = []
@@ -124,6 +125,7 @@ function fixture({
     requiresFinishLine,
     allowsNonRepositoryDelegation,
     authenticatePrincipal,
+    resolveEditRoots,
     createOperationId: () => `operation:${++operation}`,
     prepareValidationRuntime: async (_exec, operation) => {
       runtimePreparations.push(structuredClone(operation))
@@ -1287,4 +1289,190 @@ test('a definitively abandoned capability open drops its retry token after one e
   assert.equal(openCalls, 2)
   assert.equal(subject.abandonedOpens.length, 1)
   assert.equal(subject.abandonedOpens[0].sessionId, 'session-1')
+})
+
+test('an edit reserves its generation against the repository it targets', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => ['/workspace/repo-b'],
+  })
+  const exec = execution(subject, {
+    arguments: { file_path: '/workspace/repo-b/src/index.js', old_string: 'a', new_string: 'b' },
+  })
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+
+  // The edited repository owns the generation, not the session anchor.
+  assert.equal(subject.edits.length, 1)
+  assert.equal(subject.edits[0].cwd, '/workspace/repo-b')
+  assert.equal(subject.opens.length, 1)
+  assert.equal(subject.opens[0].cwd, '/workspace/repo-b')
+})
+
+test('an edit with no repository target creates no Git validation obligation', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => [],
+  })
+  const exec = execution(subject, {
+    arguments: { file_path: '/srv/notes/todo.md', old_string: 'a', new_string: 'b' },
+  })
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits, [])
+  assert.deepEqual(subject.opens, [])
+})
+
+test('an ambiguous edit target set fails closed before reserving anything', async () => {
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => ['/workspace/repo-a', '/workspace/repo-b'],
+  })
+  const exec = execution(subject)
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: false, reason: 'finish-line-edit-target-ambiguous' },
+  )
+  assert.deepEqual(subject.edits, [])
+})
+
+test('stop requires validation for every repository the turn modified', async () => {
+  const roots = ['/workspace/repo-a', '/workspace/repo-b']
+  let call = 0
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => [roots[call++]],
+  })
+
+  for (const [index, root] of roots.entries()) {
+    const exec = execution(subject, {
+      callId: `call-${index}`,
+      arguments: { file_path: `${root}/src/index.js`, old_string: 'a', new_string: 'b' },
+    })
+    assert.deepEqual(
+      await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+      { ok: true },
+      root,
+    )
+    assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
+    subject.coordinator.result(exec, { isError: false, content: [] })
+  }
+  assert.deepEqual(subject.edits.map(edit => edit.cwd), roots)
+
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+
+  // Both modified repositories must be asked to validate and released, not
+  // just the session anchor.
+  assert.deepEqual(subject.stops.map(stop => stop.cwd).sort(), roots)
+  assert.deepEqual(subject.releases.map(release => release.cwd).sort(), roots)
+})
+
+test('without a lease projection an edit keeps the session anchor', async () => {
+  const subject = fixture()
+  const exec = execution(subject)
+
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  assert.equal(subject.edits.length, 1)
+  assert.equal(subject.edits[0].cwd, '/workspace/project')
+})
+
+test('a failed target projection preserves the lease cause it came from', async () => {
+  // The workspace-lease service denies this same execution with this exact
+  // typed cause moments later. The ledger must not replace it with a
+  // finish-line reason: issue 172 requires the root cause to survive.
+  const cause = Object.assign(
+    new Error('the workspace has uncommitted state and cannot be reassigned safely'),
+    { code: 'WORKSPACE_DIRTY' },
+  )
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => { throw cause },
+  })
+  const exec = execution(subject)
+
+  // The ledger reserves nothing and reports no reason of its own; the lease
+  // service denies this same execution with `cause` right after this
+  // boundary returns. test/finish-line-repository-scope.test.mjs pins that
+  // composed behaviour so this is verified rather than assumed.
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits, [])
+  assert.deepEqual(subject.opens, [])
+})
+
+test('an unusable edit target shape fails closed before reserving anything', async () => {
+  // Only an embedder-supplied resolver can produce this: WorkspaceLease.targets
+  // returns roots that already passed the provider's absolute-path and
+  // printable-text validation. It is the embedder-facing half of the contract,
+  // so it is pinned rather than left as unexercised defence.
+  for (const [label, roots] of [
+    ['relative', ['relative/repo-b']],
+    ['nul', ['/workspace/repo b']],
+    ['non-string', [42]],
+  ]) {
+    const subject = fixture({
+      sessionCwd: '/workspace/repo-a',
+      resolveEditRoots: async () => roots,
+    })
+    const exec = execution(subject)
+    assert.deepEqual(
+      await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+      { ok: false, reason: 'finish-line-edit-target-unavailable' },
+      label,
+    )
+    assert.deepEqual(subject.edits, [], label)
+    assert.deepEqual(subject.opens, [], label)
+  }
+})
+
+test('a non-canonical edit target keys the same ledger as its canonical form', async () => {
+  // A root that is absolute but not canonical would otherwise key a second
+  // ledger for one repository, and the validations declared against the
+  // canonical path could never satisfy this obligation.
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => ['/workspace/other/../repo-b'],
+  })
+  const exec = execution(subject)
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-b'])
+  assert.deepEqual([...new Set(subject.opens.map(open => open.cwd))], ['/workspace/repo-b'])
+})
+
+test('an unclassified edit inside the anchor still owes Git validation', async () => {
+  // The lease returns no target both when it proved the path lies outside every
+  // repository and when it simply claimed no fence for that tool. Reading an
+  // empty projection as proof would let the model select its own validation
+  // coverage by tool name, so an edit whose own path is inside the anchor keeps
+  // the anchor obligation.
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => [],
+  })
+  const exec = execution(subject, {
+    arguments: { file_path: '/workspace/repo-a/one.js', old_string: 'a', new_string: 'b' },
+  })
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-a'])
 })

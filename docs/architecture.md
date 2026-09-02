@@ -309,6 +309,20 @@ Finish-line state crosses a strict public open/begin/run/stop command family
 plus private quiesce and release lifecycle transports.
 For `write`, `edit`, and mutating `str_replace_editor` calls, pre-execute mints
 an opaque operation id and awaits durable begin registration before delegation.
+
+Each ledger is keyed by the repository the operation targets, not by the session
+anchor. A `bash` validation already binds to its own working directory; an
+editor tool exposes an exact path but no repository root, so the ledger reuses
+the canonical target the workspace-lease service already resolved and
+authenticated for that exact execution rather than deriving Git identity a
+second time. One session that edits repositories A and B therefore owns two
+ledgers, and the stop boundary requires and releases each one independently. An
+operation the provider proved touches no repository registers no edit generation
+anywhere, so a non-repository write creates no Git validation obligation. When
+the target projection itself fails, the ledger propagates the workspace-lease
+service's own typed cause rather than replacing it with a finish-line reason:
+that service denies the same execution with that cause immediately afterwards,
+and the root cause has to survive the pipeline.
 The retry token is minted inside the wire client and never becomes a service or
 model value. File payload, filesystem observations, and final tool results are
 not converted into a second finish-line report.

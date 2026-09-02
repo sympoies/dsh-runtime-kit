@@ -548,6 +548,14 @@ export class WorkspaceLease extends Service {
   #executions = new WeakMap()
   /** @type {WeakMap<ToolExecution, ExecutionAuthorization>} */
   #authorizations = new WeakMap()
+  /** @type {WeakMap<ToolExecution, Promise<readonly WorkspaceLeaseTarget[]>>} */
+  #resolutions = new WeakMap()
+  /**
+   * Executions this boundary has taken responsibility for admitting. Only
+   * these may have their canonical repository targets projected.
+   * @type {WeakSet<ToolExecution>}
+   */
+  #admitting = new WeakSet()
   /** @type {WeakSet<ToolDefinition>} */
   #quarantineCapabilities = new WeakSet()
 
@@ -563,6 +571,7 @@ export class WorkspaceLease extends Service {
     this.denialState = this.denialState.bind(this)
     this.ref = this.ref.bind(this)
     this.state = this.state.bind(this)
+    this.targets = this.targets.bind(this)
 
     ctx.on('agent/session-start', ({ agent, source }) => {
       this.#sessionStarted(agent, source)
@@ -577,6 +586,7 @@ export class WorkspaceLease extends Service {
     ctx.tools.guard(exec => this.#guard(exec))
     ctx.on('tools/result', exec => {
       this.#authorizations.delete(exec)
+      this.#resolutions.delete(exec)
     })
   }
 
@@ -683,6 +693,85 @@ export class WorkspaceLease extends Service {
       throw unavailable('workspace lease provider is unavailable')
     }
     return slot.ref
+  }
+
+  /**
+   * Project the canonical repository roots the provider authenticated for one
+   * exact live execution.
+   *
+   * A trusted downstream boundary — the finish-line ledger — needs the same
+   * classification before this service admits the call, so that it can attribute
+   * an edit generation to the repository the operation actually targets instead
+   * of to the session anchor. Both paths observe one provider decision: the
+   * resolution is memoized per exact execution object.
+   *
+   * The result is the provider's own authenticated roots. It is never derived
+   * from a model-supplied path here, carries no lease authority, and an empty
+   * array means the provider proved the operation touches no repository.
+   * @param {ToolExecution} exec
+   * @returns {Promise<readonly string[]>}
+   */
+  async targets(exec) {
+    const agent = exec.agent
+    if (agent === undefined) return Object.freeze([])
+    // No `#assertLive` here: it was the one rejection cause `#preExecute` did
+    // not mirror, and `#admitting` membership already proves this boundary
+    // took the execution.
+    // Only an execution this service is admitting may be projected. The
+    // canonical repository root is exactly what `denialState` withholds, so
+    // without this a composed plugin could hand in a fabricated execution and
+    // use the boundary as a path-disclosure and provider-probe oracle. The
+    // lease's `tools/pre-execute` is prepended, so it has always recorded the
+    // execution before any downstream boundary can ask about it.
+    if (!this.#admitting.has(exec)) {
+      throw new WorkspaceLeaseError(
+        'workspace targets are available only for an execution this boundary is admitting',
+        WORKSPACE_LEASE_UNAVAILABLE,
+        'unavailable',
+      )
+    }
+    // Every remaining rejection cause below is mirrored by an identical guard
+    // in `#preExecute`, so no projection failure can exist that admission does
+    // not also refuse. That symmetry is what lets the finish-line boundary
+    // reserve nothing on a projection failure and rely on the lease's own
+    // typed denial arriving immediately afterwards.
+    const slot = this.#agentSlots.get(agent)
+    if (slot === undefined || slot.disposed || agent.session !== slot.session) {
+      throw new WorkspaceLeaseError(
+        'workspace identity is unavailable for this agent lifecycle',
+        WORKSPACE_LEASE_UNAVAILABLE,
+        'unavailable',
+      )
+    }
+    const provider = this.#provider
+    if (provider === undefined) throw unavailable('workspace lease provider is unavailable')
+    if (provider.stopping) throw unavailable('workspace lease provider is stopping')
+    const identity = executionIdentity(exec, agent)
+    const fused = fuseSignals([identity.signal, slot.lifecycle.signal])
+    try {
+      const resolved = await this.#resolutionFor(exec, provider, slot, identity, fused.signal)
+      return Object.freeze(resolved.map(target => target.root))
+    } finally {
+      fused.dispose()
+    }
+  }
+
+  /**
+   * Resolve one execution's canonical repository targets exactly once.
+   * @param {ToolExecution} exec
+   * @param {ProviderSlot} provider
+   * @param {AgentSlot} slot
+   * @param {ExecutionIdentity} identity
+   * @param {AbortSignal} signal
+   * @returns {Promise<readonly WorkspaceLeaseTarget[]>}
+   */
+  #resolutionFor(exec, provider, slot, identity, signal) {
+    const existing = this.#resolutions.get(exec)
+    if (existing !== undefined) return existing
+    const resolution = this.#resolveTargets(provider, slot, identity, signal)
+    this.#resolutions.set(exec, resolution)
+    void resolution.catch(() => {})
+    return resolution
   }
 
   /**
@@ -1115,6 +1204,11 @@ export class WorkspaceLease extends Service {
    * @returns {Promise<PreToolDecision>}
    */
   async #preExecute(exec, next) {
+    // Take responsibility for the execution before the downstream waterfall
+    // runs: `next()` is what invokes the finish-line boundary, and that is
+    // where `targets()` is asked. Recording afterwards would refuse the very
+    // execution this boundary is admitting.
+    if (exec.agent !== undefined) this.#admitting.add(exec)
     const downstream = await next()
     if ((downstream.kind !== 'allow' && downstream.kind !== 'ask')
       || exec.agent === undefined
@@ -1143,7 +1237,13 @@ export class WorkspaceLease extends Service {
     /** @type {LeaseOperation[]} */
     const operations = []
     try {
-      const targets = await this.#resolveTargets(provider, slot, identity, admissionSignal.signal)
+      const targets = await this.#resolutionFor(
+        exec,
+        provider,
+        slot,
+        identity,
+        admissionSignal.signal,
+      )
       if (targets.length === 0) {
         // An unscoped native host operation. The runtime claims no repository
         // fence it cannot enforce, and denies nothing on that basis.
