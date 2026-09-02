@@ -185,21 +185,24 @@ export function compositionLock(resolved) {
   return receipt
 }
 
-// PKCS8 prefix for a raw Ed25519 seed, so a fixed seed yields a fixed key.
+// Node has no seed-based Ed25519 import, so prefix a raw seed with the PKCS8
+// header for an Ed25519 private key. A wrong prefix or seed length fails loudly
+// in `createPrivateKey` rather than silently producing a different key.
 const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex')
 
 /**
- * Derive one fixture signing key from `identity`. The key is fixed, not random:
+ * Derive one fixture signing key from `signer`. The key is fixed, not random:
  * a fresh keypair per call made every fixture signature fresh random bytes, and
  * `assertSecretFree` rejects a value matching its secret patterns, so a
  * `base64url` signature containing an `sk-` run failed the suite about once in
  * 75,000 signatures. A fixed seed makes every fixture signature deterministic,
  * so the guard either always accepts these documents or always rejects them.
- * Pass a distinct `identity` for a test that needs a second, unrelated signer.
+ * Every caller shares the default key; pass a distinct `signer` for a test that
+ * needs a second, unrelated signer.
  */
-export function signingFixture(identity = 'default') {
+export function signingFixture(signer = 'default') {
   const seed = createHash('sha256')
-    .update(`dsh-runtime-kit/test/manager-fixtures/signing/v1/${identity}`)
+    .update(`dsh-runtime-kit/test/manager-fixtures/signing/${signer}`)
     .digest()
   const privateKey = createPrivateKey({
     key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]),
