@@ -251,7 +251,7 @@ function sameValidationOperation(admitted, current) {
 
 /**
  * @param {Context} ctx
- * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, allowsNonRepositoryDelegation?: (identity: FinishLineIdentity) => boolean, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}, identity: FinishLineIdentity) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
+ * @param {{client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, allowsNonRepositoryDelegation?: (identity: FinishLineIdentity) => boolean, resolveEditRoots?: (exec: ToolExecution) => Promise<readonly string[] | undefined>, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}, identity: FinishLineIdentity) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}} options
  */
 export function createFinishLineCoordinator(ctx, options) {
   const HarnessError = options.HarnessError ?? Error
@@ -266,6 +266,11 @@ export function createFinishLineCoordinator(ctx, options) {
   const now = options.now ?? Date.now
   const requiresFinishLine = options.requiresFinishLine ?? (() => true)
   const allowsNonRepositoryDelegation = options.allowsNonRepositoryDelegation ?? (() => false)
+  // Editor tools carry an exact path argument but no repository root. The
+  // workspace-lease service already canonicalized and authenticated that
+  // operation's repository target, so the ledger reuses that decision instead
+  // of deriving Git identity a second time in JavaScript.
+  const resolveEditRoots = options.resolveEditRoots
   const authenticatePrincipal = options.authenticatePrincipal ?? (async () => undefined)
   const prepareValidationRuntime = options.prepareValidationRuntime ?? (async (_exec, operation) => ({
     timeoutMs: resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
@@ -634,13 +639,43 @@ export function createFinishLineCoordinator(ctx, options) {
       }
       const session = exec.agent?.session
       if (session === undefined) return { ok: false, reason: 'finish-line-session-missing' }
-      const identity = identityForOperation(call, operation)
-      if (requiresFinishLine(identity) === false) {
+      const anchorIdentity = identityForOperation(call, operation)
+      // Session classification is principal-scoped, so the anchor identity is
+      // the correct subject for it even when the operation targets elsewhere.
+      if (requiresFinishLine(anchorIdentity) === false) {
         advisoryDelegations.add(exec)
         return { ok: true }
       }
       if (advisoryDelegations.has(exec)) return { ok: true }
       if (nonRepositoryPwdCalls.has(exec)) return { ok: true }
+      let identity = anchorIdentity
+      if (operation.kind === 'edit' && resolveEditRoots !== undefined) {
+        // A projection failure is the workspace-lease service's own typed
+        // cause. That service resolves this exact execution once and denies it
+        // with that cause immediately after this boundary returns, so reserve
+        // nothing and let the root cause reach the model unchanged. Replacing
+        // it with a finish-line reason would hide a WORKSPACE_DIRTY or
+        // WORKSPACE_FOREIGN_ACTIVE denial behind an unrelated failure, and
+        // throwing here would skip the pre-execute cleanup path.
+        /** @type {readonly string[] | undefined} */
+        let roots
+        try {
+          roots = await resolveEditRoots(exec)
+        } catch {
+          return { ok: true }
+        }
+        if (roots !== undefined) {
+          // The provider proved this operation touches no repository, so it
+          // owns no Git validation obligation anywhere.
+          if (roots.length === 0) return { ok: true }
+          if (roots.length > 1) return { ok: false, reason: 'finish-line-edit-target-ambiguous' }
+          const root = roots[0]
+          if (typeof root !== 'string' || !isAbsolute(root) || root.includes('\0')) {
+            return { ok: false, reason: 'finish-line-edit-target-unavailable' }
+          }
+          identity = { ...anchorIdentity, cwd: root }
+        }
+      }
       await awaitPriorRelease(identity)
       if (!open) return { ok: false, reason: 'finish-line-disposed' }
       if (releaseDegraded) return { ok: false, reason: 'finish-line-unavailable' }

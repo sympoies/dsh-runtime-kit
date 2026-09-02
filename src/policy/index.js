@@ -395,6 +395,18 @@ export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createC
       process.platform,
       resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
     ),
+    // Attribute an edit generation to the repository the operation targets.
+    // The workspace-lease service already canonicalized and authenticated that
+    // target for this exact execution, so the ledger reuses its decision rather
+    // than deriving Git identity a second time. An embedder that composed no
+    // lease service returns undefined and keeps the session anchor.
+    resolveEditRoots: async exec => {
+      const service = /** @type {{targets?: (exec: ToolExecution) => Promise<readonly string[]>}} */ (
+        ctx.get('workspaceLease')
+      )
+      if (service === undefined || typeof service.targets !== 'function') return undefined
+      return service.targets(exec)
+    },
     prepareValidationRuntime: async (exec, operation, identity) => {
       const session = exec.agent?.session
       if (session === undefined) throw new Error('dsh-runtime-kit: finish-line-session-missing')

@@ -897,3 +897,85 @@ test('a quarantine capability registration remains identity-exact', async () => 
   )
   stop()
 })
+
+test('one execution resolves its repository targets once for the ledger and admission', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+  const observed = []
+  // Registered without prepend, so it runs inside the service's own
+  // downstream waterfall exactly where the finish-line ledger sits.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    observed.push(await ctx.workspaceLease.targets(exec))
+    return next()
+  })
+
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:b',
+  )
+
+  assert.equal(result.isError, false, result.error?.message)
+  assert.deepEqual(observed, [[REPO_B.root]])
+  assert.equal(Object.isFrozen(observed[0]), true)
+  assert.equal(calls.resolve.length, 1, 'the ledger and the admission share one provider decision')
+  assert.equal(calls.begin.length, 1)
+  assert.equal(calls.begin[0][0].target.workspaceKey, REPO_B.workspaceKey)
+})
+
+test('an unscoped operation projects no repository target', async () => {
+  const { selected, calls } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(echoTool())
+  const observed = []
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    observed.push(await ctx.workspaceLease.targets(exec))
+    return next()
+  })
+
+  assert.equal((await runTool(ctx, agent, 'echo', { text: 'hi' }, 'call:echo')).isError, false)
+  assert.deepEqual(observed, [[]])
+  assert.equal(calls.resolve.length, 1)
+  assert.equal(calls.begin.length, 0)
+})
+
+test('a target projection is refused for anything but one exact live execution', async () => {
+  const { selected } = provider({ resolve: writeTargets })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  const foreign = stubAgent('foreign', '/workspace/repo-a')
+
+  const exec = name => ({
+    agent: name,
+    token: Symbol('token'),
+    callId: CallId('call:projection'),
+    rootCallId: CallId('call:projection'),
+    name: 'write',
+    arguments: { file_path: '/workspace/repo-b/one.js' },
+    signal: testSignal,
+  })
+
+  // An execution with no attached agent owns no repository claim.
+  assert.deepEqual(await ctx.workspaceLease.targets(exec(undefined)), [])
+  // An unregistered agent is not a live incarnation of this runtime.
+  await assert.rejects(
+    ctx.workspaceLease.targets(exec(foreign)),
+    WorkspaceLeaseInvalidRefError,
+  )
+  // A replaced session on the live agent is a different lifecycle.
+  const original = agent.session
+  agent.session = Session.create(agent.id, sessionEvents(original), original.header)
+  await assert.rejects(
+    ctx.workspaceLease.targets(exec(agent)),
+    error => error instanceof WorkspaceLeaseError
+      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
+  )
+})
