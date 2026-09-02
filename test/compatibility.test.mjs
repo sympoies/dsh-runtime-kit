@@ -83,30 +83,38 @@ function validRuntime() {
   }
 }
 
-test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8', () => {
+test('DSH compatibility manifest enforces a rolling window of exactly three releases', () => {
   const manifest = validateDshCompatibilityManifest(
     JSON.parse(readFileSync(manifestPath, 'utf8')),
   )
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.dsh-compatibility.v1')
   assert.equal(manifest.repository, 'https://github.com/deepseek-ai/deepseek-harness')
   assert.deepEqual(Object.keys(manifest.channels).sort(), ['pinned', 'upstream-next'])
-  assert.equal(manifest.channels.pinned.version, '0.1.1-rc.2')
-  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.1-rc.2')
+  assert.deepEqual(manifest.support_policy, {
+    kind: 'rolling-latest-releases',
+    maximum_releases: 3,
+    promotion: 'add newest release and retire the oldest release in the same change',
+  })
+  assert.equal(manifest.channels.pinned.version, '0.1.2-alpha.4')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.2-alpha.4')
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
   assert.deepEqual(manifest.validated_releases, {
-    '0.1.0-rc.7': {
-      ref: 'refs/tags/dsh-v0.1.0-rc.7',
-      revision: '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
-    },
     '0.1.0-rc.8': {
       ref: 'refs/tags/dsh-v0.1.0-rc.8',
       revision: '141eb6fef83422698aef7a981029e843e8161534',
+      cordis: '4.0.1',
     },
     '0.1.1-rc.2': {
       ref: 'refs/tags/dsh-v0.1.1-rc.2',
       revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
+      cordis: '4.0.1',
+    },
+    '0.1.2-alpha.4': {
+      ref: 'refs/tags/dsh-v0.1.2-alpha.4',
+      revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
+      cordis: '4.0.2',
     },
   })
   const patchManifest = validateDshPatchManifest(
@@ -146,9 +154,17 @@ test('DSH compatibility manifest pins latest rc.2 while retaining rc.7 and rc.8'
   for (const [name, contract] of Object.entries(manifest.public_packages)) {
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
-      ? '4.0.1'
-      : '0.1.0-rc.7 || 0.1.0-rc.8 || 0.1.1-rc.2')
+      ? '4.0.1 || 4.0.2'
+      : '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4')
   }
+
+  const expandedWindow = structuredClone(manifest)
+  expandedWindow.support_policy.maximum_releases = 4
+  assert.throws(
+    () => validateDshCompatibilityManifest(expandedWindow),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+  )
 
   const exportDrift = structuredClone(manifest)
   exportDrift.public_packages['@deepseek-ai/dsh-llm'].exports.createUserMessage = 'object'
@@ -341,7 +357,7 @@ test('authenticated extraction never follows a swapped package root', async () =
 test('runtime public-surface preflight returns a typed report or one typed incompatibility', () => {
   assert.deepEqual(assertDshRc7Runtime(validRuntime()), {
     schema_version: 'dsh-runtime-kit.dsh-runtime-report.v1',
-    adapter: 'dsh-rc7',
+    adapter: 'dsh-rolling-v1',
     compatible: true,
   })
 
@@ -465,8 +481,8 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   const options = overrides => ({
     importModule: async specifier => overrides?.[specifier] ?? modules[specifier],
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
-      ? '4.0.1'
-      : '0.1.0-rc.7',
+      ? '4.0.2'
+      : '0.1.2-alpha.4',
   })
   const loaded = await loadDshRc7Runtime(options())
   assert.equal(typeof loaded.createUserMessage, 'function')
@@ -489,6 +505,34 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   })
   assert.deepEqual(new Set(Object.values(rc2.versions)), new Set(['0.1.1-rc.2', '4.0.1']))
 
+  const alpha4 = await loadDshRc7Runtime(options())
+  assert.deepEqual(new Set(Object.values(alpha4.versions)), new Set(['0.1.2-alpha.4', '4.0.2']))
+
+  for (const [dshVersion, cordisVersion, expectedCordisVersion] of [
+    ['0.1.0-rc.8', '4.0.2', '4.0.1'],
+    ['0.1.1-rc.2', '4.0.2', '4.0.1'],
+    ['0.1.2-alpha.4', '4.0.1', '4.0.2'],
+  ]) {
+    let invalidCompositionImports = 0
+    await assert.rejects(
+      loadDshRc7Runtime({
+        importModule: async specifier => {
+          invalidCompositionImports += 1
+          return modules[specifier]
+        },
+        packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+          ? cordisVersion
+          : dshVersion,
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+        && error.diagnostic.missing.includes(
+          `@deepseek-ai/cordis:version:${expectedCordisVersion}`,
+        ),
+    )
+    assert.equal(invalidCompositionImports, 0)
+  }
+
   await assert.rejects(
     loadDshRc7Runtime(options({
       '@deepseek-ai/dsh-llm': { HarnessError: class extends Error {}, createUserMessage: undefined },
@@ -503,16 +547,16 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
       packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
         ? '0.1.0-rc.8'
         : specifier === '@deepseek-ai/cordis'
-          ? '4.0.1'
-          : '0.1.0-rc.7',
+          ? '4.0.2'
+          : '0.1.2-alpha.4',
     }),
     error => error instanceof DshCompatibilityError
       && assert.deepEqual(error.diagnostic, {
-        adapter: 'dsh-rc7',
+        adapter: 'dsh-rolling-v1',
         schema_version: 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1',
         compatible: false,
         code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-        missing: ['@deepseek-ai/dsh-tools:version:0.1.0-rc.7'],
+        missing: ['@deepseek-ai/dsh-tools:version:0.1.2-alpha.4'],
       }) === undefined,
   )
 
@@ -526,23 +570,23 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
       packageVersion: async specifier => specifier === '@deepseek-ai/dsh-subprocess'
         ? '0.1.0-rc.8'
         : specifier === '@deepseek-ai/cordis'
-          ? '4.0.1'
-          : '0.1.0-rc.7',
+          ? '4.0.2'
+          : '0.1.2-alpha.4',
     }),
     error => error instanceof DshCompatibilityError
-      && error.diagnostic.adapter === 'dsh-rc7'
+      && error.diagnostic.adapter === 'dsh-rolling-v1'
       && error.diagnostic.missing.includes(
-        '@deepseek-ai/dsh-subprocess:version:0.1.0-rc.7',
+        '@deepseek-ai/dsh-subprocess:version:0.1.2-alpha.4',
       ),
   )
   assert.equal(importCalls, 0)
 
   const installed = await loadDshRc7Runtime()
   const installedVersions = new Set(Object.values(installed.versions))
-  assert.equal(installedVersions.has('4.0.1'), true)
+  assert.equal(installedVersions.has('4.0.1') || installedVersions.has('4.0.2'), true)
   assert.equal(installedVersions.size, 2)
   assert.equal(
-    ['0.1.0-rc.7', '0.1.0-rc.8', '0.1.1-rc.2']
+    ['0.1.0-rc.8', '0.1.1-rc.2', '0.1.2-alpha.4']
       .some(version => installedVersions.has(version)),
     true,
   )
@@ -819,6 +863,18 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
   assert.match(macosJob, /node-version: 24/)
+  assert.match(
+    macosJob,
+    new RegExp(`repository: deepseek-ai/deepseek-harness\\n\\s+ref: ${manifest.channels.pinned.revision}`),
+  )
+  assert.match(
+    macosJob,
+    new RegExp(`DSH_ACCEPTANCE_DSH_VERSION=${manifest.channels.pinned.version}`),
+  )
+  assert.match(
+    macosJob,
+    new RegExp(`DSH_ACCEPTANCE_DSH_REVISION=${manifest.channels.pinned.revision}`),
+  )
   assert.match(macosJob, /deepseek-harness\/vendor\/cordis/)
   assert.match(macosJob, /ln -s "\$GITHUB_WORKSPACE\/deepseek-harness\/vendor\/cordis"/)
   assert.doesNotMatch(macosJob, /npm install --no-save[\s\S]{0,200}deepseek-harness\/vendor\/cordis/)

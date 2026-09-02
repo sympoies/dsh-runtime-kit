@@ -50,18 +50,21 @@ tools, sandbox, approvals, skills, and subagents.
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
-| Cordis | `4.0.1` |
+| DeepSeek Harness | `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` |
+| Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
 
-The package deliberately does not claim compatibility with DSH release
-candidates after rc.2 or the eventual stable `0.1.x` line. See the
+The package deliberately supports a rolling window of exactly three reviewed
+DSH releases. Promoting a newer release retires the oldest in the same change;
+unlisted releases are unsupported. The exact dependency pairs are rc.8/4.0.1,
+rc.2/4.0.1, and alpha.4/4.0.2; cross-version DSH/Cordis combinations are not
+admitted. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.
 
 Every supported DSH checkout must carry the authenticated
-`native-execution-boundaries-v2` patch before runtime-kit is activated. It adds
+`native-execution-boundaries-v5` patch before runtime-kit is activated. It adds
 the exact tool-prerequisite transaction boundary, the native pre-waterfall
 model guard, fail-closed descriptor-bound subprocess execution for
 authenticated companion snapshots, one optional synchronous GoalService
@@ -93,7 +96,7 @@ is considered complete.
 
 ## Install and activate
 
-Two exact DSH `0.1.1-rc.2` compositions are supported:
+Two exact DSH `0.1.2-alpha.4` compositions are supported:
 
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
@@ -113,7 +116,7 @@ profile linker and peer settings while recording the TUI release's explicit
 the agent's host CLI or `PATH`.
 
 After installing the authenticated 0.10.0-beta.4 archive and before starting
-the TUI, apply the narrowed beta.4-on-DSH-rc.2 compatibility repair:
+the TUI, apply the narrowed beta.4 runtime repair:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
@@ -125,12 +128,12 @@ patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
 Unknown or partially patched packages fail closed. Beta.4 already carries the
 upstream asynchronous history persistence from dsh-TUI #593, so runtime-kit no
-longer patches input dispatch or lock retries. The remaining repair removes the
-prerelease's alpha-only package-inventory override, which the selected DSH rc.2
-base bundle does not provide, and restricts owner-owned legacy history data
-directories and files to 0700/0600 before reading them. Unexpected or symlinked
-paths are refused. Apply, check, and reverse authenticate both remaining target
-differences together.
+longer patches input dispatch or lock retries. The remaining repair maps
+beta.4's legacy read-only `session.events` view to alpha.4's public cached
+`snapshotEvents()` API and restricts owner-owned legacy history data directories
+and files to 0700/0600 before reading them. Unexpected or symlinked paths are
+refused. Apply, check, and reverse authenticate both target differences
+together.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

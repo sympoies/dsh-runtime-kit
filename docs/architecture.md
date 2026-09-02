@@ -462,7 +462,7 @@ ordinary Bash keeps the finish-line path above and advances the shared nils
 generation without producing evidence. Non-shell mutations advance generation
 before their body, while non-shell validators terminalize only from the final
 DSH result. Turn stop asks nils to reserve an all-satisfied verdict under the
-repository lock. The authenticated `native-execution-boundaries-v2` patch
+repository lock. The authenticated `native-execution-boundaries-v5` patch
 consumes that exact cached reservation synchronously before GoalService
 completion state changes; a detached verdict without a live reservation is
 diagnostic only. Runtime-kit retains the exact runner capability until the
@@ -801,12 +801,13 @@ Upstream compatibility is executable: pack the bundle, install it into a clean
 profile, dump the composed config, boot DSH, discover skills, and drive a real
 Agent/AgentLoop allow/block probe plus cancellation and plugin-disposal drains.
 All `@deepseek-ai/dsh-*` peers used by the compatibility adapter must form one
-homogeneous exact `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` set; Cordis remains pinned
-exactly to `4.0.1`. The adapter uses the same reviewed public surface for both
+homogeneous exact `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` set; Cordis may be
+`4.0.1` or `4.0.2` according to that DSH release. The adapter uses the same reviewed public surface for both
 retained and current releases and rejects mixed or later prerelease identities before import.
 
 `compatibility/dsh.json` is the closed promotion input. It records the exact
-`0.1.0-rc.7`, `0.1.0-rc.8`, and `0.1.1-rc.2` release identities, the pinned
+`0.1.0-rc.8`, `0.1.1-rc.2`, and `0.1.2-alpha.4` release identities, the rolling
+three-release support policy, the pinned
 tag, one exact upstream-next revision, every consumed public package/export,
 the runtime service-method surface, the deterministic in-memory pre-tool
 budget, and the packed released-agent-hook subprocess budget. The

@@ -76,8 +76,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dsh_version: 0.1.0-rc.7
-            revision: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+          - dsh_version: 0.1.1-rc.2
+            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
             public_contract: false
             node: 24
           - dsh_version: 0.1.0-rc.8
@@ -85,13 +85,13 @@ jobs:
             public_contract: false
             node: 24
           - channel: pinned
-            dsh_version: 0.1.1-rc.2
-            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+            dsh_version: 0.1.2-alpha.4
+            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
             public_contract: true
             node: 24
           - channel: upstream-next
-            dsh_version: 0.1.1-rc.2
-            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+            dsh_version: 0.1.2-alpha.4
+            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
             public_contract: true
             node: 24
     steps:
@@ -215,10 +215,15 @@ jobs:
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4'
-        run: npm run test:smoke
+        run: |
+          trusted_nils="$HOME/.dsh-runtime-kit-ci-nils"
+          install -d -m 0700 "$trusted_nils"
+          cp -a "$RUNNER_TEMP/nils-cli-v1.27.34-x86_64-unknown-linux-gnu/." "$trusted_nils/"
+          chmod 0700 "$trusted_nils"
+          AGENT_HOOK_BIN="$trusted_nils/bin/agent-hook" \
+          AGENT_DOCS_BIN="$trusted_nils/bin/agent-docs" \
+            npm run test:smoke
       - name: Reverse authenticated DSH patch
         if: always()
         working-directory: dsh-runtime-kit
@@ -279,7 +284,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+          ref: 4e84901e6471b79ec0338099867ebb4606d12bb5
           path: deepseek-harness
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -385,8 +390,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=e6f50a34d68e7a6638eb104e423dcacd116c4071 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"60ae88def2459e35e1c672f40650d44f433146571674b909caead7bad710d65c","agent-docs":"c6128a9d16610c536882116b2256aa1fc3786749c4a8f89f602f2a65912c7870"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"6cf18e4e86563704284835d4c04437f7d74aadf8caa2ce0f2b0f81d1a84d2195","agent-docs":"1ea127194cee10b382ac016da15ac6a9dcc5d08b1a8c57819adadb288af7e230"}' \
-          DSH_ACCEPTANCE_DSH_VERSION=0.1.1-rc.2 \
-          DSH_ACCEPTANCE_DSH_REVISION=b150a551b8d465e31e418e1b2eaf5e79bbb7d28e \
+          DSH_ACCEPTANCE_DSH_VERSION=0.1.2-alpha.4 \
+          DSH_ACCEPTANCE_DSH_REVISION=4e84901e6471b79ec0338099867ebb4606d12bb5 \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \

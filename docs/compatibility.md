@@ -4,18 +4,21 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.7`, `0.1.0-rc.8`, or `0.1.1-rc.2` |
+| DeepSeek Harness | `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` |
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
-| Cordis | `4.0.1` |
+| Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.27.17` minimum; exactly validated through `1.27.34` |
 
-The package does not claim compatibility with DSH release candidates after the
-exact promoted `0.1.1-rc.2` release or the eventual stable `0.1.x` line.
-Runtime startup requires one homogeneous `0.1.0-rc.7`, `0.1.0-rc.8`, or
-`0.1.1-rc.2` public peer set and validates the consumed public exports and
-service methods before registering a listener, tool, service, or skill. Mixed
-or unknown peer versions fail closed. Incompatibility returns a typed
+The package retains exactly the latest three reviewed DSH releases. A promotion
+must add the newest release and remove the oldest release, its patch artifact,
+and its CI row in the same change; the validation count therefore remains
+bounded while DSH is immature. Runtime startup requires one homogeneous
+`0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` public peer set and validates the consumed public exports and
+service methods before registering a listener, tool, service, or skill. The
+reviewed compositions are exact: rc.8 and rc.2 require Cordis 4.0.1, while
+alpha.4 requires Cordis 4.0.2. Mixed, cross-composed, or unknown peer versions
+fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
 `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; plugin activation also requires the native
 `tools.bindPrerequisite` and `llm.guard` methods supplied by the authenticated
@@ -24,10 +27,11 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.0-rc.7`,
-`0.1.0-rc.8`, and `0.1.1-rc.2` release identities, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.0-rc.8`,
+`0.1.1-rc.2`, and `0.1.2-alpha.4` release identities, the enforced three-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
-performance budgets.
+performance budgets. Each `validated_releases` row also declares its exact
+Cordis composition so the public contract and runtime admission stay aligned.
 
 [`compatibility/dsh-patches.json`](../compatibility/dsh-patches.json) is
 authoritative for the only logical downstream DSH patch: each reviewed
@@ -47,7 +51,7 @@ classification and receipts, atomic unpublished-child authority mounting,
 bounded global/per-role admission, and quiescent teardown. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for rc.7, rc.8, and rc.2; an
+target hashes bind those seams independently for rc.8, rc.2, and alpha.4; an
 unknown or locally drifted checkout remains ineligible.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
@@ -58,8 +62,8 @@ hashes. The manager accepts only pristine or exactly patched bytes and emits a
 typed check/apply/reverse receipt. The
 [upstream history repair](https://github.com/ccch1mneyyy/dsh-TUI/pull/593) is
 included in beta.4 and is no longer part of the downstream diff. The remaining
-authenticated targets cover only the rc.2 alpha-inventory mismatch and
-owner-only migration for legacy history paths.
+authenticated target only migrates owner-owned legacy history paths to private
+modes before reading them; it is separate from #593's async lock repair.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
 for the minimum and validated nils-cli release, consumed commands and protocols,
@@ -103,11 +107,12 @@ the annotated tag object used by the prior 0.9.3 boundary. The prerelease adds
 the 0.10 interaction and plugin surfaces, repairs beta.1's startup failure,
 and includes #593's asynchronous history persistence; these remain upstream
 TUI behaviors rather than runtime-kit patches. The narrowed package repair
-recorded in `compatibility/dsh-tui-patches.json` removes the prerelease's
-alpha-only `plugin-package-inventory-deepseek` override, which is not present
-in the selected DSH rc.2 base bundle. It also migrates retained, owner-owned
-0.9.3 history data to private modes before reading it and refuses unexpected
-or symlinked paths.
+recorded in `compatibility/dsh-tui-patches.json` migrates retained, owner-owned
+history data to private modes before reading it, refuses unexpected or
+symlinked paths, and maps beta.4's legacy read-only session-event view to DSH
+alpha.4's public cached snapshot interface. DSH alpha.4 natively provides the
+package-inventory plugin, so the former rc.2-only TUI configuration removal is
+no longer applied.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.
@@ -128,7 +133,7 @@ It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
 and authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
-The rc.7 and rc.8 releases are independently pinned and receive the same local
+The retained rc.8 and rc.2 releases are independently pinned and receive the same local
 patch apply/reverse and packed-smoke acceptance before their peer range is
 advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.

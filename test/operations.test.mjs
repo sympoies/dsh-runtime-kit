@@ -148,7 +148,7 @@ function normalizeExecutableModes(root) {
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  console.log('0.1.0-rc.7')
+  console.log('0.1.2-alpha.4')
   process.exit(0)
 }
 const home = process.env.DSH_HOME
@@ -418,7 +418,7 @@ function pathWithoutSetsid(subject) {
 
 function applyPlan(subject, args, extraEnv = {}) {
   const preview = run(subject, args, extraEnv)
-  assert.equal(preview.status, 0, preview.stderr)
+  assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
   assert.equal(preview.value.data.mode, 'dry-run')
   const applied = run(subject, [
     ...args, '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
@@ -1020,10 +1020,10 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   try {
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
     assert.equal(setup.preview.plan.runtime_root, realpathSync(subject.runtimeRoot))
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.0-rc.7')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.2-alpha.4')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      '99f6f02fecdb7dff40c3fbc9470f5907c29f74ca',
+      '4e84901e6471b79ec0338099867ebb4606d12bb5',
     )
     assert.match(setup.preview.plan.toolchain.dsh.executable_sha256, /^[a-f0-9]{64}$/)
     assert.match(setup.preview.plan.toolchain.pnpm.executable_sha256, /^[a-f0-9]{64}$/)
@@ -1073,9 +1073,9 @@ test('operations bind the exact reviewed DSH rc.8 toolchain identity', () => {
   const subject = fixture()
   try {
     const source = readFileSync(subject.dsh, 'utf8')
-    assert.match(source, /console\.log\('0\.1\.0-rc\.7'\)/)
+    assert.match(source, /console\.log\('0\.1\.2-alpha\.4'\)/)
     writeFileSync(subject.dsh, source.replace(
-      "console.log('0.1.0-rc.7')",
+      "console.log('0.1.2-alpha.4')",
       "console.log('0.1.0-rc.8')",
     ))
     chmodSync(subject.dsh, 0o755)
@@ -1095,7 +1095,7 @@ test('operations bind the exact reviewed DSH rc.8 toolchain identity', () => {
   try {
     const source = readFileSync(unknown.dsh, 'utf8')
     writeFileSync(unknown.dsh, source.replace(
-      "console.log('0.1.0-rc.7')",
+      "console.log('0.1.2-alpha.4')",
       "console.log('0.1.0-rc.9')",
     ))
     chmodSync(unknown.dsh, 0o755)
@@ -3435,7 +3435,7 @@ test('subprocesses receive a minimal environment and child stderr cannot echo se
     const hostile = join(subject.root, 'hostile-dsh.mjs')
     writeFileSync(hostile, `#!/usr/bin/env node
 if (process.argv[2] === '--version') {
-  process.stdout.write('0.1.0-rc.7\\n')
+  process.stdout.write('0.1.2-alpha.4\\n')
   process.exit(0)
 }
 const sentinel = process.env.RUNTIME_KIT_SECRET_SENTINEL ?? '<absent>'
@@ -3489,7 +3489,7 @@ import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  process.stdout.write('0.1.0-rc.7\\n')
+  process.stdout.write('0.1.2-alpha.4\\n')
   process.exit(0)
 }
 const observed = {

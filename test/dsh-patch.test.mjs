@@ -93,7 +93,7 @@ test('the consolidated native patch adds goal, workspace, and restricted-role bo
     assert.match(source, /for \(const block of content\)[\s\S]*projectForPersistence/u)
     assert.doesNotMatch(source, /Promise\.all\([\s\S]{0,500}projectForPersistence/u)
     assert.match(source, /startRole\(roleId: string, request: RestrictedRoleStartRequest\)/u)
-    assert.match(source, /supportsRestrictedRoles: true/u)
+    assert.match(source, /supportsRestrictedRoles(?:\s*:\s*true|\s*=\s*true)/u)
     assert.match(source, /restricted role .* cannot execute/u)
     assert.match(source, /dsh\.subagent\.restricted-role-receipt\.v1/u)
   }
