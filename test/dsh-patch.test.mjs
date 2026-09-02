@@ -726,7 +726,10 @@ test('the patch entry records an optional authenticated upstream reference', asy
       { state: 'reported', url: 'https://token@github.com/example/upstream/issues/1' },
       { state: 'reported', url: 'https://github.com/example/upstream/issues/1', released_in: '0.2.0' },
       { state: 'reported', url: 'https://github.com/example/upstream/issues/1', note: 'extra' },
+      { state: 'merged', url: 'https://github.com/example/upstream/pull/7', released_in: '' },
+      { state: 'merged', url: 'https://github.com/example/upstream/pull/7', released_in: 7 },
       [{ state: 'not-reported' }],
+      null,
     ]) {
       const invalid = structuredClone(value.manifest)
       invalid.patches[0].upstream_reference = reference

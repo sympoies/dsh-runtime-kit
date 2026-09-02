@@ -1639,6 +1639,7 @@ try {
     'src/compat/git-checkout.js',
     'src/compat/package-artifact.js',
     'src/compat/performance.js',
+    'src/compat/upstream-reference.js',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc8.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
