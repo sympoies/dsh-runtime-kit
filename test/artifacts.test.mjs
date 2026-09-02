@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import {
+import fsPromises, {
   chmod,
   link,
   lstat,
@@ -11,11 +11,13 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -450,14 +452,130 @@ test('references are revalidated by the provider after restart and tampering fai
   await second.ctx.fiber.dispose()
   await second.service.settled()
 
-  // The startup sweep reclaims retained records whose expiry passed while the
-  // host was down. The malformed record is never trusted enough to be swept, so
-  // exactly its object survives instead of being silently deleted.
+  // A session-class record left behind by a host that never disposed its
+  // agents (a crash or a hard exit) must not outlive the next service start.
+  const crashed = new LocalArtifactProvider({ root })
+  await crashed.init()
+  const orphanStaging = await crashed.begin({ id: 'ab'.repeat(16), maxBytes: 1024 })
+  await orphanStaging.write(new TextEncoder().encode('left behind by a crash'))
+  const orphanCommitted = await orphanStaging.commit()
+  await crashed.publish({
+    schema_version: 'dsh-runtime-kit.artifact-record.v1',
+    id: 'ab'.repeat(16),
+    ...orphanCommitted,
+    media_type: 'text/plain',
+    owner_session_id: 'durable',
+    workspace_digest: 'unmanaged',
+    producer_tool: 'crash-fixture',
+    generation: 'generation:crashed',
+    created_at: new Date().toISOString(),
+    retention_class: 'session',
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  })
+  assert.equal((await crashed.list()).some(record => record.id === 'ab'.repeat(16)), true)
+
+  // The startup sweep reclaims every session-class record plus retained
+  // records whose expiry passed while the host was down. The malformed record
+  // is never trusted enough to be swept, so exactly its object survives instead
+  // of being silently deleted.
   const clock = Date.now() + 700_000
   const third = await harness({ root, now: () => clock })
-  assert.deepEqual(await third.service.records(), [])
-  assert.equal(await objectCount(root), 1)
+  const survivingObjects = []
+  for (const bucket of await readdir(join(root, 'objects'))) {
+    for (const entry of await readdir(join(root, 'objects', bucket))) survivingObjects.push(`${bucket}/${entry}`)
+  }
+  assert.equal(await objectCount(root), 1, JSON.stringify({ survivingObjects, malformed: malformed.sha256, kept: kept.sha256, corrupted: corrupted.sha256, linked: linked.sha256, symlinked: symlinked.sha256, orphan: orphanCommitted.sha256 }))
   assert.deepEqual(await readdir(join(root, 'index')), [malformedIndex])
+  await third.ctx.fiber.dispose()
+
+  // Without the clock advance, the startup sweep still removes only the
+  // session-class orphan and keeps unexpired retained records.
+  const fourthRoot = await temporaryDirectory('artifacts-store-')
+  const seed = await harness({ root: fourthRoot })
+  const seeder = stubAgent('seeder', workspace)
+  publish(seed.ctx, seeder)
+  const keptRetained = await writeArtifact(seed.service, seeder, 'retained survives', { retention: 'retained' })
+  const seedProvider = new LocalArtifactProvider({ root: fourthRoot })
+  await seedProvider.init()
+  const seedStaging = await seedProvider.begin({ id: 'cd'.repeat(16), maxBytes: 1024 })
+  await seedStaging.write(new TextEncoder().encode('session orphan'))
+  const seedCommitted = await seedStaging.commit()
+  await seedProvider.publish({
+    schema_version: 'dsh-runtime-kit.artifact-record.v1',
+    id: 'cd'.repeat(16),
+    ...seedCommitted,
+    media_type: 'text/plain',
+    owner_session_id: 'seeder',
+    workspace_digest: 'unmanaged',
+    producer_tool: 'crash-fixture',
+    generation: 'generation:crashed',
+    created_at: new Date().toISOString(),
+    retention_class: 'session',
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  })
+  await seed.ctx.fiber.dispose()
+  await seed.service.settled()
+  const restarted = await harness({ root: fourthRoot })
+  const survivors = await restarted.service.records()
+  assert.deepEqual(survivors.map(entry => entry.ref), [keptRetained.ref])
+  const fourthObjects = []
+  for (const bucket of await readdir(join(fourthRoot, 'objects'))) {
+    for (const entry of await readdir(join(fourthRoot, 'objects', bucket))) fourthObjects.push(`${bucket}/${entry}`)
+  }
+  assert.equal(await objectCount(fourthRoot), 1, JSON.stringify({ fourthObjects, kept: keptRetained.sha256, orphan: seedCommitted.sha256 }))
+})
+
+test('a second live host sharing the store never reclaims a sibling\'s session-class artifacts', async () => {
+  const workspace = await temporaryDirectory('artifacts-workspace-')
+  const root = await temporaryDirectory('artifacts-store-')
+  const hostA = await harness({ root })
+  const agentA = stubAgent('host-a-session', workspace)
+  publish(hostA.ctx, agentA)
+  const live = await writeArtifact(hostA.service, agentA, 'still in use by host A')
+  assert.deepEqual(await readdir(join(root, 'generations')), [`${hostA.service.generation.slice('generation:'.length)}.json`])
+
+  // Host B starts on the same store while host A is alive: A's record survives.
+  const hostB = await harness({ root })
+  assert.notEqual(hostB.service.generation, hostA.service.generation)
+  const presented = await hostA.service.present(agentA, live.ref)
+  assert.equal(presented.sha256, live.sha256)
+  assert.equal((await hostB.service.records()).some(entry => entry.ref === live.ref), true)
+
+  // A dead claim (a pid that no longer exists) is reclaimed by the next start.
+  const deadGeneration = 'generation:00000000-0000-4000-8000-000000000dead'
+  await writeFile(join(root, 'generations', '00000000-0000-4000-8000-000000000dead.json'), JSON.stringify({ pid: 2 ** 22 - 3, started_at: new Date().toISOString() }), { mode: 0o600 })
+  const deadProvider = new LocalArtifactProvider({ root })
+  await deadProvider.init()
+  const deadStaging = await deadProvider.begin({ id: 'ef'.repeat(16), maxBytes: 1024 })
+  await deadStaging.write(new TextEncoder().encode('owned by a dead host'))
+  const deadCommitted = await deadStaging.commit()
+  await deadProvider.publish({
+    schema_version: 'dsh-runtime-kit.artifact-record.v1',
+    id: 'ef'.repeat(16),
+    ...deadCommitted,
+    media_type: 'text/plain',
+    owner_session_id: 'dead-host-session',
+    workspace_digest: 'unmanaged',
+    producer_tool: 'crash-fixture',
+    generation: deadGeneration,
+    created_at: new Date().toISOString(),
+    retention_class: 'session',
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  })
+  await hostB.ctx.fiber.dispose()
+  await hostB.service.settled()
+  const hostC = await harness({ root })
+  const afterC = (await hostC.service.records()).map(entry => entry.ref)
+  assert.equal(afterC.includes(live.ref), true, 'host A is still alive, so its record survives host C start')
+  assert.equal(afterC.includes(`artifact:${'ef'.repeat(16)}`), false, 'the dead host\'s session record is reclaimed')
+
+  // Once host A releases its generation, the next start reclaims its session-class record.
+  await hostA.ctx.fiber.dispose()
+  await hostA.service.settled()
+  await hostC.ctx.fiber.dispose()
+  const hostD = await harness({ root })
+  assert.equal((await hostD.service.records()).some(entry => entry.ref === live.ref), false)
+  assert.deepEqual(await readdir(join(root, 'generations')), [`${hostD.service.generation.slice('generation:'.length)}.json`, '00000000-0000-4000-8000-000000000dead.json'].sort())
 })
 
 test('expiry, explicit disposal, and owner disposal reclaim only the targeted lifecycle', async () => {
@@ -580,6 +698,27 @@ test('export verifies the exact digest, emits a bounded receipt, and denies unsa
   await assert.rejects(stat(join(outside, 'target.txt')), { code: 'ENOENT' })
   await rejectsWithCode(service.exportArtifact(agent, record.ref, { class: 'download' }, testSignal), ARTIFACT_CODES.CAPABILITY_UNSUPPORTED)
   await rejectsWithCode(service.exportArtifact(agent, record.ref, { class: 'bucket', path: 'x' }, testSignal), ARTIFACT_CODES.ARGUMENT_INVALID)
+  // Filesystem failures on the destination path stay typed and path-free.
+  for (const path of ['a'.repeat(300), `reports/${'b'.repeat(300)}`]) {
+    await assert.rejects(service.exportArtifact(agent, record.ref, { class: 'workspace', path }, testSignal), error => {
+      assert.ok(error instanceof ArtifactError)
+      assert.equal(error.code, ARTIFACT_CODES.EXPORT_DESTINATION_INVALID)
+      assert.equal(error.message.includes(workspace), false, 'no workspace path in the message')
+      return true
+    })
+  }
+  await mkdir(join(workspace, 'sealed'))
+  await chmod(join(workspace, 'sealed'), 0o555)
+  try {
+    await assert.rejects(service.exportArtifact(agent, record.ref, { class: 'workspace', path: 'sealed/sub/x.txt' }, testSignal), error => {
+      assert.ok(error instanceof ArtifactError)
+      assert.equal(error.code, ARTIFACT_CODES.EXPORT_DESTINATION_INVALID)
+      assert.equal(error.message.includes(workspace), false)
+      return true
+    })
+  } finally {
+    await chmod(join(workspace, 'sealed'), 0o755)
+  }
 
   const readOnly = await harness({ sandbox: { mode: 'read-only' } })
   const reader = stubAgent('reader', workspace)
@@ -637,6 +776,41 @@ test('export honors host sandbox protected roots, the store root, and the post-o
   )
   await assert.rejects(stat(join(outside, 'raced.txt')), { code: 'ENOENT' }, 'no file may land behind the swapped symlink')
   assert.deepEqual(await readdir(outside), [])
+
+  // Race after the identity check: the parent directory is renamed out of the
+  // workspace while the bytes are being written. The written inode must not
+  // be left behind at its new location.
+  await rm(join(workspace, 'reports'), { recursive: true, force: true })
+  const moved = await temporaryDirectory('artifacts-moved-')
+  const originalOpen = fsPromises.open
+  fsPromises.open = async (...args) => {
+    const handle = await originalOpen(...args)
+    if (String(args[0]) === join(workspace, 'reports', 'moved.txt') && typeof args[1] === 'number' && (args[1] & constants.O_CREAT) !== 0) {
+      const writeFile = handle.writeFile.bind(handle)
+      handle.writeFile = async (...writeArgs) => {
+        const result = await writeFile(...writeArgs)
+        await rm(join(moved, 'reports'), { recursive: true, force: true })
+        await rename(join(workspace, 'reports'), join(moved, 'reports'))
+        return result
+      }
+    }
+    return handle
+  }
+  syncBuiltinESMExports()
+  try {
+    const plain = await harness({ provider: new MemoryArtifactProvider() })
+    const mover = stubAgent('mover', workspace)
+    publish(plain.ctx, mover)
+    const movedRecord = await writeArtifact(plain.service, mover, 'moved during write')
+    await rejectsWithCode(
+      plain.service.exportArtifact(mover, movedRecord.ref, { class: 'workspace', path: 'reports/moved.txt' }, testSignal),
+      ARTIFACT_CODES.EXPORT_DESTINATION_INVALID,
+    )
+    assert.deepEqual(await readdir(join(moved, 'reports')), [], 'the written inode is removed from its new location')
+  } finally {
+    fsPromises.open = originalOpen
+    syncBuiltinESMExports()
+  }
 })
 
 test('the local provider protects its root and refuses unsafe store roots', async () => {
@@ -695,6 +869,10 @@ test('artifact tools run through the DSH tool pipeline with exact arguments and 
     assertDshSchemaSubset(definition.output.schema, `${name}.output`)
     assert.equal(definition.parameters.additionalProperties, false)
   }
+  const exportDestination = ctx.tools.get('artifact_export').parameters.properties.destination
+  assert.equal(exportDestination.oneOf.length, 2, 'the declared destination contract is exactly the two runtime shapes')
+  assert.deepEqual(exportDestination.oneOf[0].required, ['class', 'path'])
+  assert.deepEqual(exportDestination.oneOf[1].required, ['class'])
 
   const execute = (name, args, actor = agent, suffix = '') => ctx.tools.execute({
     signal: testSignal,

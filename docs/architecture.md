@@ -276,7 +276,7 @@ exchange opaque `artifact:<hex>` references that never encode a path, digest,
 or session; content identity is a separate verified SHA-256. The service is
 loaded through the public bundle and uses only released public seams: Cordis
 service registration, `ctx.tools.register` with per-call `exec.agent`
-identity, the `agent/session-start` and `agent/disposed` lifecycle events,
+identity, the `agent/disposed` lifecycle event,
 live-agent attestation through `ctx.agents`, the sandbox policy service, and
 the accepted `protect()` protected-root seam for its own store root. It adds no
 DSH source patch and leaves the released image attachment and text spill seams
@@ -289,7 +289,8 @@ so a copied reference from another session or workspace is denied before any
 byte is read. Streaming writes stage under the 0700 store root and publish
 atomically; incomplete, cancelled, over-limit, quota-exhausted, and failed
 writes leave nothing readable. Two retention classes (`session`, `retained`)
-are reclaimed only for the targeted owner lifecycle, references are
+are reclaimed only for the targeted owner lifecycle, `session`-class records
+never survive a host restart, references are
 revalidated against the durable record and object after restart, and export
 produces a typed receipt bound to the exact digest without revealing the
 backing location. The contract is documented in

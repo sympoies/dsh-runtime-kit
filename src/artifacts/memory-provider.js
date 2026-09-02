@@ -1,9 +1,7 @@
 // @ts-check
 
-import { createHash } from 'node:crypto'
-
 import { ARTIFACT_CODES, ArtifactError } from './errors.js'
-import { ARTIFACT_ID_PATTERN, validateArtifactRecord } from './record.js'
+import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from './record.js'
 
 /** @typedef {import('./record.js').ArtifactRecord} ArtifactRecord */
 /** @typedef {import('./local-provider.js').ArtifactProvider} ArtifactProvider */
@@ -102,7 +100,7 @@ export class MemoryArtifactProvider {
           merged.set(part, cursor)
           cursor += part.byteLength
         }
-        const sha256 = `sha256:${createHash('sha256').update(merged).digest('hex')}`
+        const sha256 = digestBytes(merged)
         this.#objects.set(sha256, merged)
         this.#staging.delete(draft.id)
         return { sha256, bytes }
@@ -135,10 +133,35 @@ export class MemoryArtifactProvider {
 
   /** @param {ArtifactRecord} record */
   async remove(record) {
+    await this.removeMany([record])
+  }
+
+  /** @type {Set<string>} */
+  #generations = new Set()
+
+  /** @param {string} generation */
+  async claimGeneration(generation) {
+    this.#check('claim')
+    this.#generations.add(generation)
+  }
+
+  /** @param {string} generation */
+  async releaseGeneration(generation) {
+    this.#generations.delete(generation)
+  }
+
+  /** @param {string} generation */
+  async generationAlive(generation) {
+    return this.#generations.has(generation)
+  }
+
+  /** @param {readonly ArtifactRecord[]} records */
+  async removeMany(records) {
     this.#check('remove')
-    this.#records.delete(record.id)
-    if (![...this.#records.values()].some(candidate => candidate.sha256 === record.sha256)) {
-      this.#objects.delete(record.sha256)
+    for (const record of records) this.#records.delete(record.id)
+    const surviving = new Set([...this.#records.values()].map(candidate => candidate.sha256))
+    for (const record of records) {
+      if (!surviving.has(record.sha256)) this.#objects.delete(record.sha256)
     }
   }
 }

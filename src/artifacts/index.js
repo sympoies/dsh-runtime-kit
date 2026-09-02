@@ -1,8 +1,8 @@
 // @ts-check
 
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readlink, realpath, unlink } from 'node:fs/promises'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 
 import { Service } from '@deepseek-ai/cordis'
@@ -14,12 +14,14 @@ import {
   CONTROL_CLASS,
   MEDIA_TYPE_PATTERN,
   RETENTION_CLASSES,
+  TEXT_MEDIA_PATTERN,
+  digestBytes,
   projectRecord,
 } from './record.js'
 import { createArtifactTools, ARTIFACT_TOOL_NAMES } from './tools.js'
 
 export { ARTIFACT_CODES, ArtifactError, artifactFailureCode, isArtifactError } from './errors.js'
-export { ARTIFACT_RECORD_SCHEMA, CAPABILITIES, RETENTION_CLASSES, projectRecord, projectRecordForTool } from './record.js'
+export { ARTIFACT_RECORD_SCHEMA, CAPABILITIES, RETENTION_CLASSES, TEXT_MEDIA_PATTERN, digestBytes, projectRecord } from './record.js'
 export { createArtifactTools, ARTIFACT_TOOL_NAMES }
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
@@ -53,7 +55,6 @@ const HARD_LIMITS = Object.freeze({
 })
 const REF_PATTERN = /^artifact:([0-9a-f]{32})$/
 const STRIP_CONTROL = new RegExp(`[${CONTROL_CLASS}]`, 'gu')
-const TEXT_PREVIEW_MEDIA = /^(?:text\/|application\/(?:json|[a-z0-9.+-]+\+json)$)/
 
 /** @typedef {typeof DEFAULT_LIMITS} ArtifactLimits */
 
@@ -113,7 +114,8 @@ function isProvider(value) {
   if (value === null || typeof value !== 'object') return false
   const candidate = /** @type {Record<string, unknown>} */ (value)
   return Array.isArray(candidate.capabilities)
-    && ['init', 'list', 'load', 'begin', 'publish', 'read', 'remove'].every(name => typeof candidate[name] === 'function')
+    && ['init', 'list', 'load', 'begin', 'publish', 'read', 'remove', 'removeMany', 'claimGeneration', 'releaseGeneration', 'generationAlive']
+      .every(name => typeof candidate[name] === 'function')
 }
 
 /** @param {number} epochMs */
@@ -123,7 +125,7 @@ function isoTime(epochMs) {
 
 /** @param {string} value */
 function digestText(value) {
-  return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`
+  return digestBytes(new TextEncoder().encode(value))
 }
 
 /** @param {string | undefined} value */
@@ -289,13 +291,20 @@ export class ArtifactService extends Service {
     await this.#enqueue(() => this.#provided(() => this.#provider.remove(record), ARTIFACT_CODES.PROVIDER_UNAVAILABLE))
   }
 
+  /**
+   * Remove a batch of records in one provider pass. Must run inside the tail.
+   * @param {readonly ArtifactRecord[]} targets
+   */
+  async #removeBatch(targets) {
+    if (targets.length === 0) return
+    await this.#provided(() => this.#provider.removeMany(targets), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
+  }
+
   /** @param {string} sessionId */
   async #reclaimOwner(sessionId) {
     const records = await this.#provided(() => this.#provider.list(), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
-    for (const record of records) {
-      if (record.owner_session_id !== sessionId || record.retention_class !== 'session') continue
-      await this.#provided(() => this.#provider.remove(record), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
-    }
+    await this.#removeBatch(records.filter(record => record.owner_session_id === sessionId
+      && record.retention_class === 'session'))
   }
 
   /**
@@ -450,7 +459,15 @@ export class ArtifactService extends Service {
             }
             if (state !== 'open') throw failure('artifact writer is not open', ARTIFACT_CODES.WRITE_FAILED)
             state = 'committed'
-            const committed = await this.#provided(() => staging.commit(), ARTIFACT_CODES.WRITE_FAILED)
+            let committed
+            try {
+              committed = await this.#provided(() => staging.commit(), ARTIFACT_CODES.WRITE_FAILED)
+            } catch (error) {
+              // Providers are expected to discard their own staging on a failed
+              // commit; the service still asks so cleanup never depends on it.
+              await staging.abort().catch(() => {})
+              throw error
+            }
             const now = this.#now()
             const ttl = validated.retention === 'session' ? this.#limits.sessionTtlMs : this.#limits.retainedTtlMs
             /** @type {ArtifactRecord} */
@@ -524,7 +541,7 @@ export class ArtifactService extends Service {
     const projection = projectRecord(record)
     /** @type {string | undefined} */
     let preview
-    if (TEXT_PREVIEW_MEDIA.test(record.media_type) && record.bytes <= this.#limits.readMaxBytes) {
+    if (TEXT_MEDIA_PATTERN.test(record.media_type) && record.bytes <= this.#limits.readMaxBytes) {
       const data = await this.#provided(() => this.#provider.read(record), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
       preview = boundedPreview(data, this.#limits.previewMaxBytes)
     }
@@ -571,9 +588,11 @@ export class ArtifactService extends Service {
   async exportArtifact(agent, ref, destination, signal) {
     const target = validateDestination(destination)
     if (target.class === 'download') {
-      this.#liveSession(agent)
-      this.#parseRef(ref)
-      throw failure('artifact download is unsupported by this provider', ARTIFACT_CODES.CAPABILITY_UNSUPPORTED)
+      // One authorization path: a provider without the capability fails here
+      // with the typed outcome; no download sink exists in v1 even when a
+      // provider were to declare it.
+      await this.#authorize(agent, ref, 'download')
+      throw failure('artifact download has no destination sink in this runtime', ARTIFACT_CODES.CAPABILITY_UNSUPPORTED)
     }
     const record = await this.#authorize(agent, ref, 'export')
     const session = /** @type {Agent} */ (agent).session
@@ -649,17 +668,36 @@ export class ArtifactService extends Service {
     return Object.freeze(records.filter(record => !this.#expired(record)).map(projectRecord))
   }
 
-  /** Reclaim every expired record. */
-  async sweep() {
+  /**
+   * Reclaim every expired record. With `reclaimDeadSessions`, `session`-class
+   * records whose owning service generation is provably dead are reclaimed as
+   * well: their agent lifecycles ended with that host process, whether or not
+   * it disposed its agents cleanly. Records of another live host sharing the
+   * store, and this service's own records, are never touched by the sweep.
+   * @param {{reclaimDeadSessions?: boolean}} [options]
+   */
+  async sweep(options = {}) {
+    const reclaimDeadSessions = options.reclaimDeadSessions === true
     return this.#enqueue(async () => {
       const records = await this.#provided(() => this.#provider.list(), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
-      let reclaimed = 0
+      /** @type {Map<string, boolean>} */
+      const liveness = new Map()
+      const targets = []
       for (const record of records) {
-        if (!this.#expired(record)) continue
-        await this.#provided(() => this.#provider.remove(record), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
-        reclaimed += 1
+        if (this.#expired(record)) {
+          targets.push(record)
+          continue
+        }
+        if (!reclaimDeadSessions || record.retention_class !== 'session' || record.generation === this.generation) continue
+        let alive = liveness.get(record.generation)
+        if (alive === undefined) {
+          alive = await this.#provided(() => this.#provider.generationAlive(record.generation), ARTIFACT_CODES.PROVIDER_UNAVAILABLE)
+          liveness.set(record.generation, alive)
+        }
+        if (!alive) targets.push(record)
       }
-      return Object.freeze({ reclaimed })
+      await this.#removeBatch(targets)
+      return Object.freeze({ reclaimed: targets.length })
     })
   }
 }
@@ -705,7 +743,7 @@ async function resolveDestination(workspaceRoot, relativePath, protectedRoots) {
   }
   if (isAbsolute(relativePath)) throw invalid('artifact export path must be workspace-relative')
   const segments = relativePath.split('/')
-  if (segments.some(segment => segment === '' || segment === '.' || segment === '..')) {
+  if (segments.some(segment => segment === '' || segment === '.' || segment === '..' || Buffer.byteLength(segment, 'utf8') > 255)) {
     throw invalid('artifact export path contains an invalid segment')
   }
   const destination = join(workspaceRoot, ...segments)
@@ -733,21 +771,31 @@ async function resolveDestination(workspaceRoot, relativePath, protectedRoots) {
     try {
       metadata = await lstat(cursor)
     } catch (error) {
-      if (!(isErrno(error) && error.code === 'ENOENT')) throw invalid('artifact export path is unreadable')
-      await mkdir(cursor, { mode: 0o755 })
+      if (!(isErrno(error) && error.code === 'ENOENT')) {
+        throw failure('artifact export path is unreadable', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, error)
+      }
+      try {
+        await mkdir(cursor, { mode: 0o755 })
+      } catch (createError) {
+        // A racing creation of the same directory is fine; anything else is a typed, path-free failure.
+        if (!(isErrno(createError) && createError.code === 'EEXIST')) {
+          throw failure('artifact export directory could not be created', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, createError)
+        }
+      }
       continue
     }
     if (metadata.isSymbolicLink()) throw invalid('artifact export path crosses a symbolic link')
     if (!metadata.isDirectory()) throw invalid('artifact export path crosses a non-directory')
   }
+  let existing
   try {
-    const existing = await lstat(destination)
-    if (existing.isSymbolicLink()) throw invalid('artifact export destination is a symbolic link')
-    throw failure('artifact export destination already exists', ARTIFACT_CODES.EXPORT_EXISTS)
+    existing = await lstat(destination)
   } catch (error) {
-    if (!(isErrno(error) && error.code === 'ENOENT')) throw error
+    if (isErrno(error) && error.code === 'ENOENT') return destination
+    throw failure('artifact export destination is unreadable', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, error)
   }
-  return destination
+  if (existing.isSymbolicLink()) throw invalid('artifact export destination is a symbolic link')
+  throw failure('artifact export destination already exists', ARTIFACT_CODES.EXPORT_EXISTS)
 }
 
 /**
@@ -756,7 +804,7 @@ async function resolveDestination(workspaceRoot, relativePath, protectedRoots) {
  * @param {ArtifactRecord} record
  */
 async function writeExport(destination, data, record) {
-  const digest = `sha256:${createHash('sha256').update(data).digest('hex')}`
+  const digest = digestBytes(data)
   if (digest !== record.sha256 || data.byteLength !== record.bytes) {
     throw failure('artifact bytes failed digest verification before export', ARTIFACT_CODES.CORRUPT)
   }
@@ -771,28 +819,61 @@ async function writeExport(destination, data, record) {
     // The ancestor walk was a check; the open was the use. Prove the created
     // entry is the exact lexical destination (no ancestor was swapped for a
     // symbolic link in between) before a single byte is written. The file is
-    // still empty here, so a mismatch leaves nothing behind once it is unlinked.
+    // still empty here, so every failure below unlinks the exact inode we
+    // created, located through the open descriptor rather than the lexical
+    // path, which a racing swap may no longer resolve.
     const created = await handle.stat()
+    const actualPath = await descriptorPath(handle.fd)
+    const discardCreated = async () => {
+      await unlinkCreated(actualPath ?? destination, created)
+    }
     let canonical
     try {
       canonical = await realpath(destination)
     } catch (error) {
+      await discardCreated()
       throw failure('artifact export destination disappeared', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, error)
     }
-    const entry = await lstat(destination)
-    if (canonical !== destination || entry.isSymbolicLink() || entry.ino !== created.ino || entry.dev !== created.dev || created.size !== 0) {
-      await unlinkCreated(canonical, created)
+    let entry
+    try {
+      entry = await lstat(destination)
+    } catch (error) {
+      await discardCreated()
+      throw failure('artifact export destination disappeared', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, error)
+    }
+    if (canonical !== destination || entry.isSymbolicLink() || entry.ino !== created.ino || entry.dev !== created.dev || created.size !== 0
+      || (actualPath !== undefined && actualPath !== destination)) {
+      await discardCreated()
       throw failure('artifact export destination changed before write', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID)
     }
     await handle.writeFile(data)
     await handle.sync()
     const written = await handle.stat()
     if (!written.isFile() || written.size !== record.bytes) throw failure('artifact export changed during write', ARTIFACT_CODES.CORRUPT)
-    const verify = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW)
+    // The descriptor may now live somewhere else if an ancestor directory was
+    // renamed while the bytes were being written. Re-read where the kernel
+    // places the written inode and refuse to leave bytes anywhere but the
+    // exact destination.
+    const settledPath = await descriptorPath(handle.fd)
+    if (settledPath !== undefined && settledPath !== destination) {
+      await unlinkWritten(settledPath, written)
+      throw failure('artifact export destination moved during write', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID)
+    }
+    let verify
     try {
+      verify = await open(destination, constants.O_RDONLY | constants.O_NOFOLLOW)
+    } catch (error) {
+      await unlinkWritten(settledPath ?? destination, written)
+      throw failure('artifact export destination disappeared after write', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID, error)
+    }
+    try {
+      const verified = await verify.stat()
+      if (verified.ino !== written.ino || verified.dev !== written.dev) {
+        await unlinkWritten(settledPath ?? destination, written)
+        throw failure('artifact export destination was replaced after write', ARTIFACT_CODES.EXPORT_DESTINATION_INVALID)
+      }
       const readBack = new Uint8Array(await verify.readFile())
-      const after = `sha256:${createHash('sha256').update(readBack).digest('hex')}`
-      if (after !== record.sha256) throw failure('artifact export failed digest verification after write', ARTIFACT_CODES.CORRUPT)
+      if (digestBytes(readBack) !== record.sha256) throw failure('artifact export failed digest verification after write', ARTIFACT_CODES.CORRUPT)
     } finally {
       await verify.close()
     }
@@ -801,6 +882,38 @@ async function writeExport(destination, data, record) {
     throw failure('artifact export write failed', ARTIFACT_CODES.WRITE_FAILED, error)
   } finally {
     await handle.close()
+  }
+}
+
+/**
+ * Remove a fully written export that ended up somewhere other than its exact
+ * destination, only while it is still the inode we wrote.
+ * @param {string} path
+ * @param {import('node:fs').Stats} written
+ */
+async function unlinkWritten(path, written) {
+  try {
+    const current = await lstat(path)
+    if (current.isFile() && current.ino === written.ino && current.dev === written.dev) await unlink(path)
+  } catch {
+    // Best effort: the entry is already gone or no longer ours.
+  }
+}
+
+/**
+ * Resolve the path the kernel currently associates with an open descriptor.
+ * Linux exposes it through procfs; elsewhere the caller falls back to the
+ * lexical destination.
+ * @param {number} fd
+ * @returns {Promise<string | undefined>}
+ */
+async function descriptorPath(fd) {
+  if (process.platform !== 'linux') return undefined
+  try {
+    const target = await readlink(`/proc/self/fd/${fd}`)
+    return isAbsolute(target) ? target : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -845,7 +958,11 @@ export async function applyArtifacts(ctx, config) {
     ctx.effect(() => protect([root]), 'dsh-runtime-kit artifact store protected root')
   }
   for (const definition of createArtifactTools(service)) ctx.tools.register(definition)
-  await service.sweep()
+  // Claim this generation for the service lifetime so a sibling host sharing
+  // the store can tell our live session-class records from a dead host's.
+  await config.provider.claimGeneration(service.generation)
+  ctx.effect(() => () => config.provider.releaseGeneration(service.generation).catch(() => {}), 'dsh-runtime-kit artifact generation claim')
+  await service.sweep({ reclaimDeadSessions: true })
   return service
 }
 

@@ -6,7 +6,7 @@ import { chmod, link, lstat, mkdir, open, readdir, rename, rm, unlink } from 'no
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { ARTIFACT_CODES, ArtifactError, isArtifactError, isErrno } from './errors.js'
-import { ARTIFACT_ID_PATTERN, validateArtifactRecord } from './record.js'
+import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from './record.js'
 
 /** @typedef {import('./record.js').ArtifactRecord} ArtifactRecord */
 /** @typedef {import('./record.js').ArtifactCapability} ArtifactCapability */
@@ -26,9 +26,16 @@ import { ARTIFACT_ID_PATTERN, validateArtifactRecord } from './record.js'
  * @property {(record: ArtifactRecord) => Promise<void>} publish
  * @property {(record: ArtifactRecord, signal?: AbortSignal) => Promise<Uint8Array>} read
  * @property {(record: ArtifactRecord) => Promise<void>} remove
+ * @property {(records: readonly ArtifactRecord[]) => Promise<void>} removeMany
+ * @property {(generation: string) => Promise<void>} claimGeneration
+ * @property {(generation: string) => Promise<void>} releaseGeneration
+ * @property {(generation: string) => Promise<boolean>} generationAlive
  */
 
 /**
+ * One in-progress write. `commit` publishes the bytes or rejects; a rejected
+ * commit must leave no staging behind, and `abort` after any outcome is a
+ * harmless no-op so the service can always ask for cleanup.
  * @typedef ArtifactStaging
  * @property {(chunk: Uint8Array) => Promise<void>} write
  * @property {() => Promise<{sha256: string, bytes: number}>} commit
@@ -36,6 +43,7 @@ import { ARTIFACT_ID_PATTERN, validateArtifactRecord } from './record.js'
  */
 
 const OBJECT_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW
+const GENERATION_PATTERN = /^generation:([0-9a-f-]{36})$/
 
 /**
  * Filesystem errors carry absolute store paths in their messages, so only the
@@ -126,7 +134,7 @@ export class LocalArtifactProvider {
     if (!ownedByCurrentUser(metadata)) throw unavailable('artifact store root must be owned by the current user')
     if ((metadata.mode & 0o077) !== 0) throw unavailable('artifact store root must be private (0700)')
     try {
-      for (const child of ['tmp', 'objects', 'index']) await ensurePrivateDirectory(join(root, child))
+      for (const child of ['tmp', 'objects', 'index', 'generations']) await ensurePrivateDirectory(join(root, child))
       await syncDirectory(root)
     } catch (error) {
       throw unavailable('artifact store layout could not be prepared', error)
@@ -340,8 +348,7 @@ export class LocalArtifactProvider {
       }
       const data = new Uint8Array(await handle.readFile())
       signal?.throwIfAborted()
-      const digest = `sha256:${createHash('sha256').update(data).digest('hex')}`
-      if (digest !== record.sha256 || data.byteLength !== record.bytes) throw corrupt('artifact object failed digest verification')
+      if (digestBytes(data) !== record.sha256 || data.byteLength !== record.bytes) throw corrupt('artifact object failed digest verification')
       const after = await handle.stat()
       if (after.nlink !== 1 || after.size !== record.bytes || after.ino !== metadata.ino) throw corrupt('artifact object changed during read')
       return data
@@ -356,21 +363,117 @@ export class LocalArtifactProvider {
 
   /** @param {ArtifactRecord} record */
   async remove(record) {
+    await this.removeMany([record])
+  }
+
+  /**
+   * Remove a batch of records with one index scan: unlink every target index
+   * entry first, list the survivors once, then remove only objects no
+   * surviving record still references.
+   * @param {readonly ArtifactRecord[]} records
+   */
+  async removeMany(records) {
     this.#requireInit()
-    try {
-      await unlink(this.#indexPath(record.id))
-    } catch (error) {
-      if (!(isErrno(error) && error.code === 'ENOENT')) throw unavailable('artifact record could not be removed', error)
+    if (records.length === 0) return
+    for (const record of records) {
+      try {
+        await unlink(this.#indexPath(record.id))
+      } catch (error) {
+        if (!(isErrno(error) && error.code === 'ENOENT')) throw unavailable('artifact record could not be removed', error)
+      }
     }
     try {
       await syncDirectory(join(this.root, 'index'))
-      const remaining = await this.list()
-      if (remaining.some(candidate => candidate.sha256 === record.sha256)) return
-      await rm(this.#objectPath(record.sha256), { force: true })
-      await syncDirectory(dirname(this.#objectPath(record.sha256))).catch(() => {})
+      const surviving = new Set((await this.list()).map(candidate => candidate.sha256))
+      const orphaned = new Set(records.map(record => record.sha256).filter(sha256 => !surviving.has(sha256)))
+      for (const sha256 of orphaned) {
+        await rm(this.#objectPath(sha256), { force: true })
+      }
+      for (const bucket of new Set([...orphaned].map(sha256 => dirname(this.#objectPath(sha256))))) {
+        await syncDirectory(bucket).catch(() => {})
+      }
     } catch (error) {
       if (isArtifactError(error)) throw error
       throw unavailable('artifact object could not be removed', error)
+    }
+  }
+
+  /** @param {string} generation */
+  #generationPath(generation) {
+    const match = GENERATION_PATTERN.exec(generation)
+    return match?.[1] === undefined ? undefined : join(this.root, 'generations', `${match[1]}.json`)
+  }
+
+  /**
+   * Record that this process owns one service generation. The record names
+   * the owning pid so a later host can tell a live sibling from a dead one.
+   * @param {string} generation
+   */
+  async claimGeneration(generation) {
+    this.#requireInit()
+    const path = this.#generationPath(generation)
+    if (path === undefined) throw unavailable('artifact generation identity is invalid')
+    try {
+      await ensurePrivateDirectory(join(this.root, 'generations'))
+      const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600)
+      try {
+        await handle.writeFile(JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() }), 'utf8')
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await syncDirectory(join(this.root, 'generations'))
+    } catch (error) {
+      throw unavailable('artifact generation could not be claimed', error)
+    }
+  }
+
+  /** @param {string} generation */
+  async releaseGeneration(generation) {
+    this.#requireInit()
+    const path = this.#generationPath(generation)
+    if (path === undefined) return
+    await unlink(path).catch((/** @type {unknown} */ error) => {
+      if (!(isErrno(error) && error.code === 'ENOENT')) throw unavailable('artifact generation could not be released', error)
+    })
+  }
+
+  /**
+   * Whether the process that claimed a generation is still alive. A missing
+   * or unreadable claim means the owner is gone; an existing pid that cannot
+   * be signalled is treated as alive so a sibling host is never reclaimed.
+   * @param {string} generation
+   */
+  async generationAlive(generation) {
+    this.#requireInit()
+    const path = this.#generationPath(generation)
+    if (path === undefined) return false
+    let raw
+    try {
+      const handle = await open(path, OBJECT_FLAGS)
+      try {
+        raw = await handle.readFile('utf8')
+      } finally {
+        await handle.close()
+      }
+    } catch (error) {
+      if (isErrno(error) && (error.code === 'ENOENT' || error.code === 'ELOOP')) return false
+      return true
+    }
+    let pid
+    try {
+      const parsed = JSON.parse(raw)
+      pid = parsed?.pid
+    } catch {
+      return false
+    }
+    if (!Number.isSafeInteger(pid) || pid <= 0) return false
+    if (pid === process.pid) return true
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch (error) {
+      return !(isErrno(error) && error.code === 'ESRCH')
     }
   }
 
@@ -391,8 +494,7 @@ async function verifyObject(target, sha256, bytes) {
   try {
     const metadata = await handle.stat()
     if (!metadata.isFile() || metadata.size !== bytes) throw corrupt('existing artifact object failed identity verification')
-    const digest = `sha256:${createHash('sha256').update(new Uint8Array(await handle.readFile())).digest('hex')}`
-    if (digest !== sha256) throw corrupt('existing artifact object failed digest verification')
+    if (digestBytes(new Uint8Array(await handle.readFile())) !== sha256) throw corrupt('existing artifact object failed digest verification')
   } finally {
     await handle.close()
   }

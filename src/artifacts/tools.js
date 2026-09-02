@@ -1,7 +1,7 @@
 // @ts-check
 
 import { ARTIFACT_CODES, ArtifactError } from './errors.js'
-import { CAPABILITIES, MEDIA_TYPE_PATTERN, RETENTION_CLASSES } from './record.js'
+import { CAPABILITIES, MEDIA_TYPE_PATTERN, RETENTION_CLASSES, TEXT_MEDIA_PATTERN } from './record.js'
 
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolRunContext} ToolRunContext */
@@ -16,7 +16,6 @@ export const ARTIFACT_TOOL_NAMES = Object.freeze(/** @type {const} */ ([
 ]))
 
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
-const TEXT_MEDIA = /^(?:text\/|application\/(?:json|[a-z0-9.+-]+\+json)$)/
 const MAX_CONTENT_CHARACTERS = 96 * 1024 * 1024
 
 /** @param {string} message */
@@ -256,7 +255,7 @@ export function createArtifactTools(service) {
       const result = await service.read(executingAgent(exec), requireRef(parsed.ref), { signal: exec.signal })
       let encoding = /** @type {'utf8' | 'base64'} */ ('base64')
       let content = Buffer.from(result.data).toString('base64')
-      if (TEXT_MEDIA.test(result.record.mediaType)) {
+      if (TEXT_MEDIA_PATTERN.test(result.record.mediaType)) {
         try {
           content = new TextDecoder('utf-8', { fatal: true }).decode(result.data)
           encoding = 'utf8'
@@ -284,13 +283,23 @@ export function createArtifactTools(service) {
       properties: {
         ref: { type: 'string' },
         destination: {
-          type: 'object',
-          properties: {
-            class: { type: 'string', enum: ['workspace', 'download'] },
-            path: { type: 'string', description: 'Workspace-relative destination path for the workspace class.' },
-          },
-          required: ['class'],
-          additionalProperties: false,
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                class: { type: 'string', const: 'workspace' },
+                path: { type: 'string', description: 'Workspace-relative destination path.' },
+              },
+              required: ['class', 'path'],
+              additionalProperties: false,
+            },
+            {
+              type: 'object',
+              properties: { class: { type: 'string', const: 'download' } },
+              required: ['class'],
+              additionalProperties: false,
+            },
+          ],
         },
       },
       required: ['ref', 'destination'],

@@ -1,5 +1,7 @@
 // @ts-check
 
+import { createHash } from 'node:crypto'
+
 import { ARTIFACT_CODES, ArtifactError } from './errors.js'
 
 export const ARTIFACT_RECORD_SCHEMA = 'dsh-runtime-kit.artifact-record.v1'
@@ -7,6 +9,16 @@ export const ARTIFACT_ID_PATTERN = /^[0-9a-f]{32}$/
 export const ARTIFACT_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/
 export const WORKSPACE_DIGEST_PATTERN = /^(?:sha256:[0-9a-f]{64}|unmanaged)$/
 export const MEDIA_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/
+/** Media types whose bytes are presented and read as UTF-8 text when they decode cleanly. */
+export const TEXT_MEDIA_PATTERN = /^(?:text\/|application\/(?:json|[a-z0-9.+-]+\+json)$)/
+
+/**
+ * The durable content identity format shared by records, providers, and receipts.
+ * @param {Uint8Array} data
+ */
+export function digestBytes(data) {
+  return `sha256:${createHash('sha256').update(data).digest('hex')}`
+}
 export const RETENTION_CLASSES = Object.freeze(/** @type {const} */ (['session', 'retained']))
 export const CAPABILITIES = Object.freeze(/** @type {const} */ (['read', 'present', 'download', 'export', 'delete']))
 
@@ -113,24 +125,3 @@ export function projectRecord(record) {
 }
 
 /** @typedef {ReturnType<typeof projectRecord>} ArtifactProjection */
-
-/**
- * Tool-facing snake_case projection.
- * @param {ArtifactRecord} record
- */
-export function projectRecordForTool(record) {
-  return {
-    ref: `artifact:${record.id}`,
-    sha256: record.sha256,
-    bytes: record.bytes,
-    media_type: record.media_type,
-    ...(record.name === undefined ? {} : { name: record.name }),
-    owner_session_id: record.owner_session_id,
-    workspace_digest: record.workspace_digest,
-    producer_tool: record.producer_tool,
-    generation: record.generation,
-    created_at: record.created_at,
-    expires_at: record.expires_at,
-    retention_class: record.retention_class,
-  }
-}

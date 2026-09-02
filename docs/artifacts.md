@@ -8,10 +8,9 @@ ownership, limits, retention, and export semantics.
 
 The service is runtime-kit-owned native code loaded through the public DSH
 bundle. It uses only released public seams: Cordis service registration, the
-DSH tool registry with per-call agent identity, the `agent/session-start` and
-`agent/disposed` lifecycle events, live-agent attestation through
-`ctx.agents`, the sandbox policy service, and the accepted protected-root
-seam. It replaces no DSH file and adds no DSH source patch. Released DSH image
+DSH tool registry with per-call agent identity, the `agent/disposed`
+lifecycle event, live-agent attestation through `ctx.agents`, the sandbox
+policy service, and the accepted protected-root seam. It replaces no DSH file and adds no DSH source patch. Released DSH image
 attachments (`ctx.attachments`) and text spill (`ctx.spillStore`) are
 unchanged; images stored through this service are opaque artifacts and are not
 presented as image blocks.
@@ -51,14 +50,15 @@ The five tools are distinct capabilities and accept exact argument sets.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `artifact_write` | `media_type`, `content`, optional `name`, `encoding` (`utf8` default or `base64`), `retention` (`session` default or `retained`) | the record projection with `ref`, `sha256`, `bytes`, and metadata |
-| `artifact_present` | `ref` | the record projection, provider capabilities, and a bounded UTF-8 preview for text and JSON media |
+| `artifact_present` | `ref` | the record projection, provider capabilities, and a bounded UTF-8 preview for text and JSON media whose size is within `artifactReadMaxBytes` |
 | `artifact_read` | `ref` | bounded content; UTF-8 for text media, base64 otherwise; larger artifacts return `ARTIFACT_READ_TOO_LARGE` |
 | `artifact_export` | `ref`, `destination: { class: 'workspace', path }` or `{ class: 'download' }` | a `dsh-runtime-kit.artifact-export-receipt.v1` receipt |
 | `artifact_dispose` | `ref` | `{ ref, outcome: 'disposed' }`; a repeated call reports `ARTIFACT_NOT_FOUND` |
 
-`download` is an enumerated capability the v1 local provider does not support;
-it returns `ARTIFACT_CAPABILITY_UNSUPPORTED` and never falls back to another
-capability.
+`download` is an enumerated capability with no destination sink in this
+runtime; after the same live-agent and reference authorization as every other
+capability it returns `ARTIFACT_CAPABILITY_UNSUPPORTED` and never falls back
+to another capability.
 
 ## Streaming writes
 
@@ -75,11 +75,19 @@ counts stay exact under concurrent writers.
 ## Retention and lifecycle
 
 - `session` artifacts are reclaimed when the owner agent is disposed, on
-  explicit disposal, or at expiry (default 24 hours).
+  explicit disposal, or at expiry (default 24 hours). They do not survive
+  their host: every service claims its generation in the store with the owning
+  process id for its lifetime, and the sweep at service start reclaims the
+  `session`-class records of every generation whose owning process is provably
+  gone (released claim, missing claim, or dead pid), regardless of how that
+  process exited. Records of a sibling host that is still running on the same
+  store are never touched. A resumed session therefore keeps only its
+  `retained` artifacts.
 - `retained` artifacts are reclaimed on explicit disposal or at expiry
   (default 7 days).
-- Reclamation touches only records owned by the target lifecycle. Expiry is
-  enforced lazily on access and by a bounded sweep at service start.
+- Reclamation touches only records owned by the target lifecycle and removes a
+  batch with one index scan. Expiry is enforced lazily on access and by the
+  bounded sweep at service start.
 - Content shared by several live records stays on disk until the last owner is
   disposed.
 
@@ -95,10 +103,12 @@ where the DSH file sandbox denies other tools; relative roots resolve against
 the workspace. Export is denied under a `read-only` sandbox mode and for
 sessions without a cwd. After the destination is created with `O_EXCL`, the
 service proves the created entry is the exact lexical destination (same inode,
-no symbolic link, canonical path unchanged) before writing, so an ancestor
-swapped for a symbolic link between the check and the open leaves only an
-empty file that is removed. Bytes are digest-verified before the write and
-read back after it. The receipt binds reference, exact digest, byte length,
+no symbolic link, canonical path unchanged) before writing, and after writing
+it re-reads where the kernel places the written inode; an ancestor swapped or
+renamed at any point leaves nothing behind, because the exact inode is removed
+from wherever it landed before the typed failure is returned. Bytes are
+digest-verified before the write and read back through the same inode after
+it. The receipt binds reference, exact digest, byte length,
 media type, destination class, workspace-relative destination, owner session,
 generation, and timestamp; it never reveals the backing location. Failure
 messages retain at most an errno code; raw filesystem errors carrying store
@@ -106,9 +116,9 @@ paths are never attached as causes.
 
 ## Store, limits, and configuration
 
-The local provider keeps `tmp/`, `objects/<aa>/<sha256>`, and
-`index/<id>.json` below one owner-private 0700 root that is registered as a
-DSH protected root. The root defaults to `dsh-runtime-kit/artifacts/v1` below
+The local provider keeps `tmp/`, `objects/<aa>/<sha256>`,
+`index/<id>.json`, and `generations/<uuid>.json` liveness claims below one
+owner-private 0700 root that is registered as a DSH protected root. The root defaults to `dsh-runtime-kit/artifacts/v1` below
 the DSH home (`DSH_HOME`, else `~/.dsh`); `artifactsRoot` or
 `DSH_RUNTIME_KIT_ARTIFACTS_ROOT` accepts an absolute override. A root that is
 a symbolic link, not private, or not owned by the current user fails closed
