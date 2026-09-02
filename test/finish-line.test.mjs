@@ -1412,3 +1412,67 @@ test('a failed target projection preserves the lease cause it came from', async 
   assert.deepEqual(subject.edits, [])
   assert.deepEqual(subject.opens, [])
 })
+
+test('an unusable edit target shape fails closed before reserving anything', async () => {
+  // Only an embedder-supplied resolver can produce this: WorkspaceLease.targets
+  // returns roots that already passed the provider's absolute-path and
+  // printable-text validation. It is the embedder-facing half of the contract,
+  // so it is pinned rather than left as unexercised defence.
+  for (const [label, roots] of [
+    ['relative', ['relative/repo-b']],
+    ['nul', ['/workspace/repo b']],
+    ['non-string', [42]],
+  ]) {
+    const subject = fixture({
+      sessionCwd: '/workspace/repo-a',
+      resolveEditRoots: async () => roots,
+    })
+    const exec = execution(subject)
+    assert.deepEqual(
+      await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+      { ok: false, reason: 'finish-line-edit-target-unavailable' },
+      label,
+    )
+    assert.deepEqual(subject.edits, [], label)
+    assert.deepEqual(subject.opens, [], label)
+  }
+})
+
+test('a non-canonical edit target keys the same ledger as its canonical form', async () => {
+  // A root that is absolute but not canonical would otherwise key a second
+  // ledger for one repository, and the validations declared against the
+  // canonical path could never satisfy this obligation.
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => ['/workspace/other/../repo-b'],
+  })
+  const exec = execution(subject)
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-b'])
+  assert.deepEqual([...new Set(subject.opens.map(open => open.cwd))], ['/workspace/repo-b'])
+})
+
+test('an unclassified edit inside the anchor still owes Git validation', async () => {
+  // The lease returns no target both when it proved the path lies outside every
+  // repository and when it simply claimed no fence for that tool. Reading an
+  // empty projection as proof would let the model select its own validation
+  // coverage by tool name, so an edit whose own path is inside the anchor keeps
+  // the anchor obligation.
+  const subject = fixture({
+    sessionCwd: '/workspace/repo-a',
+    resolveEditRoots: async () => [],
+  })
+  const exec = execution(subject, {
+    arguments: { file_path: '/workspace/repo-a/one.js', old_string: 'a', new_string: 'b' },
+  })
+
+  assert.deepEqual(
+    await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
+    { ok: true },
+  )
+  assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-a'])
+})

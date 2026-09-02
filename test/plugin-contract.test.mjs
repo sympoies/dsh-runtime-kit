@@ -490,6 +490,7 @@ function harness({
   prerequisiteCommitFailsAfter = Number.POSITIVE_INFINITY,
   prerequisiteBeginMalformed = false,
   resolutionPending = false,
+  workspaceLease,
   config = {},
   onRuntimeKitProvide,
   runtimeStopListenerGate,
@@ -546,6 +547,7 @@ function harness({
       async flush(candidate) { return candidate === session },
     },
     get(name) {
+      if (name === 'workspaceLease') return workspaceLease
       if (name === 'subagents') return reviewers
       if (name === 'shell') {
         return {

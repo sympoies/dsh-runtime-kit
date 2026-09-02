@@ -124,6 +124,34 @@ function finishLineIdentityKey(identity) {
 }
 
 /** @param {ToolExecution} exec */
+/**
+ * The workspace lease returns no target both when it proved the path lies
+ * outside every repository and when it simply claimed no fence it could
+ * enforce for that tool. Those are not the same thing, and the difference
+ * decides whether an edit owes Git validation, so do not read an empty
+ * projection as proof on its own: fall back to the anchor obligation whenever
+ * the edit's own declared path is inside the anchor checkout. A provider that
+ * declines to classify an in-repository edit then cannot erase its obligation,
+ * while a genuine write outside every checkout still owes nothing.
+ * @param {ToolExecution} exec
+ * @param {string | undefined} anchorCwd
+ * @returns {boolean}
+ */
+function editPathIsInsideAnchor(exec, anchorCwd) {
+  if (anchorCwd === undefined) return false
+  const args = record(exec.arguments)
+  const declared = args?.file_path ?? args?.path
+  if (typeof declared !== 'string' || declared.length === 0 || declared.includes('\0')) {
+    // An unreadable path argument is not a proof of anything, so keep the
+    // obligation rather than dropping it on an unverifiable claim.
+    return true
+  }
+  const absolute = isAbsolute(declared) ? resolvePath(declared) : resolvePath(anchorCwd, declared)
+  const root = resolvePath(anchorCwd)
+  return absolute === root || absolute.startsWith(`${root}/`)
+}
+
+/** @param {ToolExecution} exec */
 function operationFor(exec) {
   if (exec.name === 'write' || exec.name === 'edit') return { kind: /** @type {const} */ ('edit') }
   const args = record(exec.arguments)
@@ -664,16 +692,21 @@ export function createFinishLineCoordinator(ctx, options) {
         } catch {
           return { ok: true }
         }
-        if (roots !== undefined) {
-          // The provider proved this operation touches no repository, so it
-          // owns no Git validation obligation anywhere.
-          if (roots.length === 0) return { ok: true }
+        if (roots !== undefined && roots.length === 0) {
+          // See `editPathIsInsideAnchor`: an empty projection alone does not
+          // prove this write touches no repository.
+          if (!editPathIsInsideAnchor(exec, anchorIdentity.cwd)) return { ok: true }
+        }
+        if (roots !== undefined && roots.length > 0) {
           if (roots.length > 1) return { ok: false, reason: 'finish-line-edit-target-ambiguous' }
           const root = roots[0]
           if (typeof root !== 'string' || !isAbsolute(root) || root.includes('\0')) {
             return { ok: false, reason: 'finish-line-edit-target-unavailable' }
           }
-          identity = { ...anchorIdentity, cwd: root }
+          // Normalize the way the bash workdir path does, or a non-canonical
+          // root would key a second ledger for one repository and the
+          // validations declared there could never satisfy this obligation.
+          identity = { ...anchorIdentity, cwd: resolvePath(root) }
         }
       }
       await awaitPriorRelease(identity)

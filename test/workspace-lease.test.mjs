@@ -1150,17 +1150,24 @@ test('a target projection is refused for anything but one exact live execution',
 
   // An execution with no attached agent owns no repository claim.
   assert.deepEqual(await ctx.workspaceLease.targets(exec(undefined)), [])
-  // An unregistered agent is not a live incarnation of this runtime.
-  await assert.rejects(
-    ctx.workspaceLease.targets(exec(foreign)),
-    WorkspaceLeaseInvalidRefError,
-  )
-  // A replaced session on the live agent is a different lifecycle.
-  const original = agent.session
-  agent.session = Session.create(agent.id, sessionEvents(original), original.header)
-  await assert.rejects(
-    ctx.workspaceLease.targets(exec(agent)),
-    error => error instanceof WorkspaceLeaseError
-      && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
-  )
+
+  // A canonical repository root is exactly what `denialState` withholds, so a
+  // projection is available only for an execution this boundary is admitting.
+  // A fabricated execution is refused even for the live, correctly-sessioned
+  // agent, so no composed caller can use this surface as a path-disclosure or
+  // provider-probe oracle for paths it chose itself.
+  for (const [label, candidate] of [
+    ['live agent', agent],
+    ['unregistered agent', foreign],
+  ]) {
+    await assert.rejects(
+      ctx.workspaceLease.targets(exec(candidate)),
+      error => error instanceof WorkspaceLeaseError
+        && error.code === 'WORKSPACE_LEASE_UNAVAILABLE',
+      `a fabricated execution must be refused for the ${label}`,
+    )
+  }
+
+  // The admitted path is proven by the two projection cases above, which both
+  // run through a real dispatch rather than a fabricated execution.
 })

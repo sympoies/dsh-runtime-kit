@@ -550,6 +550,12 @@ export class WorkspaceLease extends Service {
   #authorizations = new WeakMap()
   /** @type {WeakMap<ToolExecution, Promise<readonly WorkspaceLeaseTarget[]>>} */
   #resolutions = new WeakMap()
+  /**
+   * Executions this boundary has taken responsibility for admitting. Only
+   * these may have their canonical repository targets projected.
+   * @type {WeakSet<ToolExecution>}
+   */
+  #admitting = new WeakSet()
   /** @type {WeakSet<ToolDefinition>} */
   #quarantineCapabilities = new WeakSet()
 
@@ -708,7 +714,27 @@ export class WorkspaceLease extends Service {
   async targets(exec) {
     const agent = exec.agent
     if (agent === undefined) return Object.freeze([])
-    this.#assertLive(agent)
+    // No `#assertLive` here: it was the one rejection cause `#preExecute` did
+    // not mirror, and `#admitting` membership already proves this boundary
+    // took the execution.
+    // Only an execution this service is admitting may be projected. The
+    // canonical repository root is exactly what `denialState` withholds, so
+    // without this a composed plugin could hand in a fabricated execution and
+    // use the boundary as a path-disclosure and provider-probe oracle. The
+    // lease's `tools/pre-execute` is prepended, so it has always recorded the
+    // execution before any downstream boundary can ask about it.
+    if (!this.#admitting.has(exec)) {
+      throw new WorkspaceLeaseError(
+        'workspace targets are available only for an execution this boundary is admitting',
+        WORKSPACE_LEASE_UNAVAILABLE,
+        'unavailable',
+      )
+    }
+    // Every remaining rejection cause below is mirrored by an identical guard
+    // in `#preExecute`, so no projection failure can exist that admission does
+    // not also refuse. That symmetry is what lets the finish-line boundary
+    // reserve nothing on a projection failure and rely on the lease's own
+    // typed denial arriving immediately afterwards.
     const slot = this.#agentSlots.get(agent)
     if (slot === undefined || slot.disposed || agent.session !== slot.session) {
       throw new WorkspaceLeaseError(
@@ -1178,6 +1204,11 @@ export class WorkspaceLease extends Service {
    * @returns {Promise<PreToolDecision>}
    */
   async #preExecute(exec, next) {
+    // Take responsibility for the execution before the downstream waterfall
+    // runs: `next()` is what invokes the finish-line boundary, and that is
+    // where `targets()` is asked. Recording afterwards would refuse the very
+    // execution this boundary is admitting.
+    if (exec.agent !== undefined) this.#admitting.add(exec)
     const downstream = await next()
     if ((downstream.kind !== 'allow' && downstream.kind !== 'ask')
       || exec.agent === undefined
