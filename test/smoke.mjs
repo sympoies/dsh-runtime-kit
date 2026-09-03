@@ -30,6 +30,28 @@ const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
 const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 const pnpmBin = process.env.PNPM_BIN ?? 'pnpm'
 
+// pnpm derives its store directory from HOME unless PNPM_HOME is set. This
+// smoke deliberately overrides HOME for isolation, which moves the resolved
+// store away from the one the DSH checkout was installed against. pnpm's
+// checkCompatibility then throws UnexpectedStoreError, every workspace project
+// becomes a purge candidate, and the run aborts as
+// ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY. CI never meets this because
+// pnpm/action-setup exports PNPM_HOME, which pins the store independently of
+// HOME. Pin it here to the store the checkout itself records, so its
+// node_modules is never a purge candidate. Setting CI=true would authorize the
+// purge instead of preventing it, and must not be used for this.
+// See sympoies/dsh-runtime-kit#191.
+function resolveDshPnpmHome() {
+  if (process.env.PNPM_HOME !== undefined) return process.env.PNPM_HOME
+  const modulesManifest = join(dshRoot, 'node_modules', '.modules.yaml')
+  if (!existsSync(modulesManifest)) return undefined
+  const storeDir = parseYaml(readFileSync(modulesManifest, 'utf8'))?.storeDir
+  if (typeof storeDir !== 'string' || storeDir.length === 0) return undefined
+  // pnpm lays the store out as <PNPM_HOME>/store/<version>.
+  return resolve(storeDir, '..', '..')
+}
+const dshPnpmHome = resolveDshPnpmHome()
+
 assert.notEqual(
   process.env.DSH_SOURCE_ROOT,
   undefined,
@@ -379,6 +401,7 @@ const environment = {
   ].join(':'),
   XDG_CONFIG_HOME: configHome,
   XDG_STATE_HOME: stateHome,
+  ...dshPnpmHome === undefined ? {} : { PNPM_HOME: dshPnpmHome },
 }
 // The provider-isolation fixture is intentionally an incomplete ambient
 // Agent Session sentinel. Do not let the parent agent's real checkpoint value
