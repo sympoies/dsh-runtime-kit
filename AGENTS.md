@@ -34,28 +34,44 @@ DeepSeek Harness (DSH).
 ## Validation
 
 Apply the reviewed patch to a pristine selected checkout, rebuild the packages
-it touches, and run the keyless end-to-end smoke test:
+it touches, and run the keyless end-to-end smoke test. Derive the package set
+from the patch manifest for the release under test, because the patch does not
+touch the same packages in every validated release:
 
 ```sh
 node scripts/manage-dsh-patch.mjs --action apply \
   --source-root /path/to/deepseek-harness
+DSH_RELEASE=0.1.2-alpha.4
+FILTERS=$(node -e '
+const patch = require("./compatibility/dsh-patches.json").patches
+  .find(entry => entry.id === "native-execution-boundaries-v5")
+const dirs = new Set()
+for (const [path, target] of Object.entries(patch.targets)) {
+  if (!Object.hasOwn(target.release_hashes, process.argv[1])) continue
+  const dir = /^(packages\/[^/]+\/[^/]+|apps\/[^/]+)/.exec(path)?.[1]
+  if (dir !== undefined) dirs.add(dir)
+}
+const root = process.argv[2]
+console.log([...dirs]
+  .map(dir => `-F ${require(`${root}/${dir}/package.json`).name}`)
+  .join(" "))
+' "$DSH_RELEASE" /path/to/deepseek-harness)
 cd /path/to/deepseek-harness
 node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
-./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host \
-  -F @deepseek-ai/dsh-agent-loop -F @deepseek-ai/dsh-tools \
-  -F @deepseek-ai/dsh-fs-sandbox -F @deepseek-ai/dsh-tool-fs \
-  -F @deepseek-ai/dsh-goal -F @deepseek-ai/dsh-llm \
-  -F @deepseek-ai/dsh-sandbox-local -F @deepseek-ai/dsh-sandbox-policy \
-  -F @deepseek-ai/dsh-sandbox -F @deepseek-ai/dsh-tool-bash \
-  -F @deepseek-ai/dsh-subagent-in-process-driver \
-  -F @deepseek-ai/dsh-subagent-spawn-in-process -F @deepseek-ai/dsh-subagent \
-  -F @deepseek-ai/dsh-subprocess-local -F @deepseek-ai/dsh-subprocess
+./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host $FILTERS
 cd -
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-bin/agent-docs \
 npm run test:smoke
 ```
+
+For `0.1.2-alpha.4` that resolves to 15 packages: `dsh-agent-loop`, `dsh-tools`,
+`dsh-fs-sandbox`, `dsh-tool-fs`, `dsh-goal`, `dsh-llm`, `dsh-sandbox-local`,
+`dsh-sandbox-policy`, `dsh-sandbox`, `dsh-tool-bash`,
+`dsh-subagent-in-process-driver`, `dsh-subagent-spawn-in-process`,
+`dsh-subagent`, `dsh-subprocess-local` and `dsh-subprocess`. The two rc releases
+add `dsh-tool-cordis`; do not reuse one release's list against another.
 
 Both rebuild stages are required, and the second one is the easy one to skip.
 `tsc -b` emits `lib/types/*.js`; each package's `exports` `.` resolves to
