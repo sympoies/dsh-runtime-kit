@@ -81,6 +81,7 @@
       "exports": {
         "approveEscalation": "function",
         "canonicalPath": "function",
+        "isNonWideningSandboxEcho": "function",
         "validateEscalationArgs": "function"
       }
     },

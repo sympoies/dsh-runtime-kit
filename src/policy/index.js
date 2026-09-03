@@ -3,6 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { createAuthoritativeAcceptanceCoordinator } from '../authoritative-acceptance/index.js'
+import { DshCompatibilityError } from '../compat/contract.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
@@ -350,7 +351,11 @@ export function applyPolicy(ctx, config = {}, dshRuntime, childPlugins = createC
     validateEscalationArgs,
   } = dshRuntime
   if (typeof isNonWideningSandboxEcho !== 'function') {
-    throw new TypeError('dsh-runtime-kit: authenticated DSH sandbox echo classifier is required')
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+      'dsh-runtime-kit: authenticated DSH sandbox echo classifier is required',
+      { missing: ['@deepseek-ai/dsh-sandbox:isNonWideningSandboxEcho:function'] },
+    )
   }
   const dataPolicyEnabled = config.nilsCompatibilityCandidate === DATA_POLICY_CANDIDATE
   if (dataPolicyEnabled

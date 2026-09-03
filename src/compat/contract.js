@@ -48,6 +48,7 @@ export const DSH_RC7_RUNTIME_MODULES = Object.freeze({
   '@deepseek-ai/dsh-sandbox': Object.freeze({
     approveEscalation: 'function',
     canonicalPath: 'function',
+    isNonWideningSandboxEcho: 'function',
     validateEscalationArgs: 'function',
   }),
   '@deepseek-ai/dsh-skill-filesystem': Object.freeze({

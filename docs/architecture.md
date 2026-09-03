@@ -673,6 +673,12 @@ an already captured validation operation, not admitting a new native tool
 request. Tests pin this intentional wrapper difference so the classifier cannot
 drift across the two execution paths.
 
+The compatibility contract declares that classifier alongside the sandbox
+symbols DSH publishes itself, so a DSH without the downstream patch is refused
+at load with `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH` naming the missing identity
+rather than failing later from the policy path. Registry-installed peers never
+carry the patch, so that refusal is the expected outcome of a plain install.
+
 The Darwin transition is necessarily path-based between verified
 materialization and the kernel's spawn operation. The private random pathname,
 trusted-parent validation, and pre-spawn identity check remove ordinary
