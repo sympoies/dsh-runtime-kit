@@ -59,8 +59,17 @@ processes, apply the patch, and rebuild the host libraries:
 ```sh
 dsh-runtime-kit-manage-dsh-patch --action apply \
   --source-root /absolute/deepseek-harness
-pnpm --dir /absolute/deepseek-harness run build:lib:host
+cd /absolute/deepseek-harness
+./node_modules/.bin/tsx scripts/clean.ts
+node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host
 ```
+
+Clean before rebuilding, and invoke the binaries directly rather than through
+`pnpm run build:lib:host`. Stale build output makes `tsdown` treat the
+repository root as a build target and abort before bundling anything, and a
+`pnpm run` in that checkout can fail in its dependency-status check before the
+script starts. `AGENTS.md` records both conditions.
 
 The command is idempotent and returns a
 `dsh-runtime-kit.dsh-patch-receipt.v1` JSON receipt. It accepts only the exact

@@ -33,32 +33,16 @@ DeepSeek Harness (DSH).
 
 ## Validation
 
-Apply the reviewed patch to a pristine selected checkout, rebuild the packages
-it touches, and run the keyless end-to-end smoke test. Derive the package set
-from the patch manifest for the release under test, because the patch does not
-touch the same packages in every validated release:
+Apply the reviewed patch to a pristine selected checkout, rebuild the host
+libraries, and run the keyless end-to-end smoke test:
 
 ```sh
 node scripts/manage-dsh-patch.mjs --action apply \
   --source-root /path/to/deepseek-harness
-DSH_RELEASE=0.1.2-alpha.4
-FILTERS=$(node -e '
-const patch = require("./compatibility/dsh-patches.json").patches
-  .find(entry => entry.id === "native-execution-boundaries-v5")
-const dirs = new Set()
-for (const [path, target] of Object.entries(patch.targets)) {
-  if (!Object.hasOwn(target.release_hashes, process.argv[1])) continue
-  const dir = /^(packages\/[^/]+\/[^/]+|apps\/[^/]+)/.exec(path)?.[1]
-  if (dir !== undefined) dirs.add(dir)
-}
-const root = process.argv[2]
-console.log([...dirs]
-  .map(dir => `-F ${require(`${root}/${dir}/package.json`).name}`)
-  .join(" "))
-' "$DSH_RELEASE" /path/to/deepseek-harness)
 cd /path/to/deepseek-harness
+./node_modules/.bin/tsx scripts/clean.ts
 node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
-./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host $FILTERS
+./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host
 cd -
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-bin/agent-hook \
@@ -66,12 +50,21 @@ AGENT_DOCS_BIN=/path/to/nils-bin/agent-docs \
 npm run test:smoke
 ```
 
-For `0.1.2-alpha.4` that resolves to 15 packages: `dsh-agent-loop`, `dsh-tools`,
-`dsh-fs-sandbox`, `dsh-tool-fs`, `dsh-goal`, `dsh-llm`, `dsh-sandbox-local`,
-`dsh-sandbox-policy`, `dsh-sandbox`, `dsh-tool-bash`,
-`dsh-subagent-in-process-driver`, `dsh-subagent-spawn-in-process`,
-`dsh-subagent`, `dsh-subprocess-local` and `dsh-subprocess`. The two rc releases
-add `dsh-tool-cordis`; do not reuse one release's list against another.
+Clean first. On a tree carrying stale build output, `tsdown` treats the
+repository root as a build target and aborts during config resolution with
+`[@deepseek-ai/dsh-root] Cannot find entry:
+["lib/types/{index,invariant,startup}.js"]`, before bundling any package. On a
+cleaned tree it does not: an unfiltered run builds all 233 packages while the
+root `lib/types/` never exists at all, which is why the root was never a
+required target. CI never meets the failure because it runs `pnpm run clean`
+before every build.
+
+Invoke the binaries directly rather than through `pnpm run <script>`. A
+`pnpm run` in the DSH checkout first performs a dependency-status check that can
+auto-run `install`, and that install fails on an ordinary developer machine —
+for example when a user-owned global `core.hooksPath` makes DSH's
+`install-lefthook` postinstall refuse. The failure happens before the script
+runs and is unrelated to the build.
 
 Both rebuild stages are required, and the second one is the easy one to skip.
 `tsc -b` emits `lib/types/*.js`; each package's `exports` `.` resolves to
@@ -80,13 +73,13 @@ the patch changes `src/` alone, so without the `tsdown` stage the runtime keeps
 importing an older bundle while the source tree, the patch receipt and
 `lib/types/` all look correct.
 
-Do not substitute `pnpm run build:lib:host`. It chains `tsc -b` with an
-unfiltered `tsdown`, whose root-package entry `lib/types/{index,invariant,startup}.js`
-does not exist on the pinned alpha.4 revision. `tsdown` validates entries during
-config resolution, so that run aborts before bundling any package — see
-`sympoies/dsh-runtime-kit#185`. The `-F` filter selects workspace configs by
-name and excludes the failing root config; the list must cover every package the
-active patch touches, because each bundle is built independently.
+`tsdown` also accepts `-F <package>` to narrow the build to named workspace
+packages. That is a speed optimization on a cleaned tree, not a requirement, and
+it is easy to get wrong: the filter must cover every package the active patch
+touches for the release under test, and
+`native-execution-boundaries-v5` does not touch the same set in every release —
+the two rc releases include `dsh-tool-cordis` and alpha.4 does not. Prefer the
+unfiltered build unless rebuild time actually matters.
 
 Rolling back reverses the same two stages:
 
@@ -101,8 +94,19 @@ Rollback is incomplete until the pristine host libraries have been rebuilt and
 an unpatched `dsh` process has been booted against them. `npm run test:smoke`
 cannot serve as that proof: it asserts the checkout is `patched` before anything
 runs, so on a pristine checkout it fails closed by design. Boot the rolled-back
-harness directly instead — install any plugin into a scratch profile and run
-`dsh --profile <name> --dump-config`.
+harness directly instead: install any plugin into a scratch profile and dump the
+composed configuration, invoking the CLI entry point rather than `pnpm dsh` for
+the reason given above.
+
+```sh
+cd /path/to/deepseek-harness
+DSH_HOME=/tmp/dsh-probe node apps/cli/lib/bin.js plugin --profile probe \
+  add --offline --save-exact /path/to/any-plugin.tgz
+DSH_HOME=/tmp/dsh-probe node apps/cli/lib/bin.js --profile probe --dump-config
+```
+
+A non-empty composed bundle layer proves the rebuilt libraries load.
+`dsh --version` is not sufficient; it does not exercise the host bundles.
 
 The smoke resolves further companions as siblings of `AGENT_HOOK_BIN`:
 `review-specialists`, `forge-cli`, `main-agent` and `agent-session`
