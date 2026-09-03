@@ -542,6 +542,20 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
       && error.diagnostic.missing.includes('@deepseek-ai/dsh-llm:createUserMessage:function'),
   )
   await assert.rejects(
+    loadDshRc7Runtime(options({
+      '@deepseek-ai/dsh-sandbox': {
+        approveEscalation() {},
+        canonicalPath() {},
+        validateEscalationArgs() {},
+      },
+    })),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+      && error.diagnostic.missing.includes(
+        '@deepseek-ai/dsh-sandbox:isNonWideningSandboxEcho:function',
+      ),
+  )
+  await assert.rejects(
     loadDshRc7Runtime({
       ...options(),
       packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
@@ -581,15 +595,32 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   )
   assert.equal(importCalls, 0)
 
-  const installed = await loadDshRc7Runtime()
-  const installedVersions = new Set(Object.values(installed.versions))
-  assert.equal(installedVersions.has('4.0.1') || installedVersions.has('4.0.2'), true)
-  assert.equal(installedVersions.size, 2)
-  assert.equal(
-    ['0.1.0-rc.8', '0.1.1-rc.2', '0.1.2-alpha.4']
-      .some(version => installedVersions.has(version)),
-    true,
-  )
+  // The installed peers come from the registry, which never carries the
+  // downstream execution-boundary patch, so the sandbox echo classifier the
+  // contract now requires is absent on a plain install. Accept either a
+  // reviewed release that satisfies the whole contract, or the typed refusal
+  // naming exactly the patch-provided identity.
+  let installed
+  try {
+    installed = await loadDshRc7Runtime()
+  } catch (error) {
+    assert.equal(error instanceof DshCompatibilityError, true)
+    assert.equal(error.code, 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH')
+    assert.deepEqual(
+      [...error.diagnostic.missing],
+      ['@deepseek-ai/dsh-sandbox:isNonWideningSandboxEcho:function'],
+    )
+  }
+  if (installed !== undefined) {
+    const installedVersions = new Set(Object.values(installed.versions))
+    assert.equal(installedVersions.has('4.0.1') || installedVersions.has('4.0.2'), true)
+    assert.equal(installedVersions.size, 2)
+    assert.equal(
+      ['0.1.0-rc.8', '0.1.1-rc.2', '0.1.2-alpha.4']
+        .some(version => installedVersions.has(version)),
+      true,
+    )
+  }
 })
 
 test('source inspection validates package versions and required public runtime exports', async () => {

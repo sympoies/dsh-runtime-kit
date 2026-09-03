@@ -49,7 +49,11 @@ test('policy activation requires the authenticated DSH echo classifier', () => {
       ...dshRuntime,
       isNonWideningSandboxEcho: undefined,
     }),
-    /authenticated DSH sandbox echo classifier is required/,
+    error => error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+      && error.diagnostic.missing.includes(
+        '@deepseek-ai/dsh-sandbox:isNonWideningSandboxEcho:function',
+      )
+      && /authenticated DSH sandbox echo classifier is required/.test(error.message),
   )
 })
 
