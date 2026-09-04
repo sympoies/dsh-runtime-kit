@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -168,6 +169,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-deploy-'))
   const userHome = join(root, 'user-home')
   mkdirSync(userHome, { mode: 0o700 })
+  mkdirSync(join(userHome, '.claude'), { mode: 0o700 })
   const dshHome = join(root, 'dsh-home')
   mkdirSync(join(dshHome, 'profiles', 'canary'), { recursive: true, mode: 0o700 })
   writeJson(join(dshHome, 'profiles', 'canary', 'package.json'), {
@@ -262,7 +264,7 @@ test('the repository owns one executable deploy dispatcher whose --help mutates 
   }
 })
 
-test('the shared meta:deploy dispatcher reaches the script through agent-run when it is installed', () => {
+test('the shared meta:deploy dispatcher reaches the script through agent-run when it is installed', t => {
   const agentRun = (process.env.PATH ?? '')
     .split(delimiter)
     .map(directory => join(directory, 'agent-run'))
@@ -270,6 +272,7 @@ test('the shared meta:deploy dispatcher reaches the script through agent-run whe
   if (agentRun === undefined) {
     // The hosted package matrix has no nils agent-run; the direct executable
     // contract above still holds and the dispatcher path is proven locally.
+    t.skip('agent-run is not on PATH')
     return
   }
   const result = spawnSync(agentRun, ['exec', '--cwd', projectRoot, '--', './.agents/scripts/deploy.sh', '--help'], {
@@ -300,6 +303,8 @@ test('missing or ambiguous deploy scope fails typed before any engine or profile
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--expected-plan-digest', 'a'.repeat(64)]), 'unexpected-plan-digest'],
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--dsh-home', 'relative/home']), 'invalid-dsh-home'],
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--runtime-root', 'relative/root']), 'invalid-runtime-root'],
+      [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--runtime-root', join(subject.root, 'absent-runtime-root')]), 'invalid-runtime-root'],
+      [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--runtime-root', join(subject.userHome, '.claude')]), 'invalid-runtime-root'],
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--scope', 'production']), 'invalid-scope'],
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--receipt', 'relative/receipt.json']), 'invalid-receipt-path'],
       [scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--stage-root', 'relative/stage']), 'invalid-stage-root'],
@@ -378,8 +383,78 @@ test('canary scope refuses the primary DSH home and primary scope requires recor
     assert.equal(unauthorizedCanary.status, 64)
     assert.equal(unauthorizedCanary.value.error.code, 'unexpected-authorized-by')
 
+    // An aliased home is still the live home: HOME reached through a symlink
+    // and a default DSH home that does not exist yet must not slip past the
+    // canary guard on the lexical path.
+    const realHome = join(subject.root, 'real-home')
+    mkdirSync(realHome, { mode: 0o700 })
+    symlinkSync(realHome, join(subject.root, 'link-home'), 'dir')
+    const aliased = deploy(subject, scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--dsh-home', join(realHome, '.dsh')]), {
+      HOME: join(subject.root, 'link-home'),
+      DSH_HOME: '/nonexistent/other',
+    })
+    assert.equal(aliased.status, 64, `${aliased.stdout}\n${aliased.stderr}`)
+    assert.equal(aliased.value.error.code, 'primary-home-requires-primary-scope')
+    assert.equal(existsSync(join(realHome, '.dsh')), false)
+
     assert.deepEqual(dshCalls(subject), [])
     assert.equal(existsSync(join(primaryHome, 'runtime-kit')), false)
+
+    // Primary scope with a named authority is the one path into the live home;
+    // the identity is trimmed and recorded, and the resume vector keeps it.
+    const primary = deploy(subject, scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--dsh-home', primaryHome, '--scope', 'primary', '--authorized-by', '  maintainer ']))
+    assert.equal(primary.status, 0, `${primary.stdout}\n${primary.stderr}`)
+    assert.equal(primary.value.data.scope, 'primary')
+    assert.equal(primary.value.data.authorized_by, 'maintainer')
+    assert.equal(primary.value.data.dsh_home, primaryHome)
+    assert.equal(primary.value.data.mode, 'preview')
+    assert.deepEqual(primary.value.data.resume.apply_argv.slice(-9, -5), ['--scope', 'primary', '--authorized-by', '  maintainer '])
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor on a profile without an activation is a typed profile-unhealthy result', () => {
+  const subject = fixture()
+  try {
+    const receiptPath = join(subject.root, 'receipts', 'doctor.json')
+    const unhealthy = deploy(subject, scopeArgs(subject, 'doctor', ['--receipt', receiptPath]))
+    assert.equal(unhealthy.status, 65, `${unhealthy.stdout}\n${unhealthy.stderr}`)
+    assert.equal(unhealthy.value.ok, false)
+    assert.equal(unhealthy.value.error.code, 'profile-unhealthy')
+    assert.equal(unhealthy.value.error.details.phase, 'doctor')
+    assert.equal(unhealthy.value.error.details.mode, 'inspect')
+    assert.equal(typeof unhealthy.value.error.details.engine.status, 'string')
+    assert.notEqual(unhealthy.value.error.details.engine.status, 'healthy')
+    assert.equal(unhealthy.value.error.details.engine.exit_code, 65)
+    const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'))
+    assert.equal(receipt.ok, false)
+    assert.equal(receipt.error.code, 'profile-unhealthy')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('the stage root must be owner-only and drifted or foreign stage content is rebuilt from the artifact', () => {
+  const subject = fixture()
+  try {
+    const open = join(subject.root, 'open-stage')
+    mkdirSync(open, { mode: 0o755 })
+    const refused = deploy(subject, scopeArgs(subject, 'setup', [...artifactArgs(subject.v1), '--stage-root', open]))
+    assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)
+    assert.equal(refused.value.error.code, 'stage-unavailable')
+    assert.equal(refused.value.error.details.stage_root, open)
+    assert.deepEqual(dshCalls(subject), [])
+
+    const preview = deploy(subject, scopeArgs(subject, 'setup', artifactArgs(subject.v1)))
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    const staged = stagedRoot(subject, subject.v1)
+    writeFileSync(join(staged, 'extra.js'), 'planted\n')
+    const applied = deploy(subject, preview.value.data.resume.apply_argv)
+    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+    assert.equal(applied.value.data.artifact.restaged, true)
+    assert.equal(existsSync(join(staged, 'extra.js')), false)
+    assert.equal(applied.value.data.plan_digest, preview.value.data.plan_digest)
   } finally {
     subject.cleanup()
   }
@@ -419,8 +494,11 @@ test('deploy drives the digest-reviewed lifecycle through the engine and emits r
     assert.equal(receipt.engine.mode, 'dry-run')
     assert.equal(receipt.engine.exit_code, 0)
     assert.equal(receipt.engine.target.expected_version, '1.0.0')
+    // The resume vector pins the stage root that was defaulted from the
+    // environment, so it applies the same plan under any environment.
     assert.deepEqual(receipt.resume.apply_argv, [
       ...scopeArgs(subject, 'setup', artifactArgs(subject.v1)),
+      '--stage-root', receipt.stage_root,
       '--apply', '--expected-plan-digest', receipt.plan_digest,
     ])
     // Preview touched neither the profile nor the runtime root.
@@ -435,7 +513,7 @@ test('deploy drives the digest-reviewed lifecycle through the engine and emits r
     // engine: the stage is rebuilt from the authenticated bytes, so the reviewed
     // plan digest still binds exactly the artifact that was previewed.
     writeFileSync(join(stagedRoot(subject, subject.v1), 'cordis.patch.yml'), '- tampered: true\n')
-    const applied = deploy(subject, receipt.resume.apply_argv)
+    const applied = deploy(subject, receipt.resume.apply_argv, { XDG_CACHE_HOME: join(subject.root, 'another-cache') })
     assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
     assert.equal(applied.value.data.mode, 'apply')
     assert.equal(applied.value.data.engine.mode, 'applied')

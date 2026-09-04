@@ -246,7 +246,10 @@ function apply(args) {
  * @param {string[]} args
  */
 function deploy(args) {
-  const result = spawnSync('/bin/sh', [deployDispatcher, ...args, '--engine-root', projectRoot], {
+  // A replayed resume vector already carries its engine root; add it only to
+  // freshly built scopes so the receipt's argv is exercised as published.
+  const argv = args.includes('--engine-root') ? args : [...args, '--engine-root', projectRoot]
+  const result = spawnSync('/bin/sh', [deployDispatcher, ...argv], {
     env: {
       PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
       HOME: process.env.HOME ?? userHome,
@@ -287,12 +290,12 @@ function deploy(args) {
   return parsed.data
 }
 
-function deployScope(phase, extra = []) {
+function deployScope(phase, extra = [], target = { profile: 'operations-smoke', runtimeRoot }) {
   return [
     '--phase', phase,
-    '--profile', 'operations-smoke',
+    '--profile', target.profile,
     '--dsh-home', dshHome,
-    '--runtime-root', runtimeRoot,
+    '--runtime-root', target.runtimeRoot,
     '--dsh-bin', wrapper,
     '--agent-hook-bin', agentHookBin,
     '--agent-docs-bin', agentDocsBin,
@@ -496,17 +499,7 @@ try {
   const freshProfileDir = join(dshHome, 'profiles', 'deploy-fresh')
   const freshRuntimeRoot = join(temporaryRoot, 'dsh-runtime-fresh')
   mkdirSync(freshRuntimeRoot, { mode: 0o700 })
-  const freshScope = (phase, extra = []) => [
-    '--phase', phase,
-    '--profile', 'deploy-fresh',
-    '--dsh-home', dshHome,
-    '--runtime-root', freshRuntimeRoot,
-    '--dsh-bin', wrapper,
-    '--agent-hook-bin', agentHookBin,
-    '--agent-docs-bin', agentDocsBin,
-    '--stage-root', join(temporaryRoot, 'deploy-stage'),
-    ...extra,
-  ]
+  const freshScope = (phase, extra = []) => deployScope(phase, extra, { profile: 'deploy-fresh', runtimeRoot: freshRuntimeRoot })
   assert.equal(existsSync(freshProfileDir), false)
   const freshSetup = deploy(freshScope('setup', ['--artifact', deployArtifact.path, '--artifact-sha256', deployArtifact.sha256]))
   assert.equal(freshSetup.mode, 'preview')

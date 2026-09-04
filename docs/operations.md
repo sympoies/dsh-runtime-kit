@@ -365,8 +365,9 @@ exit status.
 
 The scope is explicit and complete or the dispatcher refuses before anything
 runs: `--phase` (`setup`, `doctor`, `update`, `rollback`, `remove`, or
-`repair`), `--profile`, `--dsh-home`, `--runtime-root`, and `--dsh-bin` are
-required; the ambient `DSH_HOME` and every `DSH_RUNTIME_KIT_*` variable are
+`repair`), `--profile`, `--dsh-home`, `--runtime-root` (an existing owner-only
+directory disjoint from Codex and Claude homes, exactly as the launcher
+requires), and `--dsh-bin` are required; the ambient `DSH_HOME` and every `DSH_RUNTIME_KIT_*` variable are
 ignored rather than inherited, and the DSH executable is never resolved from
 `PATH`. Each missing or malformed input is a typed usage error (exit 64), for
 example `missing-dsh-home`, `invalid-phase`, `unexpected-artifact`, or
@@ -380,12 +381,15 @@ archive that is not a bounded `@sympoies/dsh-runtime-kit` package
 (`artifact-invalid`) without staging or invoking anything, and otherwise makes
 the digest-keyed stage `<stage-root>/<sha256>/package` equal to the archive
 bytes. The stage root defaults to `$XDG_CACHE_HOME/dsh-runtime-kit/deploy-stage`
-(`--stage-root` overrides it) and must be an owner-only directory. The path is
-deterministic so that the preview and the later apply bind the same local
-target; a stage whose files no longer equal the artifact is rebuilt from the
-authenticated bytes before the engine sees it, so the reviewed plan digest
-always binds exactly the artifact that was previewed. The other phases refuse
-`--artifact`.
+(`--stage-root` overrides it) and must be an owner-only directory; a stage root
+that is shared, not owned, or cannot be written is refused as
+`stage-unavailable`. The path is deterministic so that the preview and the
+later apply bind the same local target; a stage whose files no longer equal
+the artifact is rebuilt from the authenticated bytes before the engine sees it,
+so the reviewed plan digest always binds exactly the artifact that was
+previewed. The stage root is a rebuildable cache: one directory per artifact
+digest, never pruned by the dispatcher, safe to delete at any time. The other
+phases refuse `--artifact`.
 
 `setup` may target a profile DSH has never initialized: the native mutation
 creates it with DSH's own base composition, and a later `remove` leaves that
@@ -398,8 +402,9 @@ collateral.
 Every phase is a non-mutating preview by default; `doctor` is an inspection.
 Applying requires the exact plan digest the unchanged preview reported:
 `--apply --expected-plan-digest <digest>`. A successful preview receipt carries
-`resume.apply_argv`, the complete argument vector (minus `--receipt`) that
-applies that plan, so an operator or a later session can resume without
+`resume.apply_argv`, the complete argument vector (minus `--receipt`, plus the
+stage root that was defaulted from the environment) that applies that plan, so
+an operator or a later session can resume under any environment without
 reconstructing the scope. Cancellation, interruption, retry, and rollback are
 the engine's: the dispatcher adds no locks, pending markers, or receipts of its
 own, and `--phase repair` maps to the engine's digest-reviewed
@@ -412,9 +417,13 @@ root and executables, the artifact identity and stage, the bound `plan_digest`,
 a bounded `engine` summary (engine root and version, envelope schema, exit
 code, mode, action, target identities, or the doctor status), and timestamps.
 `--receipt <absolute path>` also persists it atomically with mode `0600`
-(parent directories `0700`); a failed phase persists an `ok: false` receipt
-carrying the typed error. Raw command output, environment, and full plan bodies
-never enter a receipt.
+(parent directories `0700`); a phase that fails after its scope was bound
+persists an `ok: false` receipt carrying the typed error, while a usage
+refusal (exit 64) writes nothing because no scope exists yet. Raw command
+output, environment, and full plan bodies never enter a receipt. An
+`engine-unavailable` result after `--apply` means the engine process was
+killed or could not run; preview `--phase repair` next, because the engine may
+have left a pending transaction it can finish or roll back.
 
 Three deployments are deliberately distinct:
 

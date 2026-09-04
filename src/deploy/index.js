@@ -30,9 +30,10 @@ import {
   writeSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 
+import { resolveActivationRoot } from '../activation/index.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
@@ -135,13 +136,26 @@ function boundedDetails(value) {
   return text.length <= MAX_DETAIL_CHARS ? record : { truncated: true, bytes: text.length }
 }
 
-/** @param {string} path */
+/**
+ * Canonicalize a path that may not exist yet: realpath the deepest existing
+ * ancestor and re-append the missing segments, so an aliased (symlinked) home
+ * compares equal to its target even before the DSH home is created.
+ * @param {string} path
+ */
 function canonical(path) {
   const absolute = resolve(path)
-  try {
-    return realpathSync(absolute)
-  } catch {
-    return absolute
+  /** @type {string[]} */
+  const missing = []
+  let cursor = absolute
+  for (;;) {
+    try {
+      return missing.length === 0 ? realpathSync(cursor) : join(realpathSync(cursor), ...missing.reverse())
+    } catch {
+      const parent = dirname(cursor)
+      if (parent === cursor) return absolute
+      missing.push(basename(cursor))
+      cursor = parent
+    }
   }
 }
 
@@ -249,6 +263,15 @@ export function parseScope(argv, env) {
   if (!isAbsolute(values['dsh-home'])) throw usage('invalid-dsh-home', '--dsh-home must be an absolute path')
   if (values['runtime-root'] === undefined) throw usage('missing-runtime-root', '--runtime-root is required')
   if (!isAbsolute(values['runtime-root'])) throw usage('invalid-runtime-root', '--runtime-root must be an absolute path')
+  // The same rule the owner launcher enforces, applied here so a missing,
+  // shared, or provider-overlapping root is a typed usage refusal instead of a
+  // launcher exit the dispatcher could only report as unrecognized output.
+  let runtimeRoot
+  try {
+    runtimeRoot = resolveActivationRoot(values['runtime-root'], env)
+  } catch (error) {
+    throw usage('invalid-runtime-root', `--runtime-root is not an owner-only runtime root: ${error instanceof Error ? error.message : String(error)}`)
+  }
   if (values['dsh-bin'] === undefined) throw usage('missing-dsh-bin', '--dsh-bin is required; the DSH executable is never resolved from PATH')
   if (!isAbsolute(values['dsh-bin'])) throw usage('invalid-dsh-bin', '--dsh-bin must be an absolute path')
   if (values['agent-hook-bin'] !== undefined && !isAbsolute(values['agent-hook-bin'])) {
@@ -307,12 +330,19 @@ export function parseScope(argv, env) {
     ? env.XDG_CACHE_HOME
     : join(env.HOME ?? homedir(), '.cache')
 
+  const stageRoot = values['stage-root'] === undefined
+    ? join(cacheHome, 'dsh-runtime-kit', 'deploy-stage')
+    : resolve(values['stage-root'])
+  // The resume vector must be self-contained: it drops the receipt path and
+  // pins the stage root that was defaulted from the environment, because the
+  // reviewed plan binds the staged package path.
   const resumeArgv = []
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--receipt') { index += 1; continue }
     if (argv[index].startsWith('--receipt=')) continue
     resumeArgv.push(argv[index])
   }
+  if (values['stage-root'] === undefined && ARTIFACT_PHASES.has(phase)) resumeArgv.push('--stage-root', stageRoot)
 
   return {
     help: false,
@@ -324,7 +354,7 @@ export function parseScope(argv, env) {
       authorizedBy: values.scope === 'primary' ? authorizedBy : undefined,
       profile: values.profile,
       dshHome,
-      runtimeRoot: resolve(values['runtime-root']),
+      runtimeRoot,
       dshBin: resolve(values['dsh-bin']),
       agentHookBin: values['agent-hook-bin'] === undefined ? undefined : resolve(values['agent-hook-bin']),
       agentDocsBin: values['agent-docs-bin'] === undefined ? undefined : resolve(values['agent-docs-bin']),
@@ -333,9 +363,7 @@ export function parseScope(argv, env) {
       apply: values.apply,
       expectedPlanDigest: expected,
       receiptPath: values.receipt === undefined ? undefined : resolve(values.receipt),
-      stageRoot: values['stage-root'] === undefined
-        ? join(cacheHome, 'dsh-runtime-kit', 'deploy-stage')
-        : resolve(values['stage-root']),
+      stageRoot,
       engineRoot: values['engine-root'] === undefined ? undefined : resolve(values['engine-root']),
       resumeArgv,
     },
@@ -446,8 +474,10 @@ async function stageArtifact(artifactPath, expectedSha256, stageRoot) {
     }
   } catch (error) {
     if (error instanceof DeployError) throw error
-    throw new DeployError('artifact-invalid', 'the deploy artifact could not be staged for review', 65, {
-      path: artifactPath,
+    // The artifact already passed its digest and structure checks; whatever
+    // failed here is the stage (permissions, space, a foreign file system).
+    throw new DeployError('stage-unavailable', 'the authenticated artifact could not be staged for review', 65, {
+      stage_root: stageRoot,
       reason: boundedString(error instanceof Error ? error.message : String(error), MAX_MESSAGE_CHARS),
     })
   }
@@ -636,16 +666,17 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     if (envelope.ok !== true) {
       const error = plainRecord(envelope.error)
       if (error !== undefined) {
+        // One engine record shape for every receipt: the bounded summary plus
+        // the refusal's code, message, and bounded details.
+        const details = boundedDetails(error.details)
         throw new DeployError('engine-refused', `the operations engine refused ${scope.phase}: ${boundedString(error.message, MAX_MESSAGE_CHARS) ?? 'no message'}`, exitCode === 0 ? 70 : exitCode, {
           phase: scope.phase,
           mode: scope.mode,
           engine: {
-            root: selectedEngine.root,
-            version: selectedEngine.version,
+            ...engine,
             code: typeof error.code === 'string' ? error.code : 'unknown',
             message: boundedString(error.message, MAX_MESSAGE_CHARS),
-            exit_code: exitCode,
-            ...(boundedDetails(error.details) === undefined ? {} : { details: boundedDetails(error.details) }),
+            ...(details === undefined ? {} : { details }),
           },
         })
       }
