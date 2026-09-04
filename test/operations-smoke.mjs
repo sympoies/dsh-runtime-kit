@@ -9,6 +9,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -33,8 +34,14 @@ assert.notEqual(
   undefined,
   'set DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2',
 )
+assert.notEqual(
+  process.env.DSH_RUNTIME_KIT_DEPLOY_DISPATCHER,
+  undefined,
+  'set DSH_RUNTIME_KIT_DEPLOY_DISPATCHER to the repository-owned .agents/scripts/deploy.sh',
+)
 const packageV1 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1)
 const packageV2 = resolve(process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2)
+const deployDispatcher = resolve(process.env.DSH_RUNTIME_KIT_DEPLOY_DISPATCHER)
 const dshCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
 )
@@ -230,6 +237,88 @@ function apply(args) {
   return operation([...args, '--apply', '--expected-plan-digest', preview.plan_digest])
 }
 
+/**
+ * Drive the repository-owned generic deploy dispatcher exactly as the shared
+ * `meta:deploy` skill does: the script, an explicit scope, and no ambient DSH or
+ * runtime-kit selection. The engine is this packed candidate (`--engine-root`),
+ * because the candidate checkout the dispatcher lives in carries no installed
+ * dependencies inside the acceptance sandbox.
+ * @param {string[]} args
+ */
+function deploy(args) {
+  const result = spawnSync('/bin/sh', [deployDispatcher, ...args, '--engine-root', projectRoot], {
+    env: {
+      PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ''}`,
+      HOME: process.env.HOME ?? userHome,
+      CODEX_HOME: codexHome,
+      CLAUDE_CONFIG_DIR: claudeHome,
+      XDG_CONFIG_HOME: configHome,
+      XDG_STATE_HOME: stateHome,
+      XDG_CACHE_HOME: join(temporaryRoot, 'cache'),
+      ...(process.env.TMPDIR === undefined ? {} : { TMPDIR: process.env.TMPDIR }),
+      ...Object.fromEntries(['NPM_CONFIG_OFFLINE', 'npm_config_offline', 'PNPM_OFFLINE']
+        .filter(name => process.env[name] !== undefined)
+        .map(name => [name, /** @type {string} */ (process.env[name])])),
+    },
+    encoding: 'utf8',
+  })
+  let parsed
+  try { parsed = JSON.parse(typeof result.stdout === 'string' ? result.stdout : '') } catch {}
+  if (result.status !== 0) {
+    const code = parsed !== null
+      && typeof parsed === 'object'
+      && parsed.ok === false
+      && parsed.error !== null
+      && typeof parsed.error === 'object'
+      && typeof parsed.error.code === 'string'
+      && /^[a-z][a-z0-9-]{0,47}$/u.test(parsed.error.code)
+      ? `DSH_DEPLOY_${parsed.error.code.replaceAll('-', '_').toUpperCase()}`
+      : 'DSH_DEPLOY_COMMAND_FAILED'
+    const error = /** @type {Error & {code:string,operationExitStatus?:number,deploy?:unknown}} */ (new Error('deploy dispatcher failed'))
+    error.code = code
+    error.deploy = parsed
+    if (Number.isSafeInteger(result.status) && result.status >= 1 && result.status <= 255) {
+      error.operationExitStatus = result.status
+    }
+    throw error
+  }
+  assert.equal(parsed?.schema_version, 'cli.dsh-runtime-kit.deploy.v1')
+  assert.equal(parsed.ok, true)
+  return parsed.data
+}
+
+function deployScope(phase, extra = []) {
+  return [
+    '--phase', phase,
+    '--profile', 'operations-smoke',
+    '--dsh-home', dshHome,
+    '--runtime-root', runtimeRoot,
+    '--dsh-bin', wrapper,
+    '--agent-hook-bin', agentHookBin,
+    '--agent-docs-bin', agentDocsBin,
+    '--stage-root', join(temporaryRoot, 'deploy-stage'),
+    ...extra,
+  ]
+}
+
+function packArtifact(source, label) {
+  const destination = join(temporaryRoot, `deploy-artifact-${label}`)
+  mkdirSync(destination, { mode: 0o700 })
+  const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', destination, source], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NPM_CONFIG_USERCONFIG: '/dev/null',
+      NPM_CONFIG_CACHE: join(temporaryRoot, `deploy-npm-cache-${label}`),
+    },
+  })
+  assert.equal(packed.status, 0, packed.stderr)
+  const rows = JSON.parse(packed.stdout)
+  assert.equal(rows.length, 1)
+  const path = join(destination, rows[0].filename)
+  return { path, sha256: createHash('sha256').update(readFileSync(path)).digest('hex') }
+}
+
 const wrapper = join(temporaryRoot, 'dsh-wrapper.mjs')
 const dshCli = join(dshRoot, 'apps', 'cli', 'lib', 'bin.js')
 writeFileSync(wrapper, `#!/usr/bin/env node
@@ -339,6 +428,100 @@ try {
   )
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
 
+  // The repository-owned generic deploy dispatcher must reach the same
+  // digest-reviewed engine from an immutable packed artifact, refuse a
+  // mismatched artifact before any mutation, and persist resumable receipts.
+  acceptanceStep = 'deploy-dispatcher'
+  const deployArtifact = packArtifact(packageV2, 'v2')
+  const receiptRoot = join(temporaryRoot, 'deploy-receipts')
+  const manifestBeforeDeployRefusal = readFileSync(profileManifestPath)
+  const stateBeforeDeployRefusal = readFileSync(join(dshHome, 'runtime-kit', 'state', 'operations-smoke.json'))
+  let deployRefusal
+  try {
+    deploy(deployScope('update', [
+      '--artifact', deployArtifact.path,
+      '--artifact-sha256', 'f'.repeat(64),
+      '--receipt', join(receiptRoot, 'refused.json'),
+    ]))
+  } catch (error) {
+    deployRefusal = error
+  }
+  assert.equal(deployRefusal?.code, 'DSH_DEPLOY_ARTIFACT_DIGEST_MISMATCH')
+  assert.equal(deployRefusal?.operationExitStatus, 65)
+  assert.deepEqual(readFileSync(profileManifestPath), manifestBeforeDeployRefusal)
+  assert.deepEqual(readFileSync(join(dshHome, 'runtime-kit', 'state', 'operations-smoke.json')), stateBeforeDeployRefusal)
+  assert.equal(existsSync(join(temporaryRoot, 'deploy-stage')), false, 'a refused artifact is never staged')
+  assert.equal(JSON.parse(readFileSync(join(receiptRoot, 'refused.json'), 'utf8')).error.code, 'artifact-digest-mismatch')
+  assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+
+  const deployPreview = deploy(deployScope('update', [
+    '--artifact', deployArtifact.path,
+    '--artifact-sha256', deployArtifact.sha256,
+    '--receipt', join(receiptRoot, 'update-preview.json'),
+  ]))
+  assert.equal(deployPreview.schema_version, 'dsh-runtime-kit.deploy-receipt.v1')
+  assert.equal(deployPreview.mode, 'preview')
+  assert.equal(deployPreview.scope, 'canary')
+  assert.equal(deployPreview.engine.root, projectRoot)
+  assert.equal(deployPreview.engine.mode, 'dry-run')
+  assert.equal(deployPreview.artifact.sha256, deployArtifact.sha256)
+  assert.match(deployPreview.plan_digest, /^[a-f0-9]{64}$/u)
+  assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+  const deployApplied = deploy([...deployPreview.resume.apply_argv, '--receipt', join(receiptRoot, 'update-apply.json')])
+  assert.equal(deployApplied.mode, 'apply')
+  assert.equal(deployApplied.engine.mode, 'applied')
+  assert.equal(deployApplied.plan_digest, deployPreview.plan_digest)
+  assertDshProfileIsolation()
+  assertRuntimePackage(installedRuntime, '0.0.0-acceptance.2')
+
+  const deployDoctor = deploy(deployScope('doctor'))
+  assert.equal(deployDoctor.mode, 'inspect')
+  assert.equal(deployDoctor.engine.status, 'healthy')
+
+  const deployRollbackPreview = deploy(deployScope('rollback'))
+  assert.equal(deployRollbackPreview.artifact, null)
+  const deployRolledBack = deploy([...deployRollbackPreview.resume.apply_argv, '--receipt', join(receiptRoot, 'rollback-apply.json')])
+  assert.equal(deployRolledBack.engine.mode, 'applied')
+  assertDshProfileIsolation()
+  assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+  for (const name of ['refused.json', 'update-preview.json', 'update-apply.json', 'rollback-apply.json']) {
+    assert.equal(statSync(join(receiptRoot, name)).mode & 0o777, 0o600, `${name} must be owner-only`)
+  }
+
+  // A profile DSH has never initialized: setup creates it through the native
+  // mutation and remove must leave DSH's own base composition behind. pnpm
+  // drops the emptied dependencies object here, which the collateral
+  // classifier must treat as the runtime-kit removal it is.
+  acceptanceStep = 'deploy-fresh-profile'
+  const freshProfileDir = join(dshHome, 'profiles', 'deploy-fresh')
+  const freshRuntimeRoot = join(temporaryRoot, 'dsh-runtime-fresh')
+  mkdirSync(freshRuntimeRoot, { mode: 0o700 })
+  const freshScope = (phase, extra = []) => [
+    '--phase', phase,
+    '--profile', 'deploy-fresh',
+    '--dsh-home', dshHome,
+    '--runtime-root', freshRuntimeRoot,
+    '--dsh-bin', wrapper,
+    '--agent-hook-bin', agentHookBin,
+    '--agent-docs-bin', agentDocsBin,
+    '--stage-root', join(temporaryRoot, 'deploy-stage'),
+    ...extra,
+  ]
+  assert.equal(existsSync(freshProfileDir), false)
+  const freshSetup = deploy(freshScope('setup', ['--artifact', deployArtifact.path, '--artifact-sha256', deployArtifact.sha256]))
+  assert.equal(freshSetup.mode, 'preview')
+  const freshApplied = deploy(freshSetup.resume.apply_argv)
+  assert.equal(freshApplied.engine.mode, 'applied')
+  const freshManifest = JSON.parse(readFileSync(join(freshProfileDir, 'package.json'), 'utf8'))
+  assert.deepEqual(freshManifest.dsh.profile.bundles, ['@deepseek-ai/dsh-base', '@sympoies/dsh-runtime-kit'])
+  const freshRemove = deploy(freshScope('remove'))
+  assert.equal(freshRemove.engine.action, 'remove')
+  const freshRemoved = deploy(freshRemove.resume.apply_argv)
+  assert.equal(freshRemoved.engine.mode, 'applied')
+  const freshAfter = JSON.parse(readFileSync(join(freshProfileDir, 'package.json'), 'utf8'))
+  assert.deepEqual(freshAfter.dsh.profile.bundles, ['@deepseek-ai/dsh-base'])
+  assert.equal(freshAfter.dependencies?.['@sympoies/dsh-runtime-kit'], undefined)
+
   acceptanceStep = 'profile-remove'
   apply(['remove', '--profile', 'operations-smoke'])
   const manifest = JSON.parse(readFileSync(join(dshHome, 'profiles', 'operations-smoke', 'package.json')))
@@ -369,6 +552,10 @@ try {
           'lifecycle:declared-and-bound',
           'lifecycle:surfaces-present-after-rollback',
           'lifecycle:incompatible-dsh-refused-before-mutation',
+          'deploy:dispatcher-update-doctor-rollback-through-engine',
+          'deploy:artifact-digest-mismatch-refused-before-mutation',
+          'deploy:receipts-persisted-owner-only',
+          'deploy:fresh-profile-setup-and-remove-through-engine',
           'upstream:patch-state-unchanged',
           'coexistence:dsh-agent-runtime-kit-zero-dependency',
           'coexistence:codex-claude-wiring-untouched',

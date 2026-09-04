@@ -750,6 +750,19 @@ declaration is admitted under the engine's own compatibility manifest and
 reported as undeclared, and its receipts omit the lifecycle key so the accepted
 baseline engine can still read them.
 
+The repository-owned generic deploy dispatcher (`.agents/scripts/deploy.sh`,
+implemented in `src/deploy/index.js`) is the shared `meta:deploy` target and
+sits strictly above that plane. It binds an explicit scope — an immutable
+packed artifact plus its digest, one DSH home and profile, one owner-only
+runtime root, the DSH executable, and the requested phase — authenticates the
+artifact into a deterministic digest-keyed stage, and invokes the same
+preview/apply protocol through the owner launcher. It duplicates no activation,
+rollback, package, lifecycle, or health decision: every profile refusal is the
+engine's, surfaced unchanged with its code and exit status, and the dispatcher
+adds only typed scope refusals, a canary/primary scope guard that keeps
+candidate acceptance away from a live profile, and a bounded resumable receipt.
+[Operations](operations.md) documents the contract.
+
 `src/operations/index.js` is an out-of-process management plane and never edits
 DSH profile JSON or its bundle list. It resolves one strict profile name and one
 exact package target, hashes the complete observed profile manifest plus its

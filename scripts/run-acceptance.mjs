@@ -1063,6 +1063,7 @@ async function main() {
         ...scenarioEnv,
         DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1: operationsLeg.operationPackages.v1,
         DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2: operationsLeg.operationPackages.v2,
+        DSH_RUNTIME_KIT_DEPLOY_DISPATCHER: resolve(sourceProjectRoot, '.agents', 'scripts', 'deploy.sh'),
       },
       'operations scenario',
       systemdRun,
