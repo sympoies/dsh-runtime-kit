@@ -40,8 +40,8 @@ const EXPECTED_CONTRACT = Object.freeze({
   schema_version: 'dsh-runtime-kit.agent-console-profile.v2',
   profile: 'dsh-tui',
   dsh: {
-    version: '0.1.2-alpha.4',
-    revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
+    version: '0.1.2-rc.1',
+    revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
@@ -158,7 +158,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v2',
     compatible: true,
     profile: 'dsh-tui',
-    dsh_version: '0.1.2-alpha.4',
+    dsh_version: '0.1.2-rc.1',
     tui_version: '0.10.0-beta.4',
     controller_route: {
       provider: 'codex-proxy',

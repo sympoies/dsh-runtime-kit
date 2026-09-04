@@ -12,11 +12,6 @@ const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+
 const CHANNELS = Object.freeze(['pinned', 'upstream-next'])
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const SUPPORTED_DSH_RELEASES = Object.freeze({
-  '0.1.0-rc.8': Object.freeze({
-    ref: 'refs/tags/dsh-v0.1.0-rc.8',
-    revision: '141eb6fef83422698aef7a981029e843e8161534',
-    cordis: '4.0.1',
-  }),
   '0.1.1-rc.2': Object.freeze({
     ref: 'refs/tags/dsh-v0.1.1-rc.2',
     revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
@@ -25,6 +20,11 @@ const SUPPORTED_DSH_RELEASES = Object.freeze({
   '0.1.2-alpha.4': Object.freeze({
     ref: 'refs/tags/dsh-v0.1.2-alpha.4',
     revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
+    cordis: '4.0.2',
+  }),
+  '0.1.2-rc.1': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.2-rc.1',
+    revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
     cordis: '4.0.2',
   }),
 })
@@ -61,15 +61,15 @@ export const DSH_RC7_RUNTIME_MODULES = Object.freeze({
 
 export const DSH_RC7_PEER_VERSIONS = Object.freeze({
   '@deepseek-ai/cordis': '4.0.2',
-  '@deepseek-ai/dsh-agent': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-bash-local': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-fs': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-llm': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-sandbox': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-subagent': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-subprocess': '0.1.2-alpha.4',
-  '@deepseek-ai/dsh-tools': '0.1.2-alpha.4',
+  '@deepseek-ai/dsh-agent': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-bash-local': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-fs': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-llm': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-sandbox': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-subagent': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-subprocess': '0.1.2-rc.1',
+  '@deepseek-ai/dsh-tools': '0.1.2-rc.1',
 })
 
 const DSH_RC7_PEER_RANGES = Object.freeze(Object.fromEntries(

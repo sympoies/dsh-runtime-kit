@@ -16,7 +16,7 @@ boundary is a fork or vendored upstream source.
   fnm-managed shell (`fnm use`, or `--use-on-cd`) selects it regardless of the
   host default; `.npmrc` sets `engine-strict` and the acceptance runner refuses
   older Node outright.
-- A pristine DeepSeek Harness `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4`
+- A pristine DeepSeek Harness `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1`
   source checkout for compatibility, patch, and packed smoke validation.
 - Released nils-cli `1.27.8` binaries when exercising the real policy,
   agent-docs, Git, review, or delivery boundaries.

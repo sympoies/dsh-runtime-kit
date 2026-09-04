@@ -4,7 +4,7 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` |
+| DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
@@ -14,10 +14,10 @@ The package retains exactly the latest three reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
 and its CI row in the same change; the validation count therefore remains
 bounded while DSH is immature. Runtime startup requires one homogeneous
-`0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` public peer set and validates the consumed public exports and
+`0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` public peer set and validates the consumed public exports and
 service methods before registering a listener, tool, service, or skill. The
-reviewed compositions are exact: rc.8 and rc.2 require Cordis 4.0.1, while
-alpha.4 requires Cordis 4.0.2. Mixed, cross-composed, or unknown peer versions
+reviewed compositions are exact: rc.2 requires Cordis 4.0.1, while alpha.4
+and rc.1 require Cordis 4.0.2. Mixed, cross-composed, or unknown peer versions
 fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
 `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; plugin activation also requires the native
@@ -27,8 +27,8 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.0-rc.8`,
-`0.1.1-rc.2`, and `0.1.2-alpha.4` release identities, the enforced three-release support policy, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.1-rc.2`,
+`0.1.2-alpha.4`, and `0.1.2-rc.1` release identities, the enforced three-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets. Each `validated_releases` row also declares its exact
 Cordis composition so the public contract and runtime admission stay aligned.
@@ -53,7 +53,7 @@ classification and receipts, atomic unpublished-child authority mounting,
 bounded global/per-role admission, and quiescent teardown. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for rc.8, rc.2, and alpha.4; an
+target hashes bind those seams independently for rc.2, alpha.4, and rc.1; an
 unknown or locally drifted checkout remains ineligible.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
