@@ -56,6 +56,44 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_SETS = 16
 const RUNTIME_ROOT_OWNER_SCHEMA = 'dsh-runtime-kit.runtime-root-owner.v1'
+// The declarative profile lifecycle a reviewed package carries
+// (`package.json#dsh.lifecycle`). The vocabulary below is the complete set of
+// surfaces, assets, migrations, probes, and behaviours this engine implements;
+// a declaration outside it is unsupported rather than silently ignored.
+const LIFECYCLE_SCHEMA = 'dsh-runtime-kit.profile-lifecycle.v1'
+const LIFECYCLE_OWNED_PROFILE_SURFACES = Object.freeze([
+  'dependency', 'bundle', 'installed-package', 'lockfile-projection',
+])
+const LIFECYCLE_OWNED_HOME_SURFACES = Object.freeze([
+  'operations-state', 'operations-lock', 'artifact-store',
+])
+const LIFECYCLE_GENERATED_SURFACES = Object.freeze([
+  'activation-manifest', 'runtime-root-owner', 'asset-set', 'agent-hook-state', 'agent-docs-state',
+])
+const LIFECYCLE_ACTIVATION_ASSETS = Object.freeze({
+  policy: 'policy/dsh-runtime-kit-v1.toml',
+  catalog: 'agent-docs/AGENT_DOCS.toml',
+  document: 'agent-docs/PROJECT_DEV_EDIT.md',
+})
+const LIFECYCLE_COMPATIBILITY = Object.freeze({
+  dsh: 'compatibility/dsh.json',
+  nils_cli: 'compatibility/nils-cli.json',
+})
+const LIFECYCLE_DEPENDENCIES = Object.freeze(['agent-hook', 'agent-docs'])
+const LIFECYCLE_MIGRATION_V1_TO_V2 = 'operations-state-v1-to-v2'
+const LIFECYCLE_MIGRATIONS = Object.freeze({
+  [LIFECYCLE_MIGRATION_V1_TO_V2]: Object.freeze({
+    from: LEGACY_STATE_SCHEMA,
+    to: STATE_SCHEMA,
+    path: 'doctor --repair',
+  }),
+})
+const LIFECYCLE_HEALTH_PROBES = Object.freeze(['dsh-version', 'agent-hook-doctor', 'agent-docs-version'])
+const INSTALL_LIFECYCLE_SCRIPTS = Object.freeze([
+  'preinstall', 'install', 'postinstall', 'prepare', 'preprepare', 'postprepare',
+  'prepublish', 'prepublishOnly', 'prepack', 'postpack', 'dependencies',
+])
+const TARGET_LIFECYCLES = new WeakMap()
 const DSH_COMPATIBILITY = JSON.parse(readFileSync(
   fileURLToPath(new URL('../../compatibility/dsh.json', import.meta.url)),
   'utf8',
@@ -1088,6 +1126,264 @@ function readState(path, expectedProfile) {
   throw new OperationsError('invalid-operations-state', 'runtime-kit operations state has an unsupported schema')
 }
 
+/** @param {unknown} left @param {readonly string[]} right */
+function sameStringSet(left, right) {
+  return Array.isArray(left)
+    && left.every(value => typeof value === 'string')
+    && new Set(left).size === left.length
+    && left.length === right.length
+    && [...left].sort().join('\0') === [...right].sort().join('\0')
+}
+
+/** @param {string} message @param {Record<string, unknown>} [details] */
+function invalidLifecycle(message, details = {}) {
+  return new OperationsError('invalid-lifecycle-manifest', message, 65, details)
+}
+
+/** @param {string} message @param {Record<string, unknown>} [details] */
+function unsupportedLifecycle(message, details = {}) {
+  return new OperationsError('unsupported-lifecycle-manifest', message, 65, details)
+}
+
+/**
+ * Validate one declarative profile-lifecycle manifest against the vocabulary
+ * this engine enforces. Shape errors are invalid. A well-formed declaration
+ * that names a surface, asset, migration, probe, or behaviour this engine does
+ * not implement is unsupported, so a newer package can never be installed by an
+ * engine that would silently ignore part of its declared contract.
+ * @param {unknown} value
+ */
+function validateLifecycleManifest(value) {
+  if (!plainRecord(value)) throw invalidLifecycle('lifecycle manifest must be an object')
+  const keys = [
+    'schema_version', 'package', 'owned_surfaces', 'generated_surfaces', 'activation_assets',
+    'compatibility', 'dependencies', 'migrations', 'health_probes', 'lifecycle_scripts', 'removal',
+  ]
+  if (Object.keys(value).sort().join(',') !== [...keys].sort().join(',')) {
+    throw invalidLifecycle('lifecycle manifest has missing or unknown keys')
+  }
+  if (value.schema_version !== LIFECYCLE_SCHEMA) {
+    throw invalidLifecycle('lifecycle manifest schema is not supported', { schema_version: value.schema_version })
+  }
+  if (value.package !== PACKAGE_NAME) throw invalidLifecycle('lifecycle manifest names a different package')
+  const owned = value.owned_surfaces
+  if (!plainRecord(owned) || Object.keys(owned).sort().join(',') !== 'home,profile'
+    || !Array.isArray(owned.profile) || !Array.isArray(owned.home)
+    || !plainRecord(value.activation_assets) || !plainRecord(value.compatibility)
+    || !Array.isArray(value.generated_surfaces) || !Array.isArray(value.dependencies)
+    || !Array.isArray(value.migrations) || !Array.isArray(value.health_probes)
+    || typeof value.lifecycle_scripts !== 'string' || typeof value.removal !== 'string') {
+    throw invalidLifecycle('lifecycle manifest sections have invalid shapes')
+  }
+  if (!sameStringSet(owned.profile, LIFECYCLE_OWNED_PROFILE_SURFACES)
+    || !sameStringSet(owned.home, LIFECYCLE_OWNED_HOME_SURFACES)) {
+    throw unsupportedLifecycle('declared owned surfaces are not the surfaces this engine manages')
+  }
+  if (!sameStringSet(value.generated_surfaces, LIFECYCLE_GENERATED_SURFACES)) {
+    throw unsupportedLifecycle('declared generated surfaces are not the surfaces this engine manages')
+  }
+  if (stableJson(value.activation_assets) !== stableJson(LIFECYCLE_ACTIVATION_ASSETS)) {
+    throw unsupportedLifecycle('declared activation assets are not the assets this engine activates')
+  }
+  if (stableJson(value.compatibility) !== stableJson(LIFECYCLE_COMPATIBILITY)) {
+    throw unsupportedLifecycle('declared compatibility sources are not the sources this engine checks')
+  }
+  if (!sameStringSet(value.dependencies, LIFECYCLE_DEPENDENCIES)) {
+    throw unsupportedLifecycle('declared native dependencies are not the companions this engine authenticates')
+  }
+  /** @type {string[]} */
+  const migrations = []
+  for (const migration of value.migrations) {
+    if (!plainRecord(migration) || Object.keys(migration).sort().join(',') !== 'from,id,path,to'
+      || [migration.id, migration.from, migration.to, migration.path].some(field => typeof field !== 'string')) {
+      throw invalidLifecycle('lifecycle migrations must declare id, from, to, and path')
+    }
+    const known = /** @type {Record<string, {from: string, to: string, path: string}>} */ (LIFECYCLE_MIGRATIONS)[
+      /** @type {string} */ (migration.id)
+    ]
+    if (known === undefined || known.from !== migration.from || known.to !== migration.to
+      || known.path !== migration.path) {
+      throw unsupportedLifecycle('declared migration is not implemented by this engine', { migration: migration.id })
+    }
+    migrations.push(/** @type {string} */ (migration.id))
+  }
+  if (new Set(migrations).size !== migrations.length) throw invalidLifecycle('lifecycle migrations must be unique')
+  const probes = value.health_probes
+  if (probes.length === 0 || probes.some(probe => typeof probe !== 'string')
+    || new Set(probes).size !== probes.length) {
+    throw invalidLifecycle('lifecycle health probes must be a non-empty unique list')
+  }
+  if (probes.some(probe => !LIFECYCLE_HEALTH_PROBES.includes(probe))) {
+    throw unsupportedLifecycle('declared health probe is not implemented by this engine')
+  }
+  if (value.lifecycle_scripts !== 'none') {
+    throw unsupportedLifecycle('lifecycle scripts other than none are not supported', {
+      lifecycle_scripts: value.lifecycle_scripts,
+    })
+  }
+  if (value.removal !== 'owned-surfaces-only') {
+    throw unsupportedLifecycle('removal behaviour other than owned-surfaces-only is not supported', {
+      removal: value.removal,
+    })
+  }
+  return { migrations, health_probes: /** @type {string[]} */ ([...probes]) }
+}
+
+/** @param {string} packageRoot @param {string} relative @param {string} label */
+function lifecycleJson(packageRoot, relative, label) {
+  const path = join(packageRoot, relative)
+  const stat = lstatMaybe(path)
+  if (stat === null || stat.isSymbolicLink() || !stat.isFile()) {
+    throw invalidLifecycle(`${label} must be a regular file inside the package`, { path: relative })
+  }
+  let value
+  try {
+    value = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    throw invalidLifecycle(`${label} is not valid JSON`, { path: relative })
+  }
+  if (!plainRecord(value)) throw invalidLifecycle(`${label} must be an object`, { path: relative })
+  return value
+}
+
+/**
+ * Read the declarative profile lifecycle a reviewed package carries. A package
+ * that predates the declaration yields null: it is admitted under this engine's
+ * own compatibility manifest and reported as undeclared. Install-time package
+ * manager scripts are refused for every package, declared or not, because the
+ * only lifecycle authority is the reviewed transaction itself.
+ * @param {string} packageRoot
+ */
+function packageLifecycle(packageRoot) {
+  const manifest = readJson(join(packageRoot, 'package.json')).value
+  if (!plainRecord(manifest)) throw new OperationsError('invalid-package-spec', 'package manifest must be an object')
+  const scripts = plainRecord(manifest.scripts) ? manifest.scripts : {}
+  const installScripts = INSTALL_LIFECYCLE_SCRIPTS.filter(name => Object.hasOwn(scripts, name))
+  if (installScripts.length > 0) {
+    throw new OperationsError(
+      'lifecycle-scripts-declared',
+      'package declares install-time lifecycle scripts; runtime-kit lifecycle runs only through the reviewed transaction',
+      65,
+      { scripts: installScripts },
+    )
+  }
+  const dsh = plainRecord(manifest.dsh) ? manifest.dsh : {}
+  if (dsh.lifecycle === undefined) return null
+  const declared = dsh.lifecycle
+  if (typeof declared !== 'string'
+    || !/^\.\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.json$/u.test(declared)) {
+    throw invalidLifecycle('dsh.lifecycle must be a package-relative JSON path')
+  }
+  const root = resolve(packageRoot)
+  const lifecyclePath = resolve(root, declared)
+  if (lifecyclePath === root || !pathIsWithin(root, lifecyclePath)) {
+    throw invalidLifecycle('dsh.lifecycle must stay inside the package')
+  }
+  const stat = lstatMaybe(lifecyclePath)
+  if (stat === null || stat.isSymbolicLink() || !stat.isFile()) {
+    throw invalidLifecycle('lifecycle manifest must be a regular file inside the package', { path: declared })
+  }
+  const raw = readFileSync(lifecyclePath)
+  let value
+  try {
+    value = JSON.parse(raw.toString('utf8'))
+  } catch {
+    throw invalidLifecycle('lifecycle manifest is not valid JSON', { path: declared })
+  }
+  const validated = validateLifecycleManifest(value)
+  const dshCompatibility = lifecycleJson(root, LIFECYCLE_COMPATIBILITY.dsh, 'declared DSH compatibility manifest')
+  if (dshCompatibility.schema_version !== 'dsh-runtime-kit.dsh-compatibility.v1'
+    || !plainRecord(dshCompatibility.validated_releases)) {
+    throw invalidLifecycle('declared DSH compatibility manifest has an unsupported schema')
+  }
+  const releases = Object.keys(dshCompatibility.validated_releases).sort()
+  if (releases.length === 0 || releases.some(release => !EXACT_VERSION_PATTERN.test(release))) {
+    throw invalidLifecycle('declared DSH compatibility manifest lists no exact validated release')
+  }
+  const nilsCompatibility = lifecycleJson(root, LIFECYCLE_COMPATIBILITY.nils_cli, 'declared nils compatibility manifest')
+  if (nilsCompatibility.schema_version !== 'dsh-runtime-kit.nils-compatibility.v1'
+    || typeof nilsCompatibility.minimum_supported_release !== 'string'
+    || typeof nilsCompatibility.validated_release !== 'string') {
+    throw invalidLifecycle('declared nils compatibility manifest has an unsupported schema')
+  }
+  return {
+    schema_version: LIFECYCLE_SCHEMA,
+    sha256: sha256(raw),
+    dsh_releases: releases,
+    migrations: validated.migrations,
+    health_probes: validated.health_probes,
+  }
+}
+
+/** @param {unknown} value */
+function validatePlanLifecycle(value) {
+  if (value === null || value === undefined) return null
+  if (!plainRecord(value)
+    || Object.keys(value).sort().join(',') !== 'dsh_releases,health_probes,migrations,schema_version,sha256'
+    || value.schema_version !== LIFECYCLE_SCHEMA
+    || typeof value.sha256 !== 'string' || !DIGEST_PATTERN.test(value.sha256)
+    || !Array.isArray(value.dsh_releases) || value.dsh_releases.length === 0
+    || value.dsh_releases.some(release => typeof release !== 'string' || !EXACT_VERSION_PATTERN.test(release))
+    || !Array.isArray(value.migrations)
+    || value.migrations.some(id => typeof id !== 'string' || !Object.hasOwn(LIFECYCLE_MIGRATIONS, id))
+    || !Array.isArray(value.health_probes) || value.health_probes.length === 0
+    || value.health_probes.some(probe => typeof probe !== 'string' || !LIFECYCLE_HEALTH_PROBES.includes(probe))) {
+    throw new OperationsError('invalid-operations-state', 'reviewed plan contains an invalid lifecycle binding')
+  }
+  return /** @type {ReturnType<typeof packageLifecycle>} */ (value)
+}
+
+/**
+ * Resolve the lifecycle a reviewed target declares. A freshly packed target
+ * carries it from inspection; a target known only through its retained
+ * artifact (rollback, recovery, migration) is inspected from that exact
+ * authenticated archive.
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof validateTarget>} target
+ */
+function lifecycleForTarget(paths, target) {
+  if (TARGET_LIFECYCLES.has(target)) return /** @type {ReturnType<typeof packageLifecycle>} */ (TARGET_LIFECYCLES.get(target))
+  const artifact = artifactPathFor(paths, target)
+  assertSafeStateFile(artifact)
+  const archive = readFileSync(artifact)
+  if (archive.byteLength > MAX_PACKED_PACKAGE_BYTES || sha256(archive) !== target.artifact_sha256) {
+    throw new OperationsError('artifact-drift', 'stored package artifact does not match its reviewed digest')
+  }
+  const extracted = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-lifecycle-'))
+  try {
+    const unpacked = spawn(resolveExecutable('tar'), ['-xzf', artifact, '-C', extracted], paths.home, {
+      timeoutMs: PACKAGE_COMMAND_TIMEOUT_MS,
+    })
+    if (unpacked.status !== 0) {
+      throw new OperationsError('artifact-drift', 'stored package artifact could not be inspected')
+    }
+    const lifecycle = packageLifecycle(join(extracted, 'package'))
+    TARGET_LIFECYCLES.set(target, lifecycle)
+    return lifecycle
+  } finally {
+    rmSync(extracted, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Provider and DSH compatibility are checked before any profile mutation: the
+ * reviewed package must itself declare the bound DSH release. An undeclared
+ * package keeps the engine's own manifest as its only gate.
+ * @param {ReturnType<typeof packageLifecycle>} lifecycle
+ * @param {ReturnType<typeof resolveToolchain>} toolchain
+ */
+function assertLifecycleCompatibility(lifecycle, toolchain) {
+  if (lifecycle === null) return
+  if (!lifecycle.dsh_releases.includes(toolchain.dsh.version)) {
+    throw new OperationsError(
+      'package-incompatible-dsh',
+      'reviewed package does not declare compatibility with the bound DSH release',
+      65,
+      { dsh_version: toolchain.dsh.version, declared_dsh_releases: lifecycle.dsh_releases },
+    )
+  }
+}
+
 /** @param {string} packageSpec @param {string} cwd @param {string} npmBin @param {string} home */
 function packPackageSpec(packageSpec, cwd, npmBin, home) {
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-pack-'))
@@ -1140,12 +1436,14 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
     const extractedPackage = join(extracted, 'package')
     const installedSha256 = packageTreeDigest(extractedPackage, extracted)
     const assets = packageAssets(extractedPackage)
+    const lifecycle = packageLifecycle(extractedPackage)
     return {
       temporary,
       archive_path: archivePath,
       artifact_sha256: sha256(archive),
       installed_sha256: installedSha256,
       assets,
+      lifecycle,
       version: output[0].version,
     }
   } catch (error) {
@@ -1156,6 +1454,7 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
 
 /** @param {Record<string, unknown>} target @param {ReturnType<typeof packPackageSpec>} packed @param {boolean} retainPacked */
 function resolvedTarget(target, packed, retainPacked) {
+  TARGET_LIFECYCLES.set(target, packed.lifecycle)
   if (retainPacked) {
     PACKED_TARGETS.set(target, packed)
   } else {
@@ -1371,8 +1670,9 @@ function installSpecForTarget(target, paths, npmBin) {
  * @param {string} action
  * @param {string} runtimeRoot
  * @param {ReturnType<typeof resolveToolchain>} toolchain
+ * @param {ReturnType<typeof packageLifecycle>} lifecycle
  */
-function planFor(operation, profile, actual, stateRead, target, action, runtimeRoot, toolchain) {
+function planFor(operation, profile, actual, stateRead, target, action, runtimeRoot, toolchain, lifecycle) {
   const plan = {
     schema_version: PLAN_SCHEMA,
     operation,
@@ -1380,6 +1680,7 @@ function planFor(operation, profile, actual, stateRead, target, action, runtimeR
     package_name: PACKAGE_NAME,
     action,
     target,
+    lifecycle,
     runtime_root: runtimeRoot,
     toolchain,
     observed: {
@@ -1404,7 +1705,8 @@ function validatePlan(value, profile) {
     || typeof value.runtime_root !== 'string' || !isAbsolute(value.runtime_root)
     || !plainRecord(value.toolchain)
     || Object.keys(value).some(key => ![
-      'schema_version', 'operation', 'profile', 'package_name', 'action', 'target', 'runtime_root', 'toolchain', 'observed',
+      'schema_version', 'operation', 'profile', 'package_name', 'action', 'target', 'lifecycle',
+      'runtime_root', 'toolchain', 'observed',
     ].includes(key))
     || Object.keys(value.observed).some(key => ![
       'profile_exists', 'dependency_spec_digest', 'bundle_indexes', 'installed_version',
@@ -1425,6 +1727,7 @@ function validatePlan(value, profile) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid reviewed plan')
   }
   validateToolchain(value.toolchain)
+  validatePlanLifecycle(value.lifecycle)
   const actions = {
     setup: ['install', 'noop'],
     update: ['update', 'noop'],
@@ -1611,26 +1914,32 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
 
   if (operation === 'setup') {
     if (requestedTarget === null) throw new OperationsError('missing-package', 'setup requires --package', 64)
+    const lifecycle = lifecycleForTarget(paths, validateTarget(requestedTarget))
     if (current !== null) {
       if (stableJson(current.target) !== stableJson(requestedTarget)) {
         throw new OperationsError('already-managed', 'runtime-kit is already managed; use update for a new exact package', 64)
       }
-      return planFor(operation, profile, actual, stateRead, requestedTarget, 'noop', runtimeRoot, toolchain)
+      return planFor(operation, profile, actual, stateRead, requestedTarget, 'noop', runtimeRoot, toolchain, lifecycle)
     }
-    return planFor(operation, profile, actual, stateRead, requestedTarget, 'install', runtimeRoot, toolchain)
+    assertLifecycleCompatibility(lifecycle, toolchain)
+    return planFor(operation, profile, actual, stateRead, requestedTarget, 'install', runtimeRoot, toolchain, lifecycle)
   }
   if (operation === 'update') {
     if (requestedTarget === null) throw new OperationsError('missing-package', 'update requires --package', 64)
     if (current === null) throw new OperationsError('not-managed', 'update requires a completed setup receipt', 64)
+    const lifecycle = lifecycleForTarget(paths, validateTarget(requestedTarget))
+    const action = stableJson(current.target) === stableJson(requestedTarget) ? 'noop' : 'update'
+    if (action === 'update') assertLifecycleCompatibility(lifecycle, toolchain)
     return planFor(
       operation,
       profile,
       actual,
       stateRead,
       requestedTarget,
-      stableJson(current.target) === stableJson(requestedTarget) ? 'noop' : 'update',
+      action,
       runtimeRoot,
       toolchain,
+      lifecycle,
     )
   }
   if (operation === 'rollback') {
@@ -1646,11 +1955,13 @@ function buildMutationPlan(operation, profile, paths, actual, stateRead, request
       )
     }
     const target = previous.target
-    return planFor(operation, profile, actual, stateRead, target, 'rollback', runtimeRoot, toolchain)
+    const lifecycle = lifecycleForTarget(paths, target)
+    assertLifecycleCompatibility(lifecycle, toolchain)
+    return planFor(operation, profile, actual, stateRead, target, 'rollback', runtimeRoot, toolchain, lifecycle)
   }
   if (operation === 'remove') {
-    if (current === null) return planFor(operation, profile, actual, stateRead, null, 'noop', runtimeRoot, toolchain)
-    return planFor(operation, profile, actual, stateRead, null, 'remove', runtimeRoot, toolchain)
+    if (current === null) return planFor(operation, profile, actual, stateRead, null, 'noop', runtimeRoot, toolchain, null)
+    return planFor(operation, profile, actual, stateRead, null, 'remove', runtimeRoot, toolchain, null)
   }
   throw new OperationsError('unsupported-operation', `unsupported operation ${operation}`, 64)
 }
@@ -2246,10 +2557,77 @@ function activateStagedAssets(target, runtimeRoot, profile) {
   return activation
 }
 
-/** @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof validateTarget>} target @param {string} runtimeRoot @param {string} profile */
-function stageActivation(paths, target, runtimeRoot, profile) {
+/**
+ * Run the declared runtime health probes against the staged asset set before
+ * it is activated. The probes see exactly the configuration activation would
+ * publish: the staged hook config and policy, the staged docs catalog, and the
+ * mutable state roots. A failing probe leaves the native mutation pending and
+ * repairable; nothing is activated and no health text enters the prompt.
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof validateTarget>} target
+ * @param {string} runtimeRoot
+ * @param {ReturnType<typeof packageLifecycle>} lifecycle
+ * @param {string} dshExecutable
+ */
+function activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable) {
+  if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
+    throw new OperationsError('activation-staging-failed', 'staged activation assets changed before health verification')
+  }
+  const probes = lifecycle === null ? LIFECYCLE_HEALTH_PROBES : lifecycle.health_probes
+  const assetRoot = join(runtimeRoot, 'assets', target.assets.asset_set_sha256)
+  /** @type {Record<string, {ok: boolean, error?: string}>} */
+  const results = {}
+  for (const probe of probes) {
+    /** @type {{ok: boolean, error?: string}} */
+    let result
+    if (probe === 'dsh-version') {
+      result = dshVersion(dshExecutable, paths.home)
+    } else if (probe === 'agent-hook-doctor') {
+      try {
+        const agentHook = resolveAgentHookRuntime({
+          agentHook: resolveExecutable(process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'),
+          agentHookConfig: join(assetRoot, 'agent-hook', 'config.toml'),
+          agentHookPolicy: join(assetRoot, 'agent-hook', 'policy.toml'),
+          agentHookStateDir: join(runtimeRoot, 'state', 'agent-hook'),
+        })
+        result = agentHookDoctor(agentHook, paths.home)
+      } catch (error) {
+        result = { ok: false, error: error instanceof Error ? error.message : 'agent-hook runtime is unavailable' }
+      }
+    } else if (probe === 'agent-docs-version') {
+      result = agentDocsDoctor({
+        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+        agentDocsHome: join(assetRoot, 'agent-docs'),
+        agentDocsStateHome: join(runtimeRoot, 'state', 'agent-docs'),
+      }, paths.home, undefined)
+    } else {
+      result = { ok: false, error: 'unsupported health probe' }
+    }
+    results[probe] = result
+    if (result.ok !== true) {
+      throw new OperationsError(
+        'activation-health-failed',
+        `runtime health probe ${probe} failed before activation; the transaction remains pending and repairable`,
+        65,
+        { probe, error: typeof result.error === 'string' ? result.error : 'health probe failed' },
+      )
+    }
+  }
+  return results
+}
+
+/**
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof validateTarget>} target
+ * @param {string} runtimeRoot
+ * @param {string} profile
+ * @param {ReturnType<typeof packageLifecycle>} lifecycle
+ * @param {string} dshExecutable
+ */
+function stageActivation(paths, target, runtimeRoot, profile, lifecycle, dshExecutable) {
   reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
   stageActivationAssets(paths, target, runtimeRoot)
+  activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable)
   return activateStagedAssets(target, runtimeRoot, profile)
 }
 
@@ -2595,12 +2973,19 @@ function legacyMigrationPlan(profile, paths, actual, stateRead, runtimeRoot) {
     profile,
     terminalStateFields(current, previous, null),
   )
+  const installedLifecycleRead = installedLifecycle(paths, actual)
   const plan = {
     schema_version: PLAN_SCHEMA,
     operation: 'doctor-repair',
     profile,
     package_name: PACKAGE_NAME,
     action: 'migrate-v1',
+    migration: {
+      id: LIFECYCLE_MIGRATION_V1_TO_V2,
+      from: LEGACY_STATE_SCHEMA,
+      to: STATE_SCHEMA,
+      declared: installedLifecycleRead.declared?.migrations.includes(LIFECYCLE_MIGRATION_V1_TO_V2) ?? false,
+    },
     state_digest: stateRead.digest,
     observed_manifest_digest: actual.manifest_digest,
     runtime_root: runtimeRoot,
@@ -2639,7 +3024,11 @@ function restoreAfterCollateral(dshBin, paths, profile, priorState, profileBefor
   } else {
     const installSpec = installSpecForTarget(previous.target, paths, npmBin)
     runDshMutation(dshBin, paths.home, profile, 'add', installSpec)
-    stageActivation(paths, previous.target, previous.runtime_root, profile)
+    // Restoring the exact prior activation re-publishes a set that already
+    // passed its health gate; the collateral path must not fail on a probe.
+    reconcileActivationAssets(paths, previous.runtime_root, previous.target.assets.asset_set_sha256)
+    stageActivationAssets(paths, previous.target, previous.runtime_root)
+    activateStagedAssets(previous.target, previous.runtime_root, profile)
   }
   restoreProfileSnapshot(profileBefore, paths)
   const restoredActual = readActual(paths)
@@ -2853,8 +3242,19 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       ...pending,
       pending: { ...pending.pending, phase: 'native-applied' },
     })
-    if (operation === 'remove') removeActivation(runtimeRoot)
-    else activateStagedAssets(/** @type {ReturnType<typeof validateTarget>} */ (target), runtimeRoot, profile)
+    if (operation === 'remove') {
+      removeActivation(runtimeRoot)
+    } else {
+      const activationTarget = /** @type {ReturnType<typeof validateTarget>} */ (target)
+      activationHealth(
+        paths,
+        activationTarget,
+        runtimeRoot,
+        validatePlanLifecycle(reviewed.plan.lifecycle),
+        dshBin,
+      )
+      activateStagedAssets(activationTarget, runtimeRoot, profile)
+    }
     let observed = readActual(paths)
     let current = null
     if (operation === 'remove') {
@@ -3297,6 +3697,128 @@ function dshVersion(dshBin, home) {
 }
 
 /**
+ * Read the lifecycle the installed package declares, if any, without letting a
+ * malformed declaration abort diagnosis: doctor reports it as an error instead.
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof readActual>} actual
+ * @returns {{declared: ReturnType<typeof packageLifecycle>, error?: string}}
+ */
+function installedLifecycle(paths, actual) {
+  if (!actual.installed_entry || lstatMaybe(paths.installedManifest) === null) return { declared: null }
+  try {
+    return { declared: packageLifecycle(paths.installedPackage) }
+  } catch (error) {
+    return {
+      declared: null,
+      error: error instanceof OperationsError
+        ? `${error.code}: ${error.message}`
+        : 'installed lifecycle declaration is unreadable',
+    }
+  }
+}
+
+/**
+ * Classify every declared owned and generated surface as present, altered,
+ * missing (expected by a receipt but gone), or absent (nothing expected).
+ * Detection never writes; repair remains the digest-reviewed path.
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} profile
+ * @param {any} state
+ * @param {ReturnType<typeof readActual>} actual
+ * @param {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}} activationInput
+ */
+function lifecycleSurfaces(paths, profile, state, actual, activationInput) {
+  const current = plainRecord(state?.current) ? validateSnapshot(state.current) : null
+  const pendingTarget = plainRecord(state?.pending) && state.pending.target !== null
+    && state.pending.target !== undefined
+    ? validateTarget(state.pending.target)
+    : null
+  const expectedTarget = current?.target ?? pendingTarget
+  const expectingInstall = expectedTarget !== null
+  /** @param {boolean} present @param {boolean} [intact] */
+  const status = (present, intact = true) => {
+    if (present) return intact ? 'present' : 'altered'
+    return expectingInstall ? 'missing' : 'absent'
+  }
+  const owned = {
+    dependency: status(
+      actual.dependency_spec !== null,
+      current === null || actual.dependency_spec === current.dependency_spec,
+    ),
+    bundle: status(
+      actual.bundle_indexes.length > 0,
+      actual.bundle_indexes.length === 1 && (current === null || actual.bundle_indexes[0] === current.bundle_index),
+    ),
+    'installed-package': status(
+      actual.installed_entry,
+      actual.installed_name === PACKAGE_NAME
+        && (current === null || actual.installed_digest === current.installed_digest),
+    ),
+    'lockfile-projection': lstatMaybe(join(paths.profileDir, 'pnpm-lock.yaml')) === null ? 'absent' : 'present',
+    'operations-state': lstatMaybe(paths.state) === null ? 'absent' : 'present',
+    'operations-lock': lstatMaybe(paths.lock) === null ? 'absent' : 'present',
+    'artifact-store': lstatMaybe(paths.artifacts) === null ? 'absent' : 'present',
+  }
+  /** @type {Record<string, string>} */
+  const generated = {}
+  const runtimeRoot = activationInput.runtimeRoot
+  if (runtimeRoot === undefined) {
+    for (const surface of LIFECYCLE_GENERATED_SURFACES) generated[surface] = 'unknown'
+    return { owned, generated }
+  }
+  generated['activation-manifest'] = status(
+    lstatMaybe(join(runtimeRoot, 'activation.json')) !== null,
+    activationInput.data !== undefined && expectedTarget !== null
+      && activationMatches(expectedTarget, runtimeRoot, profile),
+  )
+  generated['runtime-root-owner'] = status(lstatMaybe(join(runtimeRoot, '.dsh-runtime-kit-owner.json')) !== null)
+  if (expectedTarget === null) {
+    generated['asset-set'] = lstatMaybe(join(runtimeRoot, 'assets')) === null ? 'absent' : 'present'
+  } else {
+    generated['asset-set'] = status(
+      lstatMaybe(join(runtimeRoot, 'assets', expectedTarget.assets.asset_set_sha256)) !== null,
+      stagedActivationAssetsMatch(expectedTarget, runtimeRoot),
+    )
+  }
+  for (const [surface, relative] of [
+    ['agent-hook-state', join('state', 'agent-hook')],
+    ['agent-docs-state', join('state', 'agent-docs')],
+  ]) {
+    const stat = lstatMaybe(join(runtimeRoot, relative))
+    generated[surface] = status(stat !== null && stat.isDirectory() && !stat.isSymbolicLink())
+  }
+  return { owned, generated }
+}
+
+/**
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} profile
+ * @param {any} state
+ * @param {number | null} stateVersion
+ * @param {ReturnType<typeof readActual>} actual
+ * @param {{runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}} activationInput
+ */
+function lifecycleDiagnostic(paths, profile, state, stateVersion, actual, activationInput) {
+  const installed = installedLifecycle(paths, actual)
+  const declared = installed.declared
+  return {
+    declared: declared !== null,
+    ...declared === null ? {} : {
+      schema_version: declared.schema_version,
+      sha256: declared.sha256,
+      dsh_releases: declared.dsh_releases,
+      health_probes: declared.health_probes,
+    },
+    ...installed.error === undefined ? {} : { error: installed.error },
+    surfaces: lifecycleSurfaces(paths, profile, state, actual, activationInput),
+    migrations: {
+      declared: declared?.migrations ?? [],
+      pending: stateVersion === 1 ? [LIFECYCLE_MIGRATION_V1_TO_V2] : [],
+    },
+  }
+}
+
+/**
  * @param {string} profile
  * @param {ReturnType<typeof pathsFor>} paths
  * @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook
@@ -3322,6 +3844,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
         runtime_root: activationInput.runtimeRoot ?? null,
       },
       observed: publicActual(actual),
+      lifecycle: lifecycleDiagnostic(paths, profile, null, 1, actual, activationInput),
       agent_hook: agentHookDoctor(agentHook, paths.home),
       agent_docs: agentDocsDoctor(
         agentDocs,
@@ -3399,12 +3922,14 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
     paths.home,
     dsh.ok === true ? dsh.version : undefined,
   )
+  const lifecycle = lifecycleDiagnostic(paths, profile, state, stateRead.version, actual, activationInput)
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
     && docs.ok
     && activation.ok
     && dsh.ok
+    && lifecycle.error === undefined
   return {
     schema_version: 'dsh-runtime-kit.doctor.v1',
     profile,
@@ -3412,6 +3937,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
     owned_status: ownedStatus,
     recovery,
     observed: publicActual(actual),
+    lifecycle,
     agent_hook: hook,
     agent_docs: docs,
     activation,
@@ -3573,7 +4099,15 @@ function applyRepair(profile, paths, reviewed) {
       if (proposed.current === null) {
         removeActivation(runtimeRoot)
       } else {
-        stageActivation(paths, validateTarget(proposed.current.target), runtimeRoot, profile)
+        const migratedTarget = validateTarget(proposed.current.target)
+        stageActivation(
+          paths,
+          migratedTarget,
+          runtimeRoot,
+          profile,
+          lifecycleForTarget(paths, migratedTarget),
+          resolveExecutable(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh'),
+        )
       }
       atomicWriteJson(paths.state, proposed)
       reconcileArtifacts(paths)
@@ -3655,7 +4189,15 @@ function applyRepair(profile, paths, reviewed) {
         removeActivation(pending.plan.runtime_root)
       } else {
         const target = validateTarget(pending.target)
-        stageActivation(paths, target, pending.plan.runtime_root, profile)
+        const pendingPlan = /** @type {any} */ (validatePlan(pending.plan, profile))
+        stageActivation(
+          paths,
+          target,
+          pending.plan.runtime_root,
+          profile,
+          validatePlanLifecycle(pendingPlan.lifecycle),
+          validateToolchain(pendingPlan.toolchain).dsh.executable,
+        )
         installed = snapshot(actual, target, paths, pending.plan.runtime_root, profile)
         previous = pending.operation === 'update' || pending.operation === 'rollback'
           ? recoveredState.current

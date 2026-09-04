@@ -723,6 +723,29 @@ skills rank above the snapshot, which ranks above bundled public skills.
 
 ## Operations and activation
 
+Released DSH supplies the host mutation primitive and nothing more: `dsh plugin`
+forwards to pnpm and reconciles `dsh.profile.bundles` from the installed state,
+`@deepseek-ai/dsh-app-boot` owns the profile manifest and bundle resolution,
+and there is no profile transaction, plan, digest, ownership ledger, rollback,
+repair, or admission gate on the host side. The transaction therefore lives in
+this package as a native extension around those public seams rather than as a
+DSH source patch. The package declares its contract in
+`compatibility/profile-lifecycle.json` (`package.json#dsh.lifecycle`): owned
+profile and home surfaces, generated runtime-root surfaces, activation assets,
+compatibility sources, native companions, migrations, pre-activation health
+probes, the absence of package-manager lifecycle scripts, and owned-only
+removal. The engine reads that declaration from the exact reviewed artifact,
+validates it against the fixed vocabulary it implements (malformed is
+`invalid-lifecycle-manifest`; well-formed but beyond the engine is
+`unsupported-lifecycle-manifest`; any install-time script is
+`lifecycle-scripts-declared`), binds its digest into the reviewed plan, refuses
+a package whose declared DSH releases exclude the bound host before any
+mutation (`package-incompatible-dsh`), and runs the declared health probes
+against the staged asset set after the native mutation and before activation
+(`activation-health-failed` leaves a pending, repairable transaction and the
+previous activation). A package without a declaration is admitted under the
+engine's own compatibility manifest and reported as undeclared.
+
 `src/operations/index.js` is an out-of-process management plane and never edits
 DSH profile JSON or its bundle list. It resolves one strict profile name and one
 exact package target, hashes the complete observed profile manifest plus its

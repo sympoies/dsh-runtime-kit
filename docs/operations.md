@@ -141,6 +141,63 @@ artifact rather than resolving a mutable target again.
 A successful digest-only replay may omit `--package`. If it is supplied, it
 must still resolve to the exact reviewed target.
 
+## Declared profile lifecycle
+
+The package declares the surfaces the transaction may touch in
+[`compatibility/profile-lifecycle.json`](../compatibility/profile-lifecycle.json),
+referenced from `package.json#dsh.lifecycle`. The declaration lists the owned
+profile surfaces (dependency row, bundle row, installed package tree, lockfile
+projection), the owned home surfaces (operations state, operations lock,
+artifact store), the generated runtime-root surfaces (activation manifest,
+owner record, versioned asset set, hook and docs state roots), the activation
+assets, the compatibility sources, the native nils companions, the declared
+migrations, the health probes that must pass before activation, that no
+package-manager lifecycle script may run, and that removal deletes owned
+surfaces only.
+
+Every preview reads the declaration from the exact reviewed package artifact,
+validates it, and binds its digest into the plan as `lifecycle`. The engine
+enforces a fixed vocabulary: a malformed declaration fails as
+`invalid-lifecycle-manifest`, and a well-formed declaration naming a surface,
+asset, migration, probe, or behaviour this engine does not implement fails as
+`unsupported-lifecycle-manifest`, so a newer package cannot be installed by an
+engine that would ignore part of its contract. A package that declares
+`preinstall`, `install`, `postinstall`, `prepare`, or another install-time
+script fails as `lifecycle-scripts-declared` before any profile mutation. A
+package without a declaration is admitted under this engine's own compatibility
+manifest and reported by doctor as undeclared.
+
+Compatibility is checked before any mutation. `setup`, `update`, and `rollback`
+compare the bound DSH release against the releases the reviewed package itself
+declares in its `compatibility/dsh.json`; a mismatch fails as
+`package-incompatible-dsh` at preview, with the profile, lockfile, and receipts
+untouched, instead of installing a bundle the host would reject at boot.
+
+Runtime health is part of the transaction. After DSH has applied the native
+mutation and before the new asset set is activated, the declared probes run
+against the staged assets: `dsh-version` (the bound host is an exact reviewed
+release), `agent-hook-doctor` (the staged hook config and policy authenticate
+and delegate DSH registration to runtime-kit), and `agent-docs-version` (the
+staged catalog and the released `agent-docs` executable are in the validated
+range). A failing probe fails the apply as `activation-health-failed`, leaves
+the previous activation in place, records the transaction as pending in the
+`native-applied` phase, and never places diagnostic text in a prompt. Repair
+the companions, then finalize through the ordinary previewed `doctor --repair`;
+finalization repeats the probes before it activates.
+
+Migrations are declared by state schema. The only declared migration,
+`operations-state-v1-to-v2`, runs exactly once through the reviewed
+`doctor --repair` path: its plan names the migration id and whether the installed
+package declares it, the migrated state can never be selected for the migration
+again, and a replay of the consumed plan digest is rejected. `update`,
+`rollback`, and `remove` refuse a profile whose state still needs the migration
+until that reviewed migration has been applied.
+
+`doctor` reports the installed declaration and the state of every declared
+surface as `present`, `altered`, `missing` (a receipt expects it), or `absent`
+(nothing expects it), plus the declared and pending migrations. Detection never
+writes; the digest-reviewed repair path remains the only mutation.
+
 ## Inspect and run
 
 Run health checks before starting a live profile:

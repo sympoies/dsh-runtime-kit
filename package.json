@@ -115,6 +115,7 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    }
+    },
+    "lifecycle": "./compatibility/profile-lifecycle.json"
   }
 }

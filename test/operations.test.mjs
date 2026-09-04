@@ -42,14 +42,83 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`)
 }
 
-function stageBundle(root, version) {
+// The declarative profile lifecycle every reviewed package must carry. The
+// published package file is asserted equal to this literal so the fixture and
+// the shipped declaration cannot drift apart silently.
+const LIFECYCLE_MANIFEST = Object.freeze({
+  schema_version: 'dsh-runtime-kit.profile-lifecycle.v1',
+  package: '@sympoies/dsh-runtime-kit',
+  owned_surfaces: {
+    profile: ['dependency', 'bundle', 'installed-package', 'lockfile-projection'],
+    home: ['operations-state', 'operations-lock', 'artifact-store'],
+  },
+  generated_surfaces: [
+    'activation-manifest',
+    'runtime-root-owner',
+    'asset-set',
+    'agent-hook-state',
+    'agent-docs-state',
+  ],
+  activation_assets: {
+    policy: 'policy/dsh-runtime-kit-v1.toml',
+    catalog: 'agent-docs/AGENT_DOCS.toml',
+    document: 'agent-docs/PROJECT_DEV_EDIT.md',
+  },
+  compatibility: {
+    dsh: 'compatibility/dsh.json',
+    nils_cli: 'compatibility/nils-cli.json',
+  },
+  dependencies: ['agent-hook', 'agent-docs'],
+  migrations: [
+    {
+      id: 'operations-state-v1-to-v2',
+      from: 'dsh-runtime-kit.operations-state.v1',
+      to: 'dsh-runtime-kit.operations-state.v2',
+      path: 'doctor --repair',
+    },
+  ],
+  health_probes: ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'],
+  lifecycle_scripts: 'none',
+  removal: 'owned-surfaces-only',
+})
+
+const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1']
+
+function stageBundle(root, version, options = {}) {
   const dir = join(root, `bundle-${version}`)
   mkdirSync(dir, { recursive: true })
-  writeJson(join(dir, 'package.json'), {
+  const manifest = {
     name: '@sympoies/dsh-runtime-kit',
     version,
+    ...options.scripts === undefined ? {} : { scripts: options.scripts },
     dsh: { bundle: { patch: './cordis.patch.yml' } },
-  })
+  }
+  if (options.lifecycle !== false) {
+    manifest.dsh.lifecycle = options.lifecyclePath ?? './compatibility/profile-lifecycle.json'
+    mkdirSync(join(dir, 'compatibility'), { mode: 0o700 })
+    writeJson(join(dir, 'compatibility', 'dsh.json'), {
+      schema_version: 'dsh-runtime-kit.dsh-compatibility.v1',
+      validated_releases: Object.fromEntries(
+        (options.dshReleases ?? DEFAULT_FIXTURE_DSH_RELEASES).map(release => [release, {
+          ref: `refs/tags/dsh-v${release}`,
+          revision: 'a'.repeat(40),
+          cordis: '4.0.2',
+        }]),
+      ),
+    })
+    writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
+      schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
+      minimum_supported_release: '1.27.17',
+      validated_release: '1.27.37',
+    })
+    if (options.lifecycleManifest !== null) {
+      writeJson(
+        join(dir, 'compatibility', 'profile-lifecycle.json'),
+        options.lifecycleManifest ?? LIFECYCLE_MANIFEST,
+      )
+    }
+  }
+  writeJson(join(dir, 'package.json'), manifest)
   writeFileSync(join(dir, 'cordis.patch.yml'), '[]\n')
   mkdirSync(join(dir, 'policy'), { mode: 0o700 })
   mkdirSync(join(dir, 'agent-docs'), { mode: 0o700 })
@@ -321,11 +390,22 @@ if (existsSync(join(home, 'corrupt-after-success'))) writeFileSync(join(installe
 
   const agentHook = join(root, 'fake-agent-hook.mjs')
   writeFileSync(agentHook, `#!/usr/bin/env node
-import { isAbsolute } from 'node:path'
+import { appendFileSync, existsSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 if (!process.argv.includes('doctor')) process.exit(91)
 for (const flag of ['--config', '--policy', '--state-dir']) {
   const index = process.argv.indexOf(flag)
   if (index < 0 || !isAbsolute(process.argv[index + 1] ?? '')) process.exit(92)
+}
+const fixtureRoot = dirname(process.argv[1])
+appendFileSync(join(fixtureRoot, 'agent-hook-doctor-calls.jsonl'), JSON.stringify({
+  config: process.argv[process.argv.indexOf('--config') + 1],
+  policy: process.argv[process.argv.indexOf('--policy') + 1],
+  state_dir: process.argv[process.argv.indexOf('--state-dir') + 1],
+}) + '\\n')
+if (existsSync(join(fixtureRoot, 'fail-agent-hook-doctor'))) {
+  process.stderr.write('fixture: agent-hook doctor forced failure\\n')
+  process.exit(93)
 }
 process.stdout.write(JSON.stringify({
   schema_version: 'cli.agent-hook.doctor.v1',
@@ -642,6 +722,7 @@ function legacyPlan(plan) {
   const {
     runtime_root: _runtimeRoot,
     toolchain: _toolchain,
+    lifecycle: _lifecycle,
     target,
     ...legacy
   } = plan
@@ -3527,5 +3608,358 @@ process.exit(result.status ?? 70)
     } finally {
       subject.cleanup()
     }
+  }
+})
+
+// Issue 64: transactional profile lifecycle declared by the package.
+
+function readOperationsState(subject) {
+  return JSON.parse(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'), 'utf8'))
+}
+
+test('the published package declares its profile lifecycle without install-time scripts', () => {
+  const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+  assert.equal(manifest.dsh.lifecycle, './compatibility/profile-lifecycle.json')
+  assert.ok(manifest.files.includes('compatibility'))
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'profile-lifecycle.json'), 'utf8')),
+    LIFECYCLE_MANIFEST,
+  )
+  for (const hook of [
+    'preinstall', 'install', 'postinstall', 'prepare', 'preprepare', 'postprepare',
+    'prepublish', 'prepublishOnly', 'prepack', 'postpack', 'dependencies',
+  ]) {
+    assert.equal(manifest.scripts[hook], undefined, `${hook} must not be declared`)
+  }
+  const dshCompatibility = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'))
+  assert.deepEqual(
+    Object.keys(dshCompatibility.validated_releases).sort(),
+    ['0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1'],
+  )
+})
+
+test('reviewed plans bind the declared lifecycle and refuse a package whose declared DSH compatibility excludes the bound host', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const lifecycle = setup.preview.plan.lifecycle
+    assert.equal(lifecycle.schema_version, 'dsh-runtime-kit.profile-lifecycle.v1')
+    assert.equal(
+      lifecycle.sha256,
+      sha256(readFileSync(join(subject.v1, 'compatibility', 'profile-lifecycle.json'))),
+    )
+    assert.deepEqual(lifecycle.dsh_releases, DEFAULT_FIXTURE_DSH_RELEASES)
+    assert.deepEqual(lifecycle.migrations, ['operations-state-v1-to-v2'])
+    assert.deepEqual(lifecycle.health_probes, ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'])
+    assert.deepEqual(setup.applied.plan.lifecycle, lifecycle)
+    assert.deepEqual(readOperationsState(subject).last_applied.plan.lifecycle, lifecycle)
+
+    const incompatible = stageBundle(subject.root, '3.0.0', { dshReleases: ['0.1.1-rc.2'] })
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
+    const stateBefore = readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'))
+    const rejected = run(subject, ['update', '--profile', 'work', '--package', incompatible])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'package-incompatible-dsh')
+    assert.deepEqual(rejected.value.error.details, {
+      dsh_version: '0.1.2-rc.1',
+      declared_dsh_releases: ['0.1.1-rc.2'],
+    })
+    assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    assert.deepEqual(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), stateBefore)
+    assert.equal(readOperationsState(subject).current.installed_version, '1.0.0')
+
+    const rollbackPreview = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(rollbackPreview.status, 64)
+    assert.equal(rollbackPreview.value.error.code, 'rollback-unavailable')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package that declares install-time lifecycle scripts is rejected before any profile mutation', () => {
+  const subject = fixture()
+  try {
+    const scripted = stageBundle(subject.root, '1.5.0', {
+      scripts: { test: 'node --test', postinstall: 'node -e "process.exit(0)"' },
+    })
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', scripted])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'lifecycle-scripts-declared')
+    assert.deepEqual(rejected.value.error.details, { scripts: ['postinstall'] })
+    assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('malformed, missing, and unsupported lifecycle declarations are typed plan failures', () => {
+  const subject = fixture()
+  try {
+    const cases = [
+      ['1.1.0', { lifecycleManifest: { schema_version: 'dsh-runtime-kit.profile-lifecycle.v1' } }, 'invalid-lifecycle-manifest'],
+      ['1.2.0', { lifecycleManifest: null }, 'invalid-lifecycle-manifest'],
+      ['1.3.0', { lifecyclePath: '../outside/profile-lifecycle.json' }, 'invalid-lifecycle-manifest'],
+      ['1.4.0', {
+        lifecycleManifest: {
+          ...LIFECYCLE_MANIFEST,
+          migrations: [...LIFECYCLE_MANIFEST.migrations, {
+            id: 'future-ledger-format',
+            from: 'dsh-runtime-kit.operations-state.v2',
+            to: 'dsh-runtime-kit.operations-state.v3',
+            path: 'doctor --repair',
+          }],
+        },
+      }, 'unsupported-lifecycle-manifest'],
+      ['1.6.0', {
+        lifecycleManifest: { ...LIFECYCLE_MANIFEST, lifecycle_scripts: 'postinstall' },
+      }, 'unsupported-lifecycle-manifest'],
+      ['1.7.0', {
+        lifecycleManifest: {
+          ...LIFECYCLE_MANIFEST,
+          activation_assets: { ...LIFECYCLE_MANIFEST.activation_assets, policy: 'policy/other.toml' },
+        },
+      }, 'unsupported-lifecycle-manifest'],
+    ]
+    for (const [version, options, code] of cases) {
+      const bundle = stageBundle(subject.root, version, options)
+      const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
+      const rejected = run(subject, ['setup', '--profile', 'work', '--package', bundle])
+      assert.equal(rejected.status, 65, `${version}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, code, version)
+      assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    }
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package without a lifecycle declaration installs under the engine compatibility manifest and reports as undeclared', () => {
+  const subject = fixture()
+  try {
+    const undeclared = stageBundle(subject.root, '0.9.0', { lifecycle: false })
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', undeclared])
+    assert.equal(setup.preview.plan.lifecycle, null)
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 0, `${doctor.stdout}\n${doctor.stderr}`)
+    assert.equal(doctor.value.data.lifecycle.declared, false)
+    assert.equal(doctor.value.data.lifecycle.surfaces.owned.dependency, 'present')
+    assert.equal(doctor.value.data.lifecycle.surfaces.generated['activation-manifest'], 'present')
+
+    const update = applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.equal(update.preview.plan.lifecycle.schema_version, 'dsh-runtime-kit.profile-lifecycle.v1')
+    const rollback = applyPlan(subject, ['rollback', '--profile', 'work'])
+    assert.equal(rollback.preview.plan.lifecycle, null)
+    assert.equal(readOperationsState(subject).current.installed_version, '0.9.0')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('declared health probes run against the staged asset set before activation and a failing probe leaves a repairable transaction', () => {
+  const subject = fixture()
+  const marker = join(subject.root, 'fail-agent-hook-doctor')
+  const calls = () => readFileSync(join(subject.root, 'agent-hook-doctor-calls.jsonl'), 'utf8')
+    .trim().split('\n').map(line => JSON.parse(line))
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(preview.status, 0, preview.stderr)
+    writeFileSync(marker, '')
+    const failed = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(failed.status, 65, `${failed.stdout}\n${failed.stderr}`)
+    assert.equal(failed.value.error.code, 'activation-health-failed')
+    assert.equal(failed.value.error.details.probe, 'agent-hook-doctor')
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    const assetSet = preview.value.data.plan.target.assets.asset_set_sha256
+    const stagedConfig = join(subject.runtimeRoot, 'assets', assetSet, 'agent-hook', 'config.toml')
+    assert.equal(existsSync(stagedConfig), true)
+    assert.deepEqual(calls().at(-1), {
+      config: realpathSync(stagedConfig),
+      policy: realpathSync(join(subject.runtimeRoot, 'assets', assetSet, 'agent-hook', 'policy.toml')),
+      state_dir: realpathSync(join(subject.runtimeRoot, 'state', 'agent-hook')),
+    })
+    const pendingState = readOperationsState(subject)
+    assert.equal(pendingState.pending.phase, 'native-applied')
+    assert.equal(pendingState.current, null)
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 65)
+    assert.equal(doctor.value.data.recovery.action, 'finalize')
+    assert.equal(doctor.value.data.lifecycle.surfaces.generated['activation-manifest'], 'missing')
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    const stillFailing = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(stillFailing.status, 65, `${stillFailing.stdout}\n${stillFailing.stderr}`)
+    assert.equal(stillFailing.value.error.code, 'activation-health-failed')
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    assert.deepEqual(readOperationsState(subject), pendingState)
+
+    unlinkSync(marker)
+    const recovered = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(recovered.status, 0, `${recovered.stdout}\n${recovered.stderr}`)
+    assert.equal(
+      JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
+      '1.0.0',
+    )
+    const finalState = readOperationsState(subject)
+    assert.equal(finalState.pending, null)
+    assert.equal(finalState.current.installed_version, '1.0.0')
+    assert.equal(finalState.last_applied.recovered, true)
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, healthy.stderr)
+    assert.equal(healthy.value.data.status, 'healthy')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('an update whose health probe fails keeps the previous activation and can be finalized after repair', () => {
+  const subject = fixture()
+  const marker = join(subject.root, 'fail-agent-hook-doctor')
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const firstSet = setup.preview.plan.target.assets.asset_set_sha256
+    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    writeFileSync(marker, '')
+    const failed = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v2,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(failed.status, 65, `${failed.stdout}\n${failed.stderr}`)
+    assert.equal(failed.value.error.code, 'activation-health-failed')
+    const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    assert.equal(activation.package_version, '1.0.0')
+    assert.equal(activation.asset_set_sha256, firstSet)
+    unlinkSync(marker)
+    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(repair.status, 0, repair.stderr)
+    const recovered = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(recovered.status, 0, `${recovered.stdout}\n${recovered.stderr}`)
+    assert.equal(
+      JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
+      '2.0.0',
+    )
+    const state = readOperationsState(subject)
+    assert.equal(state.current.installed_version, '2.0.0')
+    assert.equal(state.previous.installed_version, '1.0.0')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('the declared legacy migration is applied exactly once and reported through doctor', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const healthyBefore = run(subject, ['doctor', '--profile', 'work'])
+    assert.deepEqual(healthyBefore.value.data.lifecycle.migrations, {
+      declared: ['operations-state-v1-to-v2'],
+      pending: [],
+    })
+    writeLegacyTerminalState(subject)
+
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(diagnosed.status, 65)
+    assert.deepEqual(diagnosed.value.data.lifecycle.migrations, {
+      declared: ['operations-state-v1-to-v2'],
+      pending: ['operations-state-v1-to-v2'],
+    })
+    const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(preview.status, 0, preview.stderr)
+    assert.deepEqual(preview.value.data.plan.migration, {
+      id: 'operations-state-v1-to-v2',
+      from: 'dsh-runtime-kit.operations-state.v1',
+      to: 'dsh-runtime-kit.operations-state.v2',
+      declared: true,
+    })
+    const migrated = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(migrated.status, 0, `${migrated.stdout}\n${migrated.stderr}`)
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, healthy.stderr)
+    assert.deepEqual(healthy.value.data.lifecycle.migrations, {
+      declared: ['operations-state-v1-to-v2'],
+      pending: [],
+    })
+    const again = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    assert.equal(again.status, 64)
+    assert.equal(again.value.error.code, 'repair-not-required')
+    const replay = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.notEqual(replay.status, 0)
+    assert.equal(readOperationsState(subject).schema_version, 'dsh-runtime-kit.operations-state.v2')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor reports every declared owned and generated surface', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const healthy = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(healthy.status, 0, healthy.stderr)
+    assert.equal(healthy.value.data.lifecycle.declared, true)
+    assert.equal(healthy.value.data.lifecycle.schema_version, 'dsh-runtime-kit.profile-lifecycle.v1')
+    assert.equal(healthy.value.data.lifecycle.sha256, setup.preview.plan.lifecycle.sha256)
+    assert.deepEqual(healthy.value.data.lifecycle.surfaces, {
+      owned: {
+        dependency: 'present',
+        bundle: 'present',
+        'installed-package': 'present',
+        'lockfile-projection': 'absent',
+        'operations-state': 'present',
+        'operations-lock': 'present',
+        'artifact-store': 'present',
+      },
+      generated: {
+        'activation-manifest': 'present',
+        'runtime-root-owner': 'present',
+        'asset-set': 'present',
+        'agent-hook-state': 'present',
+        'agent-docs-state': 'present',
+      },
+    })
+
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const activation = JSON.parse(readFileSync(activationPath, 'utf8'))
+    const policy = join(subject.runtimeRoot, activation.agent_hook.policy)
+    writeFileSync(policy, `${readFileSync(policy, 'utf8')}# tampered\n`)
+    const altered = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(altered.status, 65)
+    assert.equal(altered.value.data.lifecycle.surfaces.generated['asset-set'], 'altered')
+    assert.equal(altered.value.data.lifecycle.surfaces.generated['activation-manifest'], 'altered')
+
+    unlinkSync(activationPath)
+    const missing = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(missing.status, 65)
+    assert.equal(missing.value.data.lifecycle.surfaces.generated['activation-manifest'], 'missing')
+
+    const installedManifest = join(subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit', 'package.json')
+    writeFileSync(installedManifest, `${readFileSync(installedManifest, 'utf8')}\n`)
+    const drifted = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(drifted.value.data.owned_status, 'drift')
+    assert.equal(drifted.value.data.lifecycle.surfaces.owned['installed-package'], 'altered')
+  } finally {
+    subject.cleanup()
   }
 })
