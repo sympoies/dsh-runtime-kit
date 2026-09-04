@@ -857,12 +857,12 @@ Upstream compatibility is executable: pack the bundle, install it into a clean
 profile, dump the composed config, boot DSH, discover skills, and drive a real
 Agent/AgentLoop allow/block probe plus cancellation and plugin-disposal drains.
 All `@deepseek-ai/dsh-*` peers used by the compatibility adapter must form one
-homogeneous exact `0.1.0-rc.8`, `0.1.1-rc.2`, or `0.1.2-alpha.4` set; Cordis may be
+homogeneous exact `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` set; Cordis may be
 `4.0.1` or `4.0.2` according to that DSH release. The adapter uses the same reviewed public surface for both
 retained and current releases and rejects mixed or later prerelease identities before import.
 
 `compatibility/dsh.json` is the closed promotion input. It records the exact
-`0.1.0-rc.8`, `0.1.1-rc.2`, and `0.1.2-alpha.4` release identities, the rolling
+`0.1.1-rc.2`, `0.1.2-alpha.4`, and `0.1.2-rc.1` release identities, the rolling
 three-release support policy, the pinned
 tag, one exact upstream-next revision, every consumed public package/export,
 the runtime service-method surface, the deterministic in-memory pre-tool

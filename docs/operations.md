@@ -188,7 +188,7 @@ pairs are `workspace-write` + `ask`, or the currently required
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
-The supported UI boundary is exact: DSH `0.1.2-alpha.4`, dsh-tui
+The supported UI boundary is exact: DSH `0.1.2-rc.1`, dsh-tui
 `0.10.0-beta.4`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this

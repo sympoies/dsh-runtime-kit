@@ -80,18 +80,18 @@ jobs:
             revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
             public_contract: false
             node: 24
-          - dsh_version: 0.1.0-rc.8
-            revision: 141eb6fef83422698aef7a981029e843e8161534
+          - dsh_version: 0.1.2-alpha.4
+            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
             public_contract: false
             node: 24
           - channel: pinned
-            dsh_version: 0.1.2-alpha.4
-            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
+            dsh_version: 0.1.2-rc.1
+            revision: a66e4702047846cdaa10c66c9d3df3951f5ea70d
             public_contract: true
             node: 24
           - channel: upstream-next
-            dsh_version: 0.1.2-alpha.4
-            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
+            dsh_version: 0.1.2-rc.1
+            revision: a66e4702047846cdaa10c66c9d3df3951f5ea70d
             public_contract: true
             node: 24
     steps:
@@ -277,7 +277,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: 4e84901e6471b79ec0338099867ebb4606d12bb5
+          ref: a66e4702047846cdaa10c66c9d3df3951f5ea70d
           path: deepseek-harness
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -376,8 +376,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=3fd3a9bd089247405ec2be219234a7a24f54a98c \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"c2552d2e02332b1e8f67e83b153552ad3df41ac770240b3490a198352b9a3beb","agent-docs":"76950ccf8c4cd743567546bf852c2d07f01b5d95830a7c9ec2a9cb9c6c258a9d"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"c2552d2e02332b1e8f67e83b153552ad3df41ac770240b3490a198352b9a3beb","agent-docs":"76950ccf8c4cd743567546bf852c2d07f01b5d95830a7c9ec2a9cb9c6c258a9d"}' \
-          DSH_ACCEPTANCE_DSH_VERSION=0.1.2-alpha.4 \
-          DSH_ACCEPTANCE_DSH_REVISION=4e84901e6471b79ec0338099867ebb4606d12bb5 \
+          DSH_ACCEPTANCE_DSH_VERSION=0.1.2-rc.1 \
+          DSH_ACCEPTANCE_DSH_REVISION=a66e4702047846cdaa10c66c9d3df3951f5ea70d \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \

@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in beta.4 patch keeps upstream async history and adapts the alpha.4 session log', async () => {
+test('the checked-in beta.4 patch keeps upstream async history and adapts the rc.1 session log', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',

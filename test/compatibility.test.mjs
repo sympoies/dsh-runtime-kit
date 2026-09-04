@@ -95,17 +95,12 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
     maximum_releases: 3,
     promotion: 'add newest release and retire the oldest release in the same change',
   })
-  assert.equal(manifest.channels.pinned.version, '0.1.2-alpha.4')
-  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.2-alpha.4')
+  assert.equal(manifest.channels.pinned.version, '0.1.2-rc.1')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.2-rc.1')
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
   assert.deepEqual(manifest.validated_releases, {
-    '0.1.0-rc.8': {
-      ref: 'refs/tags/dsh-v0.1.0-rc.8',
-      revision: '141eb6fef83422698aef7a981029e843e8161534',
-      cordis: '4.0.1',
-    },
     '0.1.1-rc.2': {
       ref: 'refs/tags/dsh-v0.1.1-rc.2',
       revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
@@ -114,6 +109,11 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
     '0.1.2-alpha.4': {
       ref: 'refs/tags/dsh-v0.1.2-alpha.4',
       revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
+      cordis: '4.0.2',
+    },
+    '0.1.2-rc.1': {
+      ref: 'refs/tags/dsh-v0.1.2-rc.1',
+      revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
       cordis: '4.0.2',
     },
   })
@@ -155,7 +155,7 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
       ? '4.0.1 || 4.0.2'
-      : '0.1.0-rc.8 || 0.1.1-rc.2 || 0.1.2-alpha.4')
+      : '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1')
   }
 
   const expandedWindow = structuredClone(manifest)
@@ -482,20 +482,12 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     importModule: async specifier => overrides?.[specifier] ?? modules[specifier],
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
       ? '4.0.2'
-      : '0.1.2-alpha.4',
+      : '0.1.2-rc.1',
   })
   const loaded = await loadDshRc7Runtime(options())
   assert.equal(typeof loaded.createUserMessage, 'function')
   assert.equal(typeof loaded.isNonWideningSandboxEcho, 'function')
   assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
-
-  const rc8 = await loadDshRc7Runtime({
-    ...options(),
-    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
-      ? '4.0.1'
-      : '0.1.0-rc.8',
-  })
-  assert.deepEqual(new Set(Object.values(rc8.versions)), new Set(['0.1.0-rc.8', '4.0.1']))
 
   const rc2 = await loadDshRc7Runtime({
     ...options(),
@@ -505,13 +497,21 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   })
   assert.deepEqual(new Set(Object.values(rc2.versions)), new Set(['0.1.1-rc.2', '4.0.1']))
 
-  const alpha4 = await loadDshRc7Runtime(options())
+  const alpha4 = await loadDshRc7Runtime({
+    ...options(),
+    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+      ? '4.0.2'
+      : '0.1.2-alpha.4',
+  })
   assert.deepEqual(new Set(Object.values(alpha4.versions)), new Set(['0.1.2-alpha.4', '4.0.2']))
 
+  const rc1 = await loadDshRc7Runtime(options())
+  assert.deepEqual(new Set(Object.values(rc1.versions)), new Set(['0.1.2-rc.1', '4.0.2']))
+
   for (const [dshVersion, cordisVersion, expectedCordisVersion] of [
-    ['0.1.0-rc.8', '4.0.2', '4.0.1'],
     ['0.1.1-rc.2', '4.0.2', '4.0.1'],
     ['0.1.2-alpha.4', '4.0.1', '4.0.2'],
+    ['0.1.2-rc.1', '4.0.1', '4.0.2'],
   ]) {
     let invalidCompositionImports = 0
     await assert.rejects(
@@ -559,10 +559,10 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     loadDshRc7Runtime({
       ...options(),
       packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
-        ? '0.1.0-rc.8'
+        ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.2'
-          : '0.1.2-alpha.4',
+          : '0.1.2-rc.1',
     }),
     error => error instanceof DshCompatibilityError
       && assert.deepEqual(error.diagnostic, {
@@ -570,7 +570,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         schema_version: 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1',
         compatible: false,
         code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-        missing: ['@deepseek-ai/dsh-tools:version:0.1.2-alpha.4'],
+        missing: ['@deepseek-ai/dsh-tools:version:0.1.2-rc.1'],
       }) === undefined,
   )
 
@@ -582,15 +582,15 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         return modules[specifier]
       },
       packageVersion: async specifier => specifier === '@deepseek-ai/dsh-subprocess'
-        ? '0.1.0-rc.8'
+        ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.2'
-          : '0.1.2-alpha.4',
+          : '0.1.2-rc.1',
     }),
     error => error instanceof DshCompatibilityError
       && error.diagnostic.adapter === 'dsh-rolling-v1'
       && error.diagnostic.missing.includes(
-        '@deepseek-ai/dsh-subprocess:version:0.1.2-alpha.4',
+        '@deepseek-ai/dsh-subprocess:version:0.1.2-rc.1',
       ),
   )
   assert.equal(importCalls, 0)
@@ -616,7 +616,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     assert.equal(installedVersions.has('4.0.1') || installedVersions.has('4.0.2'), true)
     assert.equal(installedVersions.size, 2)
     assert.equal(
-      ['0.1.0-rc.8', '0.1.1-rc.2', '0.1.2-alpha.4']
+      ['0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1']
         .some(version => installedVersions.has(version)),
       true,
     )

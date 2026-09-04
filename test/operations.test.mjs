@@ -148,7 +148,7 @@ function normalizeExecutableModes(root) {
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  console.log('0.1.2-alpha.4')
+  console.log('0.1.2-rc.1')
   process.exit(0)
 }
 const home = process.env.DSH_HOME
@@ -1020,10 +1020,10 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   try {
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
     assert.equal(setup.preview.plan.runtime_root, realpathSync(subject.runtimeRoot))
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.2-alpha.4')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.2-rc.1')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      '4e84901e6471b79ec0338099867ebb4606d12bb5',
+      'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
     )
     assert.match(setup.preview.plan.toolchain.dsh.executable_sha256, /^[a-f0-9]{64}$/)
     assert.match(setup.preview.plan.toolchain.pnpm.executable_sha256, /^[a-f0-9]{64}$/)
@@ -1069,24 +1069,24 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   }
 })
 
-test('operations bind the exact reviewed DSH rc.8 toolchain identity', () => {
+test('operations bind the exact reviewed DSH alpha.4 toolchain identity', () => {
   const subject = fixture()
   try {
     const source = readFileSync(subject.dsh, 'utf8')
-    assert.match(source, /console\.log\('0\.1\.2-alpha\.4'\)/)
+    assert.match(source, /console\.log\('0\.1\.2-rc\.1'\)/)
     writeFileSync(subject.dsh, source.replace(
+      "console.log('0.1.2-rc.1')",
       "console.log('0.1.2-alpha.4')",
-      "console.log('0.1.0-rc.8')",
     ))
     chmodSync(subject.dsh, 0o755)
 
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.0-rc.8')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.2-alpha.4')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      '141eb6fef83422698aef7a981029e843e8161534',
+      '4e84901e6471b79ec0338099867ebb4606d12bb5',
     )
-    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.0-rc.8')
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.2-alpha.4')
   } finally {
     subject.cleanup()
   }
@@ -1095,7 +1095,7 @@ test('operations bind the exact reviewed DSH rc.8 toolchain identity', () => {
   try {
     const source = readFileSync(unknown.dsh, 'utf8')
     writeFileSync(unknown.dsh, source.replace(
-      "console.log('0.1.2-alpha.4')",
+      "console.log('0.1.2-rc.1')",
       "console.log('0.1.0-rc.9')",
     ))
     chmodSync(unknown.dsh, 0o755)
@@ -2213,7 +2213,7 @@ process.stdout.write('agent-docs 1.27.17 (v1.27.17, test)\\n')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.1.0-rc.8\\n')
+process.stdout.write('0.1.2-alpha.4\\n')
 `)
     chmodSync(subject.dsh, 0o755)
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
@@ -2224,7 +2224,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const retained = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(retained.status, 65, retained.stderr)
     assert.equal(retained.value.data.status, 'needs-attention')
-    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.0-rc.8' })
+    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.2-alpha.4' })
     assert.equal(retained.value.data.agent_docs.ok, false)
     assert.match(retained.value.data.agent_docs.error, /supported range 1\.27\.17 through 1\.27\.37/)
   } finally {
@@ -3435,7 +3435,7 @@ test('subprocesses receive a minimal environment and child stderr cannot echo se
     const hostile = join(subject.root, 'hostile-dsh.mjs')
     writeFileSync(hostile, `#!/usr/bin/env node
 if (process.argv[2] === '--version') {
-  process.stdout.write('0.1.2-alpha.4\\n')
+  process.stdout.write('0.1.2-rc.1\\n')
   process.exit(0)
 }
 const sentinel = process.env.RUNTIME_KIT_SECRET_SENTINEL ?? '<absent>'
@@ -3489,7 +3489,7 @@ import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  process.stdout.write('0.1.2-alpha.4\\n')
+  process.stdout.write('0.1.2-rc.1\\n')
   process.exit(0)
 }
 const observed = {
