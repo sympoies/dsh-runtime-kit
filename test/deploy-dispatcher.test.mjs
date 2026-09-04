@@ -446,6 +446,28 @@ test('the stage root must be owner-only and drifted or foreign stage content is 
     assert.equal(refused.value.error.details.stage_root, open)
     assert.deepEqual(dshCalls(subject), [])
 
+    // A symlink planted where the digest stage or its package entry belongs
+    // must not redirect extraction or cleanup; it is refused, not followed.
+    const stageRootDefault = join(subject.root, 'cache', 'dsh-runtime-kit', 'deploy-stage')
+    mkdirSync(stageRootDefault, { recursive: true, mode: 0o700 })
+    const elsewhere = join(subject.root, 'elsewhere')
+    mkdirSync(elsewhere, { mode: 0o700 })
+    writeFileSync(join(elsewhere, 'keep.txt'), 'must survive\n')
+    symlinkSync(elsewhere, join(stageRootDefault, subject.v1.sha256), 'dir')
+    const redirected = deploy(subject, scopeArgs(subject, 'setup', artifactArgs(subject.v1)))
+    assert.equal(redirected.status, 65, `${redirected.stdout}\n${redirected.stderr}`)
+    assert.equal(redirected.value.error.code, 'stage-unavailable')
+    assert.deepEqual(readdirSync(elsewhere), ['keep.txt'])
+    rmSync(join(stageRootDefault, subject.v1.sha256))
+    mkdirSync(join(stageRootDefault, subject.v1.sha256), { mode: 0o700 })
+    symlinkSync(elsewhere, join(stageRootDefault, subject.v1.sha256, 'package'), 'dir')
+    const redirectedPackage = deploy(subject, scopeArgs(subject, 'setup', artifactArgs(subject.v1)))
+    assert.equal(redirectedPackage.status, 65, `${redirectedPackage.stdout}\n${redirectedPackage.stderr}`)
+    assert.equal(redirectedPackage.value.error.code, 'stage-unavailable')
+    assert.deepEqual(readdirSync(elsewhere), ['keep.txt'])
+    rmSync(join(stageRootDefault, subject.v1.sha256, 'package'))
+    assert.deepEqual(dshCalls(subject), [])
+
     const preview = deploy(subject, scopeArgs(subject, 'setup', artifactArgs(subject.v1)))
     assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
     const staged = stagedRoot(subject, subject.v1)

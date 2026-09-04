@@ -370,6 +370,34 @@ export function parseScope(argv, env) {
   }
 }
 
+/** @param {string} path */
+function lstatMaybe(path) {
+  try {
+    return lstatSync(path)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Create or accept one stage directory only as a real, uid-owned directory.
+ * The root must additionally be owner-only; a symlink, a file, or a foreign
+ * owner at any level is refused rather than followed.
+ * @param {string} path @param {string} label @param {boolean} root
+ */
+function ensureOwnerDirectory(path, label, root) {
+  let stat = lstatMaybe(path)
+  if (stat === null) {
+    mkdirSync(path, { recursive: root, mode: 0o700 })
+    stat = lstatMaybe(path)
+  }
+  if (stat === null || stat.isSymbolicLink() || !stat.isDirectory()
+    || (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    || (root && (stat.mode & 0o077) !== 0)) {
+    throw new DeployError('stage-unavailable', `${label} must be a real owner-only directory`, 65, { stage_root: root ? path : dirname(path) })
+  }
+}
+
 /**
  * Walk one staged package tree and report whether it still equals the
  * authenticated archive entries: same regular-file set, same bytes, same mode.
@@ -446,18 +474,25 @@ async function stageArtifact(artifactPath, expectedSha256, stageRoot) {
   const packageRoot = join(stageDir, 'package')
   let restaged = false
   try {
-    mkdirSync(stageDir, { recursive: true, mode: 0o700 })
-    const rootStat = lstatSync(stageRoot)
-    if (rootStat.isSymbolicLink() || !rootStat.isDirectory() || (rootStat.mode & 0o077) !== 0
-      || (typeof process.getuid === 'function' && rootStat.uid !== process.getuid())) {
-      throw new DeployError('stage-unavailable', 'the deploy stage root must be a real owner-only directory', 65, { stage_root: stageRoot })
+    // Every stage path is lstat-checked before it is created, removed, or
+    // written through: a symlink or foreign entry planted in the cache must
+    // not redirect extraction or cleanup outside the configured stage root.
+    ensureOwnerDirectory(stageRoot, 'the deploy stage root', true)
+    ensureOwnerDirectory(stageDir, 'the deploy stage for this artifact', false)
+    const packageStat = lstatMaybe(packageRoot)
+    if (packageStat !== null && (packageStat.isSymbolicLink() || !packageStat.isDirectory())) {
+      throw new DeployError('stage-unavailable', 'the deploy stage package entry is not a real directory', 65, { stage_root: stageRoot })
     }
-    if (existsSync(packageRoot) && !stagedTreeMatches(packageRoot, entries)) {
+    if (packageStat !== null && !stagedTreeMatches(packageRoot, entries)) {
       rmSync(packageRoot, { recursive: true, force: true })
     }
-    if (!existsSync(packageRoot)) {
+    if (lstatMaybe(packageRoot) === null) {
       const temporary = join(stageDir, `package.${process.pid}.tmp`)
-      rmSync(temporary, { recursive: true, force: true })
+      const temporaryStat = lstatMaybe(temporary)
+      if (temporaryStat !== null && (temporaryStat.isSymbolicLink() || !temporaryStat.isDirectory())) {
+        throw new DeployError('stage-unavailable', 'the deploy stage temporary entry is not a real directory', 65, { stage_root: stageRoot })
+      }
+      if (temporaryStat !== null) rmSync(temporary, { recursive: true, force: true })
       await extractPackageArtifact(bytes, temporary)
       try {
         renameSync(temporary, packageRoot)
@@ -465,7 +500,11 @@ async function stageArtifact(artifactPath, expectedSha256, stageRoot) {
         // A concurrent deploy of the same artifact won the rename; its tree is
         // verified below exactly like ours would have been.
         rmSync(temporary, { recursive: true, force: true })
-        if (!existsSync(packageRoot)) throw error
+        const winner = lstatMaybe(packageRoot)
+        if (winner === null) throw error
+        if (winner.isSymbolicLink() || !winner.isDirectory()) {
+          throw new DeployError('stage-unavailable', 'the deploy stage package entry is not a real directory', 65, { stage_root: stageRoot })
+        }
       }
       restaged = true
       if (!stagedTreeMatches(packageRoot, entries)) {

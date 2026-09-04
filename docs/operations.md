@@ -383,7 +383,10 @@ the digest-keyed stage `<stage-root>/<sha256>/package` equal to the archive
 bytes. The stage root defaults to `$XDG_CACHE_HOME/dsh-runtime-kit/deploy-stage`
 (`--stage-root` overrides it) and must be an owner-only directory; a stage root
 that is shared, not owned, or cannot be written is refused as
-`stage-unavailable`. The path is deterministic so that the preview and the
+`stage-unavailable`, and so is a symlink or non-directory planted where the
+stage root, the digest directory, or its `package` entry belongs, because the
+dispatcher checks every stage path before it creates, removes, or writes
+through it and never follows a link. The path is deterministic so that the preview and the
 later apply bind the same local target; a stage whose files no longer equal
 the artifact is rebuilt from the authenticated bytes before the engine sees it,
 so the reviewed plan digest always binds exactly the artifact that was
