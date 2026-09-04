@@ -1,0 +1,36 @@
+{
+  "schema_version": "dsh-runtime-kit.profile-lifecycle.v1",
+  "package": "@sympoies/dsh-runtime-kit",
+  "owned_surfaces": {
+    "profile": ["dependency", "bundle", "installed-package", "lockfile-projection"],
+    "home": ["operations-state", "operations-lock", "artifact-store"]
+  },
+  "generated_surfaces": [
+    "activation-manifest",
+    "runtime-root-owner",
+    "asset-set",
+    "agent-hook-state",
+    "agent-docs-state"
+  ],
+  "activation_assets": {
+    "policy": "policy/dsh-runtime-kit-v1.toml",
+    "catalog": "agent-docs/AGENT_DOCS.toml",
+    "document": "agent-docs/PROJECT_DEV_EDIT.md"
+  },
+  "compatibility": {
+    "dsh": "compatibility/dsh.json",
+    "nils_cli": "compatibility/nils-cli.json"
+  },
+  "dependencies": ["agent-hook", "agent-docs"],
+  "migrations": [
+    {
+      "id": "operations-state-v1-to-v2",
+      "from": "dsh-runtime-kit.operations-state.v1",
+      "to": "dsh-runtime-kit.operations-state.v2",
+      "path": "doctor --repair"
+    }
+  ],
+  "health_probes": ["dsh-version", "agent-hook-doctor", "agent-docs-version"],
+  "lifecycle_scripts": "none",
+  "removal": "owned-surfaces-only"
+}

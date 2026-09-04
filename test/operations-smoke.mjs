@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -291,6 +292,53 @@ try {
   assertDshProfileIsolation()
   assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
 
+  acceptanceStep = 'lifecycle-declaration'
+  const lifecycleDoctor = operation(['doctor', '--profile', 'operations-smoke'])
+  assert.equal(lifecycleDoctor.status, 'healthy')
+  assert.equal(lifecycleDoctor.lifecycle.declared, true)
+  assert.equal(lifecycleDoctor.lifecycle.schema_version, 'dsh-runtime-kit.profile-lifecycle.v1')
+  assert.equal(lifecycleDoctor.lifecycle.dsh_releases.includes(pinnedDshVersion), true)
+  assert.deepEqual(lifecycleDoctor.lifecycle.migrations, {
+    declared: ['operations-state-v1-to-v2'],
+    pending: [],
+  })
+  for (const [surface, status] of Object.entries({
+    ...lifecycleDoctor.lifecycle.surfaces.owned,
+    ...lifecycleDoctor.lifecycle.surfaces.generated,
+  })) {
+    assert.equal(status, 'present', `${surface} must be present after rollback`)
+  }
+
+  acceptanceStep = 'lifecycle-incompatible-package'
+  const incompatiblePackage = join(temporaryRoot, 'operation-package-incompatible')
+  cpSync(packageV2, incompatiblePackage, { recursive: true })
+  const incompatibleCompatibility = JSON.parse(
+    readFileSync(join(incompatiblePackage, 'compatibility', 'dsh.json'), 'utf8'),
+  )
+  incompatibleCompatibility.validated_releases = {
+    '0.0.1-never': { ref: 'refs/tags/dsh-v0.0.1-never', revision: 'a'.repeat(40), cordis: '4.0.2' },
+  }
+  writeFileSync(
+    join(incompatiblePackage, 'compatibility', 'dsh.json'),
+    `${JSON.stringify(incompatibleCompatibility, undefined, 2)}\n`,
+  )
+  const profileManifestPath = join(dshHome, 'profiles', 'operations-smoke', 'package.json')
+  const manifestBeforeRefusal = readFileSync(profileManifestPath)
+  const stateBeforeRefusal = readFileSync(join(dshHome, 'runtime-kit', 'state', 'operations-smoke.json'))
+  let refusal
+  try {
+    operation(['update', '--profile', 'operations-smoke', '--package', incompatiblePackage])
+  } catch (error) {
+    refusal = error
+  }
+  assert.equal(refusal?.code, 'DSH_OPERATIONS_PACKAGE_INCOMPATIBLE_DSH')
+  assert.deepEqual(readFileSync(profileManifestPath), manifestBeforeRefusal)
+  assert.deepEqual(
+    readFileSync(join(dshHome, 'runtime-kit', 'state', 'operations-smoke.json')),
+    stateBeforeRefusal,
+  )
+  assertRuntimePackage(installedRuntime, '0.0.0-acceptance.1')
+
   acceptanceStep = 'profile-remove'
   apply(['remove', '--profile', 'operations-smoke'])
   const manifest = JSON.parse(readFileSync(join(dshHome, 'profiles', 'operations-smoke', 'package.json')))
@@ -318,6 +366,9 @@ try {
         producer: 'operations',
         evidence: [
           'doctor:healthy',
+          'lifecycle:declared-and-bound',
+          'lifecycle:surfaces-present-after-rollback',
+          'lifecycle:incompatible-dsh-refused-before-mutation',
           'upstream:patch-state-unchanged',
           'coexistence:dsh-agent-runtime-kit-zero-dependency',
           'coexistence:codex-claude-wiring-untouched',

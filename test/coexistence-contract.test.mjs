@@ -62,29 +62,32 @@ test('issue 63 rollback is pinned to the exact accepted alpha.4 promotion baseli
     manifest.candidate_validation?.source_commit,
     '81be602378e3790e042aae5000befd78c1d584bc',
   )
-  // #66 and Gate 0 select the serial predecessor. The DSH alpha.4 promotion
-  // (main 6d19638) is the last accepted main state before #63 that admits the
-  // pinned alpha.4 host, so it is the executable rollback baseline; the Issue 62
-  // package only admits rc.7, rc.8, and rc.2. This assertion freezes that
-  // reviewed selection for #63; it does not discover a future child baseline.
+  // #66 and Gate 0 select the serial predecessor. The DSH 0.1.2-rc.1 promotion
+  // (main f7e9d36) is the last accepted main state before #64 that admits the
+  // pinned rc.1 host, so it is the executable rollback baseline; the Issue 63
+  // package only admits alpha.4, rc.8, and rc.2. The package identity is the
+  // hosted acceptance artifact (npm 11.19.0 pack under Node 24.16.0,
+  // recompressed by the authenticated zlib-ng helper), not raw `npm pack`
+  // output. This assertion freezes that reviewed selection for #64; it does
+  // not discover a future child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: '9caa73ff8714cb81b4ac693f0041f9c9d49fb1344cca1c2ab031a2c8dc41e9a9',
-    version: '1.27.34',
-    source_revision: 'v1.27.34',
-    source_commit: '5e8564357f6deb524e36d1a0cbdcf124f034c3f2',
+    runtime_package_sha256: '6b61d8f9b52447b9965a297c30516c47fce9131a9551d9f2a8cbf2f370e5f233',
+    version: '1.27.37',
+    source_revision: 'v1.27.37',
+    source_commit: '3fd3a9bd089247405ec2be219234a7a24f54a98c',
     platform: 'x86_64-unknown-linux-gnu',
     archive: {
-      name: 'nils-cli-v1.27.34-x86_64-unknown-linux-gnu.tar.gz',
-      sha256: 'a9c4a88038d66d538605fd1ded630fca342e1025372f24896254f4e34e5916a8',
+      name: 'nils-cli-v1.27.37-x86_64-unknown-linux-gnu.tar.gz',
+      sha256: 'bda942ee83e9cdc02ab29a7ba3ac97a4c76aafeb2b53f88297bdc330a255577b',
     },
     artifacts: {
-      'agent-hook': { sha256: 'b97eb058b756168249d8adc6b35b7e57333196c05e1380eecd9a43e3b423dd3a' },
-      'agent-docs': { sha256: '83080958f26bffd11a5b60081267367d95f9a25b0823f80d56f4f319595890b3' },
-      'agent-session': { sha256: '316d86e4e9faa6e240b12823091a4e8e6fa161fb79791501d6c2b8729d01cae6' },
-      'forge-cli': { sha256: '27215e78ac042cf1334c68776e1d49a93b2d62332c0abeb14b262608540cfd0e' },
-      'git-cli': { sha256: '331d0dc8e1f58e082fd9d6984987fdb6d38fe37c3f31824867abcc56ca2b5962' },
-      'review-specialists': { sha256: 'f5add3b378ffe053bb8a742f7c37186d357d550cef83aa303fbb8633dab36e85' },
-      'semantic-commit': { sha256: '9d3f1bf99cbe18414e5692ee00d4f4e17f5b737acfdbec604672c73500f38d85' },
+      'agent-hook': { sha256: '0bddef9a486880d50bc866cabbfec459467b243143e6a875a34f7e0b7e469177' },
+      'agent-docs': { sha256: '0c85379d4628f3a30c3df5377df95d2fddbefc2eb00e7c8ae0359f7db779c7bc' },
+      'agent-session': { sha256: '57a8e8aed9ba57fc63b5949d20352b0f5fd88e1071a50840d9f05af1ac14f594' },
+      'forge-cli': { sha256: '57d17797367d7b9597f849af4c34a963204d40b3f6f2fe2bb3b858ea49d84d3f' },
+      'git-cli': { sha256: '5c1e8c789928d8568c554f113058c5bd05b1a7702a56076dd4f3e0a6f32cef2c' },
+      'review-specialists': { sha256: '5038f1a438917523969314b3ca6c6189020b6ab5f550a2a55e8e62dd64b6717c' },
+      'semantic-commit': { sha256: '1919018a9753a1ee95b68bf821fd202aab30c9700b9b5da0ff3b76f4d974b1a3' },
     },
   })
   assert.equal(
