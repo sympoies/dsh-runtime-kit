@@ -1334,6 +1334,22 @@ function validatePlanLifecycle(value) {
 }
 
 /**
+ * Read the retained package artifact for a target and authenticate it against
+ * the target's reviewed digest before any consumer extracts or installs it.
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof validateTarget>} target
+ */
+function readVerifiedArtifact(paths, target) {
+  const path = artifactPathFor(paths, target)
+  assertSafeStateFile(path)
+  const archive = readFileSync(path)
+  if (archive.byteLength > MAX_PACKED_PACKAGE_BYTES || sha256(archive) !== target.artifact_sha256) {
+    throw new OperationsError('artifact-drift', 'stored package artifact does not match its reviewed digest')
+  }
+  return { path, archive }
+}
+
+/**
  * Resolve the lifecycle a reviewed target declares. A freshly packed target
  * carries it from inspection; a target known only through its retained
  * artifact (rollback, recovery, migration) is inspected from that exact
@@ -1342,12 +1358,17 @@ function validatePlanLifecycle(value) {
  * @param {ReturnType<typeof validateTarget>} target
  */
 function lifecycleForTarget(paths, target) {
+  // The cache is keyed by target object identity: resolvedTarget seeds it for
+  // every freshly packed target and validateTarget returns its input, so a
+  // setup or update plan hits without re-extracting. Targets known only from
+  // persisted state (rollback, recovery, migration) miss and are inspected
+  // from their retained authenticated archive.
   if (TARGET_LIFECYCLES.has(target)) return /** @type {ReturnType<typeof packageLifecycle>} */ (TARGET_LIFECYCLES.get(target))
-  const artifact = artifactPathFor(paths, target)
-  assertSafeStateFile(artifact)
-  const archive = readFileSync(artifact)
-  if (archive.byteLength > MAX_PACKED_PACKAGE_BYTES || sha256(archive) !== target.artifact_sha256) {
-    throw new OperationsError('artifact-drift', 'stored package artifact does not match its reviewed digest')
+  const { path: artifact, archive } = readVerifiedArtifact(paths, target)
+  try {
+    inspectCanonicalPackageArtifact(archive)
+  } catch {
+    throw new OperationsError('artifact-drift', 'stored package artifact is not a canonical bounded package')
   }
   const extracted = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-lifecycle-'))
   try {
@@ -1615,11 +1636,7 @@ function installSpecForTarget(target, paths, npmBin) {
   const artifactPath = artifactPathFor(paths, target)
   const existing = lstatMaybe(artifactPath)
   if (existing !== null) {
-    assertSafeStateFile(artifactPath)
-    const archive = readFileSync(artifactPath)
-    if (archive.byteLength > MAX_PACKED_PACKAGE_BYTES || sha256(archive) !== target.artifact_sha256) {
-      throw new OperationsError('artifact-drift', 'stored local package artifact does not match its reviewed digest')
-    }
+    readVerifiedArtifact(paths, target)
     return `file:${artifactPath}`
   }
 
@@ -1680,7 +1697,10 @@ function planFor(operation, profile, actual, stateRead, target, action, runtimeR
     package_name: PACKAGE_NAME,
     action,
     target,
-    lifecycle,
+    // A declared lifecycle is bound into the plan; an undeclared target or a
+    // remove plan omits the key so the receipt stays readable by the accepted
+    // baseline engine, whose plan validator predates the binding.
+    ...lifecycle === null ? {} : { lifecycle },
     runtime_root: runtimeRoot,
     toolchain,
     observed: {
@@ -2558,18 +2578,28 @@ function activateStagedAssets(target, runtimeRoot, profile) {
 }
 
 /**
- * Run the declared runtime health probes against the staged asset set before
- * it is activated. The probes see exactly the configuration activation would
- * publish: the staged hook config and policy, the staged docs catalog, and the
- * mutable state roots. A failing probe leaves the native mutation pending and
- * repairable; nothing is activated and no health text enters the prompt.
+ * The executables the health probes run. `dsh` is the resolved host executable
+ * bound by the plan; `agentHook` and `agentDocs` are the companion inputs the
+ * CLI received and are resolved inside the probe so an unavailable companion
+ * is a typed probe failure rather than a crash.
+ * @typedef {{dsh: string, agentHook: string, agentDocs: string | undefined}} HealthExecutables
+ */
+
+/**
+ * Run the declared runtime health probes against the staged asset set. The
+ * probes see exactly the configuration activation would publish: the staged
+ * hook config and policy, the staged docs catalog, and the mutable state
+ * roots. Apply runs them before the native mutation so a failing probe is a
+ * clean typed refusal with nothing mutated; recovery runs them again before it
+ * activates a transaction that was already applied natively. No health text
+ * enters the prompt.
  * @param {ReturnType<typeof pathsFor>} paths
  * @param {ReturnType<typeof validateTarget>} target
  * @param {string} runtimeRoot
  * @param {ReturnType<typeof packageLifecycle>} lifecycle
- * @param {string} dshExecutable
+ * @param {HealthExecutables} executables
  */
-function activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable) {
+function activationHealth(paths, target, runtimeRoot, lifecycle, executables) {
   if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
     throw new OperationsError('activation-staging-failed', 'staged activation assets changed before health verification')
   }
@@ -2581,11 +2611,11 @@ function activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable) 
     /** @type {{ok: boolean, error?: string}} */
     let result
     if (probe === 'dsh-version') {
-      result = dshVersion(dshExecutable, paths.home)
+      result = dshVersion(executables.dsh, paths.home)
     } else if (probe === 'agent-hook-doctor') {
       try {
         const agentHook = resolveAgentHookRuntime({
-          agentHook: resolveExecutable(process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook'),
+          agentHook: resolveExecutable(executables.agentHook),
           agentHookConfig: join(assetRoot, 'agent-hook', 'config.toml'),
           agentHookPolicy: join(assetRoot, 'agent-hook', 'policy.toml'),
           agentHookStateDir: join(runtimeRoot, 'state', 'agent-hook'),
@@ -2596,7 +2626,7 @@ function activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable) 
       }
     } else if (probe === 'agent-docs-version') {
       result = agentDocsDoctor({
-        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+        agentDocs: executables.agentDocs,
         agentDocsHome: join(assetRoot, 'agent-docs'),
         agentDocsStateHome: join(runtimeRoot, 'state', 'agent-docs'),
       }, paths.home, undefined)
@@ -2622,12 +2652,12 @@ function activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable) 
  * @param {string} runtimeRoot
  * @param {string} profile
  * @param {ReturnType<typeof packageLifecycle>} lifecycle
- * @param {string} dshExecutable
+ * @param {HealthExecutables} executables
  */
-function stageActivation(paths, target, runtimeRoot, profile, lifecycle, dshExecutable) {
+function stageActivation(paths, target, runtimeRoot, profile, lifecycle, executables) {
   reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
   stageActivationAssets(paths, target, runtimeRoot)
-  activationHealth(paths, target, runtimeRoot, lifecycle, dshExecutable)
+  activationHealth(paths, target, runtimeRoot, lifecycle, executables)
   return activateStagedAssets(target, runtimeRoot, profile)
 }
 
@@ -3122,8 +3152,16 @@ function duplicateIsTerminal(state, actual, receipt, paths) {
     && snapshotMatches(actual, current, paths)
 }
 
-/** @param {string} operation @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {string} expectedPlanDigest @param {string | undefined} packageInput @param {string} dshInput */
-function applyMutation(operation, profile, paths, expectedPlanDigest, packageInput, dshInput) {
+/**
+ * @param {string} operation
+ * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {string} expectedPlanDigest
+ * @param {string | undefined} packageInput
+ * @param {string} dshInput
+ * @param {{agentHook: string, agentDocs: string | undefined}} companions
+ */
+function applyMutation(operation, profile, paths, expectedPlanDigest, packageInput, dshInput, companions) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
     const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
@@ -3191,6 +3229,16 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
       stageActivationAssets(paths, target, runtimeRoot)
       injectTestFault('after-stage-activation-assets')
+      // Health runs before the pending marker and the native mutation: the
+      // probes need only the staged assets, the companions, and the bound
+      // host, so a failing probe refuses the transaction with nothing mutated.
+      activationHealth(
+        paths,
+        target,
+        runtimeRoot,
+        validatePlanLifecycle(reviewed.plan.lifecycle),
+        { ...companions, dsh: dshBin },
+      )
     }
     const profileBefore = captureProfileSnapshot(paths)
     const pending = pendingState(
@@ -3242,19 +3290,8 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
       ...pending,
       pending: { ...pending.pending, phase: 'native-applied' },
     })
-    if (operation === 'remove') {
-      removeActivation(runtimeRoot)
-    } else {
-      const activationTarget = /** @type {ReturnType<typeof validateTarget>} */ (target)
-      activationHealth(
-        paths,
-        activationTarget,
-        runtimeRoot,
-        validatePlanLifecycle(reviewed.plan.lifecycle),
-        dshBin,
-      )
-      activateStagedAssets(activationTarget, runtimeRoot, profile)
-    }
+    if (operation === 'remove') removeActivation(runtimeRoot)
+    else activateStagedAssets(/** @type {ReturnType<typeof validateTarget>} */ (target), runtimeRoot, profile)
     let observed = readActual(paths)
     let current = null
     if (operation === 'remove') {
@@ -4048,8 +4085,13 @@ function repairPlan(profile, paths, diagnostic) {
   return { plan, plan_digest: sha256(stableJson(plan)) }
 }
 
-/** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof repairPlan>} reviewed */
-function applyRepair(profile, paths, reviewed) {
+/**
+ * @param {string} profile
+ * @param {ReturnType<typeof pathsFor>} paths
+ * @param {ReturnType<typeof repairPlan>} reviewed
+ * @param {HealthExecutables} executables
+ */
+function applyRepair(profile, paths, reviewed, executables) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
     const stateRead = readState(paths.state, profile)
@@ -4106,7 +4148,7 @@ function applyRepair(profile, paths, reviewed) {
           runtimeRoot,
           profile,
           lifecycleForTarget(paths, migratedTarget),
-          resolveExecutable(process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh'),
+          executables,
         )
       }
       atomicWriteJson(paths.state, proposed)
@@ -4190,13 +4232,24 @@ function applyRepair(profile, paths, reviewed) {
       } else {
         const target = validateTarget(pending.target)
         const pendingPlan = /** @type {any} */ (validatePlan(pending.plan, profile))
+        // Finalization activates a package the host already installed, so the
+        // admission decisions the plan recorded must still hold: the live
+        // toolchain must be the one the plan bound, and the package's own
+        // declaration (re-read from its authenticated artifact, never trusted
+        // from the persisted plan) must still admit that host.
+        const plannedToolchain = validateToolchain(pendingPlan.toolchain)
+        const liveToolchain = resolveToolchain(plannedToolchain.dsh.executable, paths.home)
+        if (stableJson(liveToolchain) !== stableJson(plannedToolchain)) {
+          throw new OperationsError('plan-drift', 'DSH or pnpm toolchain changed after the interrupted operation was reviewed')
+        }
+        assertLifecycleCompatibility(lifecycleForTarget(paths, target), liveToolchain)
         stageActivation(
           paths,
           target,
           pending.plan.runtime_root,
           profile,
           validatePlanLifecycle(pendingPlan.lifecycle),
-          validateToolchain(pendingPlan.toolchain).dsh.executable,
+          { ...executables, dsh: liveToolchain.dsh.executable },
         )
         installed = snapshot(actual, target, paths, pending.plan.runtime_root, profile)
         previous = pending.operation === 'update' || pending.operation === 'rollback'
@@ -4357,7 +4410,11 @@ export function main(argv = process.argv.slice(2)) {
         return 0
       }
       if (expected !== planned.plan_digest) throw new OperationsError('plan-drift', 'recovery plan changed after preview')
-      print(envelope(applyRepair(profile, paths, planned)), format)
+      print(envelope(applyRepair(profile, paths, planned, {
+        dsh: dshBin,
+        agentHook: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook',
+        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+      })), format)
       return 0
     }
 
@@ -4396,6 +4453,10 @@ export function main(argv = process.argv.slice(2)) {
       /** @type {string} */ (expected),
       parsed.values.package,
       process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh',
+      {
+        agentHook: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook',
+        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
+      },
     )), format)
     return 0
   } catch (error) {

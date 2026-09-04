@@ -2745,10 +2745,16 @@ snapshots:
     const doctor = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(doctor.value.data.recovery.action, 'restore-collateral')
     const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
+    // Restoring the exact prior activation re-publishes a set that already
+    // passed its own health gate, so a companion that fails now must not turn
+    // collateral recovery into a second failure.
+    const healthMarker = join(subject.root, 'fail-agent-hook-doctor')
+    writeFileSync(healthMarker, '')
     const rejected = run(subject, [
       'doctor', '--profile', 'work', '--repair', '--apply',
       '--expected-plan-digest', repair.value.data.plan_digest,
     ])
+    unlinkSync(healthMarker)
     assert.equal(rejected.status, 65)
     assert.equal(rejected.value.error.code, 'native-dsh-collateral-mutation')
 
@@ -3741,7 +3747,7 @@ test('a package without a lifecycle declaration installs under the engine compat
   try {
     const undeclared = stageBundle(subject.root, '0.9.0', { lifecycle: false })
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', undeclared])
-    assert.equal(setup.preview.plan.lifecycle, null)
+    assert.equal(Object.hasOwn(setup.preview.plan, 'lifecycle'), false)
     const doctor = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(doctor.status, 0, `${doctor.stdout}\n${doctor.stderr}`)
     assert.equal(doctor.value.data.lifecycle.declared, false)
@@ -3751,14 +3757,15 @@ test('a package without a lifecycle declaration installs under the engine compat
     const update = applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
     assert.equal(update.preview.plan.lifecycle.schema_version, 'dsh-runtime-kit.profile-lifecycle.v1')
     const rollback = applyPlan(subject, ['rollback', '--profile', 'work'])
-    assert.equal(rollback.preview.plan.lifecycle, null)
+    assert.equal(Object.hasOwn(rollback.preview.plan, 'lifecycle'), false)
+    assert.equal(Object.hasOwn(readOperationsState(subject).last_applied.plan, 'lifecycle'), false)
     assert.equal(readOperationsState(subject).current.installed_version, '0.9.0')
   } finally {
     subject.cleanup()
   }
 })
 
-test('declared health probes run against the staged asset set before activation and a failing probe leaves a repairable transaction', () => {
+test('declared health probes run against the staged asset set before the native mutation and a failing probe refuses the transaction with nothing mutated', () => {
   const subject = fixture()
   const marker = join(subject.root, 'fail-agent-hook-doctor')
   const calls = () => readFileSync(join(subject.root, 'agent-hook-doctor-calls.jsonl'), 'utf8')
@@ -3766,6 +3773,7 @@ test('declared health probes run against the staged asset set before activation 
   try {
     const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
     assert.equal(preview.status, 0, preview.stderr)
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
     writeFileSync(marker, '')
     const failed = run(subject, [
       'setup', '--profile', 'work', '--package', subject.v1,
@@ -3774,62 +3782,50 @@ test('declared health probes run against the staged asset set before activation 
     assert.equal(failed.status, 65, `${failed.stdout}\n${failed.stderr}`)
     assert.equal(failed.value.error.code, 'activation-health-failed')
     assert.equal(failed.value.error.details.probe, 'agent-hook-doctor')
+    // Nothing was mutated: no native install, no receipt, no activation.
+    assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules', '@sympoies', 'dsh-runtime-kit')), false)
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
     assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    // The probe saw exactly the staged configuration activation would have
+    // published; the refused transaction then collected the unreferenced set.
     const assetSet = preview.value.data.plan.target.assets.asset_set_sha256
-    const stagedConfig = join(subject.runtimeRoot, 'assets', assetSet, 'agent-hook', 'config.toml')
-    assert.equal(existsSync(stagedConfig), true)
+    const canonicalRoot = realpathSync(subject.runtimeRoot)
     assert.deepEqual(calls().at(-1), {
-      config: realpathSync(stagedConfig),
-      policy: realpathSync(join(subject.runtimeRoot, 'assets', assetSet, 'agent-hook', 'policy.toml')),
-      state_dir: realpathSync(join(subject.runtimeRoot, 'state', 'agent-hook')),
+      config: join(canonicalRoot, 'assets', assetSet, 'agent-hook', 'config.toml'),
+      policy: join(canonicalRoot, 'assets', assetSet, 'agent-hook', 'policy.toml'),
+      state_dir: join(canonicalRoot, 'state', 'agent-hook'),
     })
-    const pendingState = readOperationsState(subject)
-    assert.equal(pendingState.pending.phase, 'native-applied')
-    assert.equal(pendingState.current, null)
-
+    assert.equal(existsSync(join(subject.runtimeRoot, 'assets', assetSet)), false)
     const doctor = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(doctor.status, 65)
-    assert.equal(doctor.value.data.recovery.action, 'finalize')
-    assert.equal(doctor.value.data.lifecycle.surfaces.generated['activation-manifest'], 'missing')
-    const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
-    assert.equal(repair.status, 0, repair.stderr)
-    const stillFailing = run(subject, [
-      'doctor', '--profile', 'work', '--repair', '--apply',
-      '--expected-plan-digest', repair.value.data.plan_digest,
-    ])
-    assert.equal(stillFailing.status, 65, `${stillFailing.stdout}\n${stillFailing.stderr}`)
-    assert.equal(stillFailing.value.error.code, 'activation-health-failed')
-    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
-    assert.deepEqual(readOperationsState(subject), pendingState)
+    assert.equal(doctor.value.data.recovery, null)
+    assert.equal(doctor.value.data.owned_status, 'absent')
 
     unlinkSync(marker)
-    const recovered = run(subject, [
-      'doctor', '--profile', 'work', '--repair', '--apply',
-      '--expected-plan-digest', repair.value.data.plan_digest,
+    const applied = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
     ])
-    assert.equal(recovered.status, 0, `${recovered.stdout}\n${recovered.stderr}`)
+    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
     assert.equal(
       JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
       '1.0.0',
     )
-    const finalState = readOperationsState(subject)
-    assert.equal(finalState.pending, null)
-    assert.equal(finalState.current.installed_version, '1.0.0')
-    assert.equal(finalState.last_applied.recovered, true)
-    const healthy = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(healthy.status, 0, healthy.stderr)
-    assert.equal(healthy.value.data.status, 'healthy')
+    assert.equal(readOperationsState(subject).pending, null)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.status, 'healthy')
   } finally {
     subject.cleanup()
   }
 })
 
-test('an update whose health probe fails keeps the previous activation and can be finalized after repair', () => {
+test('an update whose health probe fails is refused before mutation and keeps the previous package and activation', () => {
   const subject = fixture()
   const marker = join(subject.root, 'fail-agent-hook-doctor')
   try {
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
     const firstSet = setup.preview.plan.target.assets.asset_set_sha256
+    const stateBefore = readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'))
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
     const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
     writeFileSync(marker, '')
     const failed = run(subject, [
@@ -3841,9 +3837,78 @@ test('an update whose health probe fails keeps the previous activation and can b
     const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
     assert.equal(activation.package_version, '1.0.0')
     assert.equal(activation.asset_set_sha256, firstSet)
+    assert.deepEqual(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), stateBefore)
+    assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    assert.equal(readOperationsState(subject).current.installed_version, '1.0.0')
     unlinkSync(marker)
+    const applied = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v2,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+    assert.equal(
+      JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
+      '2.0.0',
+    )
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('recovery finalization repeats the health probes and re-checks the bound toolchain before activating an already applied package', () => {
+  const subject = fixture()
+  const marker = join(subject.root, 'fail-agent-hook-doctor')
+  try {
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(preview.status, 0, preview.stderr)
+    writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+    const interrupted = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(interrupted.status, 70, `${interrupted.stdout}\n${interrupted.stderr}`)
+    assert.equal(interrupted.value.error.code, 'native-dsh-failed')
+    unlinkSync(join(subject.home, 'fail-after-mutation'))
+    const pendingState = readOperationsState(subject)
+    assert.equal(pendingState.pending.phase, 'prepared')
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.recovery.action, 'finalize')
+    assert.equal(doctor.value.data.lifecycle.surfaces.generated['activation-manifest'], 'missing')
     const repair = run(subject, ['doctor', '--profile', 'work', '--repair'])
     assert.equal(repair.status, 0, repair.stderr)
+
+    // A companion that fails now refuses finalization and leaves the pending
+    // transaction untouched.
+    writeFileSync(marker, '')
+    const unhealthy = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(unhealthy.status, 65, `${unhealthy.stdout}\n${unhealthy.stderr}`)
+    assert.equal(unhealthy.value.error.code, 'activation-health-failed')
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    assert.deepEqual(readOperationsState(subject), pendingState)
+    unlinkSync(marker)
+
+    // A host that changed after the plan was reviewed is plan drift, even to
+    // another release this engine reviews, so the declared compatibility
+    // recorded at preview cannot be bypassed by finalization.
+    const source = readFileSync(subject.dsh, 'utf8')
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.2-rc.1')", "console.log('0.1.2-alpha.4')"))
+    chmodSync(subject.dsh, 0o755)
+    const drifted = run(subject, [
+      'doctor', '--profile', 'work', '--repair', '--apply',
+      '--expected-plan-digest', repair.value.data.plan_digest,
+    ])
+    assert.equal(drifted.status, 65, `${drifted.stdout}\n${drifted.stderr}`)
+    assert.equal(drifted.value.error.code, 'plan-drift')
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    assert.deepEqual(readOperationsState(subject), pendingState)
+    writeFileSync(subject.dsh, source)
+    chmodSync(subject.dsh, 0o755)
+
     const recovered = run(subject, [
       'doctor', '--profile', 'work', '--repair', '--apply',
       '--expected-plan-digest', repair.value.data.plan_digest,
@@ -3851,11 +3916,12 @@ test('an update whose health probe fails keeps the previous activation and can b
     assert.equal(recovered.status, 0, `${recovered.stdout}\n${recovered.stderr}`)
     assert.equal(
       JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')).package_version,
-      '2.0.0',
+      '1.0.0',
     )
-    const state = readOperationsState(subject)
-    assert.equal(state.current.installed_version, '2.0.0')
-    assert.equal(state.previous.installed_version, '1.0.0')
+    const finalState = readOperationsState(subject)
+    assert.equal(finalState.pending, null)
+    assert.equal(finalState.last_applied.recovered, true)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.status, 'healthy')
   } finally {
     subject.cleanup()
   }
@@ -3959,6 +4025,33 @@ test('doctor reports every declared owned and generated surface', () => {
     const drifted = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(drifted.value.data.owned_status, 'drift')
     assert.equal(drifted.value.data.lifecycle.surfaces.owned['installed-package'], 'altered')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a rollback plan binds the lifecycle declared by the retained prior artifact', () => {
+  const subject = fixture()
+  try {
+    const narrow = stageBundle(subject.root, '1.0.1', { dshReleases: ['0.1.2-rc.1'] })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', narrow])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const rollback = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(rollback.status, 0, rollback.stderr)
+    assert.deepEqual(rollback.value.data.plan.lifecycle.dsh_releases, ['0.1.2-rc.1'])
+    assert.equal(
+      rollback.value.data.plan.lifecycle.sha256,
+      sha256(readFileSync(join(narrow, 'compatibility', 'profile-lifecycle.json'))),
+    )
+
+    // A host the prior package never declared refuses rollback at preview.
+    const source = readFileSync(subject.dsh, 'utf8')
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.2-rc.1')", "console.log('0.1.2-alpha.4')"))
+    chmodSync(subject.dsh, 0o755)
+    const refused = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)
+    assert.equal(refused.value.error.code, 'package-incompatible-dsh')
+    assert.equal(readOperationsState(subject).current.installed_version, '2.0.0')
   } finally {
     subject.cleanup()
   }

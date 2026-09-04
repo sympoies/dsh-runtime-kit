@@ -173,17 +173,28 @@ declares in its `compatibility/dsh.json`; a mismatch fails as
 `package-incompatible-dsh` at preview, with the profile, lockfile, and receipts
 untouched, instead of installing a bundle the host would reject at boot.
 
-Runtime health is part of the transaction. After DSH has applied the native
-mutation and before the new asset set is activated, the declared probes run
-against the staged assets: `dsh-version` (the bound host is an exact reviewed
-release), `agent-hook-doctor` (the staged hook config and policy authenticate
-and delegate DSH registration to runtime-kit), and `agent-docs-version` (the
-staged catalog and the released `agent-docs` executable are in the validated
-range). A failing probe fails the apply as `activation-health-failed`, leaves
-the previous activation in place, records the transaction as pending in the
-`native-applied` phase, and never places diagnostic text in a prompt. Repair
-the companions, then finalize through the ordinary previewed `doctor --repair`;
-finalization repeats the probes before it activates.
+Runtime health is part of the transaction. After the new asset set has been
+staged and before the pending marker and the native DSH mutation, the declared
+probes run against the staged assets: `dsh-version` (the bound host is an exact
+reviewed release), `agent-hook-doctor` (the staged hook config and policy
+authenticate and delegate DSH registration to runtime-kit), and
+`agent-docs-version` (the staged catalog and the released `agent-docs`
+executable are in the validated range). Apply therefore requires the same
+companion pins as `doctor` (`DSH_RUNTIME_KIT_AGENT_HOOK_BIN`,
+`DSH_RUNTIME_KIT_AGENT_DOCS_BIN`); a missing, unauthenticated, or out-of-range
+companion fails the apply as `activation-health-failed` with the profile,
+lockfile, receipts, and previous activation untouched and the staged set
+collected, and never places diagnostic text in a prompt. A transaction that was
+already applied natively (an interruption after the mutation) is finalized
+through the ordinary previewed `doctor --repair`; finalization repeats the
+probes, requires the live DSH and pnpm toolchain to equal the one the pending
+plan bound (`plan-drift` otherwise), and re-reads the package's own
+declaration from its authenticated artifact before it activates.
+
+Receipts written for a declared package carry the `lifecycle` binding and are
+readable only by engines at or after this change; receipts for an undeclared
+package and for `remove` omit the key and remain readable by the accepted
+baseline engine.
 
 Migrations are declared by state schema. The only declared migration,
 `operations-state-v1-to-v2`, runs exactly once through the reviewed
@@ -194,9 +205,15 @@ again, and a replay of the consumed plan digest is rejected. `update`,
 until that reviewed migration has been applied.
 
 `doctor` reports the installed declaration and the state of every declared
-surface as `present`, `altered`, `missing` (a receipt expects it), or `absent`
-(nothing expects it), plus the declared and pending migrations. Detection never
-writes; the digest-reviewed repair path remains the only mutation.
+surface, plus the declared and pending migrations. Profile surfaces
+(`dependency`, `bundle`, `installed-package`) and generated surfaces are
+`present`, `altered`, `missing` (a version 2 receipt expects them), or `absent`
+(nothing expects them); the lockfile projection and the home surfaces
+(`operations-state`, `operations-lock`, `artifact-store`) are reported only as
+`present` or `absent`; generated surfaces are `unknown` when no runtime root
+can be resolved; and a profile still on legacy version 1 state is reported
+without receipt expectation because its receipt must migrate first. Detection
+never writes; the digest-reviewed repair path remains the only mutation.
 
 ## Inspect and run
 

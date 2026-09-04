@@ -741,10 +741,14 @@ validates it against the fixed vocabulary it implements (malformed is
 `lifecycle-scripts-declared`), binds its digest into the reviewed plan, refuses
 a package whose declared DSH releases exclude the bound host before any
 mutation (`package-incompatible-dsh`), and runs the declared health probes
-against the staged asset set after the native mutation and before activation
-(`activation-health-failed` leaves a pending, repairable transaction and the
-previous activation). A package without a declaration is admitted under the
-engine's own compatibility manifest and reported as undeclared.
+against the staged asset set before the pending marker and the native
+mutation (`activation-health-failed` refuses the transaction with nothing
+mutated). Recovery finalization of a transaction the host already applied
+repeats the probes, requires the live toolchain to equal the bound one, and
+re-reads the declaration from the authenticated artifact. A package without a
+declaration is admitted under the engine's own compatibility manifest and
+reported as undeclared, and its receipts omit the lifecycle key so the accepted
+baseline engine can still read them.
 
 `src/operations/index.js` is an out-of-process management plane and never edits
 DSH profile JSON or its bundle list. It resolves one strict profile name and one
