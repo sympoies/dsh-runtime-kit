@@ -260,6 +260,16 @@ function parsePackageArtifact(tarball) {
 }
 
 /**
+ * The bounded regular-file entries of one package archive, for callers that
+ * must verify an already-extracted tree still equals the authenticated bytes.
+ * @param {Buffer} tarball
+ * @returns {ReadonlyArray<{path: string, mode: number, bytes: Buffer}>}
+ */
+export function packageArtifactEntries(tarball) {
+  return Object.freeze(parsePackageArtifact(tarball).entries.map(entry => Object.freeze({ ...entry })))
+}
+
+/**
  * Hash semantic package contents rather than nondeterministic gzip bytes or
  * package.json object insertion order.
  * @param {Buffer} tarball

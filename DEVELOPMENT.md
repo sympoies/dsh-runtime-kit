@@ -71,7 +71,10 @@ the source-of-truth list below; they are not automatic model context.
 - `policy/runtime-rule-parity.yaml` owns the current migration projection. It
   does not create a JavaScript policy engine or make a capability executable.
 - `docs/architecture.md` owns runtime design and trust-boundary rationale.
-- `docs/operations.md` owns activation and operator procedures.
+- `docs/operations.md` owns activation and operator procedures, including the
+  repository-owned generic deploy dispatcher `.agents/scripts/deploy.sh`
+  (implemented in `src/deploy/index.js`) that the shared `meta:deploy` skill
+  invokes through `agent-run exec --cwd <repo> -- ./.agents/scripts/deploy.sh`.
 - `docs/acceptance.md` owns the current local-rehearsal and final-promotion
   acceptance boundary.
 - `docs/test-first-evidence.md` and `docs/devlog/` retain evidence and history;
@@ -195,7 +198,8 @@ npm run test:smoke
 The smoke must not contact or mutate an external provider. It may create
 temporary local profiles and managed worktrees under its disposable test root.
 
-The independent operations smoke requires two complete staged package variants:
+The independent operations smoke requires two complete staged package variants
+and the repository-owned deploy dispatcher it drives through real DSH:
 
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
@@ -203,8 +207,12 @@ AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1=/path/to/package-v1 \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2=/path/to/package-v2 \
+DSH_RUNTIME_KIT_DEPLOY_DISPATCHER=/path/to/checkout/.agents/scripts/deploy.sh \
 npm run test:operations-smoke
 ```
+
+`npm run acceptance` supplies all of them from the packed candidate and the
+source checkout.
 
 ## Compatibility validation
 

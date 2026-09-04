@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 
-test('issue 63 rollback is pinned to the exact accepted alpha.4 promotion baseline', () => {
+test('issue 79 rollback is pinned to the exact accepted issue 64 baseline', () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
@@ -62,16 +62,15 @@ test('issue 63 rollback is pinned to the exact accepted alpha.4 promotion baseli
     manifest.candidate_validation?.source_commit,
     '81be602378e3790e042aae5000befd78c1d584bc',
   )
-  // #66 and Gate 0 select the serial predecessor. The DSH 0.1.2-rc.1 promotion
-  // (main f7e9d36) is the last accepted main state before #64 that admits the
-  // pinned rc.1 host, so it is the executable rollback baseline; the Issue 63
-  // package only admits alpha.4, rc.8, and rc.2. The package identity is the
-  // hosted acceptance artifact (npm 11.19.0 pack under Node 24.16.0,
-  // recompressed by the authenticated zlib-ng helper), not raw `npm pack`
-  // output. This assertion freezes that reviewed selection for #64; it does
-  // not discover a future child baseline.
+  // #66 and Gate 0 select the serial predecessor. The Issue 64 acceptance
+  // (main aee0089f) admits the pinned rc.1 host, so it is the executable
+  // rollback baseline for #79. The package identity is the hosted acceptance
+  // artifact (npm 11.19.0 pack under Node 24.16.0, recompressed by the
+  // authenticated zlib-ng helper), not raw `npm pack` output. This assertion
+  // freezes that reviewed selection for #79; it does not discover a future
+  // child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: '6b61d8f9b52447b9965a297c30516c47fce9131a9551d9f2a8cbf2f370e5f233',
+    runtime_package_sha256: '188e9dca11f1fdfa98130a7e005624539608e1ae587328a4101a48e33ed37c4c',
     version: '1.27.37',
     source_revision: 'v1.27.37',
     source_commit: '3fd3a9bd089247405ec2be219234a7a24f54a98c',

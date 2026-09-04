@@ -221,7 +221,8 @@ for its ownership model and current limitations.
 ## Documentation
 
 - [Documentation index](docs/README.md)
-- [Operations](docs/operations.md)
+- [Operations](docs/operations.md), including the repository-owned generic
+  deploy dispatcher `.agents/scripts/deploy.sh`
 - [Architecture and runtime contract](docs/architecture.md)
 - [Native runtime health](docs/runtime-health.md)
 - [Composition contracts](docs/composition-contracts.md)

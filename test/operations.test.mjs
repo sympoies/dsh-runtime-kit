@@ -286,6 +286,11 @@ if (verb === 'add') {
   if (packageManifest.name !== packageName) process.exit(92)
 } else if (verb === 'remove') {
   delete manifest.dependencies[packageName]
+  // pnpm drops an emptied dependencies object from the profile manifest when
+  // runtime-kit was the only dependency the profile ever had.
+  if (existsSync(join(home, 'prune-empty-dependencies')) && Object.keys(manifest.dependencies).length === 0) {
+    delete manifest.dependencies
+  }
   manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(value => value !== packageName)
   if (!existsSync(join(home, 'retain-installed-entry'))) {
     rmSync(installed, { recursive: true, force: true })
@@ -908,6 +913,31 @@ test('managed operations reject a supplied runtime root that differs from persis
     } finally {
       subject.cleanup()
     }
+  }
+})
+
+test('remove accepts pnpm dropping the emptied dependencies object from a profile runtime-kit initialized', () => {
+  const subject = fixture()
+  try {
+    // A profile DSH has never initialized: setup creates it through the native
+    // mutation, so runtime-kit is its only dependency.
+    writeFileSync(join(subject.home, 'prune-empty-dependencies'), '')
+    const profileDir = join(subject.home, 'profiles', 'solo')
+    assert.equal(existsSync(profileDir), false)
+    applyPlan(subject, ['setup', '--profile', 'solo', '--package', subject.v1])
+    const installed = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+    assert.deepEqual(Object.keys(installed.dependencies), ['@sympoies/dsh-runtime-kit'])
+
+    const removed = applyPlan(subject, ['remove', '--profile', 'solo'])
+    assert.equal(removed.applied.mode, 'applied')
+    const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+    assert.equal(manifest.dependencies, undefined, 'pnpm removed the emptied dependencies object')
+    assert.deepEqual(manifest.dsh.profile.bundles, [])
+    const state = JSON.parse(readFileSync(join(subject.home, 'runtime-kit', 'state', 'solo.json'), 'utf8'))
+    assert.equal(state.current, null)
+    assert.equal(state.pending, null)
+  } finally {
+    subject.cleanup()
   }
 })
 

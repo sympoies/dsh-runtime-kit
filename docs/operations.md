@@ -338,6 +338,118 @@ Repair is digest-reviewed and writes only evidence it can authenticate. It does
 not adopt arbitrary ownerless trees, guess between ambiguous phases, or rewrite
 unrelated DSH configuration.
 
+## Generic deployment dispatcher
+
+`.agents/scripts/deploy.sh` is the repository-owned target of the shared
+`meta:deploy` skill, which invokes it as
+`agent-run exec --cwd <repo> -- ./.agents/scripts/deploy.sh <args>`. It is a
+thin dispatcher over the preview/apply protocol above: it binds an explicit
+deployment scope, hands the request to the operations engine through the owner
+launcher, and records a bounded receipt. It owns no activation, rollback,
+package, lifecycle, or health decision; every refusal about the profile, the
+artifact identity, the declared lifecycle, or the host comes from the engine
+and is surfaced unchanged as `engine-refused` with the engine's own code and
+exit status.
+
+```sh
+./.agents/scripts/deploy.sh --help
+./.agents/scripts/deploy.sh --phase setup --profile headless \
+  --dsh-home /absolute/dsh-home --runtime-root /absolute/dsh-runtime \
+  --dsh-bin /absolute/bin/dsh \
+  --agent-hook-bin /absolute/nils/bin/agent-hook \
+  --agent-docs-bin /absolute/nils/bin/agent-docs \
+  --artifact /absolute/sympoies-dsh-runtime-kit-<version>.tgz \
+  --artifact-sha256 <64 hex> \
+  --receipt /absolute/receipts/setup-preview.json
+```
+
+The scope is explicit and complete or the dispatcher refuses before anything
+runs: `--phase` (`setup`, `doctor`, `update`, `rollback`, `remove`, or
+`repair`), `--profile`, `--dsh-home`, `--runtime-root` (an existing owner-only
+directory disjoint from Codex and Claude homes, exactly as the launcher
+requires), and `--dsh-bin` are required; the ambient `DSH_HOME` and every `DSH_RUNTIME_KIT_*` variable are
+ignored rather than inherited, and the DSH executable is never resolved from
+`PATH`. Each missing or malformed input is a typed usage error (exit 64), for
+example `missing-dsh-home`, `invalid-phase`, `unexpected-artifact`, or
+`expected-plan-digest-required`. `--help` prints the contract and touches
+nothing.
+
+`setup` and `update` deploy one immutable artifact: the packed `.tgz` named by
+`--artifact` together with its `--artifact-sha256`. The dispatcher reads the
+file, refuses a digest mismatch (`artifact-digest-mismatch`, exit 65) or an
+archive that is not a bounded `@sympoies/dsh-runtime-kit` package
+(`artifact-invalid`) without staging or invoking anything, and otherwise makes
+the digest-keyed stage `<stage-root>/<sha256>/package` equal to the archive
+bytes. The stage root defaults to `$XDG_CACHE_HOME/dsh-runtime-kit/deploy-stage`
+(`--stage-root` overrides it) and must be an owner-only directory; a stage root
+that is shared, not owned, or cannot be written is refused as
+`stage-unavailable`, and so is a symlink or non-directory planted where the
+stage root, the digest directory, or its `package` entry belongs, because the
+dispatcher checks every stage path before it creates, removes, or writes
+through it and never follows a link. The path is deterministic so that the preview and the
+later apply bind the same local target; a stage whose files no longer equal
+the artifact is rebuilt from the authenticated bytes before the engine sees it,
+so the reviewed plan digest always binds exactly the artifact that was
+previewed. The stage root is a rebuildable cache: one directory per artifact
+digest, never pruned by the dispatcher, safe to delete at any time. The other
+phases refuse `--artifact`.
+
+`setup` may target a profile DSH has never initialized: the native mutation
+creates it with DSH's own base composition, and a later `remove` leaves that
+base composition behind. pnpm drops the emptied `dependencies` object from such
+a profile when runtime-kit, its only dependency, is removed; the engine's
+collateral classifier treats the absent and the empty object as the same
+unowned manifest, so the removal completes instead of being refused as
+collateral.
+
+Every phase is a non-mutating preview by default; `doctor` is an inspection.
+Applying requires the exact plan digest the unchanged preview reported:
+`--apply --expected-plan-digest <digest>`. A successful preview receipt carries
+`resume.apply_argv`, the complete argument vector (minus `--receipt`, plus the
+stage root that was defaulted from the environment) that applies that plan, so
+an operator or a later session can resume under any environment without
+reconstructing the scope. Cancellation, interruption, retry, and rollback are
+the engine's: the dispatcher adds no locks, pending markers, or receipts of its
+own, and `--phase repair` maps to the engine's digest-reviewed
+`doctor --repair`.
+
+The dispatcher prints one `cli.dsh-runtime-kit.deploy.v1` JSON envelope whose
+`data` is a `dsh-runtime-kit.deploy-receipt.v1` record: the phase and mode
+(`preview`, `apply`, or `inspect`), the scope, the profile, DSH home, runtime
+root and executables, the artifact identity and stage, the bound `plan_digest`,
+a bounded `engine` summary (engine root and version, envelope schema, exit
+code, mode, action, target identities, or the doctor status), and timestamps.
+`--receipt <absolute path>` also persists it atomically with mode `0600`
+(parent directories `0700`); a phase that fails after its scope was bound
+persists an `ok: false` receipt carrying the typed error, while a usage
+refusal (exit 64) writes nothing because no scope exists yet. Raw command
+output, environment, and full plan bodies never enter a receipt. An
+`engine-unavailable` result after `--apply` means the engine process was
+killed or could not run; preview `--phase repair` next, because the engine may
+have left a pending transaction it can finish or roll back.
+
+Three deployments are deliberately distinct:
+
+- **Generic deployment** is the dispatcher above against any explicitly named
+  DSH home and profile.
+- **Candidate canary acceptance** is generic deployment in the default
+  `--scope canary`, which refuses the default DSH home (`~/.dsh`) and the
+  caller's ambient `DSH_HOME` with `primary-home-requires-primary-scope`, so
+  candidate acceptance into a disposable clean profile can never touch a live
+  profile by accident. The packed acceptance's operations leg runs the
+  dispatcher this way through real DSH for `update`, `doctor`, `rollback`, and
+  a refused mismatched artifact.
+- **Primary-profile activation** requires `--scope primary --authorized-by
+  <identity>`; the identity is recorded in the receipt as `authorized_by`. The
+  dispatcher grants no authority of its own: it only refuses to perform a
+  live-profile change that nobody named.
+
+The engine is the checkout's own operations plane. `--engine-root` selects
+another installed `@sympoies/dsh-runtime-kit` tree that carries
+`bin/dsh-runtime-kit.js` and `bin/dsh-runtime-kit-launch.js` — the packed
+candidate inside the acceptance sandbox, whose source checkout has no installed
+dependencies — and the receipt records which engine root and version ran.
+
 ## Runtime assets and state
 
 The package copies its DSH policy and compact `agent-docs/` catalog into a

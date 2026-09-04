@@ -701,7 +701,13 @@ function commitRestoredState(path, stateRead) {
 /** @param {string} raw */
 function unownedManifest(raw) {
   const manifest = JSON.parse(raw)
-  if (plainRecord(manifest.dependencies)) delete manifest.dependencies[PACKAGE_NAME]
+  if (plainRecord(manifest.dependencies)) {
+    delete manifest.dependencies[PACKAGE_NAME]
+    // pnpm drops the dependencies object once its last entry is removed, so a
+    // profile whose only dependency was runtime-kit projects to the same
+    // unowned manifest whether the empty object is present or absent.
+    if (Object.keys(manifest.dependencies).length === 0) delete manifest.dependencies
+  }
   if (plainRecord(manifest.dsh) && plainRecord(manifest.dsh.profile)
     && Array.isArray(manifest.dsh.profile.bundles)) {
     manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.filter(
