@@ -4094,6 +4094,30 @@ test('a lone unsafe default delivery denial gives an immediate inspection retry'
   assert.equal(delegated, false)
 })
 
+test('a lone denial with nils context promotes that context over the runtime-kit fallback', async () => {
+  const context = 'Use the governed delivery path for this change.'
+  const subject = harness({
+    envelope: decision('block', {
+      context,
+      reasons: [{
+        rule_id: 'dsh.block-unsafe-default-delivery',
+        code: 'block-unsafe-default-delivery',
+        disposition: 'block',
+      }],
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+
+  assert.equal(result.kind, 'deny')
+  const lines = result.reason.split('\n')
+  assert.equal(lines[0], `agent-hook:block-unsafe-default-delivery — ${context}`)
+  assert.doesNotMatch(result.reason, /one read-only command per Bash call/i)
+  assert.doesNotMatch(result.reason, /No operator intervention is required/i)
+  assert.equal(result.reason.split(context).length, 2)
+  assert.equal(delegated, false)
+})
+
 test('downstream pre-execute exceptions preserve their exact rc.7 failure', async () => {
   const subject = harness()
   const distinctive = new Error('distinctive downstream pre-execute failure')

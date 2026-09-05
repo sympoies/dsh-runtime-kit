@@ -41,7 +41,7 @@ import {
   createArtifactTools,
 } from '../src/artifacts/index.js'
 import { LocalArtifactProvider } from '../src/artifacts/local-provider.js'
-import { MemoryArtifactProvider } from '../src/artifacts/memory-provider.js'
+import { MemoryArtifactProvider } from './helpers/memory-artifact-provider.mjs'
 
 const testSignal = new AbortController().signal
 const DSH_SCHEMA_KEYWORDS = new Set([

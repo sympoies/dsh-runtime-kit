@@ -19,7 +19,6 @@ import {
   WorkspaceLease,
   WorkspaceLeaseError,
   WorkspaceLeaseInvalidRefError,
-  trackQuarantineCapabilities,
 } from '@sympoies/dsh-runtime-kit/workspace-lease'
 
 const testSignal = new AbortController().signal
@@ -890,25 +889,6 @@ test('a failed completion loses only its own repository and cancels its owner', 
     [['workspace:key:repo-a', 'succeeded'], ['workspace:key:repo-b', 'succeeded']],
     'each repository records exactly one terminal outcome attempt',
   )
-})
-
-test('a quarantine capability registration remains identity-exact', async () => {
-  const { selected } = provider()
-  const ctx = await harness(selected)
-  const definition = echoTool()
-  ctx.tools.register(definition)
-
-  const stop = trackQuarantineCapabilities(ctx, ctx.workspaceLease, ['echo'])
-  assert.throws(
-    () => ctx.workspaceLease.registerQuarantineCapability({ ...definition }),
-    error => error instanceof WorkspaceLeaseError
-      && /not a registered global tool/.test(error.message),
-  )
-  assert.throws(
-    () => trackQuarantineCapabilities(ctx, ctx.workspaceLease, []),
-    TypeError,
-  )
-  stop()
 })
 
 test('acquisition never overlaps the release of the generation it replaces', async () => {

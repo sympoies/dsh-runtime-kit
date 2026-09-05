@@ -102,7 +102,7 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 The launcher verifies the root, authenticates the current activation manifest,
 exports the exact versioned hook and agent-docs paths, and replaces itself with
 the requested long-lived command. Do not store activation variables in
-`$DSH_HOME/.env`; DSH rc.7 intentionally rejects that bootstrap path.
+`$DSH_HOME/.env`; DSH intentionally rejects that bootstrap path.
 
 ## Preview and apply
 

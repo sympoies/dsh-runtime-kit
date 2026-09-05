@@ -985,23 +985,9 @@ export async function installNilsHealthProviders(ctx, health, config, options) {
         if (!validDoctor(doctorValue)) {
           throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_AGENT_HOOK_INVALID')
         }
-
-        const version = await runAuthenticatedHealthCommand(
-          executionOwner,
-          ctx,
-          docs,
-          [docs.path, '--version'],
-          runtimeCwd,
-          signal,
-          commandQuiescenceMs,
-          options.beforeCommandSpawn,
-        )
-        const escapedVersion = compatibility.version.replaceAll('.', '\\.')
-        if (version.outcome.exitCode !== 0 || version.outcome.signal !== null
-          || !new RegExp(`^agent-docs ${escapedVersion} \\([^\\r\\n]+\\)$`, 'u')
-            .test(version.stdout.trim())) {
-          throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_AGENT_DOCS_INVALID')
-        }
+        // The agent-docs executable is already authenticated byte-for-byte
+        // against the released compatibility digest above; a version banner
+        // would only re-prove what that digest proves.
         return { state: /** @type {const} */ ('ready'), code: 'DSH_RUNTIME_HEALTH_RUNTIME_READY' }
       } catch (error) {
         return blocked(error, signal, 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')

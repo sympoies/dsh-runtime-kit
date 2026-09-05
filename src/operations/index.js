@@ -2973,10 +2973,7 @@ function legacyMigrationPlan(profile, paths, actual, stateRead, runtimeRoot) {
   }
   const state = stateRead.value
   if (state.pending !== null) {
-    throw new OperationsError(
-      'legacy-pending-recovery-unsupported',
-      'legacy pending state cannot be inferred safely; recover with the exact base CLI or restore an authenticated backup',
-    )
+    throw legacyPendingUnsupported()
   }
   const currentLegacy = state.current === null ? null : validateLegacySnapshot(state.current)
   const previousLegacy = state.previous === null ? null : validateLegacySnapshot(state.previous)
@@ -4004,15 +4001,20 @@ function ownerlessAdoptionPlan(profile, paths, runtimeRoot) {
   return { plan, plan_digest: sha256(stableJson(plan)) }
 }
 
+/** A v1 pending marker has no recoverable phase vocabulary; the base CLI or a backup owns it. */
+function legacyPendingUnsupported() {
+  return new OperationsError(
+    'legacy-pending-recovery-unsupported',
+    'legacy pending state cannot be inferred safely; recover with the exact base CLI or restore an authenticated backup',
+  )
+}
+
 /** @param {string} profile @param {ReturnType<typeof pathsFor>} paths @param {ReturnType<typeof diagnose>} diagnostic */
 function repairPlan(profile, paths, diagnostic) {
   const recovery = /** @type {any} */ (diagnostic.recovery)
   if (recovery === null) throw new OperationsError('repair-not-required', 'doctor found no interrupted operation', 64)
   if (recovery.action === 'legacy-pending') {
-    throw new OperationsError(
-      'legacy-pending-recovery-unsupported',
-      'legacy pending state cannot be inferred safely; recover with the exact base CLI or restore an authenticated backup',
-    )
+    throw legacyPendingUnsupported()
   }
   if (recovery.action === 'migrate-v1') {
     if (typeof recovery.runtime_root !== 'string') {

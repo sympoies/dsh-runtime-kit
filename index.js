@@ -583,21 +583,6 @@ export async function apply(ctx, config = {}) {
       dshRuntime.HarnessError,
     )
     for (const definition of workspaceRecovery) ctx.tools.register(definition)
-    const workspaceLease = ctx.get('workspaceLease')
-    if (workspaceLease === undefined
-      || typeof workspaceLease.registerQuarantineCapability !== 'function') {
-      throw new Error('dsh-runtime-kit: workspace quarantine registration is unavailable')
-    }
-    const { trackQuarantineCapabilities } = await import('./src/workspace-lease/index.js')
-    trackQuarantineCapabilities(ctx, workspaceLease, [
-      'skill',
-      'get_goal',
-      'create_goal',
-      'update_goal',
-      'runtime_context',
-      'workspace_recovery',
-      'workspace_recovery_handoff',
-    ])
     observeChildPluginActivation(
       childPlugins,
       'review_specialists',

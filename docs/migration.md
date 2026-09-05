@@ -2,8 +2,13 @@
 
 > This document preserves the source-rehearsal state immediately before hosted
 > acceptance, reversible activation, and coexistence closeout completed. It is
-> not the current project status. See the [development log](devlog/README.md)
-> and the retained
+> not the current project status, and the DSH release names, peer pins, and
+> stage claims below describe that historical moment only; the supported
+> window and the retired surfaces are recorded in
+> [`compatibility/dsh.json`](../compatibility/dsh.json),
+> [`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json),
+> and [Compatibility](compatibility.md). See the
+> [development log](devlog/README.md) and the retained
 > [terminal execution state](plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md)
 > for the completed outcome.
 

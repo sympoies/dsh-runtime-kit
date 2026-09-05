@@ -100,10 +100,10 @@ function policyReason(decision) {
     : unsafeDefaultDelivery
       ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Retry now with one read-only command per Bash call (for example, first `pwd`, then `git status --short --branch`) and set the Bash tool workdir to the exact target checkout; do not include delivery commands in an inspection call. No operator intervention is required.\nFor a genuine delivery from a managed session whose cwd differs, run `semantic-commit commit --repo <absolute managed-worktree path> ...`, then use the repository PR workflow instead of direct default-branch mutation.'
       : undefined
+  // nils owns the remediation for a blocked shape; the runtime-kit text below
+  // is only a fallback for a decision that carries no context of its own.
   const context = typeof decision.context === 'string' ? decision.context.trim() : ''
-  const promotedGuidance = opaqueShellFanOut && context.length > 0
-    ? context
-    : guidance
+  const promotedGuidance = context.length > 0 ? context : guidance
   if (promotedGuidance === undefined || promotedGuidance.length === 0) {
     return [summary, context].filter(Boolean).join('\n')
   }

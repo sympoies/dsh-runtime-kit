@@ -1,0 +1,238 @@
+{
+  "schema_version": "dsh-runtime-kit.retired-surfaces.v1",
+  "tracker": "https://github.com/sympoies/dsh-runtime-kit/issues/66",
+  "closeout": "https://github.com/sympoies/dsh-runtime-kit/issues/65",
+  "minimum_supported": {
+    "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
+    "nils_cli": "1.27.37",
+    "dsh": ["0.1.1-rc.2", "0.1.2-alpha.4", "0.1.2-rc.1"]
+  },
+  "surfaces": [
+    {
+      "id": "workspace-lease-quarantine-registry",
+      "category": "workspace-identity",
+      "status": "removed",
+      "summary": "Protocol v1 dirty-anchor bootstrap exception: a registry of exact tool definitions allowed to cross a session-wide dirty denial. WorkspaceLease v2 denies only the anchor repository, so the registry granted nothing and the guard never consulted it.",
+      "paths": ["src/workspace-lease/index.js", "index.js", "test/workspace-lease-native-smoke.mjs"],
+      "identifiers": ["registerQuarantineCapability", "trackQuarantineCapabilities", "quarantineCapabilities"],
+      "replacement": {
+        "owner": "nils-cli",
+        "contract": "agent-hook workspace-lease v2 anchor-local denial (dsh-runtime-kit.workspace-lease.v2); recovery through workspace_recovery and workspace_recovery_handoff over agent-hook workspace-recovery"
+      },
+      "first_supported": { "runtime_kit": "protocol v2 anchor-local denial, #177 acceptance 038670d3", "nils_cli": "1.27.17" },
+      "compatibility_window": "none; a bundle that still calls the registry fails at boot with a missing method, which is the intended typed signal that it targets an unsupported runtime-kit",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd through the digest-reviewed rollback operation"
+    },
+    {
+      "id": "artifact-memory-provider",
+      "category": "artifacts",
+      "status": "removed",
+      "summary": "Deterministic in-memory artifact provider shipped inside the package although only the conformance tests constructed it.",
+      "paths": ["src/artifacts/memory-provider.js"],
+      "removed_files": ["src/artifacts/memory-provider.js"],
+      "identifiers": ["memory-provider.js"],
+      "replacement": {
+        "owner": "runtime-kit",
+        "contract": "test/helpers/memory-artifact-provider.mjs (test-only); production uses LocalArtifactProvider under the session-owned ArtifactService"
+      },
+      "first_supported": { "runtime_kit": "issue 63 acceptance ffa71f23", "nils_cli": "1.27.34" },
+      "compatibility_window": "none; the provider was never a public export",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
+    },
+    {
+      "id": "runtime-health-agent-docs-version-probe",
+      "category": "runtime-health",
+      "status": "removed",
+      "summary": "The runtime-core health probe spawned agent-docs --version and matched the banner after it had already authenticated the executable byte-for-byte against the released digest.",
+      "paths": ["src/health/nils-provider.js"],
+      "identifiers": ["DSH_RUNTIME_HEALTH_AGENT_DOCS_INVALID"],
+      "replacement": {
+        "owner": "runtime-kit",
+        "contract": "native runtime health readAuthenticatedBinary sha256 snapshot of agent-docs from compatibility/nils-cli.json (issue 58)"
+      },
+      "first_supported": { "runtime_kit": "issue 58 acceptance e60b0bd5", "nils_cli": "1.27.9" },
+      "compatibility_window": "none; the digest check is stricter than the banner",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
+    },
+    {
+      "id": "policy-denial-remediation-script",
+      "category": "data-policy",
+      "status": "reduced",
+      "summary": "Runtime-kit authored the remediation text for a blocked unsafe-default-delivery shape. nils-cli 1.27.37 supplies decision.context for the shell-classification denials (invalid command, unclassifiable command, unclassifiable shell state) and runtime-kit now promotes any context it receives ahead of its own text for every blocked shape; the lone unsafe-default-delivery remediation stays runtime-kit text until a nils release carries context for that code, which the same precedence promotes without a runtime-kit change.",
+      "paths": ["src/policy/nils-transport.js"],
+      "identifiers": ["promotedGuidance"],
+      "replacement": { "owner": "runtime-kit", "contract": "src/policy/nils-transport.js promotes agent-hook decision.context (shell-classification denials in nils-cli 1.27.37) ahead of the retained unsafe-default-delivery fallback text" },
+      "first_supported": { "runtime_kit": "issue 55 acceptance e582bb46", "nils_cli": "1.27.7" },
+      "compatibility_window": "runtime-kit remains the owner of the block-unsafe-default-delivery remediation text until nils-cli carries decision.context for that code",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
+    },
+    {
+      "id": "workspace-recovery-session-restart-prose",
+      "category": "workspace-identity",
+      "status": "reduced",
+      "summary": "workspace_recovery told the model to restart the session as the default outcome of a dirty anchor; under v2 the denial is local to the repository and the wording now says so.",
+      "paths": ["src/workspace-recovery/index.js"],
+      "identifiers": ["renderResult"],
+      "replacement": { "owner": "nils-cli", "contract": "agent-hook workspace-recovery inspect and handoff; WorkspaceLease v2 anchor-local denial" },
+      "first_supported": { "runtime_kit": "protocol v2 anchor-local denial, #177 acceptance 038670d3", "nils_cli": "1.27.17" },
+      "compatibility_window": "n/a (wording only)",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
+    },
+    {
+      "id": "nils-minimum-release-floor",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "The minimum supported nils-cli release moves from 1.27.17 to 1.27.37, the release that contains every native contract the accepted children require; older companions fail typed before activation. compatibility/nils-cli.json declares the floor, src/operations/index.js applies it to agent-docs doctor, and src/acceptance/contract.js requires the accepted nils release to be at least the floor.",
+      "paths": ["compatibility/nils-cli.json", "src/operations/index.js", "src/acceptance/contract.js"],
+      "identifiers": ["minimum_supported_release"],
+      "replacement": { "owner": "nils-cli", "contract": "released nils-cli 1.27.37 (3fd3a9bd089247405ec2be219234a7a24f54a98c)" },
+      "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
+      "compatibility_window": "1.27.37 only; agent-docs outside the range is reported as needs-attention and activation refuses",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd, whose floor is 1.27.17"
+    },
+    {
+      "id": "operations-legacy-pending-error-duplication",
+      "category": "profile-lifecycle",
+      "status": "reduced",
+      "summary": "The legacy-pending-recovery-unsupported refusal was spelled twice; one helper owns it.",
+      "paths": ["src/operations/index.js"],
+      "identifiers": ["legacyPendingUnsupported"],
+      "replacement": { "owner": "runtime-kit", "contract": "declared operations-state-v1-to-v2 migration (compatibility/profile-lifecycle.json)" },
+      "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
+      "compatibility_window": "n/a",
+      "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
+    },
+    {
+      "id": "normative-docs-retired-release-names",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "Normative documents described DSH rc.7 and rc.8 behaviour by release name; they now describe the supported rolling window, and docs/migration.md is fenced as history.",
+      "paths": ["docs/compatibility.md", "docs/operations.md", "docs/architecture.md", "docs/main-agent-mode.md", "docs/migration.md", "README.md"],
+      "identifiers": ["retired-release-names"],
+      "replacement": { "owner": "runtime-kit", "contract": "compatibility/dsh.json validated_releases" },
+      "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
+      "compatibility_window": "n/a",
+      "rollback": "n/a (documentation)"
+    },
+    {
+      "id": "finish-line-stop-evaluator",
+      "category": "finish-line",
+      "status": "retained",
+      "summary": "The nils-backed finish-line stop evaluator that runs when no authoritative acceptance contract governs the session.",
+      "paths": ["src/finish-line/index.js", "src/policy/index.js"],
+      "replacement": { "owner": "nils-cli", "contract": "agent-hook finish-line stop (finish_line.rs) today; authoritative acceptance displaces it only for sessions a trusted consumer registered" },
+      "first_supported": { "runtime_kit": "issue 59 acceptance 96d152f0", "nils_cli": "1.27.27" },
+      "compatibility_window": "retained until a child makes acceptance registration mandatory",
+      "rollback": "n/a",
+      "rationale": "Issue 59 accepted authoritative acceptance as inert until a trusted consumer registers a contract, and the shipped bundle registers none, so this evaluator is the documented turn-stop path for every ordinary deployment. It is nils-authoritative (client.stop), not model-side evidence assembly. Making registration mandatory is a new contract for a new Gate 0, not a removal."
+    },
+    {
+      "id": "operations-state-v1-migration",
+      "category": "profile-lifecycle",
+      "status": "retained",
+      "summary": "The declared operations-state-v1-to-v2 migration and its legacy readers.",
+      "paths": ["src/operations/index.js", "compatibility/profile-lifecycle.json"],
+      "replacement": { "owner": "runtime-kit", "contract": "dsh-runtime-kit.operations-state.v2 via doctor --repair" },
+      "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
+      "compatibility_window": "one release: profiles written by runtime-kit before issue 64 migrate exactly once",
+      "rollback": "n/a",
+      "rationale": "The closeout's own acceptance requires upgrade from the last legacy-compatible version to preserve supported state; this migration is that path and is declared in the lifecycle manifest, so the engine would refuse a manifest that dropped it."
+    },
+    {
+      "id": "workspace-lease-state-query",
+      "category": "workspace-identity",
+      "status": "retained",
+      "summary": "WorkspaceLease.state(agent, ref) classification query.",
+      "paths": ["src/workspace-lease/index.js", "docs/workspace-leases.md"],
+      "replacement": { "owner": "runtime-kit", "contract": "documented public workspace-lease service surface" },
+      "first_supported": { "runtime_kit": "issue 56 acceptance fc886d1a", "nils_cli": "1.27.5" },
+      "compatibility_window": "public API",
+      "rollback": "n/a",
+      "rationale": "Documented public surface with exact ref pairing; the live diagnostic path uses denialState, but removing a documented API is a contract change, not glue removal."
+    },
+    {
+      "id": "data-policy-opaque-tools-config",
+      "category": "data-policy",
+      "status": "retained",
+      "summary": "dataPolicyOpaqueTools embedder configuration that classifies named tools as opaque references for the typed data policy.",
+      "paths": ["src/policy/index.js"],
+      "replacement": { "owner": "runtime-kit", "contract": "typed data policy source classes (issue 61)" },
+      "first_supported": { "runtime_kit": "issue 61 acceptance 6591ca47", "nils_cli": "1.27.29" },
+      "compatibility_window": "public configuration",
+      "rollback": "n/a",
+      "rationale": "The default bundle does not set it, but it is embedder-facing configuration exercised by the plugin contract tests, not a shadow fallback."
+    },
+    {
+      "id": "policy-reminder-rules",
+      "category": "data-policy",
+      "status": "retained",
+      "summary": "Advisory reminder rules in policy/dsh-runtime-kit-v1.toml (memory-write-principle-reminder, skill-usage-reminder, stop-pre-pr-reminder, forge-label-reminder).",
+      "paths": ["policy/dsh-runtime-kit-v1.toml", "policy/runtime-rule-parity.yaml"],
+      "replacement": { "owner": "nils-cli", "contract": "agent-hook hook-rules manifest (1:1 policy parity)" },
+      "first_supported": { "runtime_kit": "program baseline 801ea88", "nils_cli": "1.27.4" },
+      "compatibility_window": "kept while the nils hook-rules manifest lists them",
+      "rollback": "n/a",
+      "rationale": "The DSH policy is verified 1:1 against the nils hook-rules manifest; retiring a rule is a nils-cli decision that then flows through the parity projection."
+    },
+    {
+      "id": "reviewer-capacity-worker-pool",
+      "category": "reviewer-authority",
+      "status": "retained",
+      "summary": "The reviewer wave's JavaScript worker pool and role-set classification alongside the host restricted-role registry's own capacity and role receipts.",
+      "paths": ["src/review/index.js", "src/policy/index.js"],
+      "replacement": { "owner": "dsh", "contract": "native-execution-boundaries-v5 restricted-role registry (registerRole, startRole, roleOf, configureRoleCapacity)" },
+      "first_supported": { "runtime_kit": "issue 62 acceptance df74ff59", "nils_cli": "1.27.29" },
+      "compatibility_window": "retained until a child consolidates capacity on the host receipts",
+      "rollback": "n/a",
+      "rationale": "The registry is already the only admission and capacity authority; the pool only orders dispatch within the bundle's wave. Removing it changes concurrency semantics pinned by accepted tests and is a behaviour change for a later child."
+    },
+    {
+      "id": "main-agent-liveness-sidecar",
+      "category": "artifacts",
+      "status": "retained",
+      "summary": "Per-lane liveness sidecar and private checkpoint JSON written by the Main Agent orchestration.",
+      "paths": ["src/main-agent/lanes.js", "src/main-agent/orchestration.js"],
+      "replacement": { "owner": "runtime-kit", "contract": "producer contract read by nils-cli session_status; session-owned ArtifactService for later consolidation" },
+      "first_supported": { "runtime_kit": "issue 60 acceptance 675563a3", "nils_cli": "1.27.27" },
+      "compatibility_window": "retained; stale sidecars grant nothing",
+      "rollback": "n/a",
+      "rationale": "The sidecar is a producer contract that nils-cli reads, not model-side bookkeeping; moving its path ownership into session-owned artifacts is a cross-repository contract change."
+    },
+    {
+      "id": "dsh-rolling-adapter-file-name",
+      "category": "compatibility",
+      "status": "retained",
+      "summary": "src/compat/dsh-rc7.js keeps the name of the release that introduced the seam although it adapts the whole supported rolling window (adapter identity dsh-rolling-v1).",
+      "paths": ["src/compat/dsh-rc7.js", "src/compat/contract.js"],
+      "replacement": { "owner": "runtime-kit", "contract": "dsh-rolling-v1 adapter over compatibility/dsh.json validated_releases" },
+      "first_supported": { "runtime_kit": "program baseline 801ea88", "nils_cli": "1.27.4" },
+      "compatibility_window": "n/a",
+      "rollback": "n/a",
+      "rationale": "No rc.7-conditional branch exists; the name is vocabulary. A rename touches fourteen call sites and tests without changing behaviour and is excluded as unrelated refactoring."
+    },
+    {
+      "id": "agent-console-single-release-pin",
+      "category": "compatibility",
+      "status": "retained",
+      "summary": "The Agent Console profile pins one exact DSH release and TUI artifact rather than the three-release window.",
+      "paths": ["src/compat/agent-console.js", "compatibility/agent-console.json"],
+      "replacement": { "owner": "runtime-kit", "contract": "exact Agent Console composition (DSH 0.1.2-rc.1, dsh-tui 0.10.0-beta.4)" },
+      "first_supported": { "runtime_kit": "dsh-tui beta.4 promotion", "nils_cli": "1.27.34" },
+      "compatibility_window": "intentionally narrower than the headless window",
+      "rollback": "n/a",
+      "rationale": "The UI boundary is documented as exact; widening it requires TUI validation on every release."
+    },
+    {
+      "id": "identical-per-release-patch-artifacts",
+      "category": "compatibility",
+      "status": "retained",
+      "summary": "native-execution-boundaries-v5 ships byte-identical patch files for alpha.4 and rc.1.",
+      "paths": ["compatibility/dsh-patches.json", "patches/deepseek-harness"],
+      "replacement": { "owner": "runtime-kit", "contract": "per-release authenticated patch lifecycle" },
+      "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
+      "compatibility_window": "n/a",
+      "rollback": "n/a",
+      "rationale": "The apply/reverse lifecycle authenticates one artifact per pinned release; sharing a file would couple two release lifecycles and is not glue removal."
+    }
+  ]
+}

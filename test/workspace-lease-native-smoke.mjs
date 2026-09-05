@@ -414,23 +414,16 @@ export function apply(ctx) {
         workspaceRecoveryTeardownTimeoutMs: 2_000,
         maxActiveWorkspaceRecoveryRequests: 2,
       }))
-      for (const definition of recovery) {
-        ctx.tools.register(definition)
-        service.registerQuarantineCapability(definition)
-      }
+      for (const definition of recovery) ctx.tools.register(definition)
       ctx.skills.register({
         name: 'quarantine-smoke',
         description: 'Packed native dirty-workspace quarantine smoke fixture.',
         source: 'runtime',
         content: '# Quarantine smoke\\n\\nThe real DSH skill loader reached this fixture.',
       })
-      const skill = ctx.tools.get('skill')
-      if (skill === undefined) throw new Error('real DSH skill tool is unavailable')
-      service.registerQuarantineCapability(skill)
+      if (ctx.tools.get('skill') === undefined) throw new Error('real DSH skill tool is unavailable')
       for (const name of ['get_goal', 'create_goal', 'update_goal']) {
-        const goal = ctx.tools.get(name)
-        if (goal === undefined) throw new Error('real DSH ' + name + ' tool is unavailable')
-        service.registerQuarantineCapability(goal)
+        if (ctx.tools.get(name) === undefined) throw new Error('real DSH ' + name + ' tool is unavailable')
       }
       const policyContent = '# Quarantine project policy'
       const runtimeContext = createRuntimeContextTool({
@@ -453,7 +446,6 @@ export function apply(ctx) {
         },
       })
       ctx.tools.register(runtimeContext)
-      service.registerQuarantineCapability(runtimeContext)
       ctx.llm.registerAdapter(['quarantine-goal-smoke'], new QuarantineGoalAdapter())
       if (ctx.tools.get('write') === undefined) {
         throw new Error('the real DSH write tool is unavailable')
@@ -748,7 +740,7 @@ export function apply(ctx) {
     dshVersion: dshManifest.version,
     sameWorktreeDeniedBeforeBody: true,
     distinctWorktreesOverlapped: true,
-    dirtyBootstrapQuarantined: true,
+    dirtyAnchorDenialLocal: true,
     cleanManagedHandoffVerified: true,
     dirtyAnchorKeptFullHostAuthority: true,
     crossRepositoryMutationFenced: true,

@@ -14,7 +14,6 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDispatchExecution} ToolDispatchExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecution} ToolExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecutionResult} ToolExecutionResult */
-/** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 
 /**
  * Protocol version stamped on every trusted provider request.
@@ -556,8 +555,6 @@ export class WorkspaceLease extends Service {
    * @type {WeakSet<ToolExecution>}
    */
   #admitting = new WeakSet()
-  /** @type {WeakSet<ToolDefinition>} */
-  #quarantineCapabilities = new WeakSet()
 
   /** @param {Context} ctx */
   constructor(ctx) {
@@ -567,7 +564,6 @@ export class WorkspaceLease extends Service {
     // to the concrete instance so native private state stays inaccessible while
     // calls through ctx.workspaceLease still carry the correct receiver.
     this.registerProvider = this.registerProvider.bind(this)
-    this.registerQuarantineCapability = this.registerQuarantineCapability.bind(this)
     this.denialState = this.denialState.bind(this)
     this.ref = this.ref.bind(this)
     this.state = this.state.bind(this)
@@ -588,31 +584,6 @@ export class WorkspaceLease extends Service {
       this.#authorizations.delete(exec)
       this.#resolutions.delete(exec)
     })
-  }
-
-  /**
-   * Register one exact capability definition that may cross the final guard
-   * while this session's anchor repository is unusable.
-   *
-   * Under protocol v2 an anchor denial no longer denies unrelated tools, so
-   * this remains a compatibility and recovery surface rather than the normal
-   * execution path. Names alone never grant it: the definition must be the
-   * currently registered global ToolRuntime object.
-   * @param {ToolDefinition} definition
-   * @returns {() => void}
-   */
-  registerQuarantineCapability(definition) {
-    if (definition === null
-      || typeof definition !== 'object'
-      || typeof definition.name !== 'string'
-      || typeof definition.execute !== 'function'
-      || this.ctx.tools.get(definition.name) !== definition) {
-      throw unavailable('workspace quarantine capability is not a registered global tool')
-    }
-    return this.ctx.effect(() => {
-      this.#quarantineCapabilities.add(definition)
-      return () => { this.#quarantineCapabilities.delete(definition) }
-    }, `workspaceLease.quarantineCapability(${definition.name})`)
   }
 
   /**
@@ -1869,58 +1840,6 @@ export class WorkspaceLease extends Service {
     binding.releaseTask = releaseTask
     return releaseTask
   }
-}
-
-/**
- * Track exact global tool definitions that may cross a dirty-workspace
- * quarantine. DSH profile entries start concurrently, so sibling tools may
- * register after runtime-kit applies. A removed or replaced definition loses
- * its exception before the new current definition can receive one.
- * @param {Context} ctx
- * @param {Pick<WorkspaceLease, 'registerQuarantineCapability'>} workspaceLease
- * @param {readonly string[]} names
- * @returns {() => void}
- */
-export function trackQuarantineCapabilities(ctx, workspaceLease, names) {
-  if (workspaceLease === null
-    || typeof workspaceLease !== 'object'
-    || typeof workspaceLease.registerQuarantineCapability !== 'function') {
-    throw unavailable('workspace quarantine registration is unavailable')
-  }
-  const requiredNames = [...new Set(names)]
-  if (requiredNames.length === 0
-    || requiredNames.some(name => typeof name !== 'string' || name.length === 0)) {
-    throw new TypeError('workspace quarantine capability names must be nonempty strings')
-  }
-
-  return ctx.effect(() => {
-    /** @type {Map<string, {definition: ToolDefinition, dispose: () => void}>} */
-    const registrations = new Map()
-    let open = true
-    const refresh = () => {
-      if (!open) return
-      for (const name of requiredNames) {
-        const definition = ctx.tools.get(name)
-        const previous = registrations.get(name)
-        if (previous?.definition === definition) continue
-        previous?.dispose()
-        registrations.delete(name)
-        if (definition === undefined) continue
-        registrations.set(name, {
-          definition,
-          dispose: workspaceLease.registerQuarantineCapability(definition),
-        })
-      }
-    }
-    const stopObserving = ctx.on('tools/change', refresh)
-    refresh()
-    return () => {
-      open = false
-      stopObserving()
-      for (const registration of registrations.values()) registration.dispose()
-      registrations.clear()
-    }
-  }, 'workspaceLease.quarantineCapabilities')
 }
 
 export default WorkspaceLease

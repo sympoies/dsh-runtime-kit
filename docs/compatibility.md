@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.17` minimum; exactly validated through `1.27.37` |
+| nils-cli | `1.27.37` minimum; exactly validated through `1.27.37` |
 
 The package retains exactly the latest three reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
@@ -82,12 +82,17 @@ in the summary only. The same release preserves `not-in-repository` as an exact
 public policy code for existing non-symlink directories with no Git ancestor.
 Managed advisory and off-mode finish-line fallback may delegate only that code;
 repository access, scope coverage, malformed output, and enforcement failures
-remain authoritative. The v1.27.17 floor is intentional: managed DSH startup
-requires the atomic
-`agent-session work-context set --if-absent` contract and the durable
-finish-line acceptance provider, while dirty-workspace quarantine requires the
-bounded `agent-hook workspace-recovery` inspection and handoff contracts. An
-earlier release is therefore not runtime-compatible. A
+remain authoritative. The v1.27.37 floor is intentional: it is the release that
+contains every native contract the accepted convergence children require —
+the atomic `agent-session work-context set --if-absent` contract, the durable
+finish-line acceptance provider, the bounded `agent-hook workspace-recovery`
+inspection and handoff contracts, the restricted-role review companions, the
+session-owned artifact contracts, and the profile-lifecycle health probes. An
+earlier release is therefore not runtime-compatible and fails typed before
+activation. The retired surfaces that this floor allowed the package to drop
+are recorded in
+[`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json);
+see [Retired surfaces](#retired-surfaces). A
 platform may activate native health only when its exact archive, `agent-hook`,
 and `agent-docs` digests are recorded. A local nils checkout or ambient
 prototype binary is not release compatibility evidence.
@@ -139,7 +144,7 @@ It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
 and authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
-The retained rc.8 and rc.2 releases are independently pinned and receive the same local
+The retained alpha.4 and rc.2 releases are independently pinned and receive the same local
 patch apply/reverse and packed-smoke acceptance before their peer range is
 advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
@@ -171,6 +176,24 @@ Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture
 guide explains the artifact, extraction, runtime boot, and benchmark trust
 boundaries in more detail.
+
+## Retired surfaces
+
+[`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json)
+(`dsh-runtime-kit.retired-surfaces.v1`) is the machine-readable closeout of the
+native convergence program. It records the minimum supported runtime-kit
+commit, nils-cli release, and DSH releases that carry every native contract,
+and one entry per surface the program touched: its category, whether it was
+`removed`, `reduced`, or deliberately `retained`, the paths and identifiers
+involved, the owner and contract that replace it (`dsh`, `nils-cli`, or a
+retained runtime-kit workflow), the first supported versions, the
+compatibility window, the rollback path, and, for retained surfaces, the
+rationale. `test/retired-surfaces.test.mjs` validates the schema, requires the
+recorded minimums to equal the compatibility manifests, scans every file
+`package.json#files` ships (the development log and plans are history) and
+every normative document for each removed identifier and deleted file, and
+refuses retired DSH release names in normative documentation, so a retired
+behaviour cannot return as a hidden fallback without failing the suite.
 
 ## Performance budgets
 

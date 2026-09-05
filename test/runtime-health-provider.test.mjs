@@ -204,7 +204,7 @@ test('authenticated nils providers report runtime and project readiness without 
     assert.equal(project.state, 'ready')
     assert.equal(project.code, 'DSH_RUNTIME_HEALTH_PROJECT_READY')
     assert.doesNotMatch(JSON.stringify({ runtime, project }), new RegExp(subject.root))
-    assert.equal(subject.calls.length, 3)
+    assert.equal(subject.calls.length, 2)
     assert.equal(subject.calls.every(call => call.env?.HOME === undefined), true)
     assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook && call.argv[0] !== subject.docs), true)
     assert.equal(subject.calls.every(call => call.executionBinding === 'descriptor'), true)
@@ -333,7 +333,7 @@ test('runtime health accepts stable Cordis service wrappers around one descripto
     )
     const runtime = await subject.ctx.dshRuntimeHealth.require('runtime-core')
     assert.equal(runtime.state, 'ready')
-    assert.equal(subject.calls.length, 2)
+    assert.equal(subject.calls.length, 1)
   } finally {
     await subject.dispose()
   }
@@ -722,7 +722,7 @@ test('snapshot disposal drains a pre-spawn lease before closing its executable d
     },
   })
   await subject.ctx.dshRuntimeHealth.require('runtime-core')
-  assert.equal(subject.calls.length, 2)
+  assert.equal(subject.calls.length, 1)
   const descriptorFd = subject.calls[0].executableFd
   blockSpawn = true
   const probing = subject.ctx.dshRuntimeHealth.probe('runtime-core', { force: true }).catch(error => error)
@@ -732,12 +732,12 @@ test('snapshot disposal drains a pre-spawn lease before closing its executable d
   const disposing = subject.ctx.fiber.dispose().then(() => { disposed = true })
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(disposed, false)
-  assert.equal(subject.calls.length, 2)
+  assert.equal(subject.calls.length, 1)
 
   releaseSpawnBarrier()
   await Promise.allSettled([probing, disposing])
   assert.equal(disposed, true)
-  assert.equal(subject.calls.length, 2)
+  assert.equal(subject.calls.length, 1)
   assert.equal(subject.calls[0].executionBinding, 'descriptor')
   assert.throws(() => fstatSync(descriptorFd), { code: 'EBADF' })
   await rm(subject.root, { recursive: true, force: true })

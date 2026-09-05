@@ -221,11 +221,11 @@ definitions. That exception existed only for the session-wide dirty denial, and
 v2 removed the denial: an anchor denial is now local to the repository it
 names, so no tool needs excepting from it.
 
-`registerQuarantineCapability` and `trackQuarantineCapabilities` therefore
-grant nothing under v2. The admission and guard paths do not consult the
-registered set, and the default bundle's registrations have no effect. They are
-retained only so a bundle that still calls them does not break, and their
-removal is tracked separately; do not read them as an admission exception.
+The v1 bootstrap quarantine registry that admitted those exact definitions was
+removed with the convergence closeout (see
+[`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json)):
+under v2 the admission and guard paths never consulted it, so no bundle needs
+an admission exception and the service exposes none.
 
 A provider that is entirely unavailable -- no `agent-hook`, an unparsable
 response, a stopping provider -- is a different and broader failure: it denies
@@ -357,7 +357,7 @@ over a non-repository directory and an unrelated clean repository, that two
 distinct worktrees mutate concurrently, that one physical worktree still
 contends across sessions, and that the dirty checkout itself is never mutated.
 It also runs the real DSH `skill` tool, the production `runtime_context`
-definition, dirty quarantine diagnostics, and clean managed handoff.
+definition, anchor-local dirty denial diagnostics, and clean managed handoff.
 Promotion also requires the packed compatibility matrix and real two-session,
 restart/recovery, upgrade, and rollback acceptance described by issues #56 and
 \#172; a focused green test alone does not promote this capability.
