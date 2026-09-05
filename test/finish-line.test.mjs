@@ -627,14 +627,20 @@ test('edit generation is durably advanced before delegation without retaining fi
     subject.edits.push(structuredClone(request))
     return { status: 'registered', operationId: request.operationId, generation: 1, correlationId }
   }
-  const pending = subject.coordinator.begin(exec, context(exec)).then(result => {
+  // Pre-execute reserves without touching the durable ledger: the workspace
+  // lease admits after this boundary returns, and a target it denies must not
+  // have registered a generation (issue 182).
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  assert.deepEqual(order, [])
+  assert.deepEqual(subject.edits, [])
+  const pending = subject.coordinator.execute(exec).then(result => {
     order.push('delegate')
     return result
   })
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(order, ['begin'])
   release()
-  assert.deepEqual(await pending, { ok: true })
+  assert.deepEqual(await pending, { kind: 'delegate' })
   assert.deepEqual(order, ['begin', 'durable', 'delegate'])
   assert.doesNotMatch(JSON.stringify(subject.edits), /a\.txt|secret-old|secret-new/)
 })
@@ -912,6 +918,7 @@ test('one session correlation is pinned across begin, probe, execution, and stop
   const beginSubject = fixture()
   const firstEdit = execution(beginSubject, { callId: 'edit-1' })
   assert.deepEqual(await beginSubject.coordinator.begin(firstEdit, context(firstEdit)), { ok: true })
+  assert.deepEqual(await beginSubject.coordinator.execute(firstEdit), { kind: 'delegate' })
   beginSubject.client.beginEdit = async request => ({
     status: 'registered',
     operationId: request.operationId,
@@ -919,11 +926,15 @@ test('one session correlation is pinned across begin, probe, execution, and stop
     correlationId: 'correlation:replacement',
   })
   const secondEdit = execution(beginSubject, { callId: 'edit-2' })
-  assert.deepEqual(await beginSubject.coordinator.begin(secondEdit, context(secondEdit)), {
-    ok: false,
-    reason: 'finish-line-unavailable',
-  })
+  assert.deepEqual(await beginSubject.coordinator.begin(secondEdit, context(secondEdit)), { ok: true })
+  await assert.rejects(
+    beginSubject.coordinator.execute(secondEdit),
+    /response correlation invalid/,
+  )
   assert.equal(beginSubject.coordinator.degraded, true)
+  // The failed second edit dropped its own reservation; the first, still
+  // undispatched here, keeps its.
+  assert.equal(beginSubject.coordinator.activeReservations, 1)
 
   const probeSubject = fixture()
   probeSubject.setRunResult({
@@ -1263,10 +1274,10 @@ test('a definitively abandoned edit drops its retry token before poisoning the s
   subject.client.beginEdit = async () => { throw new Error('ambiguous transport failure') }
   const exec = execution(subject)
 
-  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), {
-    ok: false,
-    reason: 'finish-line-unavailable',
-  })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  await assert.rejects(subject.coordinator.execute(exec), /finish-line-unavailable/)
+  assert.equal(subject.coordinator.degraded, true)
+  assert.equal(subject.coordinator.activeReservations, 0)
   assert.equal(subject.abandonedBegins.length, 1)
   assert.equal(subject.abandonedBegins[0].operationId, 'operation:1')
 })
@@ -1305,11 +1316,14 @@ test('an edit reserves its generation against the repository it targets', async 
     { ok: true },
   )
 
-  // The edited repository owns the generation, not the session anchor.
-  assert.equal(subject.edits.length, 1)
-  assert.equal(subject.edits[0].cwd, '/workspace/repo-b')
+  // The edited repository owns the runner capability and, once dispatch
+  // registers it, the generation: not the session anchor.
   assert.equal(subject.opens.length, 1)
   assert.equal(subject.opens[0].cwd, '/workspace/repo-b')
+  assert.deepEqual(subject.edits, [])
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
+  assert.equal(subject.edits.length, 1)
+  assert.equal(subject.edits[0].cwd, '/workspace/repo-b')
 })
 
 test('an edit with no repository target creates no Git validation obligation', async () => {
@@ -1383,6 +1397,7 @@ test('without a lease projection an edit keeps the session anchor', async () => 
   const exec = execution(subject)
 
   assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.equal(subject.edits.length, 1)
   assert.equal(subject.edits[0].cwd, '/workspace/project')
 })
@@ -1452,6 +1467,7 @@ test('a non-canonical edit target keys the same ledger as its canonical form', a
     await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
     { ok: true },
   )
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-b'])
   assert.deepEqual([...new Set(subject.opens.map(open => open.cwd))], ['/workspace/repo-b'])
 })
@@ -1474,5 +1490,6 @@ test('an unclassified edit inside the anchor still owes Git validation', async (
     await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),
     { ok: true },
   )
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-a'])
 })

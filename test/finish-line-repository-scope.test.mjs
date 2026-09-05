@@ -64,6 +64,8 @@ function leaseProvider(overrides = {}) {
       const target = request.target
         ?? [REPO_A, REPO_B].find(candidate => request.cwd?.startsWith(candidate.root))
       if (target === undefined) return { kind: 'not-required' }
+      const overridden = await overrides.bind?.(request, target)
+      if (overridden !== undefined) return overridden
       generation += 1
       return {
         kind: 'bound',
@@ -87,7 +89,7 @@ function leaseProvider(overrides = {}) {
   })
 }
 
-function finishLineClient() {
+function finishLineClient({ stopAction = () => 'allow' } = {}) {
   const opens = []
   const edits = []
   const stops = []
@@ -114,12 +116,13 @@ function finishLineClient() {
       async run() { throw new Error('unexpected validation run') },
       async stop(request) {
         stops.push(structuredClone(request))
+        const action = stopAction(request, edits)
         return {
-          action: 'allow',
+          action,
           generation: 1,
           contractDigest: `sha256:${'0'.repeat(64)}`,
           correlationId,
-          reasonCodes: [],
+          reasonCodes: action === 'block' ? ['validation-missing'] : [],
           remediation: [],
         }
       },
@@ -142,7 +145,7 @@ function finishLineClient() {
  * with the exact wiring the default bundle installs, so the seam under test is
  * the production one rather than an injected double.
  */
-async function harness(overrides = {}) {
+async function harness(overrides = {}, { stopAction, onWrite } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -150,7 +153,7 @@ async function harness(overrides = {}) {
   await ctx.plugin(WorkspaceLease)
   ctx.workspaceLease.registerProvider(leaseProvider(overrides))
 
-  const transport = finishLineClient()
+  const transport = finishLineClient({ stopAction })
   const coordinator = createFinishLineCoordinator(ctx, {
     client: transport.client,
     createOperationId: () => `operation:${transport.edits.length + 1}`,
@@ -195,7 +198,10 @@ async function harness(overrides = {}) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }],
     },
-    async execute(args) { return args.file_path },
+    async execute(args) {
+      await onWrite?.(args)
+      return args.file_path
+    },
   }))
 
   return { ctx, coordinator, transport }
@@ -299,4 +305,57 @@ test('a lease denial reaches the model with its own typed cause', async () => {
   assert.match(result.error.message, /uncommitted state/)
   assert.deepEqual(transport.edits, [])
   assert.deepEqual(transport.opens, [])
+})
+
+test('a target the lease denies at bind leaves no finish-line obligation', async () => {
+  // The shipped provider denies from `bind` and `begin`, never from `resolve`:
+  // resolution succeeds, the edit identity becomes repository B, and only then
+  // does the lease refuse the target. Issue 182: by that point the ledger must
+  // not have registered an edit generation for B, or the turn is asked to
+  // validate a repository it never modified.
+  const dirty = {
+    kind: 'denied',
+    state: 'dirty',
+    code: 'WORKSPACE_DIRTY',
+    reason: 'the workspace has uncommitted state and cannot be reassigned safely',
+  }
+  const { ctx, coordinator, transport } = await harness({
+    bind: async (_request, target) => target.workspaceKey === REPO_B.workspaceKey ? dirty : undefined,
+  }, {
+    // Mirror the provider contract: a registered generation with no validation
+    // blocks stop for that repository.
+    stopAction: (request, edits) => edits.some(edit => edit.cwd === request.cwd) ? 'block' : 'allow',
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${REPO_B.root}/src/index.js`, 'call:denied')
+
+  assert.equal(result.isError, true)
+  assert.equal(result.error.info.code, 'WORKSPACE_DIRTY')
+  assert.match(result.error.message, /uncommitted state/)
+  assert.deepEqual(transport.edits, [])
+  assert.equal(coordinator.activeReservations, 0)
+
+  assert.equal(await coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+})
+
+test('an admitted edit registers its generation before the tool body runs', async () => {
+  // Deferring registration past the lease admission must not defer it past the
+  // mutation: the generation still precedes the write it covers.
+  let editsAtBody
+  const { ctx, transport } = await harness({}, {
+    onWrite() { editsAtBody = transport.edits.map(edit => edit.cwd) },
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${REPO_B.root}/src/index.js`, 'call:ordered')
+
+  assert.equal(result.isError, false, result.error?.message)
+  assert.deepEqual(editsAtBody, [REPO_B.root])
 })
