@@ -51,7 +51,7 @@ function stageBundle(root, version) {
   })
   writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
     schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
-    minimum_supported_release: '1.27.17',
+    minimum_supported_release: '1.27.37',
     validated_release: '1.27.37',
   })
   writeJson(

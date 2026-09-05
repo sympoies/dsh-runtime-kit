@@ -221,11 +221,11 @@ definitions. That exception existed only for the session-wide dirty denial, and
 v2 removed the denial: an anchor denial is now local to the repository it
 names, so no tool needs excepting from it.
 
-`registerQuarantineCapability` and `trackQuarantineCapabilities` therefore
-grant nothing under v2. The admission and guard paths do not consult the
-registered set, and the default bundle's registrations have no effect. They are
-retained only so a bundle that still calls them does not break, and their
-removal is tracked separately; do not read them as an admission exception.
+The v1 bootstrap quarantine registry that admitted those exact definitions was
+removed with the convergence closeout (see
+[`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json)):
+under v2 the admission and guard paths never consulted it, so no bundle needs
+an admission exception and the service exposes none.
 
 A provider that is entirely unavailable -- no `agent-hook`, an unparsable
 response, a stopping provider -- is a different and broader failure: it denies

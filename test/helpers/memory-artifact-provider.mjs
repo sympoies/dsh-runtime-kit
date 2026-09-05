@@ -1,10 +1,10 @@
 // @ts-check
 
-import { ARTIFACT_CODES, ArtifactError } from './errors.js'
-import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from './record.js'
+import { ARTIFACT_CODES, ArtifactError } from '../../src/artifacts/errors.js'
+import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from '../../src/artifacts/record.js'
 
-/** @typedef {import('./record.js').ArtifactRecord} ArtifactRecord */
-/** @typedef {import('./local-provider.js').ArtifactProvider} ArtifactProvider */
+/** @typedef {import('../../src/artifacts/record.js').ArtifactRecord} ArtifactRecord */
+/** @typedef {import('../../src/artifacts/local-provider.js').ArtifactProvider} ArtifactProvider */
 
 /**
  * Deterministic in-memory provider. It implements the exact provider contract

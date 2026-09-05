@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
 
-test('issue 79 rollback is pinned to the exact accepted issue 64 baseline', () => {
+test('issue 65 rollback is pinned to the exact accepted issue 79 baseline', () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.17')
+  assert.equal(manifest.minimum_supported_release, '1.27.37')
   assert.equal(manifest.validated_release, '1.27.37')
   assert.deepEqual(manifest.release, {
     source_revision: 'v1.27.37',
@@ -62,15 +62,15 @@ test('issue 79 rollback is pinned to the exact accepted issue 64 baseline', () =
     manifest.candidate_validation?.source_commit,
     '81be602378e3790e042aae5000befd78c1d584bc',
   )
-  // #66 and Gate 0 select the serial predecessor. The Issue 64 acceptance
-  // (main aee0089f) admits the pinned rc.1 host, so it is the executable
-  // rollback baseline for #79. The package identity is the hosted acceptance
+  // #66 and Gate 0 select the serial predecessor. The Issue 79 acceptance
+  // (main ae248830) admits the pinned rc.1 host, so it is the executable
+  // rollback baseline for #65. The package identity is the hosted acceptance
   // artifact (npm 11.19.0 pack under Node 24.16.0, recompressed by the
   // authenticated zlib-ng helper), not raw `npm pack` output. This assertion
-  // freezes that reviewed selection for #79; it does not discover a future
+  // freezes that reviewed selection for #65; it does not discover a future
   // child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: '188e9dca11f1fdfa98130a7e005624539608e1ae587328a4101a48e33ed37c4c',
+    runtime_package_sha256: '4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd',
     version: '1.27.37',
     source_revision: 'v1.27.37',
     source_commit: '3fd3a9bd089247405ec2be219234a7a24f54a98c',

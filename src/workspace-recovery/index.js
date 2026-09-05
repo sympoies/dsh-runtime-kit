@@ -102,9 +102,9 @@ function renderResult(value) {
     lines.push(`Verified clean handoff path=${quoted(value.handoff.path)} branch=${quoted(value.handoff.branch)} head=${quoted(value.handoff.head)}.`)
     lines.push('This session keeps working elsewhere; a fresh Agent Console session at that exact cwd is only needed when the governed work targets this checkout, because lease authority does not transfer.')
   } else if (eligible.length > 0) {
-    lines.push('Call workspace_recovery_handoff with one exact candidate path, then ask the host operator to start a fresh Agent Console session there.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. To continue governed work on it, call workspace_recovery_handoff with one exact candidate path, then ask the host operator for a fresh Agent Console session there.')
   } else {
-    lines.push('Ask the host operator to create a clean managed worktree and start a fresh Agent Console session there.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. To continue governed work on it, ask the host operator to create a clean managed worktree and start a fresh Agent Console session there.')
   }
   return [{ type: /** @type {const} */ ('text'), text: lines.join('\n') }]
 }

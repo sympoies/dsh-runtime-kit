@@ -1,7 +1,7 @@
 {
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
-  "minimum_supported_release": "1.27.17",
+  "minimum_supported_release": "1.27.37",
   "validated_release": "1.27.37",
   "release": {
     "source_revision": "v1.27.37",
@@ -86,7 +86,7 @@
     }
   },
   "rollback_validation": {
-    "runtime_package_sha256": "188e9dca11f1fdfa98130a7e005624539608e1ae587328a4101a48e33ed37c4c",
+    "runtime_package_sha256": "4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd",
     "version": "1.27.37",
     "source_revision": "v1.27.37",
     "source_commit": "3fd3a9bd089247405ec2be219234a7a24f54a98c",

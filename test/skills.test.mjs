@@ -435,7 +435,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.27.17')
+  assert.equal(manifest.minimum_supported_release, '1.27.37')
   assert.equal(manifest.validated_release, '1.27.37')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)

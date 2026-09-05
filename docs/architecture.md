@@ -69,8 +69,10 @@ appearing in this file. The nils `DshCapabilityGroup` schema independently
 freezes the 23 deterministic IDs; the cross-repository migration verifier
 requires the two ordered sets to match.
 
-All DSH rc.7 compatibility types and lifecycle names are isolated in
-`src/compat/dsh-rc7.js`. The adjacent `src/compat/contract.js` owns the typed
+All DSH compatibility types and lifecycle names for the supported rolling
+release window are isolated in `src/compat/dsh-rc7.js` (the file keeps the
+name of the release that introduced the seam; its adapter identity is
+`dsh-rolling-v1`). The adjacent `src/compat/contract.js` owns the typed
 boot/source diagnostics, while `src/compat/performance.js` owns promotion
 budget evaluation. The lifecycle adapter normalizes `agent/session-start`, `agent/pre-step`,
 `tools/pre-execute`, `tools/post-execute`, `tools/result`, and
@@ -81,13 +83,13 @@ subprocess output.
 Pre-step proposals are provisional. Concurrent proposals are serialized behind
 one in-flight decision for the session position; a contender repeats evaluation
 when the owner rejects or aborts. Nils receives the prompt and evaluates policy
-only after the downstream rc.7 decision is `enter` and its signal remains live;
+only after the downstream DSH decision is `enter` and its signal remains live;
 a rejected proposal never crosses the subprocess boundary. The adapter records
 turn/step only after that acceptance. Tool
 boundaries refresh the open position from the public Session events, so durable
 `step/end` and `turn/end` override any cached proposal. Initial attachment
 reverse-derives only through the recent matching lifecycle suffix. The adapter
-then retains an event count and last-event identity: rc.7 immutable snapshots
+then retains an event count and last-event identity: DSH's immutable snapshots
 preserve that anchor across append, allowing only the new suffix to be folded.
 An unchanged content-heavy suffix is therefore constant work per boundary. A
 missing anchor or shorter history violates the public append-only contract and
@@ -110,7 +112,7 @@ authorization once: missing, stale, substituted, aborted, denied, or
 already-consumed markers deny. Correlation survives guard consumption until
 the authoritative frozen `tools/result` observer clears it. A
 non-authoritative `tools/post-execute` body is never stored; nils receives only
-the v4 terminal error bit before downstream and may keep the public rc.7 post
+the v4 terminal error bit before downstream and may keep the public DSH post
 decision closed until operation completion reconciles. A context decision is
 retained only for the exact authorized execution and folded once into the
 accepted post-tool decision. Pre-step context is appended only after downstream returns
@@ -454,7 +456,7 @@ Release waits for any capability-open attempt, refuses a still-prepared tool
 reservation, and authenticates with the exact capability. Nils refuses pending
 or active-unit operations, removes terminal records only after quiescence, and
 keeps a bounded digest-only tombstone for exact retry. That tombstone retires
-the released capability incarnation, not the stable DSH session ID: a new rc.7
+the released capability incarnation, not the stable DSH session ID: a new DSH
 runtime normally resumes the session with a fresh private open token, while the
 old release remains duplicate and cannot delete the new incarnation. The
 tombstone authenticates only a recent duplicate release. If attempt material is
@@ -494,7 +496,7 @@ quiescence releases capacity. Unknown quiescence permanently degrades admission
 closed, cancels every sibling while preserving any earlier first cause, and
 returns a bounded fail-closed result. Degradation advances a monotonic admission
 epoch; the guard rejects an earlier allow marker even when it was already out
-of the transport set and waiting for rc.7 approval. The subprocess receives a
+of the transport set and waiting for DSH approval. The subprocess receives a
 fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
 no forwarded environment, and no spill or unbounded output path.
 
