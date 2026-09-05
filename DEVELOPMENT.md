@@ -85,6 +85,20 @@ Keep DSH/TUI-version-specific adaptation isolated under `src/compat/`,
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
+The shipped sources stay JavaScript with JSDoc types; `npm run typecheck`
+checks `policy.js` and `src/**` under `strict` through `jsconfig.json`. Do not
+convert them to `.ts` files executed by Node's type stripping: Node refuses to
+strip types from any file whose real path contains a `node_modules` segment,
+and both production surfaces of this package resolve to one (`dsh plugin add`
+installs the tarball as a real directory under the profile's `node_modules`,
+and the operations CLI is installed with `npm install --global`).
+`test/smoke.mjs` does not exercise that failure because it launches DSH
+through `pnpm dsh`, whose script runs the source checkout under `tsx`. The
+Gate 0 record on issue #202 holds the probes. A TypeScript source layout would
+therefore need a build step, and the install path in `docs/operations.md`
+(a script-free `npm pack`, no lifecycle scripts, `exports` pointing at the
+reviewed source the package digest covers) leaves no room for one.
+
 ## Routine validation
 
 Run focused tests while iterating, then run the complete routine gate once for
