@@ -220,7 +220,6 @@ test('selected DSH non-workspace runtime dependencies are exact and lockfile-bou
   const expected = {
     '@standard-schema/spec': '1.1.0',
     chokidar: '5.0.0',
-    'js-yaml': '4.1.0',
     yaml: '2.9.0',
     zod: '4.4.3',
   }
