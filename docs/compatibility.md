@@ -189,8 +189,9 @@ involved, the owner and contract that replace it (`dsh`, `nils-cli`, or a
 retained runtime-kit workflow), the first supported versions, the
 compatibility window, the rollback path, and, for retained surfaces, the
 rationale. `test/retired-surfaces.test.mjs` validates the schema, requires the
-recorded minimums to equal the compatibility manifests, scans every shipped
-file and normative document for each removed identifier and deleted file, and
+recorded minimums to equal the compatibility manifests, scans every file
+`package.json#files` ships (the development log and plans are history) and
+every normative document for each removed identifier and deleted file, and
 refuses retired DSH release names in normative documentation, so a retired
 behaviour cannot return as a hidden fallback without failing the suite.
 

@@ -357,7 +357,7 @@ over a non-repository directory and an unrelated clean repository, that two
 distinct worktrees mutate concurrently, that one physical worktree still
 contends across sessions, and that the dirty checkout itself is never mutated.
 It also runs the real DSH `skill` tool, the production `runtime_context`
-definition, dirty quarantine diagnostics, and clean managed handoff.
+definition, anchor-local dirty denial diagnostics, and clean managed handoff.
 Promotion also requires the packed compatibility matrix and real two-session,
 restart/recovery, upgrade, and rollback acceptance described by issues #56 and
 \#172; a focused green test alone does not promote this capability.

@@ -14,7 +14,6 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolDispatchExecution} ToolDispatchExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecution} ToolExecution */
 /** @typedef {import('@deepseek-ai/dsh-tools').ToolExecutionResult} ToolExecutionResult */
-/** @typedef {import('@deepseek-ai/dsh-tools').ToolDefinition} ToolDefinition */
 
 /**
  * Protocol version stamped on every trusted provider request.

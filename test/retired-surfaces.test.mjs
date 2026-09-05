@@ -1,7 +1,7 @@
 // @ts-check
 
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
@@ -39,19 +39,19 @@ function filesBelow(path) {
 }
 
 function shippedSources() {
-  return [
-    join(ROOT, 'index.js'),
-    join(ROOT, 'policy.js'),
-    join(ROOT, 'cordis.patch.yml'),
-    join(ROOT, 'package.json'),
-    ...filesBelow(join(ROOT, 'src')),
-    ...filesBelow(join(ROOT, 'skills')),
-    ...filesBelow(join(ROOT, 'agent-docs')),
-    ...filesBelow(join(ROOT, 'agents')),
-    ...filesBelow(join(ROOT, 'policy')),
-    ...filesBelow(join(ROOT, 'scripts')),
-    ...filesBelow(join(ROOT, 'bin')),
-  ]
+  // The scan set is the package manifest, not a parallel list. `docs` is
+  // scanned through normativeDocs(), which keeps the development log and
+  // plans as history.
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const files = new Set()
+  for (const entry of manifest.files) {
+    if (entry === 'docs') continue
+    const path = join(ROOT, entry)
+    assert.equal(existsSync(path), true, `package.json#files entry ${entry} must exist`)
+    if (statSync(path).isDirectory()) for (const file of filesBelow(path)) files.add(file)
+    else files.add(path)
+  }
+  return [...files]
 }
 
 function normativeDocs() {

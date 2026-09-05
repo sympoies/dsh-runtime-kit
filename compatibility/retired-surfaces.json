@@ -19,7 +19,7 @@
         "owner": "nils-cli",
         "contract": "agent-hook workspace-lease v2 anchor-local denial (dsh-runtime-kit.workspace-lease.v2); recovery through workspace_recovery and workspace_recovery_handoff over agent-hook workspace-recovery"
       },
-      "first_supported": { "runtime_kit": "protocol v2, issue 56 acceptance fc886d1a", "nils_cli": "1.27.17" },
+      "first_supported": { "runtime_kit": "protocol v2 anchor-local denial, #177 acceptance 038670d3", "nils_cli": "1.27.17" },
       "compatibility_window": "none; a bundle that still calls the registry fails at boot with a missing method, which is the intended typed signal that it targets an unsupported runtime-kit",
       "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd through the digest-reviewed rollback operation"
     },
@@ -58,12 +58,12 @@
       "id": "policy-denial-remediation-script",
       "category": "data-policy",
       "status": "reduced",
-      "summary": "Runtime-kit authored the remediation text for a blocked unsafe-default-delivery shape; nils now supplies decision.context for every denial and runtime-kit promotes it, keeping its own text only when nils sends none.",
+      "summary": "Runtime-kit authored the remediation text for a blocked unsafe-default-delivery shape. nils-cli 1.27.37 supplies decision.context for the shell-classification denials (invalid command, unclassifiable command, unclassifiable shell state) and runtime-kit now promotes any context it receives ahead of its own text for every blocked shape; the lone unsafe-default-delivery remediation stays runtime-kit text until a nils release carries context for that code, which the same precedence promotes without a runtime-kit change.",
       "paths": ["src/policy/nils-transport.js"],
       "identifiers": ["promotedGuidance"],
-      "replacement": { "owner": "nils-cli", "contract": "agent-hook dsh_policy.rs decision.context (block-unsafe-default-delivery, opaque-shell classifiers)" },
+      "replacement": { "owner": "runtime-kit", "contract": "src/policy/nils-transport.js promotes agent-hook decision.context (shell-classification denials in nils-cli 1.27.37) ahead of the retained unsafe-default-delivery fallback text" },
       "first_supported": { "runtime_kit": "issue 55 acceptance e582bb46", "nils_cli": "1.27.7" },
-      "compatibility_window": "fallback text remains for a decision that carries no context",
+      "compatibility_window": "runtime-kit remains the owner of the block-unsafe-default-delivery remediation text until nils-cli carries decision.context for that code",
       "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
     },
     {
@@ -74,7 +74,7 @@
       "paths": ["src/workspace-recovery/index.js"],
       "identifiers": ["renderResult"],
       "replacement": { "owner": "nils-cli", "contract": "agent-hook workspace-recovery inspect and handoff; WorkspaceLease v2 anchor-local denial" },
-      "first_supported": { "runtime_kit": "protocol v2, issue 56 acceptance fc886d1a", "nils_cli": "1.27.17" },
+      "first_supported": { "runtime_kit": "protocol v2 anchor-local denial, #177 acceptance 038670d3", "nils_cli": "1.27.17" },
       "compatibility_window": "n/a (wording only)",
       "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd"
     },
@@ -82,7 +82,7 @@
       "id": "nils-minimum-release-floor",
       "category": "compatibility",
       "status": "reduced",
-      "summary": "The minimum supported nils-cli release moves from 1.27.17 to 1.27.37, the release that contains every native contract the accepted children require; older companions fail typed before activation.",
+      "summary": "The minimum supported nils-cli release moves from 1.27.17 to 1.27.37, the release that contains every native contract the accepted children require; older companions fail typed before activation. compatibility/nils-cli.json declares the floor, src/operations/index.js applies it to agent-docs doctor, and src/acceptance/contract.js requires the accepted nils release to be at least the floor.",
       "paths": ["compatibility/nils-cli.json", "src/operations/index.js", "src/acceptance/contract.js"],
       "identifiers": ["minimum_supported_release"],
       "replacement": { "owner": "nils-cli", "contract": "released nils-cli 1.27.37 (3fd3a9bd089247405ec2be219234a7a24f54a98c)" },
