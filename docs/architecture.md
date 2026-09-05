@@ -309,8 +309,17 @@ backing location. The contract is documented in
 
 Finish-line state crosses a strict public open/begin/run/stop command family
 plus private quiesce and release lifecycle transports.
-For `write`, `edit`, and mutating `str_replace_editor` calls, pre-execute mints
-an opaque operation id and awaits durable begin registration before delegation.
+For `write`, `edit`, and mutating `str_replace_editor` calls, pre-execute
+resolves the target ledger, opens its runner capability, and mints an opaque
+operation id; the durable begin registration is awaited at `tools/execute`,
+after every pre-execute gate has admitted the exact execution and before the
+tool body runs. The workspace-lease service admits after the policy boundary
+returns, so registering earlier would leave a validation obligation on a
+repository whose target the lease then denied and never dispatched. A durable
+registration failure is therefore a dispatch-time tool error rather than a
+`finish-line-unavailable` pre-execute denial: the body still never runs, the
+ledger is poisoned for the session when the outcome is ambiguous, and a
+cancellation that arrives before anything was sent poisons nothing.
 
 Each ledger is keyed by the repository the operation targets, not by the session
 anchor. A `bash` validation already binds to its own working directory; an

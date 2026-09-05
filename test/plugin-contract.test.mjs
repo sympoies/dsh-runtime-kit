@@ -4684,3 +4684,135 @@ test('high-cardinality and excessive-depth ingress are rejected without recursio
   assert.match(deepResult.result.reason, /policy-input-too-complex/)
   assert.equal(deep.spawnCount, 0)
 })
+
+function editFinishLineEnvelope(requests, { beginFails = false } = {}) {
+  return spec => {
+    const finishLineIndex = spec.argv.indexOf('finish-line')
+    if (finishLineIndex < 0) {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event === 'tools/post-execute') {
+        return decision('allow', {
+          event: ingress.result?.is_error === true ? 'PostToolUseFailure' : 'PostToolUse',
+        })
+      }
+      if (ingress.event === 'agent/pre-step') return decision('allow', { event: 'UserPromptSubmit' })
+      return decision('allow')
+    }
+    const action = spec.argv[finishLineIndex + 1]
+    const request = JSON.parse(spec.stdio.stdin.data)
+    requests.push({ action, request })
+    if (action === 'open') {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-open.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.open-result.v1',
+          status: 'opened',
+          runner_capability: 'runner:opaque',
+          correlation_id: 'correlation:opaque',
+        },
+      }
+    }
+    if (action === 'begin' && beginFails) {
+      return { schema_version: 'cli.agent-hook.finish-line-begin.v1', ok: false, error: { code: 'finish-line-store-unavailable' } }
+    }
+    if (action === 'begin') {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-begin.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.begin-result.v1',
+          status: 'registered',
+          operation_id: request.operation_id,
+          generation: 1,
+          correlation_id: 'correlation:opaque',
+        },
+      }
+    }
+    if (action === 'release') {
+      return {
+        schema_version: 'cli.agent-hook.finish-line-release.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.release-result.v1',
+          status: 'released',
+          correlation_id: 'correlation:opaque',
+        },
+      }
+    }
+    throw new Error(`unexpected finish-line action: ${action}`)
+  }
+}
+
+test('the shipped policy wiring attributes an edit to the repository the lease resolved', async () => {
+  // Issue 183: `src/policy/index.js` is the only place the bundle injects
+  // `resolveEditRoots`. Every other test hands the option to the coordinator
+  // itself, so deleting or neutering that property left the suite green while
+  // every ledger silently reverted to the session anchor. This dispatch goes
+  // through `applyPolicy`, with the lease service resolved from `ctx.get`.
+  const requests = []
+  const subject = harness({
+    envelope: editFinishLineEnvelope(requests),
+    workspaceLease: { async targets() { return ['/workspace/repo-b'] } },
+  })
+
+  const invocation = await subject.invoke(
+    { file_path: '/workspace/repo-b/src/index.js', content: 'mutated' },
+    { name: 'write', callId: 'edit-repo-b' },
+  )
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, true)
+  assert.deepEqual(
+    requests.filter(entry => entry.action !== 'release').map(entry => [entry.action, entry.request.cwd]),
+    [['open', '/workspace/repo-b'], ['begin', '/workspace/repo-b']],
+  )
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  await subject.dispose()
+})
+
+test('an embedder without a lease service attributes an edit to the session anchor', async () => {
+  const requests = []
+  const subject = harness({ envelope: editFinishLineEnvelope(requests) })
+
+  const invocation = await subject.invoke(
+    { file_path: '/workspace/repo-b/src/index.js', content: 'mutated' },
+    { name: 'write', callId: 'edit-anchor' },
+  )
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, true)
+  assert.deepEqual(
+    requests.filter(entry => entry.action !== 'release').map(entry => [entry.action, entry.request.cwd]),
+    [['open', '/tmp'], ['begin', '/tmp']],
+  )
+  await subject.dispose()
+})
+
+test('a durable begin failure fails the admitted edit at dispatch without mutating', async () => {
+  // The registration moved from a pre-execute denial to a dispatch-time error.
+  // Pin the end-to-end surface: pre-execute allows, the tool body never runs,
+  // the model sees an error result, and the ledger is poisoned for the session.
+  const requests = []
+  const subject = harness({ envelope: editFinishLineEnvelope(requests, { beginFails: true }) })
+  let bodyRuns = 0
+  subject.ctx.tools.register(Object.freeze({
+    name: 'write',
+    async execute() { bodyRuns += 1 },
+  }))
+
+  const invocation = await subject.invoke(
+    { file_path: '/tmp/notes.txt', content: 'mutated' },
+    { name: 'write', callId: 'edit-begin-fails' },
+  )
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, false)
+  assert.equal(bodyRuns, 0)
+  assert.equal(invocation.finalResult.isError, true)
+  assert.match(invocation.finalResult.error.message, /finish-line edit registration unavailable/)
+  assert.deepEqual(requests.map(entry => entry.action), ['open', 'begin', 'begin'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.finishLineDegraded, true)
+  await subject.dispose()
+})

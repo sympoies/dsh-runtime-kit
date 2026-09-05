@@ -313,6 +313,8 @@ export function createFinishLineCoordinator(ctx, options) {
   }))
   /** @type {Map<Readonly<ToolExecution>, CallIdentity>} */
   const preparedEdits = new Map()
+  /** @type {WeakMap<Readonly<ToolExecution>, {ledger: SessionLedger, operationId: string}>} */
+  const editRegistrations = new WeakMap()
   /** @type {Map<Readonly<ToolExecution>, ValidationCall>} */
   const validationCalls = new Map()
   /** @type {WeakSet<Readonly<ToolExecution>>} */
@@ -452,6 +454,65 @@ export function createFinishLineCoordinator(ctx, options) {
       throw new Error('dsh-runtime-kit: finish-line capability unavailable')
     }
     return true
+  }
+
+  /**
+   * Register the durable edit generation for an execution every pre-execution
+   * gate has admitted. Runs at dispatch, before the tool body, so the
+   * generation still precedes the mutation it covers.
+   * @param {ToolExecution} exec
+   * @param {CallIdentity} prepared
+   * @param {{ledger: SessionLedger, operationId: string}} registration
+   */
+  async function registerEdit(exec, prepared, registration) {
+    const { ledger, operationId } = registration
+    // Every failure below drops the local reservation: the execution never
+    // dispatches, so nothing later will settle it.
+    /** @param {unknown} error @returns {never} */
+    const fail = error => {
+      preparedEdits.delete(exec)
+      throw error
+    }
+    // The lease's execute wrapper fuses its operation authority into the
+    // signal, so a cancellation can arrive before anything is sent. A request
+    // that never left the process is not a durable ambiguity; surface the
+    // abort without poisoning the ledger.
+    if (exec.signal.aborted) {
+      fail(exec.signal.reason ?? new Error('dsh-runtime-kit: finish-line edit registration aborted'))
+    }
+    if (!open) fail(new Error('dsh-runtime-kit: finish-line disposed before edit registration'))
+    if (releaseDegraded || ledger.poison !== undefined) {
+      fail(new Error('dsh-runtime-kit: finish-line edit registration unavailable'))
+    }
+    const beginRequest = { ...prepared.identity, operationId }
+    let result
+    try {
+      try {
+        result = await client.beginEdit(beginRequest, exec.signal)
+      } catch (error) {
+        if (exec.signal.aborted) throw error
+        result = await client.beginEdit(beginRequest, exec.signal)
+      }
+    } catch (error) {
+      // The request may or may not have landed: the durable outcome is
+      // ambiguous, so the ledger is poisoned until it is released.
+      client.abandonBegin(beginRequest)
+      poison(ledger, 'begin-persistence')
+      fail(exec.signal.aborted
+        ? error
+        : new Error('dsh-runtime-kit: finish-line edit registration unavailable'))
+    }
+    if (result.operationId !== operationId || result.correlationId.length === 0) {
+      poison(ledger, 'begin-correlation')
+      fail(new Error('dsh-runtime-kit: finish-line edit registration correlation invalid'))
+    }
+    try {
+      // `acceptCorrelation` poisons the ledger and throws its own cause when
+      // the provider changed identity mid-session.
+      acceptCorrelation(ledger, result.correlationId)
+    } catch (error) {
+      fail(error)
+    }
   }
 
   /** @param {Agent['session']} session @param {SessionLedger} ledger */
@@ -744,31 +805,22 @@ export function createFinishLineCoordinator(ctx, options) {
         })
         return { ok: true }
       }
-      const operationId = createOperationId()
-      const beginRequest = { ...identity, operationId }
       try {
         if (!await ensureRunnerCapability(ledger, identity, exec.signal)) {
           return { ok: false, reason: 'finish-line-unavailable' }
         }
-        let result
-        try {
-          result = await client.beginEdit(beginRequest, exec.signal)
-        } catch (error) {
-          if (exec.signal.aborted) throw error
-          result = await client.beginEdit(beginRequest, exec.signal)
-        }
-        if (result.operationId !== operationId || result.correlationId.length === 0) {
-          poison(ledger, 'begin-correlation')
-          return { ok: false, reason: 'finish-line-correlation-invalid' }
-        }
-        acceptCorrelation(ledger, result.correlationId)
-        preparedEdits.set(exec, prepared)
-        return { ok: true }
       } catch {
-        client.abandonBegin(beginRequest)
         poison(ledger, 'begin-persistence')
         return { ok: false, reason: 'finish-line-unavailable' }
       }
+      // Reserve the edit locally only. The durable edit generation is
+      // registered in `execute`, once every pre-execution gate has admitted
+      // this exact execution. The workspace lease admits after this boundary
+      // returns, so registering here would leave a validation obligation on a
+      // repository whose target the lease then denied and never dispatched.
+      preparedEdits.set(exec, prepared)
+      editRegistrations.set(exec, { ledger, operationId: createOperationId() })
+      return { ok: true }
     },
 
     /**
@@ -777,6 +829,18 @@ export function createFinishLineCoordinator(ctx, options) {
      */
     async execute(exec) {
       const operation = operationFor(/** @type {ToolExecution} */ (exec))
+      const registration = editRegistrations.get(exec)
+      if (registration !== undefined) {
+        editRegistrations.delete(exec)
+        const prepared = preparedEdits.get(exec)
+        if (operation?.kind !== 'edit' || prepared === undefined || !matches(prepared, exec)) {
+          preparedEdits.delete(exec)
+          poison(registration.ledger, 'execute-correlation')
+          throw new Error('dsh-runtime-kit: finish-line edit correlation invalid')
+        }
+        await registerEdit(/** @type {ToolExecution} */ (exec), prepared, registration)
+        return { kind: 'delegate' }
+      }
       const nonRepositoryPwd = nonRepositoryPwdCalls.get(exec)
       nonRepositoryPwdCalls.delete(exec)
       if (nonRepositoryPwd !== undefined) {
@@ -914,6 +978,7 @@ export function createFinishLineCoordinator(ctx, options) {
     /** Drop a prepared operation when a later pre-execution gate denies. @param {ToolExecution} exec */
     reject(exec) {
       preparedEdits.delete(exec)
+      editRegistrations.delete(exec)
       validationCalls.delete(exec)
       advisoryDelegations.delete(exec)
       nonRepositoryPwdCalls.delete(exec)
@@ -1008,6 +1073,7 @@ export function createFinishLineCoordinator(ctx, options) {
     /** @param {Readonly<ToolExecution>} exec @param {Readonly<ToolExecutionResult>} _result */
     result(exec, _result) {
       preparedEdits.delete(exec)
+      editRegistrations.delete(exec)
       if (settledValidations.has(exec)) {
         settledValidations.delete(exec)
         return
