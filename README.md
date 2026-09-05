@@ -15,6 +15,14 @@ Codex and Claude Code continue to use agent-runtime-kit plus nils-cli and are
 not modified by DSH activation. DSH continues to own the agent loop, sessions,
 tools, sandbox, approvals, skills, and subagents.
 
+## Repository boundary
+
+- This repository owns reusable DSH runtime governance and lifecycle contracts.
+- [`sympoies/dsh-applications`](https://github.com/sympoies/dsh-applications)
+  owns the coordinated public application and profile catalog.
+- [`sympoies/dsh-plugins`](https://github.com/sympoies/dsh-plugins) owns
+  independently released DSH plugins.
+
 ## What it provides
 
 - 29 bundled public workflow skills, with native project-skill discovery and
