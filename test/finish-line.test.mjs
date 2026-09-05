@@ -1275,7 +1275,7 @@ test('a definitively abandoned edit drops its retry token before poisoning the s
   const exec = execution(subject)
 
   assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
-  await assert.rejects(subject.coordinator.execute(exec), /finish-line-unavailable/)
+  await assert.rejects(subject.coordinator.execute(exec), /edit registration unavailable/)
   assert.equal(subject.coordinator.degraded, true)
   assert.equal(subject.coordinator.activeReservations, 0)
   assert.equal(subject.abandonedBegins.length, 1)
@@ -1492,4 +1492,66 @@ test('an unclassified edit inside the anchor still owes Git validation', async (
   )
   assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.deepEqual(subject.edits.map(edit => edit.cwd), ['/workspace/repo-a'])
+})
+
+test('an edit substituted between admission and dispatch registers no generation', async () => {
+  // Deferring the durable registration opens an admission-to-dispatch window;
+  // the dispatch-time identity check closes it.
+  const subject = fixture()
+  const exec = execution(subject)
+
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  exec.arguments = { file_path: '/workspace/project/other.txt', old_string: 'x', new_string: 'y' }
+
+  await assert.rejects(subject.coordinator.execute(exec), /edit correlation invalid/)
+  assert.deepEqual(subject.edits, [])
+  assert.equal(subject.coordinator.degraded, true)
+  assert.equal(subject.coordinator.activeReservations, 0)
+})
+
+test('a ledger poisoned between admission and dispatch sends no registration', async () => {
+  const subject = fixture()
+  const first = execution(subject, { callId: 'edit-1' })
+  const second = execution(subject, { callId: 'edit-2' })
+  assert.deepEqual(await subject.coordinator.begin(first, context(first)), { ok: true })
+  assert.deepEqual(await subject.coordinator.begin(second, context(second)), { ok: true })
+
+  // The second edit's registration fails and poisons the shared ledger.
+  subject.client.beginEdit = async () => { throw new Error('ambiguous transport failure') }
+  await assert.rejects(subject.coordinator.execute(second), /edit registration unavailable/)
+  assert.equal(subject.coordinator.degraded, true)
+
+  subject.client.beginEdit = async () => assert.fail('a poisoned ledger must not send a registration')
+  await assert.rejects(subject.coordinator.execute(first), /edit registration unavailable/)
+  assert.deepEqual(subject.edits, [])
+  assert.equal(subject.coordinator.activeReservations, 0)
+})
+
+test('an edit aborted before dispatch registers nothing and leaves the ledger healthy', async () => {
+  // The lease's execute wrapper fuses its operation authority into the signal,
+  // so a cancellation can land before the registration is sent. Nothing left
+  // the process, so there is no durable ambiguity to poison over.
+  const subject = fixture()
+  const controller = new AbortController()
+  const exec = execution(subject, { signal: controller.signal })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+
+  subject.client.beginEdit = async () => assert.fail('an aborted execution must not send a registration')
+  controller.abort(new Error('lease authority lost'))
+
+  await assert.rejects(subject.coordinator.execute(exec), /lease authority lost/)
+  assert.deepEqual(subject.edits, [])
+  assert.deepEqual(subject.abandonedBegins, [])
+  assert.equal(subject.coordinator.degraded, false)
+  assert.equal(subject.coordinator.activeReservations, 0)
+
+  // The same ledger keeps serving later edits in the session.
+  subject.client.beginEdit = async request => {
+    subject.edits.push(structuredClone(request))
+    return { status: 'registered', operationId: request.operationId, generation: 1, correlationId }
+  }
+  const next = execution(subject, { callId: 'call-2' })
+  assert.deepEqual(await subject.coordinator.begin(next, context(next)), { ok: true })
+  assert.deepEqual(await subject.coordinator.execute(next), { kind: 'delegate' })
+  assert.equal(subject.edits.length, 1)
 })

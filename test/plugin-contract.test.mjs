@@ -4685,10 +4685,19 @@ test('high-cardinality and excessive-depth ingress are rejected without recursio
   assert.equal(deep.spawnCount, 0)
 })
 
-function editFinishLineEnvelope(requests) {
+function editFinishLineEnvelope(requests, { beginFails = false } = {}) {
   return spec => {
     const finishLineIndex = spec.argv.indexOf('finish-line')
-    if (finishLineIndex < 0) return decision('allow')
+    if (finishLineIndex < 0) {
+      const ingress = JSON.parse(spec.stdio.stdin.data)
+      if (ingress.event === 'tools/post-execute') {
+        return decision('allow', {
+          event: ingress.result?.is_error === true ? 'PostToolUseFailure' : 'PostToolUse',
+        })
+      }
+      if (ingress.event === 'agent/pre-step') return decision('allow', { event: 'UserPromptSubmit' })
+      return decision('allow')
+    }
     const action = spec.argv[finishLineIndex + 1]
     const request = JSON.parse(spec.stdio.stdin.data)
     requests.push({ action, request })
@@ -4703,6 +4712,9 @@ function editFinishLineEnvelope(requests) {
           correlation_id: 'correlation:opaque',
         },
       }
+    }
+    if (action === 'begin' && beginFails) {
+      return { schema_version: 'cli.agent-hook.finish-line-begin.v1', ok: false, error: { code: 'finish-line-store-unavailable' } }
     }
     if (action === 'begin') {
       return {
@@ -4774,5 +4786,33 @@ test('an embedder without a lease service attributes an edit to the session anch
     requests.filter(entry => entry.action !== 'release').map(entry => [entry.action, entry.request.cwd]),
     [['open', '/tmp'], ['begin', '/tmp']],
   )
+  await subject.dispose()
+})
+
+test('a durable begin failure fails the admitted edit at dispatch without mutating', async () => {
+  // The registration moved from a pre-execute denial to a dispatch-time error.
+  // Pin the end-to-end surface: pre-execute allows, the tool body never runs,
+  // the model sees an error result, and the ledger is poisoned for the session.
+  const requests = []
+  const subject = harness({ envelope: editFinishLineEnvelope(requests, { beginFails: true }) })
+  let bodyRuns = 0
+  subject.ctx.tools.register(Object.freeze({
+    name: 'write',
+    async execute() { bodyRuns += 1 },
+  }))
+
+  const invocation = await subject.invoke(
+    { file_path: '/tmp/notes.txt', content: 'mutated' },
+    { name: 'write', callId: 'edit-begin-fails' },
+  )
+
+  assert.equal(invocation.result.kind, 'allow')
+  assert.equal(invocation.delegated, false)
+  assert.equal(bodyRuns, 0)
+  assert.equal(invocation.finalResult.isError, true)
+  assert.match(invocation.finalResult.error.message, /finish-line edit registration unavailable/)
+  assert.deepEqual(requests.map(entry => entry.action), ['open', 'begin', 'begin'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+  assert.equal(subject.service.finishLineDegraded, true)
   await subject.dispose()
 })

@@ -466,32 +466,52 @@ export function createFinishLineCoordinator(ctx, options) {
    */
   async function registerEdit(exec, prepared, registration) {
     const { ledger, operationId } = registration
-    if (!open) throw new Error('dsh-runtime-kit: finish-line-disposed')
+    // Every failure below drops the local reservation: the execution never
+    // dispatches, so nothing later will settle it.
+    /** @param {unknown} error @returns {never} */
+    const fail = error => {
+      preparedEdits.delete(exec)
+      throw error
+    }
+    // The lease's execute wrapper fuses its operation authority into the
+    // signal, so a cancellation can arrive before anything is sent. A request
+    // that never left the process is not a durable ambiguity; surface the
+    // abort without poisoning the ledger.
+    if (exec.signal.aborted) {
+      fail(exec.signal.reason ?? new Error('dsh-runtime-kit: finish-line edit registration aborted'))
+    }
+    if (!open) fail(new Error('dsh-runtime-kit: finish-line disposed before edit registration'))
     if (releaseDegraded || ledger.poison !== undefined) {
-      throw new Error('dsh-runtime-kit: finish-line-unavailable')
+      fail(new Error('dsh-runtime-kit: finish-line edit registration unavailable'))
     }
     const beginRequest = { ...prepared.identity, operationId }
+    let result
     try {
-      let result
       try {
         result = await client.beginEdit(beginRequest, exec.signal)
       } catch (error) {
         if (exec.signal.aborted) throw error
         result = await client.beginEdit(beginRequest, exec.signal)
       }
-      if (result.operationId !== operationId || result.correlationId.length === 0) {
-        poison(ledger, 'begin-correlation')
-        throw new Error('dsh-runtime-kit: finish-line-correlation-invalid')
-      }
-      acceptCorrelation(ledger, result.correlationId)
     } catch (error) {
+      // The request may or may not have landed: the durable outcome is
+      // ambiguous, so the ledger is poisoned until it is released.
       client.abandonBegin(beginRequest)
       poison(ledger, 'begin-persistence')
-      preparedEdits.delete(exec)
-      if (exec.signal.aborted) throw error
-      throw error instanceof Error && error.message.startsWith('dsh-runtime-kit: finish-line')
+      fail(exec.signal.aborted
         ? error
-        : new Error('dsh-runtime-kit: finish-line-unavailable')
+        : new Error('dsh-runtime-kit: finish-line edit registration unavailable'))
+    }
+    if (result.operationId !== operationId || result.correlationId.length === 0) {
+      poison(ledger, 'begin-correlation')
+      fail(new Error('dsh-runtime-kit: finish-line edit registration correlation invalid'))
+    }
+    try {
+      // `acceptCorrelation` poisons the ledger and throws its own cause when
+      // the provider changed identity mid-session.
+      acceptCorrelation(ledger, result.correlationId)
+    } catch (error) {
+      fail(error)
     }
   }
 
