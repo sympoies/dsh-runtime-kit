@@ -389,6 +389,7 @@ function launchSummary(lane, disposition) {
  *     register?: (resolver:(id:string) => unknown) => (() => void),
  *     resolve?: (id:string) => unknown,
  *   },
+ *   [key: string]: unknown,
  * }} [config]
  */
 export function applyMainAgentMode(ctx, config = {}) {

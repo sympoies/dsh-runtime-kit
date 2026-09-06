@@ -85,19 +85,31 @@ Keep DSH/TUI-version-specific adaptation isolated under `src/compat/`,
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
-The shipped sources stay JavaScript with JSDoc types; `npm run typecheck`
-checks `policy.js` and `src/**` under `strict` through `jsconfig.json`. Do not
-convert them to `.ts` files executed by Node's type stripping: Node refuses to
-strip types from any file whose real path contains a `node_modules` segment,
-and both production surfaces of this package resolve to one (`dsh plugin add`
-installs the tarball as a real directory under the profile's `node_modules`,
-and the operations CLI is installed with `npm install --global`).
-`test/smoke.mjs` does not exercise that failure because it launches DSH
-through `pnpm dsh`, whose script runs the source checkout under `tsx`. The
-Gate 0 record on issue #202 holds the probes. A TypeScript source layout would
-therefore need a build step, and the install path in `docs/operations.md`
-(a script-free `npm pack`, no lifecycle scripts, `exports` pointing at the
-reviewed source the package digest covers) leaves no room for one.
+The shipped sources are JavaScript with JSDoc types; `npm run typecheck` checks
+`index.js`, `bin/**`, `policy.js`, and `src/**` under `strict` through
+`jsconfig.json`. Do not convert them to `.ts` files executed by Node's type
+stripping: Node refuses to strip types from any file whose real path contains a
+`node_modules` segment, and both production surfaces of this package resolve to
+one (`dsh plugin add` installs the tarball as a real directory under the
+profile's `node_modules`, and the operations CLI is installed with `npm install
+--global`). `test/smoke.mjs` does not exercise that failure because it launches
+DSH through `pnpm dsh`, whose script runs the source checkout under `tsx`. The
+Gate 0 record on issue #202 holds the probes.
+
+A TypeScript source layout would therefore need a build step. That is a
+packaging decision, not a digest one: the operations plan digest binds the
+packed tarball and extracted package-tree identity, so it guarantees that apply
+installs exactly the artifact preview reviewed, whether that artifact holds
+sources or build output. What actually blocks a build step is the local install
+path. `src/operations/index.js` and every packing test harness resolve a local
+directory target through `npm pack --ignore-scripts`, so no build runs at pack
+time and a stale `dist/` would install while the source tree, the typecheck and
+the receipt all still look correct — the same failure shape as skipping the
+`tsdown` stage of the DSH rebuild. A build step therefore needs a pack-time
+freshness gate that fails closed before it needs anything else. Publishing to
+the registry is not the constrained half: `lifecycle-scripts-declared` refuses
+an installed package that declares `preinstall`, `install`, `postinstall`, or
+`prepare`, which `prepublishOnly` and a CI build both avoid.
 
 ## Routine validation
 
