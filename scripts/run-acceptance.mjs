@@ -26,20 +26,20 @@ import {
   buildAcceptanceSummary,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
-} from '../src/acceptance/contract.js'
-import { cloneAuthenticatedDshSource } from '../src/acceptance/dsh-clone.js'
-import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
-import { extractFreshPackage } from '../src/acceptance/package-staging.js'
+} from '../dist/src/acceptance/contract.js'
+import { cloneAuthenticatedDshSource } from '../dist/src/acceptance/dsh-clone.js'
+import { digestDshBuildClosure } from '../dist/src/acceptance/dsh-build.js'
+import { extractFreshPackage } from '../dist/src/acceptance/package-staging.js'
 import {
   createToolPath,
   discoverPreparedPnpmStore,
-} from '../src/acceptance/tool-path.js'
-import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { manageDshPatch } from '../src/compat/dsh-patch.js'
+} from '../dist/src/acceptance/tool-path.js'
+import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
+import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
 import {
   inspectSelectedDshCheckout,
   inspectSelectedDshCheckoutIdentity,
-} from '../src/compat/git-checkout.js'
+} from '../dist/src/compat/git-checkout.js'
 
 const sourceProjectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI_SCHEMA = 'dsh-runtime-kit.acceptance-cli.v1'

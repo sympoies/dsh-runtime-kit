@@ -20,9 +20,9 @@ import { spawnSync } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { parse as parseYaml } from 'yaml'
 
-import { manageDshPatch } from '../src/compat/dsh-patch.js'
-import { manageDshTuiPatch } from '../src/compat/dsh-tui-patch.js'
-import { fetchAuthenticatedAgentConsoleArtifact } from '../src/compat/agent-console-artifact.js'
+import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
+import { manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
+import { fetchAuthenticatedAgentConsoleArtifact } from '../dist/src/compat/agent-console-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -167,7 +167,7 @@ const agentHookWrapper = join(temporaryRoot, 'agent-hook-isolation-wrapper')
 const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed')
 const agentDocsHome = join(runtimeRoot, 'agent-docs')
 const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
-const ownerLauncher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
+const ownerLauncher = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit-launch.js')
 const agentConsoleProfileWorkspace = join(
   projectRoot,
   'compatibility',
@@ -1618,22 +1618,22 @@ try {
   const tarball = join(temporaryRoot, packReceipt.filename)
   for (const required of [
     'package.json',
-    'index.js',
-    'policy.js',
-    'bin/dsh-runtime-kit-launch.js',
-    'src/compat/dsh-rc7.js',
-    'src/compat/agent-console.js',
-    'src/compat/agent-console-artifact.js',
-    'src/context/index.js',
-    'src/context/nils-context.js',
-    'src/finish-line/index.js',
-    'src/finish-line/nils-client.js',
-    'src/authoritative-acceptance/index.js',
-    'src/policy/index.js',
-    'src/policy/nils-transport.js',
-    'src/prerequisite/index.js',
-    'src/review/index.js',
-    'src/workspace-lease/index.js',
+    'index.ts',
+    'policy.ts',
+    'dist/bin/dsh-runtime-kit-launch.js',
+    'src/compat/dsh-rc7.ts',
+    'src/compat/agent-console.ts',
+    'src/compat/agent-console-artifact.ts',
+    'src/context/index.ts',
+    'src/context/nils-context.ts',
+    'src/finish-line/index.ts',
+    'src/finish-line/nils-client.ts',
+    'src/authoritative-acceptance/index.ts',
+    'src/policy/index.ts',
+    'src/policy/nils-transport.ts',
+    'src/prerequisite/index.ts',
+    'src/review/index.ts',
+    'src/workspace-lease/index.ts',
     'agents/reviewers/reviewer-api-contract.md',
     'agents/reviewers/reviewer-data-migration.md',
     'agents/reviewers/reviewer-maintainability.md',
@@ -1656,13 +1656,13 @@ try {
     'scripts/manage-dsh-tui-patch.mjs',
     'scripts/pack-dsh-compatibility-peers.mjs',
     'scripts/stage-dsh-compatibility-peers.mjs',
-    'src/compat/contract.js',
-    'src/compat/dsh-patch.js',
-    'src/compat/dsh-tui-patch.js',
-    'src/compat/git-checkout.js',
-    'src/compat/package-artifact.js',
-    'src/compat/performance.js',
-    'src/compat/upstream-reference.js',
+    'src/compat/contract.ts',
+    'src/compat/dsh-patch.ts',
+    'src/compat/dsh-tui-patch.ts',
+    'src/compat/git-checkout.ts',
+    'src/compat/package-artifact.ts',
+    'src/compat/performance.ts',
+    'src/compat/upstream-reference.ts',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch',
@@ -2053,7 +2053,7 @@ class SmokeAdapter extends LlmAdapter {
             }, {
               severity: 'medium',
               confidence: 0.85,
-              path: 'src/review/index.js',
+              path: 'src/review/index.ts',
               category: 'testing',
               summary: 'The reviewer result also needs a file-level thread.',
               evidence: 'Provider-review transport accepts actionable findings without a line.',
@@ -3692,7 +3692,7 @@ ${agentConsoleTuiOverlay}
   assert.equal(reviewerThreads.length, 2)
   assert.deepEqual(reviewerThreads.map(thread => thread.path), [
     'test/smoke.mjs',
-    'src/review/index.js',
+    'src/review/index.ts',
   ])
   assert.equal(reviewerThreads[0].line, 1)
   assert.equal(reviewerThreads[1].line, undefined)

@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import * as runtimeKit from '../index.js'
+import * as runtimeKit from '../dist/index.js'
 
 const { apply } = runtimeKit
 

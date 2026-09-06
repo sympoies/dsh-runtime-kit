@@ -6,7 +6,7 @@ import {
   dshRc7AgentRoute,
   dshRc7RunInfo,
   dshRc7SessionHeader,
-} from '../src/compat/dsh-rc7.js'
+} from '../dist/src/compat/dsh-rc7.js'
 
 test('the rc.7 adapter owns session, route, and run-info shape probes', () => {
   const agent = {

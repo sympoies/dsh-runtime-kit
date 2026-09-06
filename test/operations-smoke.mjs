@@ -56,8 +56,8 @@ const claudeHome = join(userHome, '.claude')
 const configHome = join(temporaryRoot, 'config')
 const stateHome = join(temporaryRoot, 'state')
 const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
-const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
-const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
+const cli = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit.js')
+const launcher = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit-launch.js')
 mkdirSync(dshHome, { mode: 0o700 })
 mkdirSync(runtimeRoot, { mode: 0o700 })
 
@@ -125,10 +125,10 @@ function stageUnrelatedBundle(name, version) {
 }
 
 const requiredRuntimeSurfaces = [
-  'index.js',
+  'index.ts',
   'cordis.patch.yml',
-  'bin/dsh-runtime-kit.js',
-  'src/policy/index.js',
+  'dist/bin/dsh-runtime-kit.js',
+  'src/policy/index.ts',
   'policy/dsh-runtime-kit-v1.toml',
   'test/smoke.mjs',
 ]

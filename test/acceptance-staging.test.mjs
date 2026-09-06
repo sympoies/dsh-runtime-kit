@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { extractFreshPackage } from '../src/acceptance/package-staging.js'
+import { extractFreshPackage } from '../dist/src/acceptance/package-staging.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

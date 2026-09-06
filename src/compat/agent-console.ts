@@ -1,7 +1,8 @@
+import { packageAsset } from '../package-root.js'
 import { readFileSync } from 'node:fs'
 
 const CONTRACT: any = deepFreeze(JSON.parse(readFileSync(
-  new URL('../../compatibility/agent-console.json', import.meta.url),
+  packageAsset('compatibility', 'agent-console.json'),
   'utf8',
 )))
 

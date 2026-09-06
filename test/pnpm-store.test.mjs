@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import {
   createToolPath,
   discoverPreparedPnpmStore,
-} from '../src/acceptance/tool-path.js'
+} from '../dist/src/acceptance/tool-path.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

@@ -8,12 +8,12 @@ import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-ses
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 
-import { createFinishLineCoordinator } from '../src/finish-line/index.js'
+import { createFinishLineCoordinator } from '../dist/src/finish-line/index.js'
 import {
   WORKSPACE_LEASE_PROTOCOL_VERSION,
   WorkspaceLease,
   WorkspaceLeaseError,
-} from '../src/workspace-lease/index.js'
+} from '../dist/src/workspace-lease/index.js'
 
 const CallId = llmModule.ToolCallId ?? llmModule.CallId
 const testSignal = new AbortController().signal

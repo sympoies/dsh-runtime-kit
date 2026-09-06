@@ -4,10 +4,10 @@ import { test } from 'node:test'
 import {
   DshFinishLineTemporaryError,
   createNilsFinishLineClient,
-} from '../src/finish-line/nils-client.js'
-import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
-import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
-import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+} from '../dist/src/finish-line/nils-client.js'
+import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
+import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`
 const correlationId = 'correlation:opaque'

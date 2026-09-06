@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
-import { applyManagedSessionAuthentication } from '../src/nils/managed-session-authentication.js'
+import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { applyManagedSessionAuthentication } from '../dist/src/nils/managed-session-authentication.js'
 
 const principalEnvironment = Object.freeze({
   AGENT_SESSION_ID: 'console-session-one',

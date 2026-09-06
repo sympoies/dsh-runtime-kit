@@ -15,7 +15,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-import { manageDshPatch } from '../src/compat/dsh-patch.js'
+import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -251,10 +251,10 @@ digest = ${JSON.stringify(digest)}
   ], { cwd: projectRoot })
   const packReceipt = JSON.parse(packed.stdout)[0]
   const packedFiles = new Set(packReceipt.files.map(file => file.path))
-  assert.ok(packedFiles.has('src/workspace-lease/index.js'))
-  assert.ok(packedFiles.has('src/workspace-lease/nils-provider.js'))
-  assert.ok(packedFiles.has('src/workspace-recovery/index.js'))
-  assert.ok(packedFiles.has('src/workspace-recovery/nils-client.js'))
+  assert.ok(packedFiles.has('src/workspace-lease/index.ts'))
+  assert.ok(packedFiles.has('src/workspace-lease/nils-provider.ts'))
+  assert.ok(packedFiles.has('src/workspace-recovery/index.ts'))
+  assert.ok(packedFiles.has('src/workspace-recovery/nils-client.ts'))
   const tarball = join(temporaryRoot, packReceipt.filename)
 
   run(pnpmBin, ['dsh', 'plugin', '--profile', profile, 'add', tarball])
@@ -266,7 +266,7 @@ digest = ${JSON.stringify(digest)}
     'dsh-runtime-kit',
     'src',
     'workspace-lease',
-    'nils-provider.js',
+    'nils-provider.ts',
   )).href
   const recoveryModuleUrl = pathToFileURL(join(
     profileDirectory,
@@ -275,7 +275,7 @@ digest = ${JSON.stringify(digest)}
     'dsh-runtime-kit',
     'src',
     'workspace-recovery',
-    'index.js',
+    'index.ts',
   )).href
   const recoveryClientModuleUrl = pathToFileURL(join(
     profileDirectory,
@@ -284,7 +284,7 @@ digest = ${JSON.stringify(digest)}
     'dsh-runtime-kit',
     'src',
     'workspace-recovery',
-    'nils-client.js',
+    'nils-client.ts',
   )).href
   const contextModuleUrl = pathToFileURL(join(
     profileDirectory,
@@ -293,7 +293,7 @@ digest = ${JSON.stringify(digest)}
     'dsh-runtime-kit',
     'src',
     'context',
-    'index.js',
+    'index.ts',
   )).href
   const llmModuleUrl = pathToFileURL(
     join(dshRoot, 'packages', 'llm', 'llm', 'src', 'index.ts'),

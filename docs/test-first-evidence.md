@@ -249,8 +249,8 @@ cancellation, and plugin-disposal behavior without an API key.
 ## Task 2.3 result-driven finish line
 
 The first focused run hit the same module-absence setup failure described at
-the top of this note: `src/finish-line/index.js` and
-`src/finish-line/nils-client.js` did not exist. It was not a meaningful
+the top of this note: `src/finish-line/index.ts` and
+`src/finish-line/nils-client.ts` did not exist. It was not a meaningful
 behavioral red. The final loadable contract suites instead provide the retained
 evidence for the adapter and wire boundary.
 
@@ -568,7 +568,7 @@ no retired handler execution.
 
 ## Task 4 native reviewer evidence
 
-The initial reviewer test file could not load because `src/review/index.js` did
+The initial reviewer test file could not load because `src/review/index.ts` did
 not exist; this is recorded as greenfield setup evidence rather than a
 behavioral regression. The first useful contract red came from the review
 skill: it still described one short role per call and had no strict native
@@ -1662,7 +1662,7 @@ checks and infrastructure closeout complete; no fleet cutover is claimed here.
 ## Issue #55 native governed-commit evidence
 
 The runtime baseline first failed before production code existed: importing
-`src/governed-commit/index.js` returned `ERR_MODULE_NOT_FOUND`. The paired nils
+`src/governed-commit/index.ts` returned `ERR_MODULE_NOT_FOUND`. The paired nils
 regression reproduced the reported topology rather than hard-coding `main`:
 the remote default was `main` or `trunk`, the primary checkout was on an
 integration branch, and the authenticated linked worktree was on a feature

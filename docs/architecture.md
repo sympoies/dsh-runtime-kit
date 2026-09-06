@@ -70,10 +70,10 @@ freezes the 23 deterministic IDs; the cross-repository migration verifier
 requires the two ordered sets to match.
 
 All DSH compatibility types and lifecycle names for the supported rolling
-release window are isolated in `src/compat/dsh-rc7.js` (the file keeps the
+release window are isolated in `src/compat/dsh-rc7.ts` (the file keeps the
 name of the release that introduced the seam; its adapter identity is
-`dsh-rolling-v1`). The adjacent `src/compat/contract.js` owns the typed
-boot/source diagnostics, while `src/compat/performance.js` owns promotion
+`dsh-rolling-v1`). The adjacent `src/compat/contract.ts` owns the typed
+boot/source diagnostics, while `src/compat/performance.ts` owns promotion
 budget evaluation. The lifecycle adapter normalizes `agent/session-start`, `agent/pre-step`,
 `tools/pre-execute`, `tools/post-execute`, `tools/result`, and
 `agent/turn-stopping` into content-free session/cwd/turn/step/call correlation.
@@ -198,7 +198,7 @@ partially parsed. Exact Git recovery and the owned delivery CLIs remain
 available. Scope-lock policy probes run with a cleared environment and a
 helper-disabled trusted Git boundary.
 
-`src/governed-commit/index.js` registers the model-facing
+`src/governed-commit/index.ts` registers the model-facing
 `runtime_kit_governed_commit` tool through DSH's public tool and subprocess
 interfaces. The tool schema contains only conventional message fields and one
 full expected HEAD. Its target is always the canonical live Session cwd; there
@@ -224,7 +224,7 @@ these layers as a general hostile-code boundary.
 ## Specialist review
 
 Specialist review is one DSH-native tool, not eight model-authored personas or
-an external agent runtime. `src/review/index.js` loads exactly eight packaged
+an external agent runtime. `src/review/index.ts` loads exactly eight packaged
 persona files at server startup and accepts only `{ task, roles }`. Quick review
 is exclusive. Runtime-kit registers every persona as one immutable DSH
 restricted-role definition with a fixed spawn route, structured output schema,
@@ -496,7 +496,7 @@ property, the guard denies while `tools/result` still removes the original
 marker, correlation, and token-owner entry; another execution object cannot
 replay them.
 
-`src/policy/nils-transport.js` owns one bounded operation per child process.
+`src/policy/nils-transport.ts` owns one bounded operation per child process.
 The first observed caller abort, deadline, or plugin disposal classifies the
 failure. Admission closes before disposal cancellation. Child `done` is
 observed with a rejection handler, while `waitForExit(signal)` and a consumer
@@ -511,7 +511,7 @@ no forwarded environment, and no spill or unbounded output path.
 
 ## Authoritative completion acceptance
 
-`src/authoritative-acceptance/index.js` composes a nils-owned durable verdict
+`src/authoritative-acceptance/index.ts` composes a nils-owned durable verdict
 over this finish-line authority. Trusted consumers register exact visible tool
 definitions as mutation invalidators or requirement validators. Runtime-kit
 binds admission and final observation to the same DSH execution object and
@@ -554,7 +554,7 @@ failure, persistence, and rollback semantics are in
 
 ## Selective runtime context
 
-`src/context/nils-context.js` owns a separate bounded subprocess lifecycle for
+`src/context/nils-context.ts` owns a separate bounded subprocess lifecycle for
 `agent-docs session context`. A tool call derives the exact DSH Session id and
 absolute cwd from the live Agent, mints a fresh request id, and asks nils to
 resolve, budget-check, fingerprint, and persist one intent atomically. The
@@ -583,7 +583,7 @@ seam below binds one registry-owned execution to one exact definition.
 
 ## Automatic tool prerequisites
 
-`src/prerequisite/index.js` assigns process-local identities to the exact
+`src/prerequisite/index.ts` assigns process-local identities to the exact
 Agent, runtime workspace generation, and visible `ToolDefinition` object. It
 uses the version-scoped `tools.bindPrerequisite` seam supplied by
 the `native-execution-boundaries-v5` release artifact selected through
@@ -762,7 +762,7 @@ reported as undeclared, and its receipts omit the lifecycle key so the accepted
 baseline engine can still read them.
 
 The repository-owned generic deploy dispatcher (`.agents/scripts/deploy.sh`,
-implemented in `src/deploy/index.js`) is the shared `meta:deploy` target and
+implemented in `src/deploy/index.ts`) is the shared `meta:deploy` target and
 sits strictly above that plane. It binds an explicit scope — an immutable
 packed artifact plus its digest, one DSH home and profile, one owner-only
 runtime root, the DSH executable, and the requested phase — authenticates the
@@ -774,7 +774,7 @@ adds only typed scope refusals, a canary/primary scope guard that keeps
 candidate acceptance away from a live profile, and a bounded resumable receipt.
 [Operations](operations.md) documents the contract.
 
-`src/operations/index.js` is an out-of-process management plane and never edits
+`src/operations/index.ts` is an out-of-process management plane and never edits
 DSH profile JSON or its bundle list. It resolves one strict profile name and one
 exact package target, hashes the complete observed profile manifest plus its
 private receipt, and emits a deterministic dry-run plan. A local target is

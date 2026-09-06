@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import { applyMainAgentMode } from '../src/main-agent/index.js'
+import { applyMainAgentMode } from '../dist/src/main-agent/index.js'
 
 const binDir = process.env.NILS_BIN_DIR
 assert.ok(

@@ -25,7 +25,7 @@ import {
   validatePluginDescriptor,
   validateResolvedComposition,
   versionSatisfies,
-} from '../src/composition/index.js'
+} from '../dist/src/composition/index.js'
 
 const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`
 const ONE_DIGEST = `sha256:${'1'.repeat(64)}`

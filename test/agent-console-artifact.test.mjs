@@ -5,7 +5,7 @@ import test from 'node:test'
 import {
   AgentConsoleArtifactError,
   fetchAuthenticatedAgentConsoleArtifact,
-} from '../src/compat/agent-console-artifact.js'
+} from '../dist/src/compat/agent-console-artifact.js'
 
 const bytes = Buffer.from('authenticated Agent Console TUI archive')
 const artifact = Object.freeze({

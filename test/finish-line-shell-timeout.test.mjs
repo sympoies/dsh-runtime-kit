@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveFinishLineShellTimeout } from '../src/finish-line/index.js'
-import { resolveFinishLineShellSpec } from '../src/policy/index.js'
+import { resolveFinishLineShellTimeout } from '../dist/src/finish-line/index.js'
+import { resolveFinishLineShellSpec } from '../dist/src/policy/index.js'
 
 test('finish-line validations preserve the long-running default at the DSH shell boundary', () => {
   assert.equal(resolveFinishLineShellTimeout('validation', undefined), 30 * 60 * 1_000)

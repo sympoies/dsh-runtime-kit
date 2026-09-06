@@ -1,3 +1,4 @@
+import { packageAsset } from '../package-root.js'
 import { constants, fstatSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { lstat, mkdtemp, open, readFile, realpath, rmdir, stat, unlink } from 'node:fs/promises'
@@ -687,7 +688,7 @@ export function resolveNilsHealthCompatibility(
 }
 
 async function loadCompatibility() {
-  const source = await readFile(new URL('../../compatibility/nils-cli.json', import.meta.url), 'utf8')
+  const source = await readFile(packageAsset('compatibility', 'nils-cli.json'), 'utf8')
   try {
     return JSON.parse(source)
   } catch {

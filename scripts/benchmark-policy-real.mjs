@@ -19,8 +19,8 @@ import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath } from 'node:url'
 
-import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { createNilsTransport } from '../src/policy/nils-transport.js'
+import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
+import { createNilsTransport } from '../dist/src/policy/nils-transport.js'
 
 const PACKED_MARKER = 'DSH_RUNTIME_KIT_REAL_BENCHMARK_PACKED'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')

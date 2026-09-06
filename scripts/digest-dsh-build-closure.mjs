@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
+import { digestDshBuildClosure } from '../dist/src/acceptance/dsh-build.js'
 
 if (process.argv.length !== 3) {
   process.stderr.write('usage: digest-dsh-build-closure <absolute-dsh-source-root>\n')

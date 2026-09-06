@@ -9,9 +9,9 @@ import test from 'node:test'
 import {
   MAIN_AGENT_TOOL_INVENTORY,
   applyMainAgentMode,
-} from '../src/main-agent/index.js'
-import { createLaneRegistry } from '../src/main-agent/lanes.js'
-import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
+} from '../dist/src/main-agent/index.js'
+import { createLaneRegistry } from '../dist/src/main-agent/lanes.js'
+import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
 
 const projectRoot = dirname(fileURLToPath(new URL('.', import.meta.url)))
 // The module derives the trusted coordination binary from an absolute

@@ -1,3 +1,4 @@
+import { packageAsset } from './src/package-root.js'
 import { constants } from 'node:fs'
 import {
   chmod,
@@ -107,7 +108,7 @@ export const inject = [
   'tools',
 ]
 
-const bundledSkillDir = fileURLToPath(new URL('./skills/', import.meta.url))
+const bundledSkillDir = packageAsset('skills')
 const DEFAULT_PRIVATE_MAX_DEPTH = 32
 const HARD_PRIVATE_MAX_DEPTH = 64
 const DEFAULT_PRIVATE_MAX_ENTRIES = 10_000

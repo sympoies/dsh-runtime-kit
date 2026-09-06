@@ -3,11 +3,11 @@ import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto
 import {
   computeDocumentDigest,
   domainSeparatedDigest,
-} from '../../src/composition/index.js'
+} from '../../dist/src/composition/index.js'
 import {
   computeManagerDocumentDigest,
   protocolSignatureMessage,
-} from '../../src/manager/index.js'
+} from '../../dist/src/manager/index.js'
 
 export const ZERO_DIGEST = `sha256:${'0'.repeat(64)}`
 export const ONE_DIGEST = `sha256:${'1'.repeat(64)}`

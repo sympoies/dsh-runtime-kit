@@ -12,7 +12,7 @@ import {
   laneChildActivity,
   supervisionEnvelope,
   writePrivateJson,
-} from '../src/main-agent/orchestration.js'
+} from '../dist/src/main-agent/orchestration.js'
 
 test('the checkpoint document is the nils-cli input contract, not a free-form object', () => {
   const minimal = checkpointDocument({

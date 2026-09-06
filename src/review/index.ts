@@ -1,3 +1,4 @@
+import { packageAsset } from '../package-root.js'
 import { readFileSync } from 'node:fs'
 
 export type Agent = import('@deepseek-ai/dsh-agent').Agent
@@ -99,8 +100,7 @@ const REVIEW_OUTPUT_SCHEMA = Object.freeze({
 })
 
 const PERSONAS: Readonly<Record<string, string>> = Object.freeze(Object.fromEntries(REVIEWER_ROLES.map(role => {
-  const url = new URL(`../../agents/reviewers/${role}.md`, import.meta.url)
-  const persona = readFileSync(url, 'utf8').trim()
+  const persona = readFileSync(packageAsset('agents', 'reviewers', `${role}.md`), 'utf8').trim()
   if (persona.length === 0 || !persona.toLowerCase().includes('read-only')) {
     throw new Error(`dsh-runtime-kit: reviewer persona ${role} is empty or not read-only`)
   }

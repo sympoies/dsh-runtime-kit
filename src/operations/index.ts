@@ -1,3 +1,4 @@
+import { packageAsset } from '../package-root.js'
 import { spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -104,16 +105,18 @@ const INSTALL_LIFECYCLE_SCRIPTS = Object.freeze([
 ])
 const TARGET_LIFECYCLES = new WeakMap()
 const DSH_COMPATIBILITY = JSON.parse(readFileSync(
-  fileURLToPath(new URL('../../compatibility/dsh.json', import.meta.url)),
+  packageAsset('compatibility', 'dsh.json'),
   'utf8',
 ))
 const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
 const MIN_COMMAND_TIMEOUT_MS = 100
-const COMMAND_SUPERVISOR = fileURLToPath(new URL('./supervise-command.mjs', import.meta.url))
+// `supervise-command.mjs` is plain JavaScript that the build does not emit,
+// so it is resolved from the shipped sources rather than from `dist`.
+const COMMAND_SUPERVISOR = packageAsset('src', 'operations', 'supervise-command.mjs')
 const NILS_COMPATIBILITY = JSON.parse(readFileSync(
-  fileURLToPath(new URL('../../compatibility/nils-cli.json', import.meta.url)),
+  packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
 ))
 const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release

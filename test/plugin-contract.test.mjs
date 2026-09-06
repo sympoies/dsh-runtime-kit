@@ -7,23 +7,23 @@ import { ENV_OVERRIDES } from '@deepseek-ai/dsh-bash-local'
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
-import { applyPolicy } from '../policy.js'
+import { applyPolicy } from '../dist/policy.js'
 import {
   allowsNonRepositoryFinishLineDelegation,
   boundedUtf8Segments,
   createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
-} from '../src/policy/index.js'
-import { createManagedSessionBridge } from '../src/main-agent/session-bridge.js'
-import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
+} from '../dist/src/policy/index.js'
+import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
 import {
   createChildHealthRefresh,
   createChildPluginStatus,
   observeChildPluginActivation,
   snapshotChildPluginStatus,
-} from '../src/runtime-status.js'
-import { selectManagedSessionEnvironment } from '../src/policy/nils-transport.js'
-import { createPrerequisiteCoordinator } from '../src/prerequisite/index.js'
+} from '../dist/src/runtime-status.js'
+import { selectManagedSessionEnvironment } from '../dist/src/policy/nils-transport.js'
+import { createPrerequisiteCoordinator } from '../dist/src/prerequisite/index.js'
 import {
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_PROGRESS,

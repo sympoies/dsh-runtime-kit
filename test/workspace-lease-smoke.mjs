@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
-import { manageDshPatch } from '../src/compat/dsh-patch.js'
+import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
@@ -95,7 +95,7 @@ try {
   ], { cwd: projectRoot })
   const packReceipt = JSON.parse(packed.stdout)[0]
   const packedFiles = new Set(packReceipt.files.map(file => file.path))
-  assert.ok(packedFiles.has('src/workspace-lease/index.js'))
+  assert.ok(packedFiles.has('src/workspace-lease/index.ts'))
   assert.ok(packedFiles.has('docs/workspace-leases.md'))
   const tarball = join(temporaryRoot, packReceipt.filename)
 
@@ -108,7 +108,7 @@ try {
     'dsh-runtime-kit',
     'src',
     'workspace-lease',
-    'index.js',
+    'index.ts',
   )).href
   const llmModuleUrl = pathToFileURL(
     join(dshRoot, 'packages', 'llm', 'llm', 'src', 'index.ts'),

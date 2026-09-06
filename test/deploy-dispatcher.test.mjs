@@ -18,8 +18,8 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 
-import { scenarioFailureDiagnostic } from '../src/acceptance/contract.js'
-import { DEPLOY_ERROR_CODES } from '../src/deploy/index.js'
+import { scenarioFailureDiagnostic } from '../dist/src/acceptance/contract.js'
+import { DEPLOY_ERROR_CODES } from '../dist/src/deploy/index.js'
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const dispatcher = join(projectRoot, '.agents', 'scripts', 'deploy.sh')
@@ -607,10 +607,10 @@ test('an explicit engine root must be an installed runtime-kit tree carrying the
     assert.equal(missing.status, 70, `${missing.stdout}\n${missing.stderr}`)
     assert.equal(missing.value.error.code, 'engine-unavailable')
     const foreign = join(subject.root, 'foreign-engine')
-    mkdirSync(join(foreign, 'bin'), { recursive: true })
+    mkdirSync(join(foreign, 'dist', 'bin'), { recursive: true })
     writeJson(join(foreign, 'package.json'), { name: 'someone-else', version: '1.0.0' })
-    writeFileSync(join(foreign, 'bin', 'dsh-runtime-kit.js'), '')
-    writeFileSync(join(foreign, 'bin', 'dsh-runtime-kit-launch.js'), '')
+    writeFileSync(join(foreign, 'dist', 'bin', 'dsh-runtime-kit.js'), '')
+    writeFileSync(join(foreign, 'dist', 'bin', 'dsh-runtime-kit-launch.js'), '')
     const wrongPackage = deploy(subject, scopeArgs(subject, 'doctor', ['--engine-root', foreign]))
     assert.equal(wrongPackage.status, 70)
     assert.equal(wrongPackage.value.error.code, 'engine-unavailable')
@@ -628,7 +628,7 @@ test('an explicit engine root must be an installed runtime-kit tree carrying the
 })
 
 test('every dispatcher code is a public acceptance cause code and the source declares no other', () => {
-  const source = readFileSync(join(projectRoot, 'src', 'deploy', 'index.js'), 'utf8')
+  const source = readFileSync(join(projectRoot, 'src', 'deploy', 'index.ts'), 'utf8')
   const declared = new Set([...source.matchAll(/new DeployError\(\s*['"]([a-z][a-z0-9-]*)['"]/gu)].map(match => match[1]))
   for (const literal of [...source.matchAll(/usage\(\s*['"]([a-z][a-z0-9-]*)['"]/gu)]) declared.add(literal[1])
   assert.deepEqual([...declared].sort(), [...DEPLOY_ERROR_CODES])

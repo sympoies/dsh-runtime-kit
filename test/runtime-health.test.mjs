@@ -10,11 +10,11 @@ import {
   installRuntimeHealthAdmission,
   installRuntimeHealthInvariant,
   validateHealthTransition,
-} from '../src/health/index.js'
+} from '../dist/src/health/index.js'
 import {
   createChildPluginStatus,
   observeChildPluginActivation,
-} from '../src/runtime-status.js'
+} from '../dist/src/runtime-status.js'
 
 const CAPABILITY = 'runtime-core'
 const OWNER = '@sympoies/dsh-runtime-kit'

@@ -6,12 +6,12 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { DshCompatibilityError, validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
   prepareAuthenticatedPackageScope,
-} from '../src/compat/package-artifact.js'
+} from '../dist/src/compat/package-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

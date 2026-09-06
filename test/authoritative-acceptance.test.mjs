@@ -6,7 +6,7 @@ import {
   createAcceptanceProjection,
   createAuthoritativeAcceptanceCoordinator,
   toolDefinitionDigest,
-} from '../src/authoritative-acceptance/index.js'
+} from '../dist/src/authoritative-acceptance/index.js'
 
 const contractDigest = `sha256:${'a'.repeat(64)}`
 const correlationId = 'correlation:acceptance'

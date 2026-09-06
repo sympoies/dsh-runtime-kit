@@ -32,6 +32,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { parseArgs } from 'node:util'
 
 import { resolveActivationRoot } from '../activation/index.js'
+import { PACKAGE_ROOT } from '../package-root.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
@@ -523,8 +524,10 @@ async function stageArtifact(artifactPath: string, expectedSha256: string, stage
  */
 
 function resolveEngine(engineRoot: string) {
-  const launcher = join(engineRoot, 'bin', 'dsh-runtime-kit-launch.js')
-  const cli = join(engineRoot, 'bin', 'dsh-runtime-kit.js')
+  // The engine's entry points are build output, so an installed tree carries
+  // them under `dist/bin`.
+  const launcher = join(engineRoot, 'dist', 'bin', 'dsh-runtime-kit-launch.js')
+  const cli = join(engineRoot, 'dist', 'bin', 'dsh-runtime-kit.js')
   let manifest
   try {
     manifest = plainRecord(JSON.parse(readFileSync(join(engineRoot, 'package.json'), 'utf8')))
@@ -648,7 +651,7 @@ export async function main(argv: string[] = process.argv.slice(2), io: {env?: No
   const env = io.env ?? process.env
   const stdout = io.stdout ?? process.stdout
   const execPath = io.execPath ?? process.execPath
-  const projectRoot = io.projectRoot ?? resolve(import.meta.dirname, '..', '..')
+  const projectRoot = io.projectRoot ?? PACKAGE_ROOT
   const startedAt = new Date().toISOString()
   let scope: DeployScope | undefined
   let staged: Awaited<ReturnType<typeof stageArtifact>> | undefined

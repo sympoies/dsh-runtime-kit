@@ -5,7 +5,7 @@ import {
   authenticatedNilsEnvironment,
   isolatedNilsEnvironment,
   resolveManagedSessionPrincipal,
-} from '../src/nils/session-environment.js'
+} from '../dist/src/nils/session-environment.js'
 
 test('nils subprocess leaves the normal host PATH to the upstream scrubbed environment', () => {
   assert.deepEqual(

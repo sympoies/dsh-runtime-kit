@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createWorkspaceRecoveryTools } from '../src/workspace-recovery/index.js'
-import { createNilsWorkspaceRecoveryClient } from '../src/workspace-recovery/nils-client.js'
+import { createWorkspaceRecoveryTools } from '../dist/src/workspace-recovery/index.js'
+import { createNilsWorkspaceRecoveryClient } from '../dist/src/workspace-recovery/nils-client.js'
 
 const DSH_SCHEMA_KEYWORDS = new Set([
   'type', 'oneOf', 'properties', 'required', 'additionalProperties',

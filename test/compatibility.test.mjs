@@ -18,18 +18,18 @@ import {
   inspectDshSource,
   loadDshRc7Runtime,
   validateDshCompatibilityManifest,
-} from '../src/compat/contract.js'
-import { evaluatePolicyPerformanceBudget } from '../src/compat/performance.js'
-import { validateDshPatchManifest } from '../src/compat/dsh-patch.js'
+} from '../dist/src/compat/contract.js'
+import { evaluatePolicyPerformanceBudget } from '../dist/src/compat/performance.js'
+import { validateDshPatchManifest } from '../dist/src/compat/dsh-patch.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
   prepareAuthenticatedPackageScope,
-} from '../src/compat/package-artifact.js'
+} from '../dist/src/compat/package-artifact.js'
 import {
   inspectExactDshCheckoutIdentity,
   inspectSelectedDshCheckoutIdentity,
-} from '../src/compat/git-checkout.js'
+} from '../dist/src/compat/git-checkout.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifestPath = join(projectRoot, 'compatibility', 'dsh.json')

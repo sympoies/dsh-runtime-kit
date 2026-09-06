@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { DshTuiPatchError, manageDshTuiPatch } from '../src/compat/dsh-tui-patch.js'
+import { DshTuiPatchError, manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const usage = 'usage: manage-dsh-tui-patch --action check|apply|reverse --package-root ABSOLUTE [--git-bin ABSOLUTE]'

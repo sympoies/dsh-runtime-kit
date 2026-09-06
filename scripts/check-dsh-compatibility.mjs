@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url'
 import {
   DshCompatibilityError,
   validateDshCompatibilityManifest,
-} from '../src/compat/contract.js'
-import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
+} from '../dist/src/compat/contract.js'
+import { inspectSelectedDshCheckout } from '../dist/src/compat/git-checkout.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

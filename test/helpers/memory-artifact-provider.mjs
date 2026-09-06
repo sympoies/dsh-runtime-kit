@@ -1,7 +1,7 @@
 // @ts-check
 
-import { ARTIFACT_CODES, ArtifactError } from '../../src/artifacts/errors.js'
-import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from '../../src/artifacts/record.js'
+import { ARTIFACT_CODES, ArtifactError } from '../../dist/src/artifacts/errors.js'
+import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from '../../dist/src/artifacts/record.js'
 
 /** @typedef {import('../../src/artifacts/record.js').ArtifactRecord} ArtifactRecord */
 /** @typedef {import('../../src/artifacts/local-provider.js').ArtifactProvider} ArtifactProvider */

@@ -6,9 +6,9 @@ import { performance } from 'node:perf_hooks'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { evaluatePolicyPerformanceBudget } from '../src/compat/performance.js'
-import { createNilsTransport } from '../src/policy/nils-transport.js'
+import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
+import { evaluatePolicyPerformanceBudget } from '../dist/src/compat/performance.js'
+import { createNilsTransport } from '../dist/src/policy/nils-transport.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifest = validateDshCompatibilityManifest(JSON.parse(
