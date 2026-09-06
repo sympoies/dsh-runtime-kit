@@ -212,6 +212,43 @@ script fails as `lifecycle-scripts-declared` before any profile mutation. A
 package without a declaration is admitted under this engine's own compatibility
 manifest and reported by doctor as undeclared.
 
+## Declared build provenance
+
+The refused-script list is the complete set of npm lifecycle hooks
+(`preinstall`, `install`, `postinstall`, `prepare`, `preprepare`,
+`postprepare`, `prepublish`, `prepublishOnly`, `prepack`, `postpack`,
+`dependencies`), so no hook can run a build, and `npm pack --ignore-scripts`
+runs none either. A package that ships build output therefore cannot prove that
+the output corresponds to the sources beside it: a stale artifact packs,
+installs and runs while the source tree, the plan digest and the receipt all
+stay internally consistent.
+
+A package that ships build output declares
+`package.json#dsh.build`, a package-relative JSON path to a provenance file:
+
+```json
+{
+  "schema_version": "dsh-runtime-kit.build-provenance.v1",
+  "sources": ["src"],
+  "outputs": ["dist"],
+  "source_sha256": "<digest of sources, recorded by the build>"
+}
+```
+
+Every preview that packs a target recomputes the digest over the declared source
+roots as packed and compares it to the recorded value. A mismatch fails as
+`build-output-stale` before any profile mutation; a declaration that is
+malformed, names a path outside the package, names a missing root, or overlaps
+sources with outputs fails as `invalid-build-provenance`. The digest is derived
+from sorted names, entry kind, symlink target, the executable bit, and file
+content only, so a fresh checkout, a `git stash`, or a touched mtime cannot
+forge freshness.
+
+A package that declares no `dsh.build` ships its reviewed sources directly and
+is admitted unchanged. The digest helper is exported as
+`@sympoies/dsh-runtime-kit/build-provenance` so a build writes exactly the value
+the engine verifies.
+
 Compatibility is checked before any mutation. `setup`, `update`, and `rollback`
 compare the bound DSH release against the releases the reviewed package itself
 declares in its `compatibility/dsh.json`; a mismatch fails as

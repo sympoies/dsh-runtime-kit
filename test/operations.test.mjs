@@ -23,6 +23,8 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
+import { buildSourceDigest } from '../src/operations/build-provenance.js'
+
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
 const commandSupervisor = join(projectRoot, 'src', 'operations', 'supervise-command.mjs')
@@ -137,6 +139,36 @@ function stageBundle(root, version, options = {}) {
     `# DSH project-dev ${version}\n`,
     { mode: 0o600 },
   )
+  return dir
+}
+
+/**
+ * Add a declared build output to a staged bundle. `sources` and `outputs` are
+ * package-relative directories; `provenance` overrides the recorded digest so a
+ * test can stage the stale case without rebuilding anything.
+ */
+function stageBuildOutput(dir, options = {}) {
+  const sources = options.sources ?? ['src']
+  const outputs = options.outputs ?? ['dist']
+  for (const source of sources) {
+    mkdirSync(join(dir, source), { recursive: true, mode: 0o700 })
+    writeFileSync(join(dir, source, 'entry.js'), options.sourceText ?? 'export const a = 1\n', { mode: 0o600 })
+  }
+  for (const output of outputs) {
+    mkdirSync(join(dir, output), { recursive: true, mode: 0o700 })
+    writeFileSync(join(dir, output, 'entry.js'), 'export const a = 1\n', { mode: 0o600 })
+  }
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  manifest.dsh.build = options.buildPath ?? './compatibility/build-provenance.json'
+  writeJson(join(dir, 'package.json'), manifest)
+  if (options.provenance !== null) {
+    writeJson(join(dir, 'compatibility', 'build-provenance.json'), options.provenance ?? {
+      schema_version: 'dsh-runtime-kit.build-provenance.v1',
+      sources,
+      outputs,
+      source_sha256: buildSourceDigest(dir, sources),
+    })
+  }
   return dir
 }
 
@@ -3749,6 +3781,82 @@ test('reviewed plans bind the declared lifecycle and refuse a package whose decl
     const rollbackPreview = run(subject, ['rollback', '--profile', 'work'])
     assert.equal(rollbackPreview.status, 64)
     assert.equal(rollbackPreview.value.error.code, 'rollback-unavailable')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package whose declared build output is stale is rejected before any profile mutation', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBuildOutput(stageBundle(subject.root, '1.6.0'))
+    // Edit a source after the provenance was recorded. This is exactly the
+    // shape of forgetting to rebuild: the tree, the receipt and the digest all
+    // still look coherent, and only the recorded source identity disagrees.
+    writeFileSync(join(staged, 'src', 'entry.js'), 'export const a = 2\n', { mode: 0o600 })
+    const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'build-output-stale')
+    assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package whose declared build output matches its sources is admitted', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBuildOutput(stageBundle(subject.root, '1.6.1'))
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.plan.action, 'install')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package that declares no build output stays admissible', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBundle(subject.root, '1.6.2')
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.plan.action, 'install')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a malformed build provenance declaration is refused rather than ignored', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBuildOutput(stageBundle(subject.root, '1.6.3'), {
+      provenance: { schema_version: 'dsh-runtime-kit.build-provenance.v1', sources: ['src'] },
+    })
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'invalid-build-provenance')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a build provenance naming a source outside the package is refused', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBuildOutput(stageBundle(subject.root, '1.6.4'), {
+      provenance: {
+        schema_version: 'dsh-runtime-kit.build-provenance.v1',
+        sources: ['../escape'],
+        outputs: ['dist'],
+        source_sha256: 'f'.repeat(64),
+      },
+    })
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'invalid-build-provenance')
   } finally {
     subject.cleanup()
   }

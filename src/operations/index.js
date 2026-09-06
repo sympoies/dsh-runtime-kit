@@ -29,6 +29,7 @@ import { parseArgs } from 'node:util'
 import { parse as parseYaml } from 'yaml'
 
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
+import { buildSourceDigest, validateBuildProvenance } from './build-provenance.js'
 import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import {
   activationSha256,
@@ -1266,6 +1267,89 @@ function invalidLifecycle(message, details = {}) {
 }
 
 /** @param {string} message @param {Record<string, unknown>} [details] */
+function invalidBuildProvenance(message, details = {}) {
+  return new OperationsError('invalid-build-provenance', message, 65, details)
+}
+
+/**
+ * Authenticate a reviewed package that ships build output against the sources
+ * it was built from. A package that declares no `dsh.build` ships its reviewed
+ * sources directly and yields null.
+ *
+ * The build records the digest of the sources it consumed; this recomputes that
+ * digest from the sources as packed. They disagree exactly when the output no
+ * longer corresponds to the shipped sources — the failure no other signal
+ * catches, because `npm pack --ignore-scripts` runs no build and every
+ * lifecycle hook that could is already refused.
+ *
+ * @param {string} packageRoot
+ */
+function packageBuildProvenance(packageRoot) {
+  const manifest = readJson(join(packageRoot, 'package.json')).value
+  if (!plainRecord(manifest)) throw new OperationsError('invalid-package-spec', 'package manifest must be an object')
+  const dsh = plainRecord(manifest.dsh) ? manifest.dsh : {}
+  if (dsh.build === undefined) return null
+  const declared = dsh.build
+  if (typeof declared !== 'string'
+    || !/^\.\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.json$/u.test(declared)) {
+    throw invalidBuildProvenance('dsh.build must be a package-relative JSON path')
+  }
+  const root = resolve(packageRoot)
+  const provenancePath = resolve(root, declared)
+  if (provenancePath === root || !pathIsWithin(root, provenancePath)) {
+    throw invalidBuildProvenance('dsh.build must stay inside the package')
+  }
+  const stat = lstatMaybe(provenancePath)
+  if (stat === null || stat.isSymbolicLink() || !stat.isFile()) {
+    throw invalidBuildProvenance('build provenance must be a regular file inside the package', { path: declared })
+  }
+  const raw = readFileSync(provenancePath)
+  let parsed
+  try {
+    parsed = JSON.parse(raw.toString('utf8'))
+  } catch {
+    throw invalidBuildProvenance('build provenance is not valid JSON', { path: declared })
+  }
+  let validated
+  try {
+    validated = validateBuildProvenance(parsed)
+  } catch (error) {
+    throw invalidBuildProvenance(error instanceof Error ? error.message : 'build provenance is invalid', { path: declared })
+  }
+  for (const declaredRoot of [...validated.sources, ...validated.outputs]) {
+    const absolute = resolve(root, declaredRoot)
+    if (!pathIsWithin(root, absolute)) {
+      throw invalidBuildProvenance('build provenance names a path outside the package', { path: declaredRoot })
+    }
+    const rootStat = lstatMaybe(absolute)
+    if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      throw invalidBuildProvenance('build provenance names a missing root', { path: declaredRoot })
+    }
+  }
+  let observed
+  try {
+    observed = buildSourceDigest(root, validated.sources)
+  } catch (error) {
+    throw invalidBuildProvenance(error instanceof Error ? error.message : 'build provenance sources are unreadable')
+  }
+  if (observed !== validated.source_sha256) {
+    throw new OperationsError(
+      'build-output-stale',
+      'packed build output was produced from different sources than the package ships; rebuild before packing',
+      65,
+      { declared_source_sha256: validated.source_sha256, observed_source_sha256: observed },
+    )
+  }
+  return {
+    schema_version: validated.schema_version,
+    sha256: sha256(raw),
+    sources: [...validated.sources],
+    outputs: [...validated.outputs],
+    source_sha256: validated.source_sha256,
+  }
+}
+
+/** @param {string} message @param {Record<string, unknown>} [details] */
 function unsupportedLifecycle(message, details = {}) {
   return new OperationsError('unsupported-lifecycle-manifest', message, 65, details)
 }
@@ -1583,6 +1667,7 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
     const installedSha256 = packageTreeDigest(extractedPackage, extracted)
     const assets = packageAssets(extractedPackage)
     const lifecycle = packageLifecycle(extractedPackage)
+    const build = packageBuildProvenance(extractedPackage)
     return {
       temporary,
       extracted: extractedPackage,
@@ -1591,6 +1676,7 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
       installed_sha256: installedSha256,
       assets,
       lifecycle,
+      build,
       version: output[0].version,
     }
   } catch (error) {
