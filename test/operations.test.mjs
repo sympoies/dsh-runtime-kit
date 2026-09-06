@@ -404,6 +404,18 @@ for (const flag of ['--config', '--policy', '--state-dir']) {
 }
 const fixtureRoot = dirname(process.argv[1])
 if (process.argv.includes('inventory')) {
+  if (existsSync(join(fixtureRoot, 'fail-agent-hook-inventory'))) {
+    process.stderr.write('fixture: agent-hook inventory forced failure\\n')
+    process.exit(94)
+  }
+  if (existsSync(join(fixtureRoot, 'degrade-agent-hook-inventory'))) {
+    process.stdout.write(JSON.stringify({
+      schema_version: 'cli.agent-hook.inventory.v1',
+      ok: true,
+      data: { schema_version: 'agent-hook.inventory.v1', rules: [{ id: 'dsh.checkout-lease-guard' }] },
+    }) + '\\n')
+    process.exit(0)
+  }
   // Mirror the released inventory shape from the bound policy and config: a
   // downgrade-only rule is a governed seam, everything else is locked, and an
   // [overrides."<id>"] table in the config makes that rule's effective dsh
@@ -798,6 +810,9 @@ test('base operations-state v1 migrates explicitly before update rollback and re
     const diagnosed = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(diagnosed.status, 65)
     assert.equal(diagnosed.value.data.recovery.action, 'migrate-v1')
+    // Every doctor.v1 payload carries the same keys, whichever branch built it.
+    assert.deepEqual(diagnosed.value.data.advisories, [])
+    assert.deepEqual(diagnosed.value.data.policy, { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null })
     const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
     assert.equal(preview.status, 0, preview.stderr)
     assert.equal(preview.value.data.plan.schema_version, 'dsh-runtime-kit.operations-plan.v2')
@@ -4118,8 +4133,8 @@ const TIERED_FIXTURE_POLICY = `schema_version = "agent-hook.policy.v1"
 bundle_id = "dsh-runtime-kit-fixture"
 version = "2026.09.06.1"
 
-# tier: integrity
 [[rules]]
+# tier: integrity
 id = "dsh.checkout-lease-guard"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -4130,8 +4145,8 @@ failure_posture = "closed"
 override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "checkout-lease-guard" }
 
-# tier: governed-seam
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-direct-git-commit"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -4248,6 +4263,73 @@ test('policy overrides are refused before any mutation when they name a locked r
     assert.equal(misplaced.value.error.code, 'unexpected-policy-overrides')
     assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
     assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    const help = run(subject, ['--help'])
+    assert.equal(help.status, 0)
+    assert.match(help.stdout, /--policy-overrides <file>: dsh-runtime-kit\.policy-overrides\.v1/)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('an activation whose config or manifest declares overrides the receipt did not bind is refused', () => {
+  const subject = tieredFixture()
+  try {
+    // An out-of-band [overrides] table on a profile installed without overrides.
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    const configPath = join(subject.runtimeRoot, activation.agent_hook.config)
+    const config = readFileSync(configPath, 'utf8')
+    chmodSync(configPath, 0o600)
+    writeFileSync(configPath, `${config}\n[overrides."dsh.block-direct-git-commit"]\nmode = "advise"\n`)
+    const tampered = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(tampered.status, 65, tampered.stdout)
+    assert.equal(tampered.value.data.status, 'needs-attention')
+    assert.equal(tampered.value.data.activation.ok, false)
+    assert.deepEqual(tampered.value.data.advisories, [])
+    assert.deepEqual(tampered.value.data.policy.downgrades, [])
+    writeFileSync(configPath, config)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.status, 'healthy')
+
+    // A manifest whose override map disagrees with its own digest.
+    const overrides = writeOverrides(subject, 'overrides.json', {
+      schema_version: 'dsh-runtime-kit.policy-overrides.v1',
+      overrides: { 'dsh.block-direct-git-commit': 'advise' },
+    })
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2, '--policy-overrides', overrides])
+    const manifestPath = join(subject.runtimeRoot, 'activation.json')
+    const downgraded = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    assert.deepEqual(downgraded.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+    chmodSync(manifestPath, 0o600)
+    writeFileSync(manifestPath, JSON.stringify({ ...downgraded, policy_overrides: { 'dsh.checkout-lease-guard': 'advise' } }))
+    const forged = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(forged.status, 65, forged.stdout)
+    assert.equal(forged.value.data.activation.ok, false)
+    assert.match(forged.value.data.activation.error, /overrides|digest/u)
+    assert.deepEqual(forged.value.data.policy.downgrades, [])
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('doctor fails the profile when agent-hook inventory is unavailable or incompatible', () => {
+  const subject = tieredFixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.status, 'healthy')
+    const fixtureRoot = dirname(subject.agentHook)
+    writeFileSync(join(fixtureRoot, 'fail-agent-hook-inventory'), '')
+    const failed = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(failed.status, 65, failed.stdout)
+    assert.equal(failed.value.data.status, 'needs-attention')
+    assert.equal(failed.value.data.policy.ok, false)
+    assert.equal(failed.value.data.policy.error, 'agent-hook inventory failed')
+    rmSync(join(fixtureRoot, 'fail-agent-hook-inventory'))
+    writeFileSync(join(fixtureRoot, 'degrade-agent-hook-inventory'), '')
+    const degraded = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(degraded.status, 65, degraded.stdout)
+    assert.equal(degraded.value.data.policy.ok, false)
+    assert.match(degraded.value.data.policy.error, /effective_modes\.dsh/)
+    assert.deepEqual(degraded.value.data.advisories, [])
   } finally {
     subject.cleanup()
   }

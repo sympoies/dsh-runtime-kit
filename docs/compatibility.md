@@ -75,15 +75,16 @@ request, that link belongs in the same field as the patch's removal signal;
 for the minimum and validated nils-cli release, consumed commands and protocols,
 official release source, the primary Linux archive and seven acceptance binary
 hashes, plus the macOS ARM64 archive and runtime-health companion hashes. The
-validated v1.27.37 `review-specialists` requires every delivery finding to
+validated `review-specialists` requires every delivery finding to
 declare `actionable: true` or `actionable: false`; packed review acceptance
 proves the former becomes one native line or file thread while the latter stays
 in the summary only. The same release preserves `not-in-repository` as an exact
 public policy code for existing non-symlink directories with no Git ancestor.
 Managed advisory and off-mode finish-line fallback may delegate only that code;
 repository access, scope coverage, malformed output, and enforcement failures
-remain authoritative. The v1.27.37 floor is intentional: it is the release that
-contains every native contract the accepted convergence children require —
+remain authoritative. The v1.28.1 floor is intentional: it is the release that
+contains the tiered policy contract and every native contract the accepted
+convergence children require —
 the atomic `agent-session work-context set --if-absent` contract, the durable
 finish-line acceptance provider, the bounded `agent-hook workspace-recovery`
 inspection and handoff contracts, the restricted-role review companions, the
@@ -183,8 +184,8 @@ Every `dsh.policy.v1` rule in
 [`policy/dsh-runtime-kit-v1.toml`](../policy/dsh-runtime-kit-v1.toml) belongs
 to one of three tiers. nils-cli (from 1.28.1) owns the table in
 `DshCapabilityGroup::tier()`, enforces it when the policy loads, and reports
-it per rule through `agent-hook inventory` as `tier` and
-`enforcement_default`; runtime-kit only declares the matching
+it per rule through `agent-hook inventory` as `tier`, `override_class`
+and `effective_modes.dsh`, which `doctor` reads; runtime-kit only declares the matching
 `override_class` and annotates each rule with a `# tier:` line that
 `test/policy-parity.test.mjs` checks against the table below and, when a
 companion is available, against the inventory.

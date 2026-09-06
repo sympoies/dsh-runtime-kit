@@ -670,18 +670,8 @@ export function createNilsTransport(ctx, config = {}) {
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         return denial('policy-exit-mismatch')
       }
-      // `enforcement` and `downgraded_by` are the tiered engine's audit fields:
-      // `advise` with a downgrade source means a governed seam was projected to
-      // context by a receipt-bound policy override. They are surfaced verbatim
-      // so a session record or acceptance driver can see that this decision
-      // would have been a denial under the default configuration.
       return decision.action === 'context' || decision.action === 'warn'
-        ? {
-            kind: /** @type {const} */ ('context'),
-            context: decision.context,
-            ...typeof decision.enforcement === 'string' ? { enforcement: decision.enforcement } : {},
-            ...typeof decision.downgraded_by === 'string' ? { downgraded_by: decision.downgraded_by } : {},
-          }
+        ? { kind: /** @type {const} */ ('context'), context: decision.context }
         : undefined
     } finally {
       if (timer !== undefined) clearTimeout(timer)

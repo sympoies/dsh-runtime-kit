@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
-import { activationSha256, renderAgentHookConfig } from '../src/activation/index.js'
+import { activationSha256, assetSetSha256, renderAgentHookConfig } from '../src/activation/index.js'
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
@@ -48,11 +48,7 @@ function activatedRuntimeRoot(temporary) {
     catalog_sha256: activationSha256(catalog),
     document_sha256: activationSha256(document),
   }
-  const assetDigest = activationSha256(JSON.stringify({
-    catalog_sha256: assets.catalog_sha256,
-    document_sha256: assets.document_sha256,
-    policy_sha256: assets.policy_sha256,
-  }))
+  const assetDigest = assetSetSha256(assets)
   const assetRoot = join(runtimeRoot, 'assets', assetDigest)
   const hookAssets = join(assetRoot, 'agent-hook')
   const docsHome = join(assetRoot, 'agent-docs')

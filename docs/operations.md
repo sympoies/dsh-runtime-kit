@@ -183,9 +183,8 @@ is visible without failing the profile. A downgraded profile must not be used
 to produce acceptance evidence.
 
 When a downgraded seam fires, the model sees the seam's remediation followed by
-`downgraded to advise by <config path> [overrides.<rule id>]`, and the policy
-transport surfaces the decision's `enforcement` and `downgraded_by` fields
-verbatim for session records.
+`downgraded to advise by <config path> [overrides.<rule id>]` as ordinary
+policy context.
 
 ## Declared profile lifecycle
 
@@ -516,7 +515,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.27.37 executables for every supported DSH row.
+the released and validated v1.28.1 executables for every supported DSH row.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

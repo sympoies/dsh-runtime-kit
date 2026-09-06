@@ -1585,6 +1585,7 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
     const lifecycle = packageLifecycle(extractedPackage)
     return {
       temporary,
+      extracted: extractedPackage,
       archive_path: archivePath,
       artifact_sha256: sha256(archive),
       installed_sha256: installedSha256,
@@ -1606,7 +1607,7 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
  */
 function resolvedTarget(target, packed, retainPacked, overrides = undefined) {
   try {
-    assertOverridesDowngradable(join(packed.temporary, 'extracted', 'package'), overrides)
+    assertOverridesDowngradable(packed.extracted, overrides)
   } catch (error) {
     rmSync(packed.temporary, { recursive: true, force: true })
     throw error
@@ -4024,6 +4025,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
       schema_version: 'dsh-runtime-kit.doctor.v1',
       profile,
       status: 'needs-attention',
+      advisories: [],
       owned_status: 'recovery-required',
       recovery: {
         action,
@@ -4041,6 +4043,7 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
       activation: activationInput.error === undefined
         ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
         : { ok: false, error: activationInput.error },
+      policy: { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null },
       dsh,
     }
   }
@@ -4162,16 +4165,21 @@ function agentHookPolicyInventory(agentHook, home) {
       || value.ok !== true || !plainRecord(value.data) || !Array.isArray(value.data.rules)) {
       return { ok: false, error: 'agent-hook inventory returned an incompatible envelope' }
     }
-    const rows = value.data.rules.filter(plainRecord).map(rule => ({
-      id: typeof rule.id === 'string' ? rule.id : null,
-      tier: typeof rule.tier === 'string' ? rule.tier : null,
-      override_class: typeof rule.override_class === 'string' ? rule.override_class : null,
-      effective_mode: plainRecord(rule.effective_modes) && typeof rule.effective_modes.dsh === 'string'
-        ? rule.effective_modes.dsh
-        : null,
-    }))
-    if (rows.some(row => row.id === null)) {
-      return { ok: false, error: 'agent-hook inventory returned a rule without an id' }
+    // `downgrades` is derived from `effective_modes.dsh`, so a rule that omits
+    // any of the tier fields is an incompatible inventory, not a clean profile.
+    const rows = []
+    for (const rule of value.data.rules) {
+      if (!plainRecord(rule) || typeof rule.id !== 'string' || typeof rule.tier !== 'string'
+        || typeof rule.override_class !== 'string'
+        || !plainRecord(rule.effective_modes) || typeof rule.effective_modes.dsh !== 'string') {
+        return { ok: false, error: 'agent-hook inventory returned a rule without id, tier, override_class, and effective_modes.dsh' }
+      }
+      rows.push({
+        id: rule.id,
+        tier: rule.tier,
+        override_class: rule.override_class,
+        effective_mode: rule.effective_modes.dsh,
+      })
     }
     return {
       ok: true,
@@ -4532,6 +4540,8 @@ export function main(argv = process.argv.slice(2)) {
         'setup/update:',
         '  preview/first apply: --package <exact @sympoies/dsh-runtime-kit@version or local directory>',
         '  completed digest replay: --package may be omitted; a supplied target must match',
+        '  --policy-overrides <file>: dsh-runtime-kit.policy-overrides.v1 map projecting',
+        '    downgrade-only rules to advise; bound to the plan digest and the receipt',
         '',
         'doctor recovery:',
         '  doctor --repair [--apply --expected-plan-digest <digest>]',

@@ -273,9 +273,12 @@ test('the packaged policy declares the accepted enforcement tiers: Tier B seams 
   )
 })
 
-test('the released agent-hook inventory agrees with the packaged tier declarations when a companion is available', async () => {
+test('the released agent-hook inventory agrees with the packaged tier declarations when a companion is available', async (t) => {
   const agentHook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? process.env.AGENT_HOOK_BIN
-  if (agentHook === undefined) return
+  if (agentHook === undefined) {
+    t.skip('set AGENT_HOOK_BIN to the released agent-hook; CI runs this against nils-cli 1.28.1')
+    return
+  }
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { spawnSync } = await import('node:child_process')
@@ -290,11 +293,14 @@ test('the released agent-hook inventory agrees with the packaged tier declaratio
     assert.equal(result.status, 0, result.stdout + result.stderr)
     const envelope = JSON.parse(result.stdout)
     const tiers = new Map(envelope.data.rules.map(rule => [rule.id, rule.tier]))
-    if ([...tiers.values()].every(tier => tier === undefined || tier === null)) {
-      // A companion older than the tier contract reports no tiers; the static
-      // declaration test above still binds the override classes.
-      return
+    // The minimum supported companion reports a tier for every rule; an
+    // inventory without tiers is an older release, and doctor refuses it too.
+    for (const rule of envelope.data.rules) {
+      assert.equal(typeof rule.tier, 'string', `${rule.id} reports a tier`)
+      assert.equal(typeof rule.override_class, 'string', `${rule.id} reports an override class`)
+      assert.equal(typeof rule.effective_modes?.dsh, 'string', `${rule.id} reports effective_modes.dsh`)
     }
+    assert.deepEqual([...new Set(tiers.values())].sort(), Object.keys(TIER_TABLE).sort())
     for (const [tier, ids] of Object.entries(TIER_TABLE)) {
       for (const id of ids) assert.equal(tiers.get(id), tier, `${id} tier reported by agent-hook`)
     }

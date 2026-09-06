@@ -891,6 +891,22 @@ test('compatibility workflow keeps selected channels and every patch release blo
   // `rollback_validation` keeps the frozen #63 package anchor separately.
   assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=755c786c374821bb72f822fefe2ff80238090333/)
   assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.1-x86_64-unknown-linux-gnu\/bin"/)
+  // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
+  // every env-embedded artifact literal must be the manifest's for its platform.
+  const artifactLiteral = artifacts => JSON.stringify({
+    'agent-hook': artifacts['agent-hook'].sha256,
+    'agent-docs': artifacts['agent-docs'].sha256,
+  })
+  const linuxJob = workflow.slice(0, workflow.indexOf('  macos-runtime-health:'))
+  const macosArtifacts = nils.release.platforms['aarch64-apple-darwin'].artifacts
+  for (const [job, artifacts] of [[linuxJob, nils.release.artifacts], [workflow.slice(linuxJob.length), macosArtifacts]]) {
+    for (const leg of ['CANDIDATE', 'BASELINE']) {
+      const literal = new RegExp(`DSH_ACCEPTANCE_${leg}_NILS_ARTIFACTS='([^']*)'`).exec(job)
+      assert.ok(literal, `${leg} artifact literal`)
+      assert.equal(literal[1], artifactLiteral(artifacts), `${leg} artifact digests`)
+    }
+  }
+  assert.match(workflow, /node --test test\/policy-parity\.test\.mjs/)
   assert.doesNotMatch(workflow, /1\.27\.29|e6f50a34d68e7a6638eb104e423dcacd116c4071|rollback_archive/)
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
