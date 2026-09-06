@@ -47,7 +47,6 @@ function requiredRecord(value: unknown, code: string) {
 }
 
 /** @param value Unwrap Cordis' per-access trace proxy without weakening provider identity. */
-
 function originalCordisService(value: any) {
   try {
     return value?.[symbols.original] ?? value
@@ -103,7 +102,6 @@ async function observeQuiescence(handle: SubprocessHandle, timeoutMs: number) {
  * subprocess service. Completion is not accepted until the whole process tree
  * is observed quiescent.
  */
-
 async function runHealthCommand(ctx: Context, argv: string[], cwd: string, signal: AbortSignal, quiescenceMs: number, beforeSpawn: (() => Promise<void>) | undefined, spawn: ((spec: Record<string, unknown>) => SubprocessHandle) | undefined) {
   const resolvedArgv = await resolveSubprocessArgv(ctx, argv, signal)
   await beforeSpawn?.()
@@ -349,7 +347,6 @@ export async function snapshotExecutable(root: string, name: string, bytes: Buff
  * authority, but self-inspecting children need `/proc/self/exe` or
  * `process.execPath` to remain resolvable for their lifetime.
  */
-
 async function retainSnapshotLinks(root: string, rootHandle: import('node:fs/promises').FileHandle, binaries: Array<Awaited<ReturnType<typeof snapshotExecutable>>>) {
   if (!await pathReferencesOpenDirectory(root, rootHandle)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED')
@@ -375,7 +372,6 @@ async function retainSnapshotLinks(root: string, rootHandle: import('node:fs/pro
  * the random root was renamed; other platforms preserve uncertain names and
  * warn instead of deleting a replacement.
  */
-
 async function cleanupLinkedSnapshot(root: string, rootHandle: import('node:fs/promises').FileHandle, binaries: Array<Awaited<ReturnType<typeof snapshotExecutable>>>) {
   const failures: unknown[] = []
   let preservedName = false
@@ -426,7 +422,6 @@ async function cleanupLinkedSnapshot(root: string, rootHandle: import('node:fs/p
  * direct health commands, and retains the descriptor until every existing
  * transport scope has drained its own commands and cleanup.
  */
-
 export function createSnapshotExecutionOwner(
   cleanup: () => Promise<void>,
   disposeTimeoutMs: number = 2_000,
@@ -552,7 +547,6 @@ export function createSnapshotExecutionOwner(
 }
 
 /** Run and authenticate one command while holding a snapshot execution lease. */
-
 async function runAuthenticatedHealthCommand(
   owner: ReturnType<typeof createSnapshotExecutionOwner>,
   ctx: Context,
@@ -587,7 +581,6 @@ async function runAuthenticatedHealthCommand(
  * child can resolve its own executable; the retained descriptor remains the
  * sole execution authority.
  */
-
 function authenticatedDescriptorSpawner(ctx: Context, binaries: Map<string, {handle: import('node:fs/promises').FileHandle, identity: ReturnType<typeof fingerprint>}>, binding: {service: any, mode: string, spawnDescriptor: Function}) {
   return (spec: Record<string, any>) => {
     const command = Array.isArray(spec.argv) ? spec.argv[0] : undefined
@@ -744,7 +737,6 @@ function ownRegistration(ctx: Context, dispose: () => void, label: string) {
 }
 
 /** Install authenticated nils and optional-child health providers. */
-
 export async function installNilsHealthProviders(ctx: Context, health: import('./index.js').RuntimeHealth, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}, options: {compatibility?: unknown, dshRuntime: unknown, childPlugins: {main_agent_mode: {state:string}, review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}) {
   if (health === undefined || typeof health.register !== 'function') {
     throw new TypeError('dsh-runtime-kit: runtime health service is required')

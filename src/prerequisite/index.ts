@@ -27,7 +27,6 @@ function validDefinition(definition: unknown) {
  * last-mile verification are side-effect free. DSH invokes durable commit only
  * after the exact body and the complete post-execute waterfall have succeeded.
  */
-
 export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrerequisite(exec: ToolExecution, intent: string, binding: ExecutionBinding): Promise<any>, commitPrerequisite(exec: ToolExecution, pending: {intent: string, phase: string, receipt: string, binding: ExecutionBinding}): Promise<any>}, createUserMessage: (input: any) => import('@deepseek-ai/dsh-llm').UserMessage, revalidatePolicy: (exec: ToolExecution, correlation: ToolCorrelation, proof: PrerequisiteProof) => Promise<{kind?: string, context?: string, reason?: string} | undefined>) {
   let requirements: WeakMap<ToolDefinition, RequirementRegistration> = new WeakMap()
   const namedRequirements: Map<string, string> = new Map(

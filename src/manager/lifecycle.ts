@@ -279,7 +279,6 @@ function receipt(operation: 'lock'|'start'|'resume'|'interrupt'|'drain'|'stop', 
  * Additive public runtime manager. It owns instance truth and journals but never
  * persists a DshDeploymentBinding, provider credential, or private locator.
  */
-
 export function createWorkloadManager(options: {
     store?: ReturnType<typeof createMemoryRuntimeStore>,
     trustVerifier: {acceptSignedDocument: (input: any) => Promise<{digest: string}>},

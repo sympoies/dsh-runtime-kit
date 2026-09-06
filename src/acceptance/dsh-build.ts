@@ -29,7 +29,6 @@ function relativeBuildPath(root: string, child: string) {
  * removals, renames, mode drift, and content changes all produce a different
  * digest.
  */
-
 export async function digestDshBuildClosure(sourceRoot: string) {
   if (!isAbsolute(sourceRoot)) {
     throw new DshBuildClosureError('DSH source root must be absolute')

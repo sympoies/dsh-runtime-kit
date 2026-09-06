@@ -283,7 +283,6 @@ function renderToolResult(value: {results: {role: string, stop_reason: string, v
  * capacity, cancellation, structured output, and quiescent disposal; this
  * layer retains only review selection, wave ordering, and result synthesis.
  */
-
 export function installReviewSpecialists(ctx: any, config: Record<string, unknown> = {}) {
   if (ctx?.tools?.register === undefined || ctx?.agents?.get === undefined
     || ctx?.subagents?.startRole === undefined

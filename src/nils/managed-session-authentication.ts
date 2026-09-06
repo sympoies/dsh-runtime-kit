@@ -130,7 +130,6 @@ function validBaselineClaim(envelope: unknown, candidate: Readonly<Record<string
  * selected. Accept only the released, typed work-context failures for that
  * condition; every transport, schema, storage, and claim failure stays closed.
  */
-
 function baselineScopeUnavailableCode(envelope: unknown) {
   if (!isRecord(envelope)) return undefined
   const outer = ((envelope) as Record<string, any>)
@@ -157,7 +156,6 @@ function remainingAuthenticationMs(deadlineAt: number) {
  * Agent child plugin: an ordinary single-agent turn may reach its first
  * pre-step while that child is still pending activation.
  */
-
 export function applyManagedSessionAuthentication(
   ctx: Context,
   config: {

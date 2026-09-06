@@ -15,7 +15,6 @@ export function requiredAbsolutePath(value: unknown, field: string) {
  * and state roots. Ambient XDG/HOME selection belongs to other providers and
  * is never an acceptable fallback for this bundle.
  */
-
 export function resolveAgentHookRuntime(config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string} = {}) {
   const command = config.agentHook === undefined ? 'agent-hook' : config.agentHook
   if (typeof command !== 'string' || command.length === 0 || command.includes('\0')) {

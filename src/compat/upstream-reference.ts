@@ -22,7 +22,6 @@ const LOCAL_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa']
  * loopback, private, link-local, or local-only name is never a usable removal
  * signal even though it is a syntactically valid https URL.
  */
-
 function localHost(hostname: string) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/gu, '')
   if (LOCAL_HOSTS.has(host) || LOCAL_SUFFIXES.some(suffix => host.endsWith(suffix))) {
@@ -61,7 +60,6 @@ function publicUrl(value: unknown) {
  * caller raises as its own typed manifest error. Absence is always allowed, so
  * the field can never block patch check, apply, reverse, or acceptance.
  */
-
 export function checkUpstreamReference(value: unknown): string | undefined  {
   if (value === undefined) return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {

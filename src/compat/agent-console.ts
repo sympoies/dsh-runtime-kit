@@ -86,7 +86,6 @@ export function agentConsoleRc7ProfileContract() {
  * exact base -> interaction/TUI -> runtime-kit composition, never an alias for
  * the native `headless` template or an arbitrary custom profile.
  */
-
 export function inspectAgentConsoleRc7Profile(observation: unknown) {
   const input = record(observation)
   if (input === undefined || input.profile !== CONTRACT.profile) {

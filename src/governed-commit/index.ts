@@ -196,7 +196,6 @@ function failure(runtime: {HarnessError?: new (message: string, code: string) =>
  * intentionally absent from its model schema: the exact worktree is the
  * authenticated session cwd already covered by WorkspaceLease.
  */
-
 export function createGovernedCommitTool(ctx: Context, config: {
     semanticCommit?: string,
     governedCommitTimeoutMs?: number,

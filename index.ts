@@ -145,7 +145,6 @@ const ARTIFACT_LIMIT_FIELDS = Object.freeze({
  * runtime-kit-owned directory below the DSH home so it shares the harness's
  * private state boundary; an explicit absolute override is accepted.
  */
-
 function configuredArtifactsRoot(config: RuntimeKitConfig) {
   const configured = config.artifactsRoot ?? process.env.DSH_RUNTIME_KIT_ARTIFACTS_ROOT
   if (configured !== undefined && configured !== '') {
@@ -503,7 +502,6 @@ async function removeSnapshot(observation: PrivateTree, snapshotRoot: string) {
  * before/after by inode metadata, the source tree is revalidated after copy,
  * and definitions are parsed from retained bytes rather than reopened paths.
  */
-
 export async function snapshotPrivateSkills(configured: unknown, options: PrivateLimitOptions = {}) {
   if (typeof configured !== 'string' || !isAbsolute(configured)) {
     throw new Error('dsh-runtime-kit: privateSkillsDir must be an absolute path')

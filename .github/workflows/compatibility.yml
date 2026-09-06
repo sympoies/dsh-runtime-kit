@@ -118,6 +118,12 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
           cache-dependency-path: deepseek-harness/pnpm-lock.yaml
+      - name: Install runtime-kit dependencies and emit its build output
+        working-directory: dsh-runtime-kit
+        run: |
+          npm ci --ignore-scripts --omit=peer
+          npm run build:emit
+          npm run build:provenance
       - name: Build selected pristine DSH
         working-directory: deepseek-harness
         run: |
@@ -128,9 +134,6 @@ jobs:
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
-      - name: Install runtime-kit dependencies
-        working-directory: dsh-runtime-kit
-        run: npm ci --ignore-scripts --omit=peer
       - name: Check selected pristine DSH contract
         if: matrix.public_contract
         working-directory: dsh-runtime-kit
@@ -292,6 +295,12 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: deepseek-harness/pnpm-lock.yaml
+      - name: Install runtime-kit dependencies and emit its build output
+        working-directory: dsh-runtime-kit
+        run: |
+          npm ci --ignore-scripts --omit=peer
+          npm run build:emit
+          npm run build:provenance
       - name: Build pristine DSH on macOS
         working-directory: deepseek-harness
         run: |
@@ -301,10 +310,9 @@ jobs:
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/scripts/digest-dsh-build-closure.mjs" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
-      - name: Install runtime-kit dependencies
+      - name: Link the vendored DSH cordis into the consumer
         working-directory: dsh-runtime-kit
         run: |
-          npm ci --ignore-scripts --omit=peer
           mkdir -p node_modules/@deepseek-ai
           ln -s "$GITHUB_WORKSPACE/deepseek-harness/vendor/cordis" \
             node_modules/@deepseek-ai/cordis

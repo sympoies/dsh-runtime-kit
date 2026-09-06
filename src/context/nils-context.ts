@@ -201,7 +201,6 @@ function executionScope(exec: ToolRunContext) {
  * pre-tool policy ingress. Unknown process-tree quiescence permanently closes
  * only this context surface; it never relaxes or rewrites policy admission.
  */
-
 export function createNilsContextClient(ctx: Context, config: { agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} } = {}) {
   const command = commandName(config.agentDocs, 'agent-docs', 'agentDocs')
   const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')

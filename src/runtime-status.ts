@@ -25,7 +25,6 @@ export function snapshotChildPluginStatus(status: ReturnType<typeof createChildP
  * already-active RuntimeHealth probe. If the epoch advances while a probe is
  * settling, force another probe until the latest state has been observed.
  */
-
 export function createChildHealthRefresh(health: {probe: (capability: string, options: {force: true}) => Promise<unknown>}) {
   const epochs: Map<string, number> = new Map()
   const active: Map<string, Promise<void>> = new Map()
@@ -55,7 +54,6 @@ export function createChildHealthRefresh(health: {probe: (capability: string, op
 }
 
 /** Project Cordis' public fiber lifecycle without retaining error text. */
-
 function projectFiberState(fiber: {state?: unknown}): ChildPluginState  {
   if (fiber.state === 2) return { state: 'active' }
   if (fiber.state === 3) {

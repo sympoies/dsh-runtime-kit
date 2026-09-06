@@ -18,7 +18,6 @@ function unboundExecution(ctx: import('@deepseek-ai/cordis').Context) {
  * authenticated descriptor path. Standalone clients may retain ordinary
  * executable paths without a lease; a naked descriptor path always fails.
  */
-
 export function resolveAuthenticatedNilsExecution(ctx: import('@deepseek-ai/cordis').Context, config: {agentHook?: string, agentDocs?: string, authenticatedNilsExecution?: {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, createScope?: () => {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, dispose?: () => void | Promise<void>}}}) {
   const execution = config.authenticatedNilsExecution
   if (execution === undefined) {

@@ -290,7 +290,6 @@ function nonEmpty(value: unknown, field: string) {
  * an opaque selector: it is echoed back to the provider and never parsed,
  * joined, compared to a model argument, or projected into tool output.
  */
-
 function frozenTarget(value: unknown): WorkspaceLeaseTarget  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw unavailable('workspace lease provider returned an invalid target')

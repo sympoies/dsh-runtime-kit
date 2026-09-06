@@ -41,7 +41,6 @@ function orchestrationError(code: string, details?: unknown) {
  * control-bearing value must never reach a private file this module writes: it
  * would turn a bounded field into a payload the store has to defend against.
  */
-
 function validSummary(value: unknown) {
   return typeof value === 'string'
     && value.length > 0
@@ -57,7 +56,6 @@ function validSummary(value: unknown) {
  * Optional fields are omitted rather than nulled, because the CLI validates
  * every present summary and a null fails closed as invalid input.
  */
-
 export function checkpointDocument(fields: {
     summary: string,
     nextAction: string,
@@ -96,7 +94,6 @@ export function checkpointDocument(fields: {
  *
  * @param target absolute destination path
  */
-
 export async function writePrivateJson(target: string, document: unknown) {
   if (typeof target !== 'string' || !isAbsolute(target)) {
     throw orchestrationError('main-agent-private-write-failed')
@@ -131,7 +128,6 @@ export async function writePrivateJson(target: string, document: unknown) {
  * evidence of a live turn, so both report `unknown` with the reason instead of
  * resolving to a liveness claim this module cannot support.
  */
-
 export function laneChildActivity(entries: readonly Record<string, any>[], childId: string) {
   const rows = Array.isArray(entries) ? entries : []
   const match = rows.find(entry => entry?.id === childId)
@@ -159,7 +155,6 @@ export function laneChildActivity(entries: readonly Record<string, any>[], child
  * lane facts stay in their own object so a consumer can never mistake
  * transport observation for durable store truth.
  */
-
 export function supervisionEnvelope(input: {
     assignmentId: string,
     store: Record<string, any>,

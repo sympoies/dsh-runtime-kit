@@ -13,7 +13,6 @@ async function digest(path: string) {
  * destination is mandatory so one candidate leg cannot supply files to the
  * next leg through a reused extraction.
  */
-
 export async function extractFreshPackage(input: {
     tarball:string,
     tarballSha256:string,

@@ -79,6 +79,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:emit": "tsc -p tsconfig.json --noCheck",
     "build:provenance": "node scripts/write-build-provenance.mjs",
     "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",

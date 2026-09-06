@@ -17,7 +17,6 @@ const RULE_ID = /^dsh\.[a-z0-9][a-z0-9-]{0,63}$/
  * for an absent map. An empty map is rejected so "no overrides" has exactly
  * one spelling in every digest.
  */
-
 export function validatePolicyOverrides(value: unknown): Record<string, 'advise'> | undefined  {
   if (value === undefined) return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -40,7 +39,6 @@ export function validatePolicyOverrides(value: unknown): Record<string, 'advise'
  * when overrides exist, so a target without overrides keeps the digest the
  * accepted baseline computed.
  */
-
 export function assetSetSha256(assets: {catalog_sha256: string, document_sha256: string, policy_sha256: string, policy_overrides_sha256?: string}) {
   return activationSha256(JSON.stringify({
     catalog_sha256: assets.catalog_sha256,
@@ -61,7 +59,6 @@ export function policyOverridesSha256(overrides: Record<string, 'advise'>) {
  * input and they are part of the plan digest, the receipt, and the activation
  * manifest; nothing else may add an `[overrides]` table.
  */
-
 export function renderAgentHookConfig(policyPath: string, policyDigest: string, overrides: Record<string, 'advise'> | undefined = undefined) {
   if (policyPath.includes('\0') || !isAbsolute(policyPath) || !DIGEST.test(policyDigest)) {
     throw new TypeError('agent-hook config requires an absolute policy path and exact digest')
@@ -110,7 +107,6 @@ function canonicalMaybe(path: string) {
  * source labels as well as canonical paths so a reviewed recovery plan changes
  * when either the configured homes or their symlink topology changes.
  */
-
 export function resolveProviderHomeTopology(environment: NodeJS.ProcessEnv = process.env) {
   const defaultHome = environment.HOME ?? homedir()
   return [
@@ -129,7 +125,6 @@ export function resolveProviderHomeTopology(environment: NodeJS.ProcessEnv = pro
  * Canonicalize one DSH-owned root and reject every direct, nested, or aliased
  * overlap with explicit and default Codex or Claude homes.
  */
-
 export function resolveProviderDisjointPath(value: unknown, label: string, environment: NodeJS.ProcessEnv = process.env) {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\0') || !isAbsolute(value)) {
     throw new TypeError(`${label} is required and must be an absolute path`)

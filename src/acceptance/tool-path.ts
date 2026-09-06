@@ -9,7 +9,6 @@ function shellLiteral(value: string) {
 }
 
 /** Build a scenario PATH without relocating package-relative launchers. */
-
 export async function createToolPath(root: string, tools: Record<string,{path:string}>) {
   const path = resolve(root, 'tool-path')
   await mkdir(path, { mode: 0o700 })
@@ -37,7 +36,6 @@ export async function createToolPath(root: string, tools: Record<string,{path:st
  * leg. pnpm's defaults are deliberately not used here: the hosted action
  * runtime and the credentialless candidate run under different homes.
  */
-
 export async function discoverPreparedPnpmStore(input: {
     cwd:string,
     env:Record<string,string>,

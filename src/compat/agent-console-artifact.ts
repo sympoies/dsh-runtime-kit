@@ -83,7 +83,6 @@ function artifactContract(value: unknown) {
  * Fetch the exact Agent Console TUI tarball into bounded memory and return its
  * bytes only after both repository-declared npm digests authenticate it.
  */
-
 export async function fetchAuthenticatedAgentConsoleArtifact(value: unknown, options: {fetchImpl?: typeof fetch, signal?: AbortSignal} = {}) {
   const artifact = artifactContract(value)
   const fetchImpl = options.fetchImpl ?? globalThis.fetch

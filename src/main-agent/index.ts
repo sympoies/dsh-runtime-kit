@@ -60,7 +60,6 @@ const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
  * Queue one host-authored revision prompt across the legacy service method and
  * the alpha.4 symbol-keyed host capability.
  */
-
 async function queueRevisionPrompt(subagents: SubagentRuntime, parent: any, childId: any, content: any[], signal: AbortSignal) {
   const source = { kind: (('plugin') as const), plugin: 'dsh-runtime-kit' }
   const queuePrompt = ((subagents) as any)[QUEUE_SUBAGENT_PROMPT]
@@ -153,7 +152,6 @@ function isProperDescendant(candidate: string, root: string) {
  * descendant of the resolved state directory — a derived-path equality alone
  * would accept a traversing id on both sides.
  */
-
 function containedLivenessFile(externalLaunch: Record<string, any>) {
   const stateDir = externalLaunch.worker_env?.AGENT_SESSION_STATE_DIR
   const sessionId = externalLaunch.worker_env?.AGENT_SESSION_ID
@@ -171,7 +169,6 @@ function containedLivenessFile(externalLaunch: Record<string, any>) {
  * rendered section quotes every value too, but validation refuses rather than
  * relying on the renderer alone.
  */
-
 function validWorkerEnv(workerEnv: unknown) {
   if (workerEnv === null || typeof workerEnv !== 'object' || Array.isArray(workerEnv)) return false
   const entries = Object.entries(((workerEnv) as Record<string, unknown>))
@@ -210,7 +207,6 @@ function nativeBootstrapPrompt(bootstrapKey: string) {
  * `completed | failed | interrupted` vocabulary. An unknown or absent reason
  * is never vouched as success.
  */
-
 function laneTurnOutcome(stopReason: unknown) {
   switch (stopReason) {
     case 'completed':
@@ -237,7 +233,6 @@ function laneTurnOutcome(stopReason: unknown) {
  * this walks past option/value pairs instead of indexing. Assuming index 1 is
  * what made a real payload look hostile.
  */
-
 function brokerArgvIsTrusted(argv: readonly string[], agentSessionCli: string) {
   const [command] = argv
   if (typeof command !== 'string' || command.length === 0) return false
@@ -351,7 +346,6 @@ function launchSummary(lane: Lane, disposition: 'launched' | 'reattached') {
  * Contract: nils-cli `main-agent-dsh-external-runtime-v1.md`; tracking
  * sympoies/dsh-runtime-kit#6 (M2).
  */
-
 export function applyMainAgentMode(ctx: Context, config: {
     mainAgentCli?: string,
     agentSessionCli?: string,

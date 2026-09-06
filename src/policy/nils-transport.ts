@@ -99,7 +99,6 @@ function policyReason(decision: Record<string, any>) {
  * events so nils sees one stable target while the original tool arguments
  * remain untouched.
  */
-
 function policyToolArguments(exec: ToolExecution, cwd: string) {
   const arguments_ = ((exec.arguments) as Record<string, unknown>)
   if (exec.name !== 'bash'
@@ -376,7 +375,6 @@ function cancellationDenial(cause: CancellationCause) {
  * bookkeeping only after permanently closing admission and cancelling every
  * sibling operation, so possible survivors can never create reusable capacity.
  */
-
 export function createNilsTransport(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsHome?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} } = {}) {
   const agentHook = resolveAgentHookRuntime(config)
   const timeoutMs = policyTimeout(config.policyTimeoutMs)

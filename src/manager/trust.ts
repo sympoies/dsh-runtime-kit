@@ -157,7 +157,6 @@ function validateTransitionEdge(transition: Record<string, any>, prior: Record<s
  * material/use, irreversible state changes, exact overlap declarations, and
  * the prior-bundle transition signature.
  */
-
 export function validateTrustBundleTransition(value: unknown, priorValue: unknown, nextValue: unknown, options: {authorityTime: string, tombstones?: Set<string>}) {
   const transition = validateTransition(value)
   const prior = validateTrustBundle(priorValue)
@@ -315,7 +314,6 @@ function throwAuthorityFailure(label: string, response: Record<string, any>) {
 }
 
 /** Verifier-owned trust bootstrap and authenticated authority adapter. */
-
 export function createTrustVerifier(options: {
     authority: {readLineage: (request: any) => Promise<any>, readBundle: (request: any) => Promise<any>, accept?: (request: any) => Promise<any>},
     bootstrap: Record<string, {genesisBundleDigest: string, controllerIdentity: string}>,

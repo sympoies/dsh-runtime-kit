@@ -26,7 +26,6 @@ function runGit(gitBin: string, args: string[], env: Record<string,string>, labe
  * Canonicalize and authenticate one DSH source, then clone that exact identity
  * through the private acceptance Git context and check out its pinned revision.
  */
-
 export async function cloneAuthenticatedDshSource(input: {
     sourceRoot:string,
     destination:string,

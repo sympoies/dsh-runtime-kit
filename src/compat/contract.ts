@@ -165,7 +165,6 @@ function sameRecord(left: Record<string, unknown>, right: Record<string, unknown
 }
 
 /** Validate the checked-in contract before it can drive a checkout or budget. */
-
 export function validateDshCompatibilityManifest(input: unknown) {
   const manifest = requireRecord(input, 'DSH compatibility manifest must be an object')
   if (manifest.schema_version !== COMPATIBILITY_SCHEMA
@@ -392,7 +391,6 @@ function resolveFunction(root: Record<string, any>, path: string) {
 }
 
 /** Fail before any DSH listener, tool, service, or skill registration. */
-
 export function assertDshRc7Runtime(ctx: unknown) {
   const root = ((ctx) as Record<string, any>)
   const missing = DSH_RC7_RUNTIME_SURFACE.filter(path => !resolveFunction(root, path))
@@ -437,7 +435,6 @@ async function resolvedPackageVersion(specifier: string) {
  * Load every consumed DSH runtime value behind one typed, version-bound seam.
  * No production module statically links these values before this check.
  */
-
 export async function loadDshRc7Runtime(options: {importModule?: (specifier: string) => Promise<Record<string, unknown>>, packageVersion?: (specifier: string) => Promise<string | undefined>} = {}) {
   const importModule = options.importModule ?? (specifier => import(specifier))
   const packageVersion = options.packageVersion ?? resolvedPackageVersion
@@ -567,7 +564,6 @@ async function readJson(path: string) {
  * Inspect one already-built, clean, selected DSH source checkout through its
  * declared package entrypoints. This never writes to the upstream checkout.
  */
-
 export async function inspectDshSource(input: {sourceRoot: string, channel: string, revision: string, clean: boolean, manifest: unknown}) {
   const manifest = validateDshCompatibilityManifest(input.manifest)
   if (!CHANNELS.includes(input.channel)) {

@@ -11,7 +11,6 @@ export const MEDIA_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a
 export const TEXT_MEDIA_PATTERN = /^(?:text\/|application\/(?:json|[a-z0-9.+-]+\+json)$)/
 
 /** The durable content identity format shared by records, providers, and receipts. */
-
 export function digestBytes(data: Uint8Array) {
   return `sha256:${createHash('sha256').update(data).digest('hex')}`
 }
@@ -33,7 +32,6 @@ export type ArtifactRecord = { schema_version: typeof ARTIFACT_RECORD_SCHEMA, id
  * Durable, bounded metadata for one immutable artifact. Never carries a
  * storage location.
  */
-
 const ISO_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
 const RECORD_KEYS = Object.freeze([
   'schema_version', 'id', 'sha256', 'bytes', 'media_type', 'name', 'owner_session_id',
@@ -55,7 +53,6 @@ function boundedText(value: unknown, maxBytes: number) {
  * Validate one durable record. Accepts only the exact schema; a malformed or
  * partial record is a typed failure, never a partially trusted artifact.
  */
-
 export function validateArtifactRecord(value: unknown, expectedId?: string): ArtifactRecord  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw invalid('artifact record is not an object')
   const record = ((value) as Record<string, unknown>)
@@ -85,7 +82,6 @@ export function validateArtifactRecord(value: unknown, expectedId?: string): Art
  * Public projection shared by the service API. Identical information to the
  * durable record minus the internal id; the opaque reference stands in for it.
  */
-
 export function projectRecord(record: ArtifactRecord) {
   return Object.freeze({
     ref: `artifact:${record.id}`,

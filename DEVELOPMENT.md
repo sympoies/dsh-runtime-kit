@@ -91,6 +91,12 @@ with `tsc -p tsconfig.json`, and `npm run typecheck` is the same compile with
 `./x.js` to `x.ts`, so nothing in the source rewrites when the build layout
 changes.
 
+`npm run build:emit` is the same compile with `--noCheck`: it emits `dist/` without
+resolving the DSH peer types. It exists for the CI legs that install the
+consumer with `--omit=peer` and need the compiled `scripts/*.mjs` imports before
+the selected DSH closure is staged; it is not a substitute for `npm run build`,
+which those legs still run through `pretest` once the closure is in place.
+
 **No npm lifecycle hook may run the build.** `INSTALL_LIFECYCLE_SCRIPTS` in
 `src/operations/index.ts` refuses an installed package declaring any of
 `preinstall`, `install`, `postinstall`, `prepare`, `preprepare`,

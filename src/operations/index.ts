@@ -282,7 +282,6 @@ function cleanupAtomicReplaceTemporaries(path: string, privateOnly: boolean) {
  * Replace an owned control file without modifying its current inode in place.
  * The durable temporary is private and lives in the target directory.
  */
-
 function atomicReplaceOwnedFile(path: string, content: string | Buffer, mode: number, options: {privateOnly?: boolean, faultPoint?: string} = {}) {
   const privateOnly = options.privateOnly ?? false
   if (lstatMaybe(path) !== null) assertOwnedPath(path, 'file', privateOnly)
@@ -509,7 +508,6 @@ function packageAssets(packageRoot: string) {
  * Bind receipt-bound policy overrides into a target's asset set so the plan
  * digest, the staged config, and the activation manifest all change with them.
  */
-
 function assetsWithOverrides(assets: ReturnType<typeof packageAssets>, overrides: Record<string, 'advise'> | undefined) {
   if (overrides === undefined) return assets
   const members = {
@@ -526,7 +524,6 @@ function assetsWithOverrides(assets: ReturnType<typeof packageAssets>, overrides
  * policy bundle. The bundle is strict TOML written by this repository, so a
  * line-oriented read of `id` and `override_class` inside each table is exact.
  */
-
 function policyRuleClasses(text: string): Map<string, string>  {
   const classes: Map<string, string> = new Map()
   let id: string | undefined
@@ -555,7 +552,6 @@ function policyRuleClasses(text: string): Map<string, string>  {
  * at load time, and this check exists to fail at preview instead of at
  * activation health.
  */
-
 function assertOverridesDowngradable(packageRoot: string, overrides: Record<string, 'advise'> | undefined) {
   if (overrides === undefined) return
   const classes = policyRuleClasses(
@@ -577,7 +573,6 @@ function assertOverridesDowngradable(packageRoot: string, overrides: Record<stri
 }
 
 /** Read and validate a `dsh-runtime-kit.policy-overrides.v1` file. */
-
 function readPolicyOverrides(path: string | undefined): Record<string, 'advise'> | undefined  {
   if (path === undefined) return undefined
   const absolute = resolve(path)
@@ -852,7 +847,6 @@ function unownedLock(lock: Record<string, unknown>, removed: Set<string>) {
  * edges are not ownership evidence: both can be supplied by the mutating DSH
  * process itself.
  */
-
 function generatedLockContainsOnlyReviewedRoot(raw: string, target: ReturnType<typeof validateTarget> | null, paths: ReturnType<typeof pathsFor> | null) {
   if (target === null || paths === null) return false
   const lock = parseYaml(raw)
@@ -1215,7 +1209,6 @@ function invalidBuildProvenance(message: string, details: Record<string, unknown
  * Throws or returns nothing: verification is the whole contribution, and no
  * provenance is bound into the reviewed plan.
  */
-
 function packageBuildProvenance(packageRoot: string) {
   const manifest = readJson(join(packageRoot, 'package.json')).value
   if (!plainRecord(manifest)) throw new OperationsError('invalid-package-spec', 'package manifest must be an object')
@@ -1302,7 +1295,6 @@ function unsupportedLifecycle(message: string, details: Record<string, unknown> 
  * not implement is unsupported, so a newer package can never be installed by an
  * engine that would silently ignore part of its declared contract.
  */
-
 function validateLifecycleManifest(value: unknown) {
   if (!plainRecord(value)) throw invalidLifecycle('lifecycle manifest must be an object')
   const keys = [
@@ -1401,7 +1393,6 @@ function lifecycleJson(packageRoot: string, relative: string, label: string) {
  * manager scripts are refused for every package, declared or not, because the
  * only lifecycle authority is the reviewed transaction itself.
  */
-
 function packageLifecycle(packageRoot: string) {
   const manifest = readJson(join(packageRoot, 'package.json')).value
   if (!plainRecord(manifest)) throw new OperationsError('invalid-package-spec', 'package manifest must be an object')
@@ -1484,7 +1475,6 @@ function validatePlanLifecycle(value: unknown) {
  * Read the retained package artifact for a target and authenticate it against
  * the target's reviewed digest before any consumer extracts or installs it.
  */
-
 function readVerifiedArtifact(paths: ReturnType<typeof pathsFor>, target: ReturnType<typeof validateTarget>) {
   const path = artifactPathFor(paths, target)
   assertSafeStateFile(path)
@@ -1501,7 +1491,6 @@ function readVerifiedArtifact(paths: ReturnType<typeof pathsFor>, target: Return
  * artifact (rollback, recovery, migration) is inspected from that exact
  * authenticated archive.
  */
-
 function lifecycleForTarget(paths: ReturnType<typeof pathsFor>, target: ReturnType<typeof validateTarget>) {
   // The cache is keyed by target object identity: resolvedTarget seeds it for
   // every freshly packed target and validateTarget returns its input, so a
@@ -1536,7 +1525,6 @@ function lifecycleForTarget(paths: ReturnType<typeof pathsFor>, target: ReturnTy
  * reviewed package must itself declare the bound DSH release. An undeclared
  * package keeps the engine's own manifest as its only gate.
  */
-
 function assertLifecycleCompatibility(lifecycle: ReturnType<typeof packageLifecycle>, toolchain: ReturnType<typeof resolveToolchain>) {
   if (lifecycle === null) return
   if (!lifecycle.dsh_releases.includes(toolchain.dsh.version)) {
@@ -1648,7 +1636,6 @@ function withResolvedTarget(target: ReturnType<typeof resolveTarget> | null, bod
 }
 
 /** @param overrides receipt-bound Tier B downgrades bound into the target */
-
 function resolveTarget(input: string, npmBin: string, home: string, retainPacked: boolean = false, overrides: Record<string, 'advise'> | undefined = undefined) {
   let requestedSpec = input
   let candidate = input
@@ -2693,7 +2680,6 @@ export type HealthExecutables = {dsh: string, agentHook: string, agentDocs: stri
  * activates a transaction that was already applied natively. No health text
  * enters the prompt.
  */
-
 function activationHealth(paths: ReturnType<typeof pathsFor>, target: ReturnType<typeof validateTarget>, runtimeRoot: string, lifecycle: ReturnType<typeof packageLifecycle>, executables: HealthExecutables) {
   if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
     throw new OperationsError('activation-staging-failed', 'staged activation assets changed before health verification')
@@ -2866,7 +2852,6 @@ function activationAssetSetBytes(root: string) {
  * present set must be authoritative, and interrupted staging entries are not
  * adoptable provenance.
  */
-
 function validateExactRetainedActivationAssets(paths: ReturnType<typeof pathsFor>, runtimeRoot: string, options: {allowUnreferenced?:boolean} = {}) {
   const { retained, targets } = retainedActivationAssets(paths, runtimeRoot)
   if ((retained.size === 0 && options.allowUnreferenced !== true) || retained.size > MAX_ACTIVATION_ASSET_SETS) {
@@ -2931,7 +2916,6 @@ function validateExactRetainedActivationAssets(paths: ReturnType<typeof pathsFor
  * held. Current, rollback, pending, and active sets are authoritative; all
  * other digest directories and interrupted staging temporaries are orphans.
  */
-
 function reconcileActivationAssets(paths: ReturnType<typeof pathsFor>, runtimeRoot: string, projectedAssetSet?: string) {
   const retained = retainedActivationAssetSets(paths, runtimeRoot)
   if (projectedAssetSet !== undefined) retained.add(projectedAssetSet)
@@ -3398,7 +3382,6 @@ function recoveryFor(actual: ReturnType<typeof readActual>, state: any, paths: R
  * of those roots. The returned canonical roots and labeled provider topology
  * are included in the reviewed repair-plan digest.
  */
-
 function repairRuntimeRootTopology(state: any, profile: string, paths: ReturnType<typeof pathsFor>, selectedRuntimeRoot: string, options: {allowOwnerless?: boolean} = {}) {
   try {
     const selected = resolveActivationRoot(selectedRuntimeRoot)
@@ -3457,7 +3440,6 @@ function repairRuntimeRootTopology(state: any, profile: string, paths: ReturnTyp
  * This reads but does not reconcile: every retained set and reference must be
  * exact before the ownership record can be reviewed or written.
  */
-
 function ownerlessRuntimeRootAdoption(paths: ReturnType<typeof pathsFor>, runtimeRoot: string, profile: string) {
   if (lstatMaybe(join(runtimeRoot, '.dsh-runtime-kit-owner.json')) !== null) {
     throw new OperationsError('runtime-root-owner-invalid', 'runtime root already has an ownership record')
@@ -3738,7 +3720,6 @@ function dshVersion(dshBin: string, home: string) {
  * Read the lifecycle the installed package declares, if any, without letting a
  * malformed declaration abort diagnosis: doctor reports it as an error instead.
  */
-
 function installedLifecycle(paths: ReturnType<typeof pathsFor>, actual: ReturnType<typeof readActual>): {declared: ReturnType<typeof packageLifecycle>, error?: string}  {
   if (!actual.installed_entry || lstatMaybe(paths.installedManifest) === null) return { declared: null }
   try {
@@ -3758,7 +3739,6 @@ function installedLifecycle(paths: ReturnType<typeof pathsFor>, actual: ReturnTy
  * missing (expected by a receipt but gone), or absent (nothing expected).
  * Detection never writes; repair remains the digest-reviewed path.
  */
-
 function lifecycleSurfaces(paths: ReturnType<typeof pathsFor>, profile: string, state: any, actual: ReturnType<typeof readActual>, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
   const current = plainRecord(state?.current) ? validateSnapshot(state.current) : null
   const pendingTarget = plainRecord(state?.pending) && state.pending.target !== null
@@ -3977,7 +3957,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
  * owns the tier table; runtime-kit only reports which Tier B rules the active
  * config downgraded to `advise` and a digest of the table it observed.
  */
-
 function agentHookPolicyInventory(agentHook: ReturnType<typeof resolveAgentHookRuntime>, home: string) {
   const [agentHookBin, ...args] = agentHook.argv(['inventory', '--format', 'json'])
   const result = spawn(agentHookBin, args, home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })

@@ -386,7 +386,6 @@ function canonicalValue(value: unknown, path: string, depth: number = 0, nodes: 
 }
 
 /** RFC 8785 JCS for the supported JSON data model. */
-
 export function canonicalJson(value: unknown) {
   return canonicalValue(value, '$')
 }
@@ -404,7 +403,6 @@ function consumeCanonicalBytes(counter: ByteCounter, bytes: number, maximumBytes
  * Count the exact UTF-8 bytes emitted by JSON.stringify for a scalar string
  * without first allocating the escaped representation.
  */
-
 function consumeCanonicalStringBytes(counter: ByteCounter, value: string, maximumBytes: number, path: string) {
   assertUnicodeScalarString(value, path)
   consumeCanonicalBytes(counter, 2, maximumBytes, path)
@@ -429,7 +427,6 @@ function consumeCanonicalStringBytes(counter: ByteCounter, value: string, maximu
 }
 
 /** Validate and count canonical bytes without materializing the complete output. */
-
 function assertCanonicalByteLimit(
   value: unknown,
   maximumBytes: number,
@@ -615,7 +612,6 @@ class DuplicateSafeJsonParser {
 }
 
 /** Parse JSON without losing duplicate-key evidence. */
-
 export function parseCanonicalJsonText(source: string) {
   if (typeof source !== 'string' || Buffer.byteLength(source, 'utf8') > MAX_PROTOCOL_BYTES) {
     fail('json-invalid', 'JSON input must be a bounded string')
@@ -844,7 +840,6 @@ function documentIdentity(document: Record<string, any>, kind: string) {
 }
 
 /** Digest the exact public catalog snapshot presented to the resolver. */
-
 export function computeCatalogSnapshotDigest(value: unknown) {
   if (!Array.isArray(value) || value.length > MAX_COLLECTION) {
     fail('schema-invalid', 'plugin catalog must be a bounded array')
@@ -1245,7 +1240,6 @@ export function validateCompositionLockReceipt(value: unknown, resolvedCompositi
 }
 
 /** Select the oldest mutually supported immutable schema for a new or retained lock. */
-
 export function selectCompositionApiVersion(options: {kind: string, readerApiVersions: string[], writerApiVersions: string[], deprecatedApiVersions?: string[], priorLockApiVersion?: string}) {
   if (!COMPOSITION_KINDS.includes(options?.kind)) fail('unsupported-kind', 'composition kind is unsupported')
   const readers = unique(array(options.readerApiVersions, 'readerApiVersions', string), 'readerApiVersions')
@@ -1272,7 +1266,6 @@ function sortedUnique(values: string[]) {
 }
 
 /** Resolve a public, private-state-free composition and its sibling lock receipt. */
-
 export function resolveComposition(input: {
     profile: unknown,
     plugins: unknown[],
@@ -1829,7 +1822,6 @@ function freezeProtocolDocument(document: Record<string, any>): Readonly<Record<
  * Validate and detach one strict public composition protocol request without
  * executing policy resolution or mutating a composition service.
  */
-
 export function validateCompositionProtocolRequest(value: unknown) {
   const detached = ((detachedJson(value, 'composition protocol request')) as Record<string, any>)
   assertNoSecretShape(detached, 'composition protocol request', 0, { count: 0 }, false)
@@ -2023,7 +2015,6 @@ export function validateCompositionProtocolResult(value: unknown) {
  * The policy resolver is an authenticated owner adapter; request bytes carry only
  * its immutable digest and can never supply replacement policy authority.
  */
-
 export function createCompositionService(options: {validatorVersion: string, resolverVersion: string, resolvePublicPolicy: (digest: string) => unknown}) {
   const configuration = record(options, 'composition service options')
   exactKeys(configuration, ['validatorVersion', 'resolverVersion', 'resolvePublicPolicy'], 'composition service options')

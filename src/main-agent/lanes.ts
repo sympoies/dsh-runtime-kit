@@ -14,7 +14,6 @@ export type Lane = { assignmentId: string, workerSessionId: string, launchId: st
  * The comm field may itself contain spaces and parentheses, so parsing
  * anchors on the last `)`.
  */
-
 export function parseStartTime(statText: string) {
   const afterComm = statText.slice(statText.lastIndexOf(')') + 1)
   const startTime = Number(afterComm.trim().split(/\s+/)[19])
@@ -122,7 +121,6 @@ export function createLaneRegistry() {
  * last rename always reflects the last transition (concurrent transitions
  * coalesce to the newest state instead of racing renames).
  */
-
 export function publishLivenessSidecar(lane: Lane) {
   const next = lane.sidecarChain
     .catch(() => {})
@@ -137,7 +135,6 @@ export function publishLivenessSidecar(lane: Lane) {
  * so a torn write must never be observable: write a same-directory temp file
  * first and rename it into place.
  */
-
 export async function writeLivenessSidecar(lane: Lane) {
   if (!isAbsolute(lane.livenessFile)) {
     throw new Error('dsh-runtime-kit: lane liveness path must be absolute')

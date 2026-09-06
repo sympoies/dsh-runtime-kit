@@ -783,7 +783,6 @@ export class AcceptanceError extends Error {
  * `cause` is accepted only to make its non-observation explicit at the fatal
  * boundary. Diagnostic construction never reads or invokes the thrown value.
  */
-
 export function buildScenarioFailureDiagnostic(input: {
     producer?: unknown,
     step?: unknown,
@@ -891,7 +890,6 @@ export function createScenarioFailureDiagnosticTracker(producer: unknown) {
  * Parse one packed canary receipt while advancing only bounded diagnostic step
  * names. Raw child output and untrusted receipt values never enter errors.
  */
-
 export function parseScenarioCanaryReceipt(input: {
     output:unknown,
     phase:unknown,
@@ -985,7 +983,6 @@ function ownDataValue(value: unknown, key: string) {
  * Project one native Node subprocess result into the bounded diagnostic tracker.
  * The projection does not read child output, messages, stacks, or accessors.
  */
-
 export function recordScenarioOperationResult(tracker: {recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void}, result: unknown) {
   const error = ownDataValue(result, 'error')
   tracker.recordOperationOutcome(
@@ -1000,7 +997,6 @@ export function recordScenarioOperationResult(tracker: {recordOperationOutcome:(
  * identity, and cause code match the parent-authenticated expectation. Raw
  * child output and arbitrary properties never enter the public diagnostic.
  */
-
 export function recordScenarioCanaryFailure(tracker: {recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void}, result: unknown, expectation: unknown) {
   const phase = ownDataValue(expectation, 'phase')
   const processInstance = ownDataValue(expectation, 'processInstance')
@@ -1043,7 +1039,6 @@ export function recordScenarioCanaryFailure(tracker: {recordOperationOutcome:(st
  * A supervisor may translate the timeout signal into a zero child status, so
  * status alone is not authoritative.
  */
-
 export function scenarioOperationSucceeded(result: unknown) {
   return ownDataValue(result, 'status') === 0
     && ownDataValue(result, 'error') === undefined
@@ -1055,7 +1050,6 @@ export function scenarioOperationSucceeded(result: unknown) {
  * classification belongs to the scenario diagnostic tracker; child output,
  * arguments, error messages, and stacks must never enter this message.
  */
-
 export function scenarioOperationFailureMessage(commandLabel: unknown) {
   const label = typeof commandLabel === 'string'
     && /^[0-9A-Za-z][0-9A-Za-z._-]{0,254}$/u.test(commandLabel)
@@ -1068,7 +1062,6 @@ export function scenarioOperationFailureMessage(commandLabel: unknown) {
  * Wait for a scenario marker while retaining bounded early child termination.
  * A deliberate termination after the marker is never recorded as a failure.
  */
-
 export async function waitForScenarioOperationMarker(input: {
     tracker:{recordOperationOutcome:(status:unknown,causeCode:unknown,signal:unknown)=>void},
     child:{once:(event:string,listener:(value:unknown)=>void)=>unknown,off:(event:string,listener:(value:unknown)=>void)=>unknown},

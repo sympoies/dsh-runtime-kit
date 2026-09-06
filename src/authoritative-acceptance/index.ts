@@ -78,7 +78,6 @@ function temporaryProviderError(error: unknown) {
  * trusted code, not wire identity; the public schema plus execution metadata
  * is the stable definition identity shared with nils.
  */
-
 function canonicalJson(value: unknown, ancestors: Set<object> = new Set()): string  {
   if (value === null) return 'null'
   if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
@@ -156,7 +155,6 @@ function definitionProjection(definition: ToolDefinition) {
  * Exact in-process object identity is checked separately at every lifecycle
  * boundary, so a same-schema replacement is never accepted mid-execution.
  */
-
 export function toolDefinitionDigest(definition: ToolDefinition) {
   const encoded = canonicalJson(definitionProjection(definition))
   return `sha256:${createHash('sha256').update(encoded).digest('hex')}`
@@ -317,7 +315,6 @@ const projectionViewSchema = z.object({
  * or provider operation id and therefore cannot manufacture acceptance. No
  * custom session event is written, preserving old-runtime rollback reads.
  */
-
 export function createAcceptanceProjection(contract: ReturnType<typeof normalizeRegistration>) {
   const bindings: Map<string, readonly any[]> = new Map()
   for (const requirement of contract.requirements) {
@@ -479,7 +476,6 @@ function observedStatus(result: ToolExecutionResult, abortedCode: string) {
  * detached verdict for the synchronous goal seam, and keeps a missing or
  * uncertain cache fail-closed.
  */
-
 export function createAuthoritativeAcceptanceCoordinator(ctx: Context, options: {
     client: {
       registerAcceptance(request: any, signal?: AbortSignal): Promise<any>,

@@ -305,7 +305,6 @@ function indeterminateEffect(request: Record<string, any>, state: string, accept
  * Strict mediated host service. The authorize callback resolves descriptor and
  * seal ceilings without handing private binding state to the plugin.
  */
-
 export function createMediatedHostService(options: {
     store: {instances: Map<string, any>, mutationLocks: Map<string, Promise<any>>},
     trustVerifier: {acceptSignedDocument: (input: any) => Promise<{digest: string}>},

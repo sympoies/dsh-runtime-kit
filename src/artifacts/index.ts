@@ -66,7 +66,6 @@ export type ArtifactWriter = { write: (chunk: Uint8Array) => Promise<void>, comm
  * Filesystem and provider errors may carry store paths, so only an errno code
  * is retained in the message and no raw cause is attached.
  */
-
 function failure(message: string, code: import('./errors.js').ArtifactCode, cause?: unknown) {
   return new ArtifactError(isErrno(cause) ? `${message} (${cause.code})` : message, code)
 }
@@ -788,7 +787,6 @@ async function writeExport(destination: string, data: Uint8Array, record: Artifa
  * Remove a fully written export that ended up somewhere other than its exact
  * destination, only while it is still the inode we wrote.
  */
-
 async function unlinkWritten(path: string, written: import('node:fs').Stats) {
   try {
     const current = await lstat(path)
@@ -803,7 +801,6 @@ async function unlinkWritten(path: string, written: import('node:fs').Stats) {
  * Linux exposes it through procfs; elsewhere the caller falls back to the
  * lexical destination.
  */
-
 async function descriptorPath(fd: number): Promise<string | undefined>  {
   if (process.platform !== 'linux') return undefined
   try {
@@ -818,7 +815,6 @@ async function descriptorPath(fd: number): Promise<string | undefined>  {
  * Remove the empty file an export race created, only if it is still the exact
  * inode we created.
  */
-
 async function unlinkCreated(path: string, created: import('node:fs').Stats) {
   try {
     const current = await lstat(path)
@@ -834,7 +830,6 @@ async function unlinkCreated(path: string, created: import('node:fs').Stats) {
  * Compose the artifact service, protect its store root, and register the five
  * artifact tools.
  */
-
 export async function applyArtifacts(ctx: Context, config: ArtifactServiceConfig) {
   if (config === null || typeof config !== 'object' || !isProvider(config.provider)) {
     throw new TypeError('dsh-runtime-kit: artifact composition requires a provider')

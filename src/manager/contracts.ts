@@ -1159,7 +1159,6 @@ export function validateManagerControlResponseFrame(value: unknown, requestFrame
  * must supply the kernel-authenticated peer identity; body fields never grant
  * access. The nonce high-water map is injectable so production can persist it.
  */
-
 export function createManagerControlService(options: {
     manager: Record<string, (payload: unknown, context?: any) => Promise<any> | any>,
     peers: Record<string, {operations: string[], namespacePrefixes: string[]}>,

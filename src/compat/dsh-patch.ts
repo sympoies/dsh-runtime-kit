@@ -351,7 +351,6 @@ function gitBlobDigest(bytes: Buffer, algorithm: 'sha1'|'sha256') {
  * Authenticate HEAD, index, and raw worktree bytes without Git clean filters,
  * attributes, fileMode config, or status heuristics.
  */
-
 async function verifyRawCheckout(gitBin: string, sourceRoot: string, expectedModified: Map<string, string>) {
   const [format, index, head, flags, excludePath, commonDirectory] = await Promise.all([
     git(gitBin, sourceRoot, ['rev-parse', '--show-object-format']),
@@ -561,7 +560,6 @@ function validatePatchTargets(bytes: Buffer, expected: string[]) {
 }
 
 /** Inspect, apply, or reverse the one reviewed downstream DSH patch. */
-
 export async function manageDshPatch(input: {
     action: 'check' | 'apply' | 'reverse', sourceRoot: string, patchRoot: string,
     manifest: unknown, gitBin: string

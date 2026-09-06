@@ -29,7 +29,6 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
  * from `npm pack --dry-run --json`, whose `files[].path` is exactly what the
  * tarball will hold.
  */
-
 export const BUILD_PROVENANCE_SCHEMA = 'dsh-runtime-kit.build-provenance.v1'
 
 const MAX_SOURCE_ENTRIES = 20_000
@@ -68,7 +67,6 @@ function within(root: string, candidate: string) {
  * with no leading or trailing slash, so a digest computed on one platform
  * matches one computed on another.
  */
-
 function logicalPath(value: string) {
   return value.split(/[\\/]+/u).filter(segment => segment !== '').join('/')
 }
@@ -83,7 +81,6 @@ function underRoot(candidate: string, root: string) {
  * a tarball has none, so including them would make the packed and unpacked
  * views disagree.
  */
-
 export function collectPackedSourceFiles(packageRoot: string, sources: readonly string[]): string[]  {
   const root = resolve(packageRoot)
   const files: string[] = []
@@ -137,7 +134,6 @@ export function collectPackedSourceFiles(packageRoot: string, sources: readonly 
  *
  * @param files package-relative paths, in any order
  */
-
 export function digestSourceFiles(packageRoot: string, files: readonly string[]): string  {
   const root = resolve(packageRoot)
   const hash = createHash('sha256')
@@ -173,7 +169,6 @@ export function digestSourceFiles(packageRoot: string, files: readonly string[])
  * or the two digests will disagree over npm-ignored names and empty
  * directories.
  */
-
 export function packedSourceDigest(packageRoot: string, sources: readonly string[]): string  {
   return digestSourceFiles(packageRoot, collectPackedSourceFiles(packageRoot, sources))
 }
@@ -182,7 +177,6 @@ export function packedSourceDigest(packageRoot: string, sources: readonly string
  * Validate a provenance declaration's shape. Returns the frozen declaration;
  * throws with a plain message the caller maps to a typed operations error.
  */
-
 export function validateBuildProvenance(value: unknown) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('build provenance must be an object')
@@ -235,7 +229,6 @@ export function validateBuildProvenance(value: unknown) {
  *
  * @param declaredPath package-relative path of the provenance file
  */
-
 export function assertProvenanceOutsideSources(declaredPath: string, sources: readonly string[]) {
   const file = logicalPath(declaredPath)
   for (const source of sources) {

@@ -138,7 +138,6 @@ function boundedDetails(value: unknown) {
  * ancestor and re-append the missing segments, so an aliased (symlinked) home
  * compares equal to its target even before the DSH home is created.
  */
-
 function canonical(path: string) {
   const absolute = resolve(path)
   const missing: string[] = []
@@ -372,7 +371,6 @@ function lstatMaybe(path: string) {
  * The root must additionally be owner-only; a symlink, a file, or a foreign
  * owner at any level is refused rather than followed.
  */
-
 function ensureOwnerDirectory(path: string, label: string, root: boolean) {
   let stat = lstatMaybe(path)
   if (stat === null) {
@@ -390,7 +388,6 @@ function ensureOwnerDirectory(path: string, label: string, root: boolean) {
  * Walk one staged package tree and report whether it still equals the
  * authenticated archive entries: same regular-file set, same bytes, same mode.
  */
-
 function stagedTreeMatches(packageRoot: string, entries: ReadonlyArray<{path: string, mode: number, bytes: Buffer}>) {
   const expected: Map<string, {mode: number, bytes: Buffer}> = new Map(entries.map(entry => [entry.path.slice('package/'.length), { mode: entry.mode & 0o777, bytes: entry.bytes }]))
   const seen: string[] = []
@@ -426,7 +423,6 @@ function stagedTreeMatches(packageRoot: string, entries: ReadonlyArray<{path: st
  * stage path is deterministic so the preview and the later apply bind the same
  * local target; a stage that drifted from the bytes is rebuilt, never trusted.
  */
-
 async function stageArtifact(artifactPath: string, expectedSha256: string, stageRoot: string) {
   let bytes
   try {
@@ -522,7 +518,6 @@ async function stageArtifact(artifactPath: string, expectedSha256: string, stage
  * The engine is this repository's own operations plane, or an explicitly
  * selected installed copy of it. Its identity is bound into every receipt.
  */
-
 function resolveEngine(engineRoot: string) {
   // The engine's entry points are build output, so an installed tree carries
   // them under `dist/bin`.
@@ -595,7 +590,6 @@ function runEngine(scope: DeployScope, packageRoot: string | undefined, engine: 
  * Keep only the identity-bearing engine fields; never copy raw command output,
  * environment, or unbounded plan bodies into a deploy receipt.
  */
-
 function engineSummary(scope: DeployScope, envelope: Record<string, unknown>, exitCode: number) {
   const data = plainRecord(envelope.data) ?? {}
   const summary: Record<string, unknown> = { schema_version: ENGINE_OUTPUT_SCHEMA, ok: envelope.ok, exit_code: exitCode }

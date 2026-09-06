@@ -45,7 +45,6 @@ const CODE_PREFIX = /^(ARTIFACT_[A-Z_]+):/
  * Recover the typed artifact code from a DSH tool failure, preferring the
  * structured info and falling back to the message prefix.
  */
-
 export function artifactFailureCode(failure: {info?: {code?: string}, message?: string} | undefined): string | undefined  {
   const structured = failure?.info?.code
   if (typeof structured === 'string' && structured.startsWith('ARTIFACT_')) return structured

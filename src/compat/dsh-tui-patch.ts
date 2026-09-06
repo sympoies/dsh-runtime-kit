@@ -298,7 +298,6 @@ function validatePatchTargets(bytes: Buffer, expected: string[]) {
 }
 
 /** Inspect, apply, or reverse the reviewed patch in one installed DSH TUI package. */
-
 export async function manageDshTuiPatch(input: {
     action: 'check' | 'apply' | 'reverse', packageRoot: string, patchRoot: string,
     manifest: unknown, gitBin: string

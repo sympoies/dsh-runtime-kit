@@ -18,7 +18,6 @@ const MUTATING_EDITOR_COMMANDS = new Set(['create', 'str_replace', 'insert'])
  * Keep ordinary shell calls on the shell provider's default while preserving
  * the finish-line contract for an exact validation that omits a timeout.
  */
-
 export function resolveFinishLineShellTimeout(kind: 'validation' | 'ordinary', timeoutMs: number | undefined) {
   return timeoutMs ?? (kind === 'validation' ? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS : undefined)
 }
@@ -72,10 +71,7 @@ function finishLineIdentityKey(identity: FinishLineIdentity) {
  * the edit's own declared path is inside the anchor checkout. A provider that
  * declines to classify an in-repository edit then cannot erase its obligation,
  * while a genuine write outside every checkout still owes nothing.
- *
- * @param {ToolExecution} exec
  */
-
 function editPathIsInsideAnchor(exec: ToolExecution, anchorCwd: string | undefined): boolean  {
   if (anchorCwd === undefined) return false
   const args = record(exec.arguments)
@@ -135,7 +131,6 @@ function operationFor(exec: ToolExecution) {
  * not expose an equivalent complete target root, so they retain the session
  * identity and fail closed when that identity has no repository authority.
  */
-
 function identityForOperation(call: {sessionId: string, cwd: string, turn: number}, operation: {kind: 'edit'} | {kind: 'validation', workdir: string | undefined}): FinishLineIdentity  {
   const cwd = operation.kind === 'validation' && operation.workdir !== undefined
     ? isAbsolute(operation.workdir)
@@ -170,7 +165,6 @@ function matches(prepared: CallIdentity, exec: Readonly<ToolExecution>) {
  * that nils authenticated. No shell name resolution or argument mutation is
  * involved after the exact call identity and operation are rechecked.
  */
-
 function nonRepositoryPwdResult(prepared: CallIdentity, admitted: ValidationCall['operation'], current: ValidationCall['operation'], exec: Readonly<ToolExecution>): {kind: 'result', result: ToolExecutionResult} | undefined  {
   if (!matches(prepared, exec)
     || record(exec.arguments)?.command !== 'pwd'

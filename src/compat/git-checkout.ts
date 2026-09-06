@@ -125,7 +125,6 @@ async function selectedCheckoutState(input: {sourceRoot: string, channel: string
  * Authenticate one exact clean Git checkout when the caller already owns the
  * reviewed revision selection (for example a validated release entry).
  */
-
 export async function inspectExactDshCheckoutIdentity(input: {sourceRoot: string, expectedRevision: string, gitBin: string}) {
   if (!isAbsolute(input.sourceRoot) || !/^[0-9a-f]{40}$/u.test(input.expectedRevision)) {
     throw new DshCompatibilityError(
@@ -168,7 +167,6 @@ export async function inspectExactDshCheckoutIdentity(input: {sourceRoot: string
 }
 
 /** Authenticate an exact clean selected Git checkout before its build outputs exist. */
-
 export async function inspectSelectedDshCheckoutIdentity(input: {sourceRoot: string, channel: string, gitBin: string, manifest: unknown}) {
   const selected = await selectedCheckoutState(input)
   return Object.freeze({
@@ -179,7 +177,6 @@ export async function inspectSelectedDshCheckoutIdentity(input: {sourceRoot: str
 }
 
 /** Bind one built source inspection to an exact clean selected Git checkout. */
-
 export async function inspectSelectedDshCheckout(input: {sourceRoot: string, channel: string, gitBin: string, manifest: unknown}) {
   const selected = await selectedCheckoutState(input)
   const report = await inspectDshSource({

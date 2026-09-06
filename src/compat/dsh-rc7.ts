@@ -6,7 +6,6 @@ import { loadDshRc7Runtime } from './contract.js'
  * Validation stays with each consumer; this adapter only owns field routing so
  * a future Harness rc changes one compatibility seam.
  */
-
 export function dshRc7SessionHeader(agent: unknown): Readonly<{id?: string, parentSession?: string, cwd?: string}>  {
   const header = ((agent) as any)?.session?.header
   if (header === null || typeof header !== 'object') return Object.freeze({})
@@ -97,7 +96,6 @@ export type SessionLog = { length: number, at(index: number): any }
  * legacy snapshot. The indexed route avoids copying the complete log at every
  * lifecycle boundary while retaining exact object-identity prefix checks.
  */
-
 function sessionLog(session: Agent['session']): SessionLog  {
   const candidate = ((session) as any)
   if (Number.isSafeInteger(candidate.seq)
@@ -164,7 +162,6 @@ function deriveOpenPosition(events: SessionLog) {
  * Any malformed or out-of-order lifecycle event fails closed; unrelated
  * content-bearing events do not enter the retained position.
  */
-
 function foldLifecycleEvent(position: DurablePosition, event: any): DurablePosition  {
   const data = ((event.data) as Record<string, unknown>)
   switch (event.type) {
@@ -197,7 +194,6 @@ function foldLifecycleEvent(position: DurablePosition, event: any): DurablePosit
  * content-free correlation facts. Prompt messages, tool arguments, candidate
  * results, and final result bodies never enter this adapter's state.
  */
-
 export function createDshRc7Compatibility(ctx: { agents?: { list(): Agent[] } }) {
   let sessions: WeakMap<Agent, SessionContext> = new WeakMap()
   const calls: Map<Readonly<ToolExecution>, Readonly<CallContext>> = new Map()

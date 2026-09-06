@@ -30,7 +30,6 @@ function selectExplicitNilsEnvironment(explicit: Readonly<NodeJS.ProcessEnv> | u
  * canonical per-UID runtime directory; explicit caller values cannot override
  * any of these host-runtime fields.
  */
-
 function selectNilsHostEnvironment(environment: Readonly<NodeJS.ProcessEnv>, runtime: {uid?: number, platform?: NodeJS.Platform}) {
   const uid = runtime.uid
   const selected = (({}) as NodeJS.ProcessEnv)
@@ -50,7 +49,6 @@ function selectNilsHostEnvironment(environment: Readonly<NodeJS.ProcessEnv>, run
  * tombstone. Inherited provider session identity is never valid input to a
  * nils child until the in-process bridge authenticates and restores it.
  */
-
 export function selectManagedSessionEnvironment(environment: NodeJS.ProcessEnv): Readonly<NodeJS.ProcessEnv>  {
   const tombstones = (({}) as NodeJS.ProcessEnv)
   for (const name of Object.keys(environment)) {
@@ -78,7 +76,6 @@ export function isolatedNilsEnvironment(
  * session fields supplied by an authenticated in-process lane bridge. Ambient
  * managed fields stay tombstoned and unrelated explicit values stay filtered.
  */
-
 export function authenticatedNilsEnvironment(
   explicit: Readonly<NodeJS.ProcessEnv>,
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
@@ -105,7 +102,6 @@ export function authenticatedNilsEnvironment(
  *
  * @param _ctx retained for the transport call signature; never used
  */
-
 export function resolveManagedSessionPrincipal(_ctx: unknown, sessionId: string, bridge?: {resolve?: (id:string) => unknown} | undefined): {sessionId:string, environment:Readonly<Record<string,string>>, baselineFailureCode?:'not-in-repository'|'repository-unavailable'|'uncovered-mutation-scope'} | undefined  {
   const raw = bridge?.resolve?.(sessionId)
   if (raw === null || typeof raw !== 'object') return undefined

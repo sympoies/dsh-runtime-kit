@@ -60,7 +60,6 @@ function frozenSnapshot(value: HealthSnapshot) {
 }
 
 /** Validate the package-owned health transition protocol. */
-
 export function validateHealthTransition(previous: HealthSnapshot, next: HealthSnapshot) {
   if (previous.schema_version !== HEALTH_SNAPSHOT_SCHEMA
     || next.schema_version !== HEALTH_SNAPSHOT_SCHEMA
@@ -410,7 +409,6 @@ export class RuntimeHealth extends Service {
 }
 
 /** Register package-owned health transition invariants with DSH's public registry. */
-
 export function installRuntimeHealthInvariant(ctx: import('@deepseek-ai/cordis').Context) {
   const invariants = ((ctx.get('invariants')) as {register?: (name: string, installer: unknown) => () => void} | undefined)
   if (invariants === undefined || typeof invariants.register !== 'function') {
@@ -489,7 +487,6 @@ async function admit(health: RuntimeHealth, selected: ReturnType<typeof requirem
  * native runtime surfaces, so take their shapes from `Context` rather than
  * restating them less precisely.
  */
-
 export function installRuntimeHealthAdmission(ctx: {llm: {guard: (guard: (options: any) => Promise<string | undefined>) => () => void}, sessions: Context['sessions'], tools: Context['tools']}, health: RuntimeHealth, config: {sessionRequirements?: unknown[], toolRequirements?: Record<string, unknown[]>} = {}) {
   if (health === undefined || typeof health.require !== 'function') {
     throw new TypeError('dsh-runtime-kit: runtime health service is required for admission')

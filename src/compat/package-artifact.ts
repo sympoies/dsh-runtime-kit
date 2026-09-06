@@ -73,7 +73,6 @@ async function assertDirectoryIdentity(identity: {path: string, dev: number, ino
  * mutate. Existing symlinks are never followed, and callers can revalidate
  * both directory identities immediately before each replacement.
  */
-
 export async function prepareAuthenticatedPackageScope(consumerRoot: string, scopeName: string) {
   if (!isAbsolute(consumerRoot)
     || !/^@[0-9A-Za-z][0-9A-Za-z._-]*$/u.test(scopeName)) {
@@ -252,7 +251,6 @@ function parsePackageArtifact(tarball: Buffer) {
  * The bounded regular-file entries of one package archive, for callers that
  * must verify an already-extracted tree still equals the authenticated bytes.
  */
-
 export function packageArtifactEntries(tarball: Buffer): ReadonlyArray<{path: string, mode: number, bytes: Buffer}>  {
   return Object.freeze(parsePackageArtifact(tarball).entries.map(entry => Object.freeze({ ...entry })))
 }
@@ -261,7 +259,6 @@ export function packageArtifactEntries(tarball: Buffer): ReadonlyArray<{path: st
  * Hash semantic package contents rather than nondeterministic gzip bytes or
  * package.json object insertion order.
  */
-
 export function inspectCanonicalPackageArtifact(tarball: Buffer) {
   const { entries, manifest } = parsePackageArtifact(tarball)
   const digest = createHash('sha256')
@@ -289,7 +286,6 @@ export function inspectCanonicalPackageArtifact(tarball: Buffer) {
  * Extract one already-authenticated regular-file-only package into a fresh
  * descriptor-anchored root without invoking package lifecycle scripts.
  */
-
 export async function extractPackageArtifact(tarball: Buffer, targetRoot: string, options: {afterTargetOpened?: () => Promise<void>} = {}) {
   if (!isAbsolute(targetRoot)) {
     throw new DshCompatibilityError(

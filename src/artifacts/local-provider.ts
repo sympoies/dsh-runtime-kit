@@ -23,7 +23,6 @@ export type ArtifactStaging = { write: (chunk: Uint8Array) => Promise<void>, com
  * commit must leave no staging behind, and `abort` after any outcome is a
  * harmless no-op so the service can always ask for cleanup.
  */
-
 const OBJECT_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW
 const GENERATION_PATTERN = /^generation:([0-9a-f-]{36})$/
 
@@ -31,7 +30,6 @@ const GENERATION_PATTERN = /^generation:([0-9a-f-]{36})$/
  * Filesystem errors carry absolute store paths in their messages, so only the
  * errno code is retained; the raw error is never attached as a cause.
  */
-
 function describe(message: string, cause?: unknown) {
   return isErrno(cause) ? `${message} (${cause.code})` : message
 }

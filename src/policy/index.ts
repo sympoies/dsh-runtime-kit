@@ -34,7 +34,6 @@ const REVIEWER_ROLE_IDS = new Set(REVIEWER_ROLES)
  * Resolve the exact finish-line command through the active DSH shell provider.
  * The provider remains authoritative for its default and maximum timeout.
  */
-
 export function resolveFinishLineShellSpec(shell: {resolve(request: Record<string, unknown>): Record<string, unknown>}, operation: {kind: 'validation' | 'ordinary', command: string, timeoutMs: number | undefined}, input: {workdir: string, signal: AbortSignal, dshEnv: Record<string, string>, policy?: unknown}) {
   const timeoutMs = resolveFinishLineShellTimeout(operation.kind, operation.timeoutMs)
   return shell.resolve({
@@ -52,7 +51,6 @@ export function resolveFinishLineShellSpec(shell: {resolve(request: Record<strin
  * presence is classified per operation by agent-hook; a session-start result
  * is metadata and never grants a persistent bypass.
  */
-
 export function requiresAuthoritativeFinishLine(platform: NodeJS.Platform, principal: {environment?: Readonly<Record<string, string>>, baselineFailureCode?: string} | undefined) {
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
   if (platform === 'linux') return true
@@ -63,7 +61,6 @@ export function requiresAuthoritativeFinishLine(platform: NodeJS.Platform, princ
  * Only an authenticated managed advisory/off principal may consume an exact
  * per-operation `finish-line-not-in-repository` result on Linux.
  */
-
 export function allowsNonRepositoryFinishLineDelegation(platform: NodeJS.Platform, principal: {environment?: Readonly<Record<string, string>>} | undefined) {
   const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
   return platform === 'linux'
@@ -215,7 +212,6 @@ function explicitPolicyDenial(decision: {kind: string, reason?: string} | undefi
  * class. The public runtime service never exposes provider reasons, rule IDs,
  * policy context, or subprocess output.
  */
-
 function stopPolicyFailureOutcome(decision: {kind: string, reason?: string} | undefined) {
   if (explicitPolicyDenial(decision)) return 'policy-denied'
   if (decision?.reason === 'dsh-runtime-kit:policy-caller-aborted') return 'cancelled'
@@ -294,7 +290,6 @@ export function normalizeSandboxEscalationRequest({
  * guard. The transport effect is registered first so reverse disposal removes
  * every ingress listener and guard before process-tree draining begins.
  */
-
 export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} } = {}, dshRuntime?: {ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}, childPlugins: ReturnType<typeof createChildPluginStatus> = createChildPluginStatus()) {
   if (dshRuntime === undefined) {
     throw new TypeError('dsh-runtime-kit: validated DSH runtime dependencies are required')

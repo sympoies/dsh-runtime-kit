@@ -112,7 +112,6 @@ function bindingWire(request: import('./index.js').WorkspaceLeaseBindingFacts) {
  * The runtime never invents a target. It echoes back the exact object the
  * provider authenticated, so a model-supplied path cannot select authority.
  */
-
 function targetWire(target: WorkspaceLeaseTarget) {
   if (target === null || typeof target !== 'object') throw unavailable()
   if (typeof target.root !== 'string'
@@ -394,7 +393,6 @@ function releaseResult(raw: unknown) {
  * canonical Git identity, persistence, conflicts, and recovery remain inside
  * agent-hook.
  */
-
 export function createNilsWorkspaceLeaseProvider(ctx: Context, config: {
     agentHook?: string,
     agentHookConfig?: string,
@@ -588,7 +586,6 @@ export function createNilsWorkspaceLeaseProvider(ctx: Context, config: {
  * The provider transport effect is installed before registration so Cordis'
  * reverse disposal order releases durable authority before closing transport.
  */
-
 export async function applyNilsWorkspaceLease(ctx: Context, config: Parameters<typeof createNilsWorkspaceLeaseProvider>[1] = {}) {
   await ctx.plugin(WorkspaceLease)
   const service = ((ctx.get('workspaceLease')) as {registerProvider(provider: WorkspaceLeaseProvider): unknown} | undefined)

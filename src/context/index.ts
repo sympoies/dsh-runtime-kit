@@ -68,7 +68,6 @@ function renderResult(value: ReturnType<typeof sanitizeDecision>) {
 }
 
 /** Create the one explicit model-facing selective context surface. */
-
 export function createRuntimeContextTool(client: ContextClient): ToolDefinition  {
   if (client === null || typeof client !== 'object' || typeof client.prepare !== 'function') {
     throw new TypeError('runtime_context requires a context client')

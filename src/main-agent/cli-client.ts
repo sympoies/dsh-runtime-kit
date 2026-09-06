@@ -39,7 +39,6 @@ function failure(code: string, error?: Record<string, unknown>): CliFailure  {
  * deadline that terminates the child, and a whole-tree quiescence check that
  * permanently closes admission when a survivor cannot be ruled out.
  */
-
 export function createCliClient(ctx: Context, config: { cliTimeoutMs?: number, cliTeardownTimeoutMs?: number, maxActiveCliCalls?: number } = {}) {
   const timeoutMs = boundedMs(config.cliTimeoutMs, DEFAULT_CLI_TIMEOUT_MS, MAX_CLI_TIMEOUT_MS)
   const teardownTimeoutMs = boundedMs(
