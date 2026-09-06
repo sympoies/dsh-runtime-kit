@@ -9,15 +9,10 @@ import {
   DshCompatibilityError,
   validateDshCompatibilityManifest,
 } from '../src/compat/contract.js'
+import { isChannel } from '../src/compat/contract.js'
 import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
 
 const projectRoot = PACKAGE_ROOT
-const CHANNELS = ['pinned', 'upstream-next'] as const
-type Channel = typeof CHANNELS[number]
-
-function isChannel(value: string | undefined): value is Channel {
-  return (CHANNELS as readonly string[]).includes(value ?? '')
-}
 
 function parseCli(argv: string[]) {
   let parsed

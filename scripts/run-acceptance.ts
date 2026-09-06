@@ -185,10 +185,7 @@ function parseCli() {
     baselineNilsSourceCommit,
   ]
   const hasAnyBaseline = baselineValues.some(value => value !== undefined)
-  const hasCompleteBaseline = baselinePackageTarball !== undefined
-    && baselinePackageSha256 !== undefined
-    && baselineNilsBinDir !== undefined
-    && baselineNilsSourceCommit !== undefined
+  const hasCompleteBaseline = baselineValues.every(isString)
   const nilsSourceCommit = parsed.values['nils-source-commit']
   const nilsArchiveName = parsed.values['nils-archive-name']
   const nilsArchiveSha256 = parsed.values['nils-archive-sha256']
@@ -207,8 +204,8 @@ function parseCli() {
     || (hasPackageSha256
       && !/^[0-9a-f]{64}$/u.test(packageSha256))
     || (hasCompleteBaseline
-      && (!/^[0-9a-f]{64}$/u.test(baselinePackageSha256)
-        || !/^[0-9a-f]{40,64}$/u.test(baselineNilsSourceCommit)))) {
+      && ((baselinePackageSha256 !== undefined && !/^[0-9a-f]{64}$/u.test(baselinePackageSha256))
+        || (baselineNilsSourceCommit !== undefined && !/^[0-9a-f]{40,64}$/u.test(baselineNilsSourceCommit))))) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
       'acceptance executable and source paths must be absolute',

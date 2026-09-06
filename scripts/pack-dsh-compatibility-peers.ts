@@ -8,18 +8,12 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { promisify } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { DshCompatibilityError, isChannel, validateDshCompatibilityManifest } from '../src/compat/contract.js'
 import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
 import { inspectCanonicalPackageArtifact } from '../src/compat/package-artifact.js'
 
 const run = promisify(execFile)
 const projectRoot = PACKAGE_ROOT
-const CHANNELS = ['pinned', 'upstream-next'] as const
-type Channel = typeof CHANNELS[number]
-
-function isChannel(value: string | undefined): value is Channel {
-  return (CHANNELS as readonly string[]).includes(value ?? '')
-}
 
 /** A validated `workspace_artifacts` entry of `compatibility/dsh.json`. */
 type WorkspaceArtifactContract = { path: string, version: string, artifact_sha256: string }

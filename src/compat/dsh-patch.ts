@@ -559,12 +559,21 @@ function validatePatchTargets(bytes: Buffer, expected: string[]) {
   }
 }
 
+/** The three actions the patch lifecycle accepts, shared by the scripts that front it. */
+export const PATCH_ACTIONS = ['check', 'apply', 'reverse'] as const
+export type PatchAction = typeof PATCH_ACTIONS[number]
+
+/** Narrow a CLI argument to a patch action without widening what is accepted. */
+export function isPatchAction(value: string | undefined): value is PatchAction {
+  return (PATCH_ACTIONS as readonly string[]).includes(value ?? '')
+}
+
 /** Inspect, apply, or reverse the one reviewed downstream DSH patch. */
 export async function manageDshPatch(input: {
-    action: 'check' | 'apply' | 'reverse', sourceRoot: string, patchRoot: string,
+    action: PatchAction, sourceRoot: string, patchRoot: string,
     manifest: unknown, gitBin: string
   }) {
-  if (!['check', 'apply', 'reverse'].includes(input.action)
+  if (!isPatchAction(input.action)
     || !isAbsolute(input.sourceRoot) || !isAbsolute(input.patchRoot)) {
     throw new DshPatchError(
       'DSH_RUNTIME_KIT_DSH_PATCH_ARGUMENT_INVALID',

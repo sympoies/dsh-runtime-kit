@@ -5,15 +5,10 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
+import { isPatchAction } from '../src/compat/dsh-patch.js'
 import { DshTuiPatchError, manageDshTuiPatch } from '../src/compat/dsh-tui-patch.js'
 
 const projectRoot = PACKAGE_ROOT
-const PATCH_ACTIONS = ['check', 'apply', 'reverse'] as const
-type PatchAction = typeof PATCH_ACTIONS[number]
-
-function isPatchAction(value: string | undefined): value is PatchAction {
-  return (PATCH_ACTIONS as readonly string[]).includes(value ?? '')
-}
 const usage = 'usage: manage-dsh-tui-patch --action check|apply|reverse --package-root ABSOLUTE [--git-bin ABSOLUTE]'
 
 function argumentsFromCli() {

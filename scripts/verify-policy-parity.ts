@@ -63,7 +63,7 @@ const packageRoot = PACKAGE_ROOT
 const sourceRootArgument = process.argv[2] ?? process.env.AGENT_RUNTIME_KIT_SOURCE_ROOT
 const nilsRootArgument = process.argv[3] ?? process.env.NILS_CLI_SOURCE_ROOT
 if (sourceRootArgument === undefined || sourceRootArgument === '') {
-  process.stderr.write('usage: verify-policy-parity.mjs /path/to/agent-runtime-kit\n')
+  process.stderr.write('usage: node dist/scripts/verify-policy-parity.js /path/to/agent-runtime-kit\n')
   process.exit(64)
 }
 const sourceRoot = resolve(sourceRootArgument)

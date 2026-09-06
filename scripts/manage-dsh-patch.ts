@@ -5,15 +5,9 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DshPatchError, manageDshPatch } from '../src/compat/dsh-patch.js'
+import { DshPatchError, isPatchAction, manageDshPatch } from '../src/compat/dsh-patch.js'
 
 const projectRoot = PACKAGE_ROOT
-const PATCH_ACTIONS = ['check', 'apply', 'reverse'] as const
-type PatchAction = typeof PATCH_ACTIONS[number]
-
-function isPatchAction(value: string | undefined): value is PatchAction {
-  return (PATCH_ACTIONS as readonly string[]).includes(value ?? '')
-}
 
 function argumentsFromCli() {
   let parsed
