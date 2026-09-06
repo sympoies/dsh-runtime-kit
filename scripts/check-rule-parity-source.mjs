@@ -33,7 +33,7 @@ const DSH_POLICY = testOwner(DSH, 'test/policy-parity.test.ts', PLANNED)
 const NILS_POLICY = testOwner(NILS, 'crates/agent-hook/tests/dsh_policy.rs', PLANNED)
 const DSH_DATA_POLICY = testOwner(DSH, 'test/plugin-contract.test.ts', ACTIVE)
 const NILS_DATA_POLICY = testOwner(NILS, 'crates/agent-hook/tests/dsh_policy.rs', ACTIVE)
-const DSH_COORDINATION = testOwner(DSH, 'test/coordination.test.mjs', PLANNED)
+const DSH_COORDINATION = testOwner(DSH, 'test/coordination.test.ts', PLANNED)
 const NILS_COORDINATION = testOwner(
   NILS,
   'crates/agent-hook/tests/dsh_coordination.rs',
@@ -130,14 +130,14 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
     testOwner(DSH, 'test/runtime-health-provider.test.ts', ACTIVE),
   ]),
   'skill-usage-reminder': disposition('context.skill-routing.v1', PLANNED, DSH, [
-    testOwner(DSH, 'test/skill-routing.test.mjs', PLANNED),
+    testOwner(DSH, 'test/skill-routing.test.ts', PLANNED),
   ]),
   'stop-finish-line-gate': disposition('finish-line.enforcement.v1', PLANNED, `${DSH} + ${NILS}`, [
     testOwner(DSH, 'test/finish-line.test.ts', PLANNED),
     testOwner(NILS, 'crates/agent-hook/tests/finish_line.rs', PLANNED),
   ]),
   'stop-pre-pr-reminder': disposition('delivery.pre-pr.v1', PLANNED, `${DSH} + ${NILS}`, [
-    testOwner(DSH, 'test/delivery.test.mjs', PLANNED),
+    testOwner(DSH, 'test/delivery.test.ts', PLANNED),
     NILS_POLICY,
   ]),
   'user-prompt-agent-docs': disposition('context.selective.v1', PLANNED, `${DSH} + ${NILS}`, [
@@ -145,7 +145,7 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
     testOwner(NILS, 'crates/agent-docs/tests/integration/dsh_context.rs', PLANNED),
   ]),
   'user-prompt-agent-memory': disposition('context.private-profile.v1', PLANNED, DSH, [
-    testOwner(DSH, 'test/private-context.test.mjs', PLANNED),
+    testOwner(DSH, 'test/private-context.test.ts', PLANNED),
   ]),
 }))
 
