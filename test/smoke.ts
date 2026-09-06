@@ -107,8 +107,8 @@ assert.equal(
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
-assert.equal(nilsCompatibility.minimum_supported_release, '1.28.1')
-assert.equal(nilsCompatibility.validated_release, '1.28.1')
+assert.equal(nilsCompatibility.minimum_supported_release, '1.28.3')
+assert.equal(nilsCompatibility.validated_release, '1.28.3')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -175,6 +175,8 @@ const agentConsoleProfileWorkspace = join(
 )
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
+// A plain directory with no .git ancestor: the non-git session leg runs here.
+const plainWorkspace = join(temporaryRoot, 'plain-notes')
 const dataPolicyProtectedRoot = join(projectWorkspace, '.data-policy-protected')
 const dataPolicyProtectedAlias = join(projectWorkspace, 'data-policy-protected-alias')
 const dataPolicySentinel = 'ghp_issue61_synthetic_sensitive_value'
@@ -1522,6 +1524,10 @@ try {
   mkdirSync(agentDocsStateHome, { recursive: true })
   writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
   writeFileSync(join(projectWorkspace, '.gitignore'), '.dsh-validation-count\n')
+  mkdirSync(plainWorkspace, { recursive: true })
+  writeFileSync(join(plainWorkspace, 'notes.md'), 'notes\n')
+  writeFileSync(join(plainWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
+  assert.equal(existsSync(join(plainWorkspace, '.git')), false)
   installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
   installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')
   installSkill(privateSkillsRoot, 'topic-radar', 'private-topic-radar-marker')
@@ -2230,6 +2236,24 @@ class SmokeAdapter extends LlmAdapter {
           }, 'data-policy-validation-two'),
           textResponse('data policy smoke done'),
         ]
+      : process.env.DSH_RUNTIME_KIT_SMOKE_NON_GIT === '1'
+        ? [
+            toolCallResponse('runtime_context', { intent: 'project-dev' }, 'non-git-context'),
+            toolCallResponse('bash', {
+              command: 'cat notes.md',
+              description: 'read the notes in a directory that is not a repository',
+            }, 'non-git-read'),
+            toolCallResponse('write', {
+              file_path: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT + '/notes-index.md',
+              content: 'index of the notes\\n',
+            }, 'non-git-write'),
+            toolCallResponse('runtime_kit_governed_commit', {
+              type: 'feat',
+              subject: 'add the notes index',
+              body_bullets: ['Index the notes so the next reader finds them.'],
+              expected_head: "dddddddddddddddddddddddddddddddddddddddd",
+            }, 'non-git-governed-commit'),
+          ]
       : process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS === '1'
         ? artifactSequence(serializedMessages)
       : process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1'
@@ -4103,6 +4127,40 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     assert.equal(existsSync(join(dataPolicyProtectedRoot, 'symlink.txt')), false)
     assert.equal(existsSync(join(dataPolicyProtectedRoot, 'shell.txt')), false)
   }
+
+  // Non-git folder: the session anchor is context only. Skills, the project
+  // context prerequisite, a read, a write, and runtime_kit_plus_one all run
+  // with zero denials, and the governed commit answers no-repository instead
+  // of failing typed or being denied by the default-delivery seam.
+  resetCheckoutLease()
+  const nonGitBoot = runDsh(['--profile', profile, '--patch', overlayPath], {
+    env: {
+      ...environment,
+      DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-non-git',
+      DSH_RUNTIME_KIT_SMOKE_NON_GIT: '1',
+      DSH_RUNTIME_KIT_SMOKE_PROJECT: plainWorkspace,
+    },
+  })
+  const nonGitLine = nonGitBoot.stdout.split('\n').find(candidate => candidate.startsWith(marker))
+  assert.ok(nonGitLine, `missing non-git ${marker} output:\n${nonGitBoot.stdout}\n${nonGitBoot.stderr}`)
+  const nonGitReceipt = JSON.parse(nonGitLine.slice(marker.length))
+  const nonGitSkillLine = nonGitBoot.stdout.split('\n').find(candidate => candidate.startsWith(skillMarker))
+  assert.ok(nonGitSkillLine, `missing non-git ${skillMarker} output:\n${nonGitBoot.stdout}`)
+  assert.ok(JSON.parse(nonGitSkillLine.slice(skillMarker.length)).count > 0, 'skills resolve in a non-git cwd')
+  assert.equal(nonGitReceipt.contextResult?.isError, false, JSON.stringify(nonGitReceipt.contextResult))
+  assert.equal(nonGitReceipt.validationResults.length, 1, JSON.stringify(nonGitReceipt.validationResults))
+  assert.equal(nonGitReceipt.validationResults[0].isError, false, JSON.stringify(nonGitReceipt.validationResults[0]))
+  assert.equal(nonGitReceipt.validationResults[0].value?.exitCode, 0)
+  assert.equal(nonGitReceipt.editResult?.isError, false, JSON.stringify(nonGitReceipt.editResult))
+  assert.equal(readFileSync(join(plainWorkspace, 'notes-index.md'), 'utf8'), 'index of the notes\n')
+  assert.equal(nonGitReceipt.result?.value, 42, JSON.stringify(nonGitReceipt.result))
+  assert.equal(nonGitReceipt.defaultGovernedCommitResult?.isError, false, JSON.stringify(nonGitReceipt.defaultGovernedCommitResult))
+  assert.equal(nonGitReceipt.defaultGovernedCommitResult.value.status, 'no-repository')
+  assert.match(nonGitReceipt.defaultGovernedCommitResult.value.guidance, /not inside a Git repository/)
+  assert.deepEqual(nonGitReceipt.healthDenialCodes, [])
+  assert.deepEqual(nonGitReceipt.finishLineSteers, [])
+  assert.equal(existsSync(join(plainWorkspace, '.git')), false)
+  rmSync(join(plainWorkspace, 'notes-index.md'), { force: true })
 
   resetCheckoutLease()
   installPolicy('block')

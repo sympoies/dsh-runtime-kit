@@ -102,9 +102,11 @@ test('the recorded minimum supported versions are the compatibility manifests, n
   const value = inventory()
   const nils = JSON.parse(readFileSync(join(ROOT, 'compatibility', 'nils-cli.json'), 'utf8'))
   const dsh = JSON.parse(readFileSync(join(ROOT, 'compatibility', 'dsh.json'), 'utf8'))
-  // Every native contract the accepted children require ships in 1.27.37, and
-  // the tiered policy contract (#199) requires the 1.28.1 agent-hook.
-  assert.equal(nils.minimum_supported_release, '1.28.1')
+  // Every native contract the accepted children require ships in 1.27.37; the
+  // tiered policy contract (#199) requires the 1.28.1 agent-hook, and the
+  // non-repository governed-commit admission and finish-line answer require
+  // 1.28.3.
+  assert.equal(nils.minimum_supported_release, '1.28.3')
   assert.equal(value.minimum_supported.nils_cli, nils.minimum_supported_release)
   assert.deepEqual(value.minimum_supported.dsh, Object.keys(dsh.validated_releases).sort())
   assert.match(value.minimum_supported.runtime_kit, /^[0-9a-f]{40}$/u)

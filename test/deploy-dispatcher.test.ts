@@ -51,8 +51,8 @@ function stageBundle(root, version) {
   })
   writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
     schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
-    minimum_supported_release: '1.28.1',
-    validated_release: '1.28.1',
+    minimum_supported_release: '1.28.3',
+    validated_release: '1.28.3',
   })
   writeJson(
     join(dir, 'compatibility', 'profile-lifecycle.json'),
@@ -167,7 +167,7 @@ process.stdout.write(JSON.stringify({
   const agentDocs = join(root, 'fake-agent-docs.mjs')
   writeFileSync(agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
+process.stdout.write('agent-docs 1.28.3 (v1.28.3, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
   return { commandDir, dsh, agentHook, agentDocs }

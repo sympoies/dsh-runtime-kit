@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { createGovernedCommitTool } from '../dist/src/governed-commit/index.js'
 import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
@@ -130,6 +134,7 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: 'semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   const args = validArgs()
 
@@ -174,6 +179,7 @@ test('governed commit rejects model-authored repository routing before spawning'
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: '/tools/semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   const valid = {
     type: 'fix',
@@ -198,6 +204,7 @@ test('governed commit preserves stable rejection and receipt failure codes witho
   const rejectedTool = createGovernedCommitTool(rejected.ctx, {
     semanticCommit: '/tools/semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   await assert.rejects(
     rejectedTool.execute(validArgs(), execution()),
@@ -209,6 +216,7 @@ test('governed commit preserves stable rejection and receipt failure codes witho
   const malformedTool = createGovernedCommitTool(malformed.ctx, {
     semanticCommit: '/tools/semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   await assert.rejects(
     malformedTool.execute(validArgs(), execution()),
@@ -221,6 +229,7 @@ test('governed commit cancellation terminates and joins the subprocess before re
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: '/tools/semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
     TOOL_ABORTED: 'TOOL_ABORTED',
   })
   const controller = new AbortController()
@@ -238,6 +247,7 @@ test('governed commit disposal terminates and joins every active subprocess befo
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: '/tools/semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   const running = tool.execute(validArgs(), execution())
   while (subject.spawns.length === 0) await new Promise(resolve => setImmediate(resolve))
@@ -275,6 +285,8 @@ test('governed commit sanitizes worktree, resolution, spawn, and quiescence fail
     const tool = createGovernedCommitTool(subject.ctx, {
       semanticCommit,
       canonicalPath: value => value,
+      hasRepository: () => true,
+    hasRepository: () => true,
     })
     await assert.rejects(
       tool.execute(validArgs(), execution()),
@@ -283,11 +295,79 @@ test('governed commit sanitizes worktree, resolution, spawn, and quiescence fail
   }
 })
 
+test('a non-repository session cwd returns a typed no-repository result instead of spawning semantic-commit', async () => {
+  const subject = harness()
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+    hasRepository: () => false,
+  })
+  const result = await tool.execute(validArgs(), execution({
+    agent: { id: 'session-current', session: { header: { cwd: '/srv/notes' } } },
+  }))
+  assert.deepEqual(result, {
+    schema_version: 'dsh-runtime-kit.governed-commit.result.v1',
+    status: 'no-repository',
+    cwd: '/srv/notes',
+    guidance: 'The authenticated session cwd is not inside a Git repository, so there is nothing to commit. Start the session from a managed worktree (git-cli worktree add) or an existing repository to deliver a governed commit.',
+  })
+  assert.equal(subject.resolutions.length, 0)
+  assert.equal(subject.spawns.length, 0)
+  const rendered = tool.output.render(validArgs(), result)
+  assert.match(rendered[0].text, /^No governed commit: .* not inside a Git repository/)
+})
+
+test('the output schema keeps the committed and no-repository variants apart', () => {
+  const subject = harness()
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+    hasRepository: () => true,
+  })
+  const variants = tool.output.schema.oneOf
+  assert.equal(variants.length, 2)
+  const committed = variants.find(variant => variant.properties.status.const === 'committed')
+  const noRepository = variants.find(variant => variant.properties.status.const === 'no-repository')
+  assert.deepEqual(committed.required, ['schema_version', 'status', 'commit', 'staged'])
+  assert.deepEqual(noRepository.required, ['schema_version', 'status', 'cwd', 'guidance'])
+  assert.equal(committed.additionalProperties, false)
+  assert.equal(noRepository.additionalProperties, false)
+})
+
+test('the default repository probe recognises a .git directory, a worktree .git file, and a plain directory', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-governed-commit-'))
+  try {
+    const plain = join(root, 'plain', 'nested')
+    const repository = join(root, 'repository')
+    const linked = join(root, 'linked')
+    mkdirSync(plain, { recursive: true })
+    mkdirSync(join(repository, '.git', 'refs'), { recursive: true })
+    mkdirSync(join(repository, 'src'), { recursive: true })
+    mkdirSync(linked, { recursive: true })
+    writeFileSync(join(linked, '.git'), `gitdir: ${join(repository, '.git', 'worktrees', 'linked')}\n`)
+    for (const [cwd, expectSpawn] of [[plain, false], [join(repository, 'src'), true], [linked, true]]) {
+      const subject = harness()
+      const tool = createGovernedCommitTool(subject.ctx, {
+        semanticCommit: 'semantic-commit',
+        canonicalPath: value => value,
+      })
+      const result = await tool.execute(validArgs(), execution({
+        agent: { id: 'session-current', session: { header: { cwd } } },
+      }))
+      assert.equal(result.status, expectSpawn ? 'committed' : 'no-repository', cwd)
+      assert.equal(subject.spawns.length, expectSpawn ? 1 : 0, cwd)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('governed commit refuses a primary-relative or missing authenticated cwd before resolution', async () => {
   const subject = harness()
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: 'semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   await assert.rejects(
     tool.execute(validArgs(), execution({
@@ -304,6 +384,7 @@ test('governed commit timeout covers executable resolution and prevents a late s
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: 'semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
     governedCommitTimeoutMs: 5,
   })
   const running = tool.execute(validArgs(), execution())
@@ -332,6 +413,7 @@ test('governed commit disposal settles pending executable resolution without a l
   const tool = createGovernedCommitTool(subject.ctx, {
     semanticCommit: 'semantic-commit',
     canonicalPath: value => value,
+    hasRepository: () => true,
   })
   const running = tool.execute(validArgs(), execution())
   while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))

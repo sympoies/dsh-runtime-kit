@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.1` minimum; exactly validated through `1.28.1` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.3` |
 
 The package retains exactly the latest three reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
@@ -79,11 +79,12 @@ validated `review-specialists` requires every delivery finding to
 declare `actionable: true` or `actionable: false`; packed review acceptance
 proves the former becomes one native line or file thread while the latter stays
 in the summary only. The same release preserves `not-in-repository` as an exact
-public policy code for existing non-symlink directories with no Git ancestor.
-Managed advisory and off-mode finish-line fallback may delegate only that code;
-repository access, scope coverage, malformed output, and enforcement failures
-remain authoritative. The v1.28.1 floor is intentional: it is the release that
-contains the tiered policy contract and every native contract the accepted
+public policy code for existing non-symlink directories with no Git ancestor;
+since #199 that answer means the session cwd carries no finish-line obligation
+for any principal, while repository access, scope coverage, malformed output,
+and enforcement failures remain authoritative. The v1.28.3 floor is intentional: it is the release that
+contains the tiered policy contract, the non-repository governed-commit
+admission, the non-repository finish-line answer for any command, and every native contract the accepted
 convergence children require —
 the atomic `agent-session work-context set --if-absent` contract, the durable
 finish-line acceptance provider, the bounded `agent-hook workspace-recovery`

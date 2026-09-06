@@ -111,14 +111,10 @@ function operationFor(exec: ToolExecution) {
       || args.timeoutMs <= 0)) {
     return { invalid: ((true) as const) }
   }
-  // Use a lookup-independent executable for the one shell primitive that the
-  // non-repository finish-line contract can authenticate. This preserves the
-  // ordinary `pwd` UX without allowing an imported shell function to shadow it.
-  const command = args.command === 'pwd' ? '/usr/bin/pwd' : args.command
   return {
     kind: (('validation') as const),
     intent: 'project-dev',
-    command,
+    command: args.command,
     timeoutMs: args.timeoutMs,
     workdir: typeof args.workdir === 'string' ? args.workdir : undefined,
     sandboxPermissions: typeof args.sandbox_permissions === 'string' ? args.sandbox_permissions : undefined,
@@ -160,35 +156,6 @@ function matches(prepared: CallIdentity, exec: Readonly<ToolExecution>) {
     && prepared.name === exec.name
 }
 
-/**
- * Materialize the lookup-independent result of the one non-repository command
- * that nils authenticated. No shell name resolution or argument mutation is
- * involved after the exact call identity and operation are rechecked.
- */
-function nonRepositoryPwdResult(prepared: CallIdentity, admitted: ValidationCall['operation'], current: ValidationCall['operation'], exec: Readonly<ToolExecution>): {kind: 'result', result: ToolExecutionResult} | undefined  {
-  if (!matches(prepared, exec)
-    || record(exec.arguments)?.command !== 'pwd'
-    || current.command !== '/usr/bin/pwd'
-    || !sameValidationOperation(admitted, current)) return undefined
-  return {
-    kind: 'result',
-    result: {
-      isError: false,
-      content: [],
-      value: {
-        kind: 'foreground',
-        exitCode: 0,
-        signal: null,
-        timedOut: false,
-        aborted: false,
-        timeoutMs: current.timeoutMs ?? DEFAULT_FINISH_LINE_COMMAND_TIMEOUT_MS,
-        stdout: { text: `${prepared.identity.cwd}\n`, truncated: false },
-        stderr: { text: '', truncated: false },
-      },
-    },
-  }
-}
-
 function sameValidationOperation(admitted: ValidationCall['operation'], current: ValidationCall['operation']) {
   return admitted.kind === current.kind
     && admitted.intent === current.intent
@@ -199,7 +166,7 @@ function sameValidationOperation(admitted: ValidationCall['operation'], current:
     && admitted.justification === current.justification
 }
 
-export function createFinishLineCoordinator(ctx: Context, options: {client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, allowsNonRepositoryDelegation?: (identity: FinishLineIdentity) => boolean, resolveEditRoots?: (exec: ToolExecution) => Promise<readonly string[] | undefined>, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}, identity: FinishLineIdentity) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}) {
+export function createFinishLineCoordinator(ctx: Context, options: {client: FinishLineClient, HarnessError?: new (message: string, code?: string) => Error, TOOL_ABORTED?: string, maxSameTurnSteers?: number, createOperationId?: () => string, now?: () => number, requiresFinishLine?: (identity: FinishLineIdentity) => boolean, resolveEditRoots?: (exec: ToolExecution) => Promise<readonly string[] | undefined>, authenticatePrincipal?: (agent: Agent, signal: AbortSignal) => Promise<unknown>, prepareValidationRuntime?: (exec: ToolDispatchExecution, operation: {kind: 'validation' | 'ordinary', intent: string, command: string, timeoutMs: number | undefined, workdir: string | undefined, sandboxPermissions: string | undefined, justification: string | undefined}, identity: FinishLineIdentity) => Promise<{timeoutMs: number, execution: unknown, environment?: Record<string, string>}>, createSteeringMessage: (text: string) => import('@deepseek-ai/dsh-llm').UserMessage}) {
   const HarnessError = options.HarnessError ?? Error
   const TOOL_ABORTED = options.TOOL_ABORTED ?? 'ABORTED'
   const client = options.client
@@ -211,7 +178,6 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
   const createOperationId = options.createOperationId ?? (() => `dsh:${randomUUID()}`)
   const now = options.now ?? Date.now
   const requiresFinishLine = options.requiresFinishLine ?? (() => true)
-  const allowsNonRepositoryDelegation = options.allowsNonRepositoryDelegation ?? (() => false)
   // Editor tools carry an exact path argument but no repository root. The
   // workspace-lease service already canonicalized and authenticated that
   // operation's repository target, so the ledger reuses that decision instead
@@ -232,8 +198,10 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
   const preparedEdits: Map<Readonly<ToolExecution>, CallIdentity> = new Map()
   const editRegistrations: WeakMap<Readonly<ToolExecution>, {ledger: SessionLedger, operationId: string}> = new WeakMap()
   const validationCalls: Map<Readonly<ToolExecution>, ValidationCall> = new Map()
+  // Executions the ledger admits without an obligation: the principal is a
+  // managed advisory/off session, or nils answered `not-in-repository` for the
+  // session anchor itself. `execute` delegates these to the ordinary tool path.
   const advisoryDelegations: WeakSet<Readonly<ToolExecution>> = new WeakSet()
-  const nonRepositoryPwdCalls: WeakMap<Readonly<ToolExecution>, {prepared: CallIdentity, operation: ValidationCall['operation']}> = new WeakMap()
   const settledValidations: WeakSet<Readonly<ToolExecution>> = new WeakSet()
   const ledgers: Map<Agent['session'], SessionLedgerSet> = new Map()
   const releaseTasks: Set<Promise<void>> = new Set()
@@ -564,15 +532,18 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       }
       try {
         if (!await ensureRunnerCapability(ledger, identity, exec.signal, operation.command)) {
-          if (allowsNonRepositoryDelegation(identity)) {
-            if (record(exec.arguments)?.command !== 'pwd'
-              || operation.command !== '/usr/bin/pwd') {
-              return { ok: false, reason: 'finish-line-unavailable' }
-            }
-            nonRepositoryPwdCalls.set(exec, { prepared, operation })
-            return { ok: true, kind: (('ordinary') as const) }
+          // nils answered `not-in-repository` for this identity. Only the
+          // session anchor may consume that answer: a model-supplied Bash
+          // `workdir` outside every repository must not relax the anchor
+          // repository's obligation, so a derived identity keeps failing closed.
+          if (identity.cwd !== call.cwd) {
+            return { ok: false, reason: 'finish-line-unavailable' }
           }
-          return { ok: false, reason: 'finish-line-unavailable' }
+          // The anchor has no repository and therefore no validation contract
+          // to satisfy: the command runs as an ordinary host operation under
+          // the normal policy transport.
+          advisoryDelegations.add(exec)
+          return { ok: true, kind: (('ordinary') as const) }
         }
         const operationId = createOperationId()
         const result = await client.run({
@@ -618,7 +589,6 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         return { ok: true }
       }
       if (advisoryDelegations.has(exec)) return { ok: true }
-      if (nonRepositoryPwdCalls.has(exec)) return { ok: true }
       let identity = anchorIdentity
       if (operation.kind === 'edit' && resolveEditRoots !== undefined) {
         // A projection failure is the workspace-lease service's own typed
@@ -687,7 +657,9 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       }
       try {
         if (!await ensureRunnerCapability(ledger, identity, exec.signal)) {
-          return { ok: false, reason: 'finish-line-unavailable' }
+          // No repository owns this target, so there is no edit generation to
+          // register: the write proceeds without a finish-line obligation.
+          return { ok: true }
         }
       } catch {
         poison(ledger, 'begin-persistence')
@@ -716,24 +688,6 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         }
         await registerEdit(((exec) as ToolExecution), prepared, registration)
         return { kind: 'delegate' }
-      }
-      const nonRepositoryPwd = nonRepositoryPwdCalls.get(exec)
-      nonRepositoryPwdCalls.delete(exec)
-      if (nonRepositoryPwd !== undefined) {
-        if (operation === undefined || 'invalid' in operation || 'unsupported' in operation
-          || operation.kind !== 'validation') {
-          throw new Error('dsh-runtime-kit: finish-line non-repository correlation invalid')
-        }
-        const routed = nonRepositoryPwdResult(
-          nonRepositoryPwd.prepared,
-          nonRepositoryPwd.operation,
-          operation,
-          exec,
-        )
-        if (routed === undefined) {
-          throw new Error('dsh-runtime-kit: finish-line non-repository correlation invalid')
-        }
-        return routed
       }
       const pending = validationCalls.get(exec)
       validationCalls.delete(exec)
@@ -764,16 +718,13 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
             exec.signal,
             operation.command,
           )) {
-            if (allowsNonRepositoryDelegation(prepared.identity)) {
-              const routed = nonRepositoryPwdResult(
-                prepared,
-                pending.operation,
-                operation,
-                exec,
-              )
-              if (routed !== undefined) return routed
+            // Reserved without a probe: only the session anchor may treat
+            // `not-in-repository` as no obligation (see probe); a derived
+            // workdir identity keeps failing closed.
+            if (prepared.identity.cwd !== prepared.session.header?.cwd) {
+              throw new Error('dsh-runtime-kit: finish-line capability unavailable')
             }
-            throw new Error('dsh-runtime-kit: finish-line capability unavailable')
+            return { kind: 'delegate' }
           }
           operationId = createOperationId()
           const probe = await client.run({
@@ -858,7 +809,6 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       editRegistrations.delete(exec)
       validationCalls.delete(exec)
       advisoryDelegations.delete(exec)
-      nonRepositoryPwdCalls.delete(exec)
     },
 
     /**
@@ -980,14 +930,10 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         steer(headerLedger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
         return false
       }
-      const headerAuthoritative = await ensureRunnerCapability(
-        headerLedger,
-        headerIdentity,
-        payload.signal,
-      )
-      if (!headerAuthoritative && !allowsNonRepositoryDelegation(headerIdentity)) {
-        throw new Error('dsh-runtime-kit: finish-line unavailable')
-      }
+      // A non-repository anchor owns no stop boundary (`not-in-repository`
+      // leaves the header ledger without a capability); the repositories this
+      // turn edited still own theirs and are checked below.
+      await ensureRunnerCapability(headerLedger, headerIdentity, payload.signal)
       const authoritativeLedgers = sessionLedgers(payload.agent.session)
         .filter(ledger => ledger.runnerCapability !== undefined)
         .sort((left, right) => {
