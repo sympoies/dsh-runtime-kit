@@ -568,7 +568,7 @@ export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: st
       return false
     }
     let timer: ReturnType<typeof setTimeout> | undefined
-    const deadline = new Promise(resolve => {
+    const deadline = new Promise<undefined>(resolve => {
       timer = setTimeout(() => {
         try { handle.terminate() } catch {}
         resolve(undefined)

@@ -624,7 +624,7 @@ function runtimePlatformKey() {
 export function resolveNilsHealthCompatibility(
   value: unknown,
   platform: string = runtimePlatformKey(),
-  candidateFeature: string = undefined,
+  candidateFeature: string | undefined = undefined,
 ) {
   const root = requiredRecord(value, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   if (root.schema_version !== COMPATIBILITY_SCHEMA) {

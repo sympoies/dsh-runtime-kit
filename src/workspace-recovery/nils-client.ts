@@ -243,8 +243,8 @@ export function createNilsWorkspaceRecoveryClient(ctx: Context, config: {agentHo
   )
   const HarnessError = config.HarnessError
   const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, ((config) as any))
-  const active = new Set()
-  const draining = new Set()
+  const active: Set<{ settled: Promise<unknown> }> = new Set()
+  const draining: Set<Promise<unknown>> = new Set()
   let open = true
   let degraded = false
 

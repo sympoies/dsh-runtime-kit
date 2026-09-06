@@ -278,7 +278,7 @@ export class RuntimeHealth extends Service {
     return initial
   }
 
-  probe(capability: string, options: {scope?: string, signal?: AbortSignal, force?: boolean} = {}) {
+  probe(capability: string, options: {scope?: string, signal?: AbortSignal, force?: boolean} = {}): Promise<HealthSnapshot> {
     if (this.disposed) return Promise.reject(new Error('dsh-runtime-kit health service disposed'))
     if (options.signal?.aborted) return Promise.reject(abortReason(options.signal))
     const scope = options.scope ?? 'runtime'
@@ -361,7 +361,7 @@ export class RuntimeHealth extends Service {
     return this.waiter(operation, options.signal)
   }
 
-  waiter(operation: {controller: AbortController, waiters: Set<symbol>, promise: Promise<HealthSnapshot>}, signal: AbortSignal | undefined) {
+  waiter(operation: {controller: AbortController, waiters: Set<symbol>, promise: Promise<HealthSnapshot>}, signal: AbortSignal | undefined): Promise<HealthSnapshot> {
     if (signal?.aborted) return Promise.reject(abortReason(signal))
     const token = Symbol('health-waiter')
     operation.waiters.add(token)

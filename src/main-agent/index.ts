@@ -1481,7 +1481,7 @@ export function applyMainAgentMode(ctx: Context, config: {
             try { heartbeat.terminate() } catch {}
           }
           await waitForBrokerReady(externalLaunch, exec, cwd, assignmentId)
-          const started = await ctx.subagents.startContinuable(/** @type {any} */ ({
+          const started = await ctx.subagents.startContinuable(({
             provider: workerSubagentProvider,
             label: `main-agent:${assignmentId}`,
             workspace: { provider: MANAGED_WORKSPACE_PROVIDER, ref: workspaceRef },
@@ -1492,7 +1492,7 @@ export function applyMainAgentMode(ctx: Context, config: {
               toolFilter: { deny: [...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS] },
             },
             signal: exec.signal,
-          }))
+          }) as any)
           if (lane.childId !== started.childId) {
             throw laneError('main-agent-host-workspace-child-mismatch')
           }

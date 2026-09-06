@@ -113,7 +113,9 @@ function validateTransitionEdge(transition: Record<string, any>, prior: Record<s
     const before = priorKeys.get(keyId)
     const after = nextKeys.get(keyId)
     if (before === undefined) {
-      if (tombstones.has(keyId) || after.state !== 'active') fail('lineage-invalid', 'trust key was reactivated or did not enter active')
+      // `keyId` is drawn from the union of both key sets, so a key absent
+      // from the prior bundle is present in the next one.
+      if (tombstones.has(keyId) || after!.state !== 'active') fail('lineage-invalid', 'trust key was reactivated or did not enter active')
       expectedChanges.push({ keyId, priorState: null, nextState: 'active' })
       continue
     }
@@ -487,7 +489,7 @@ export function createTrustVerifier(options: {
         )
         validateTrustBundleTransition(transition, priorBundle, nextBundle, {
           authorityTime: firstResponse.authorityTime,
-          tombstones: /** @type {Set<string>} */ (((tombstoneView()) as unknown)),
+          tombstones: tombstoneView() as unknown as Set<string>,
         })
         expectedBundle = transition.nextBundleDigest
         priorBundle = nextBundle

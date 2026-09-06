@@ -2765,8 +2765,8 @@ function retainSnapshotAssetSet(retained: Set<string>, targets: Map<string,Retur
 }
 
 function retainedActivationAssets(paths: ReturnType<typeof pathsFor>, runtimeRoot: string) {
-  const retained = new Set()
-  const targets = new Map()
+  const retained: Set<string> = new Set()
+  const targets: Map<string, ReturnType<typeof validateTarget>> = new Map()
   for (const name of readdirSync(dirname(paths.state)).sort()) {
     if (!name.endsWith('.json')) continue
     const profile = validateProfile(name.slice(0, -'.json'.length))

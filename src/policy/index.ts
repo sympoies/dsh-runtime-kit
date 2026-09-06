@@ -796,7 +796,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
         return withPolicyContext(current.context)
       }
       let resolve: (accepted: boolean) => void = () => {}
-      const settled = new Promise(resolvePromise => { resolve = resolvePromise })
+      const settled = new Promise<boolean>(resolvePromise => { resolve = resolvePromise })
       claim = { position, promptDigest, status: 'pending', settled, resolve }
       acceptedLifecycleSteps.set(session, claim)
     }

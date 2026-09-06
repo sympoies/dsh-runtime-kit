@@ -381,8 +381,7 @@ export function createAcceptanceProjection(contract: ReturnType<typeof normalize
     },
     wire: {
       viewSchema: projectionViewSchema,
-      /** @param {{active: Array<unknown>, last: any}} state */
-      view: state => ({
+      view: (state: { active: Array<unknown>, last: any }) => ({
         schema_version: 'dsh-runtime-kit.acceptance-projection.v1',
         active_operations: state.active.length,
         last_operation: state.last,
@@ -588,7 +587,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx: Context, options: 
       ? [lifecycleAbort.signal]
       : [callerSignal, lifecycleAbort.signal]
     let tracked: Promise<void>
-    tracked = new Promise((resolve, reject) => {
+    tracked = new Promise<void>((resolve, reject) => {
       let settled = false
       const listeners: Map<AbortSignal, () => void> = new Map()
       const cleanup = () => {
