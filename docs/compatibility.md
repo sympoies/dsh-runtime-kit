@@ -187,7 +187,7 @@ to one of three tiers. nils-cli (from 1.28.1) owns the table in
 it per rule through `agent-hook inventory` as `tier`, `override_class`
 and `effective_modes.dsh`, which `doctor` reads; runtime-kit only declares the matching
 `override_class` and annotates each rule with a `# tier:` line that
-`test/policy-parity.test.mjs` checks against the table below and, when a
+`test/policy-parity.test.ts` checks against the table below and, when a
 companion is available, against the inventory.
 
 | Tier | Rules | Default | Downgrade |
@@ -215,7 +215,7 @@ and one entry per surface the program touched: its category, whether it was
 involved, the owner and contract that replace it (`dsh`, `nils-cli`, or a
 retained runtime-kit workflow), the first supported versions, the
 compatibility window, the rollback path, and, for retained surfaces, the
-rationale. `test/retired-surfaces.test.mjs` validates the schema, requires the
+rationale. `test/retired-surfaces.test.ts` validates the schema, requires the
 recorded minimums to equal the compatibility manifests, scans every file
 `package.json#files` ships (the development log and plans are history) and
 every normative document for each removed identifier and deleted file, and

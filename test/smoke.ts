@@ -1676,7 +1676,7 @@ try {
     'docs/policies/review-thread-convergence.md',
     'docs/workspace-leases.md',
     'skills/bootstrap/SKILL.md',
-    'test/workspace-lease-smoke.mjs',
+    'test/workspace-lease-smoke.ts',
   ]) {
     assert.ok(packedFiles.has(required), `packed artifact is missing ${required}`)
   }
@@ -2042,7 +2042,7 @@ class SmokeAdapter extends LlmAdapter {
             findings: [{
               severity: 'medium',
               confidence: 0.9,
-              path: 'test/smoke.mjs',
+              path: 'test/smoke.ts',
               line: 1,
               category: 'testing',
               summary: 'The reviewer write attempt was denied.',
@@ -3691,7 +3691,7 @@ ${agentConsoleTuiOverlay}
   const reviewerThreads = JSON.parse(readFileSync(reviewerThreadsPath, 'utf8'))
   assert.equal(reviewerThreads.length, 2)
   assert.deepEqual(reviewerThreads.map(thread => thread.path), [
-    'test/smoke.mjs',
+    'test/smoke.ts',
     'src/review/index.ts',
   ])
   assert.equal(reviewerThreads[0].line, 1)

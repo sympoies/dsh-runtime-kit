@@ -520,7 +520,7 @@ test('the process supervisor outlives the canary-wide execution deadline', async
   assert.equal(timeouts.SCENARIO_CANARY_EXECUTION_TIMEOUT_MS, 120_000)
   assert.equal(timeouts.SCENARIO_CANARY_PROCESS_TIMEOUT_MS, 180_000)
   const supervisor = readFileSync(
-    new URL('./authoritative-acceptance-smoke.mjs', import.meta.url),
+    new URL('./authoritative-acceptance-smoke.ts', import.meta.url),
     'utf8',
   )
   assert.match(supervisor, /timeout: SCENARIO_CANARY_PROCESS_TIMEOUT_MS/u)

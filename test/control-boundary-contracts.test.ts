@@ -45,7 +45,7 @@ import {
   signingFixture,
   trustBundle,
   trustTransition,
-} from './helpers/manager-fixtures.mjs'
+} from './helpers/manager-fixtures.ts'
 
 test('trust bundles and lineage heads are strict, digest-addressed, and verifier-pinned', () => {
   const signing = signingFixture()

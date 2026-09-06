@@ -13,7 +13,7 @@
       "category": "workspace-identity",
       "status": "removed",
       "summary": "Protocol v1 dirty-anchor bootstrap exception: a registry of exact tool definitions allowed to cross a session-wide dirty denial. WorkspaceLease v2 denies only the anchor repository, so the registry granted nothing and the guard never consulted it.",
-      "paths": ["src/workspace-lease/index.js", "index.js", "test/workspace-lease-native-smoke.mjs"],
+      "paths": ["src/workspace-lease/index.js", "index.js", "test/workspace-lease-native-smoke.ts"],
       "identifiers": ["registerQuarantineCapability", "trackQuarantineCapabilities", "quarantineCapabilities"],
       "replacement": {
         "owner": "nils-cli",
@@ -33,7 +33,7 @@
       "identifiers": ["memory-provider.js"],
       "replacement": {
         "owner": "runtime-kit",
-        "contract": "test/helpers/memory-artifact-provider.mjs (test-only); production uses LocalArtifactProvider under the session-owned ArtifactService"
+        "contract": "test/helpers/memory-artifact-provider.ts (test-only); production uses LocalArtifactProvider under the session-owned ArtifactService"
       },
       "first_supported": { "runtime_kit": "issue 63 acceptance ffa71f23", "nils_cli": "1.27.34" },
       "compatibility_window": "none; the provider was never a public export",

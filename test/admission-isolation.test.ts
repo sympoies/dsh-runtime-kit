@@ -18,7 +18,7 @@ import {
   runtimeAssertion,
   signingFixture,
   trustBundle,
-} from './helpers/manager-fixtures.mjs'
+} from './helpers/manager-fixtures.ts'
 
 function fixture(scopeClass = 'non-project') {
   const resolved = composition(scopeClass)

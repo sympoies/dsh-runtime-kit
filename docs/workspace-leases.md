@@ -346,11 +346,11 @@ Version-specific DSH adaptation, if required, must stay isolated in
 compatibility code and must not change the provider wire contract implicitly.
 
 Focused contract coverage lives in
-[`test/workspace-lease.test.mjs`](../test/workspace-lease.test.mjs), with native
+[`test/workspace-lease.test.ts`](../test/workspace-lease.test.ts), with native
 transport coverage in
-[`test/workspace-lease-provider.test.mjs`](../test/workspace-lease-provider.test.mjs).
+[`test/workspace-lease-provider.test.ts`](../test/workspace-lease-provider.test.ts).
 Packed native contention and linked-worktree concurrency coverage lives in
-[`test/workspace-lease-native-smoke.mjs`](../test/workspace-lease-native-smoke.mjs).
+[`test/workspace-lease-native-smoke.ts`](../test/workspace-lease-native-smoke.ts).
 That smoke drives DSH's real `write` tool against the real nils provider and
 proves, in one process, that a dirty-anchor session keeps full host authority
 over a non-repository directory and an unrelated clean repository, that two

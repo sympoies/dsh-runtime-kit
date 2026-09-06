@@ -20,7 +20,7 @@ module-absence failure. The focused command was:
 ```sh
 node --test \
   --test-name-pattern='caller abort joins|policy disposal|rc.7 compatibility seam' \
-  test/plugin-contract.test.mjs
+  test/plugin-contract.test.ts
 ```
 
 It reported 0 passing and 3 failing tests against the previous production
@@ -45,7 +45,7 @@ completed before tree exit:
 ```sh
 node --test \
   --test-name-pattern='stalled policy subprocess|caller abort joins|policy disposal stops ingress' \
-  test/plugin-contract.test.mjs
+  test/plugin-contract.test.ts
 ```
 
 The corrected double now settles `done` and `waitForExit()` independently. The
@@ -261,11 +261,11 @@ all-foreground contract. The coordinator was temporarily changed to return
 ```sh
 node --test \
   --test-name-pattern='legacy nils not-applicable probes fail closed' \
-  test/finish-line.test.mjs
+  test/finish-line.test.ts
 ```
 
 reported 0 passing and 1 failing test with `Missing expected rejection` at
-`test/finish-line.test.mjs:333`. Removing the mutation restored the same command
+`test/finish-line.test.ts:333`. Removing the mutation restored the same command
 to 1 passing test, proving the adapter fails closed instead of bypassing nils
 supervision.
 
@@ -379,9 +379,9 @@ and reject a later open instead of reopening admission. The focused command
 
 ```sh
 node --test \
-  test/skills.test.mjs \
-  test/finish-line.test.mjs \
-  test/finish-line-client.test.mjs
+  test/skills.test.ts \
+  test/finish-line.test.ts \
+  test/finish-line-client.test.ts
 ```
 
 passes 45 tests, including these cleanup-lifecycle regressions.
@@ -880,7 +880,7 @@ remaining material findings.
 
 The retained contract first added two focused regressions before changing the
 manifest or acceptance code. The focused command
-`node --test test/acceptance.test.mjs test/coexistence-contract.test.mjs`
+`node --test test/acceptance.test.ts test/coexistence-contract.test.ts`
 reported 9 passed and 3 failed: the old summary accepted receipts without
 coexistence markers, the compatibility manifest remained `pending-release`,
 and the source/plan/state/README terminal contract still required retirement of

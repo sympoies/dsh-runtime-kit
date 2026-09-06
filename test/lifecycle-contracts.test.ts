@@ -19,7 +19,7 @@ import {
   runtimeAssertion,
   signingFixture,
   trustBundle,
-} from './helpers/manager-fixtures.mjs'
+} from './helpers/manager-fixtures.ts'
 
 function setup(effects = {}) {
   const resolved = composition()

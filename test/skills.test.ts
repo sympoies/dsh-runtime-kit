@@ -398,7 +398,7 @@ test('repository agent-docs semantic smoke is wired to the documented product en
   assert.doesNotMatch(contributorEditContract, /DeepSeek|\bDSH\b|DSH runtime/iu)
   assert.equal(
     packageManifest.scripts['test:agent-docs-catalog'],
-    'node test/agent-docs-catalog-smoke.mjs',
+    'node test/agent-docs-catalog-smoke.ts',
   )
   assert.match(compatibilityWorkflow, /name: Validate repository agent-docs loading contract/u)
   assert.match(compatibilityWorkflow, /AGENT_DOCS_BIN:[^\n]*agent-docs/u)

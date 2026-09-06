@@ -1,4 +1,3 @@
-// @ts-check
 
 import { ARTIFACT_CODES, ArtifactError } from '../../dist/src/artifacts/errors.js'
 import { ARTIFACT_ID_PATTERN, digestBytes, validateArtifactRecord } from '../../dist/src/artifacts/record.js'

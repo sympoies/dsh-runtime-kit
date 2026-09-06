@@ -906,9 +906,9 @@ test('compatibility workflow keeps selected channels and every patch release blo
       assert.equal(literal[1], artifactLiteral(artifacts), `${leg} artifact digests`)
     }
   }
-  assert.match(workflow, /node --test test\/policy-parity\.test\.mjs/)
+  assert.match(workflow, /node --test test\/policy-parity\.test\.ts/)
   assert.doesNotMatch(workflow, /1\.27\.29|e6f50a34d68e7a6638eb104e423dcacd116c4071|rollback_archive/)
-  assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
+  assert.match(workflow, /node --test test\/runtime-health-provider\.test\.ts/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))
   assert.match(macosJob, /node-version: 24/)
   assert.match(
@@ -926,7 +926,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(macosJob, /deepseek-harness\/vendor\/cordis/)
   assert.match(macosJob, /ln -s "\$GITHUB_WORKSPACE\/deepseek-harness\/vendor\/cordis"/)
   assert.doesNotMatch(macosJob, /npm install --no-save[\s\S]{0,200}deepseek-harness\/vendor\/cordis/)
-  assert.match(macosJob, /node --test test\/runtime-health-provider\.test\.mjs/)
+  assert.match(macosJob, /node --test test\/runtime-health-provider\.test\.ts/)
   assert.match(macosJob, /DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'/)
   assert.match(macosJob, /Run packed runtime-health smoke on macOS/)
   assert.doesNotMatch(
@@ -980,7 +980,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
     'every dsh-runtime-kit checkout must retain parity evidence history',
   )
 
-  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   assert.match(runtimeSmoke, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST/)
   assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
   assert.match(

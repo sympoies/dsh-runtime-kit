@@ -130,7 +130,7 @@ const requiredRuntimeSurfaces = [
   'dist/bin/dsh-runtime-kit.js',
   'src/policy/index.ts',
   'policy/dsh-runtime-kit-v1.toml',
-  'test/smoke.mjs',
+  'test/smoke.ts',
 ]
 
 function assertRuntimePackage(root, version) {

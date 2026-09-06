@@ -1,4 +1,3 @@
-// @ts-check
 
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
