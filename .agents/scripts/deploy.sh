@@ -11,4 +11,4 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd -P)
 
-exec node "$repo_root/scripts/deploy.mjs" "$@"
+exec node "$repo_root/dist/scripts/deploy.js" "$@"

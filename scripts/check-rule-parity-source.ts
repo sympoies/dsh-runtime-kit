@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// @ts-check
 
+import { packageAsset } from '../src/package-root.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -15,11 +15,93 @@ const PLANNED = 'planned'
 const DSH = 'dsh-runtime-kit'
 const NILS = 'nils-cli'
 
-function testOwner(repository, path, state) {
+interface TestOwner {
+  repository: string
+  path: string
+  state: string
+}
+
+interface RetirementEvidence {
+  test_owner: TestOwner
+  assertion: string
+}
+
+interface Disposition {
+  target_capability: string
+  status: string
+  owner: string
+  test_owners: TestOwner[]
+  retirement_evidence?: RetirementEvidence
+}
+
+interface ParityCapability extends Disposition {
+  source_capability: string
+}
+
+interface ParityRule {
+  id: string
+  source_capability: string
+  target_capability: string
+}
+
+interface OwnerRepository {
+  identity: string
+  evidence_commit: string
+}
+
+interface SquashIntegration {
+  evidence_commit: string
+  merge_commit: string
+}
+
+interface ParityInventory {
+  schema_version: string
+  source: {
+    repository: string
+    commit: string
+    path: string
+    byte_canonicalization: string
+    file_digest: string
+    normalized_rule_id_digest: string
+    rule_count: number
+    legacy_handler_count: number
+    legacy_registration_count: number
+    relocated_capability_count: number
+    runtime_handler_or_relocated_count: number
+  }
+  test_owner_repositories: Record<string, OwnerRepository>
+  capabilities: ParityCapability[]
+  rules: ParityRule[]
+}
+
+interface LegacyRule {
+  id: string
+  legacy_handler?: string | null
+  disposition?: string
+  capability: {
+    id: string
+    handler_id?: string
+  }
+}
+
+interface LegacySource {
+  schema_version: string
+  legacy_handler_count: number
+  legacy_registration_count: number
+  rules: LegacyRule[]
+}
+
+function testOwner(repository: string, path: string, state: string): TestOwner {
   return { repository, path, state }
 }
 
-function disposition(targetCapability, status, owner, testOwners, retirementEvidence) {
+function disposition(
+  targetCapability: string,
+  status: string,
+  owner: string,
+  testOwners: TestOwner[],
+  retirementEvidence?: RetirementEvidence,
+): Disposition {
   return {
     target_capability: targetCapability,
     status,
@@ -55,7 +137,7 @@ const EXPECTED_SOURCE = {
   runtime_handler_or_relocated_count: 22,
 }
 
-const EXPECTED_OWNER_REPOSITORIES = {
+const EXPECTED_OWNER_REPOSITORIES: Partial<Record<string, OwnerRepository>> = {
   [DSH]: {
     identity: 'github.com/sympoies/dsh-runtime-kit',
     evidence_commit: '4dbb6e8a5e6d3a62be497ee597d11bc450cde597',
@@ -66,7 +148,7 @@ const EXPECTED_OWNER_REPOSITORIES = {
   },
 }
 
-const TRUSTED_SQUASH_INTEGRATIONS = {
+const TRUSTED_SQUASH_INTEGRATIONS: Partial<Record<string, SquashIntegration>> = {
   [DSH]: {
     evidence_commit: '64bf4388771f3acd13735db0456ebd6ef23f13ab',
     merge_commit: '7bbcee244d0693c32697de86446e3fa037682ac9',
@@ -149,15 +231,15 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   ]),
 }))
 
-function digest(bytes) {
+function digest(bytes: Buffer | string): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 }
 
-function ruleIdDigest(rules) {
+function ruleIdDigest(rules: Array<{ id: string }>): string {
   return digest(`${rules.map(rule => rule.id).sort().join('\n')}\n`)
 }
 
-function canonicalSourceBytes(sourceBytes) {
+function canonicalSourceBytes(sourceBytes: Buffer): Buffer {
   assert.ok(
     sourceBytes.length < 3
       || sourceBytes[0] !== 0xef
@@ -171,7 +253,7 @@ function canonicalSourceBytes(sourceBytes) {
   return Buffer.from(canonical, 'utf8')
 }
 
-export function verifyParityInventory(inventory) {
+export function verifyParityInventory(inventory: ParityInventory): ParityInventory {
   assert.equal(inventory.schema_version, 'dsh-runtime-kit.rule-parity.v1')
   assert.ok(Array.isArray(inventory.capabilities))
   assert.ok(Array.isArray(inventory.rules))
@@ -188,7 +270,7 @@ export function verifyParityInventory(inventory) {
     'inventory rule count does not match its declared source boundary',
   )
   assert.equal(
-    new Map(inventory.rules.map(rule => [rule.id, rule])).size,
+    new Map(inventory.rules.map((rule): [string, ParityRule] => [rule.id, rule])).size,
     inventory.rules.length,
     'inventory rule IDs must be unique',
   )
@@ -199,7 +281,9 @@ export function verifyParityInventory(inventory) {
   )
 
   const capabilities = new Map(
-    inventory.capabilities.map(capability => [capability.source_capability, capability]),
+    inventory.capabilities.map(
+      (capability): [string, ParityCapability] => [capability.source_capability, capability],
+    ),
   )
   assert.equal(capabilities.size, EXPECTED_DISPOSITIONS.size)
   for (const [sourceCapability, expected] of EXPECTED_DISPOSITIONS) {
@@ -234,8 +318,7 @@ export function verifyParityInventory(inventory) {
   return inventory
 }
 
-/** @param {string} remote */
-function normalizedRepositoryIdentity(remote) {
+function normalizedRepositoryIdentity(remote: string): string | undefined {
   const trimmed = remote.trim()
   const scp = /^git@([^:]+):(.+)$/.exec(trimmed)
   if (scp !== null) return `${scp[1]}/${scp[2].replace(/\.git$/, '')}`
@@ -247,13 +330,8 @@ function normalizedRepositoryIdentity(remote) {
   }
 }
 
-/**
- * @param {string} root
- * @param {string[]} arguments_
- * @param {string} repository
- */
-function gitOutput(root, arguments_, repository) {
-  const environment = {
+function gitOutput(root: string, arguments_: string[], repository: string): Promise<string> {
+  const environment: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_CONFIG_NOSYSTEM: '1',
@@ -273,7 +351,7 @@ function gitOutput(root, arguments_, repository) {
     'GIT_OBJECT_DIRECTORY',
     'GIT_WORK_TREE',
   ]) delete environment[variable]
-  return new Promise((resolvePromise, rejectPromise) => {
+  return new Promise<string>((resolvePromise, rejectPromise) => {
     execFile('git', ['--no-replace-objects', '-C', root, ...arguments_], {
       encoding: 'utf8',
       env: environment,
@@ -289,12 +367,15 @@ function gitOutput(root, arguments_, repository) {
   })
 }
 
-export async function verifyParityTestOwners(inventory, repositoryRoots) {
+export async function verifyParityTestOwners(
+  inventory: ParityInventory,
+  repositoryRoots: Map<string, string> | Record<string, string> | undefined,
+): Promise<{ active_test_owner_count: number, repositories: string[] }> {
   const verified = verifyParityInventory(inventory)
-  const roots = repositoryRoots instanceof Map
+  const roots: Map<string, string> = repositoryRoots instanceof Map
     ? repositoryRoots
     : new Map(Object.entries(repositoryRoots ?? {}))
-  const activeOwners = new Map()
+  const activeOwners = new Map<string, TestOwner>()
   for (const capability of verified.capabilities) {
     for (const owner of capability.test_owners) {
       if (owner.state === ACTIVE) {
@@ -306,10 +387,14 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
   const activeRepositories = [...new Set(
     [...activeOwners.values()].map(owner => owner.repository),
   )].sort()
-  const verifiedRoots = new Map()
+  const verifiedRoots = new Map<string, {
+    root: string
+    boundary: OwnerRepository
+    squash: SquashIntegration | undefined
+  }>()
   for (const repository of activeRepositories) {
     const configuredRoot = roots.get(repository)
-    assert.equal(typeof configuredRoot, 'string', `missing repository root: ${repository}`)
+    assert.ok(typeof configuredRoot === 'string', `missing repository root: ${repository}`)
     const root = await realpath(resolve(configuredRoot))
     const boundary = EXPECTED_OWNER_REPOSITORIES[repository]
     assert.ok(boundary !== undefined, `unknown owner repository: ${repository}`)
@@ -340,7 +425,7 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
     verifiedRoots.set(repository, { root, boundary, squash })
   }
 
-  const repositories = new Set()
+  const repositories = new Set<string>()
   for (const owner of [...activeOwners.values()].sort((left, right) => (
     `${left.repository}/${left.path}`.localeCompare(`${right.repository}/${right.path}`)
   ))) {
@@ -381,17 +466,17 @@ export async function verifyParityTestOwners(inventory, repositoryRoots) {
   }
 }
 
-export function verifyParitySource(sourceBytes, inventoryBytes) {
+export function verifyParitySource(sourceBytes: Buffer, inventoryBytes: Buffer) {
   const canonicalBytes = canonicalSourceBytes(sourceBytes)
-  const source = parse(canonicalBytes.toString('utf8'))
+  const source: LegacySource = parse(canonicalBytes.toString('utf8'))
   const inventory = verifyParityInventory(parse(inventoryBytes.toString('utf8')))
   assert.equal(source.schema_version, 'agent-runtime-kit.hook-rules.v1')
   assert.equal(digest(canonicalBytes), inventory.source.file_digest)
   assert.equal(source.rules.length, inventory.source.rule_count)
   assert.equal(ruleIdDigest(source.rules), inventory.source.normalized_rule_id_digest)
 
-  const legacyHandlers = new Set()
-  const relocatedCapabilities = new Set()
+  const legacyHandlers = new Set<string>()
+  const relocatedCapabilities = new Set<string>()
   let legacyRegistrations = 0
   for (const rule of source.rules) {
     if (typeof rule.legacy_handler === 'string') {
@@ -410,7 +495,7 @@ export function verifyParitySource(sourceBytes, inventoryBytes) {
   assert.equal(inventory.source.relocated_capability_count, relocatedCapabilities.size)
   assert.equal(inventory.source.runtime_handler_or_relocated_count, runtimeHandlers.size)
 
-  const mapped = new Map(inventory.rules.map(rule => [rule.id, rule]))
+  const mapped = new Map(inventory.rules.map((rule): [string, ParityRule] => [rule.id, rule]))
   assert.equal(mapped.size, source.rules.length)
   for (const rule of source.rules) {
     const target = mapped.get(rule.id)
@@ -433,17 +518,21 @@ export function verifyParitySource(sourceBytes, inventoryBytes) {
   }
 }
 
-function usage(stream) {
+function usage(stream: NodeJS.WritableStream): void {
   stream.write('dsh-runtime-kit-check-parity <legacy-hook-rules.yaml> --owner-root <repository=path>...\n')
   stream.write('Verify the frozen dsh-runtime-kit parity inventory against its retained source.\n')
 }
 
-function parseArguments(arguments_) {
+function parseArguments(arguments_: string[]): {
+  help: boolean
+  sourcePath: string | undefined
+  repositoryRoots: Map<string, string>
+} {
   if (arguments_.length === 1 && ['--help', '-h'].includes(arguments_[0])) {
     return { help: true, sourcePath: undefined, repositoryRoots: new Map() }
   }
   const sourcePath = arguments_[0]
-  const repositoryRoots = new Map()
+  const repositoryRoots = new Map<string, string>()
   for (let index = 1; index < arguments_.length; index += 1) {
     assert.equal(arguments_[index], '--owner-root', `unknown argument: ${arguments_[index]}`)
     const assignment = arguments_[index + 1]
@@ -471,7 +560,7 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
     process.exitCode = 64
   } else {
     const sourcePath = arguments_.sourcePath
-    const inventoryPath = new URL('../policy/rule-parity.yaml', import.meta.url)
+    const inventoryPath = packageAsset('policy/rule-parity.yaml')
     const [sourceBytes, inventoryBytes] = await Promise.all([
       readFile(resolve(sourcePath)),
       readFile(inventoryPath),

@@ -296,7 +296,7 @@ test('peer staging stays descriptor-anchored across an install-scope swap', asyn
 
 test('peer staging eliminates the replaceable staging tree', () => {
   const source = readFileSync(
-    join(projectRoot, 'scripts', 'stage-dsh-compatibility-peers.mjs'),
+    join(projectRoot, 'scripts', 'stage-dsh-compatibility-peers.ts'),
     'utf8',
   )
   assert.doesNotMatch(source, /\bmkdtemp\b/u)
@@ -874,7 +874,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 6)
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
   assert.doesNotMatch(workflow, /pnpm run build:lib\n/)
-  assert.match(workflow, /digest-dsh-build-closure\.mjs/)
+  assert.match(workflow, /dist\/scripts\/digest-dsh-build-closure\.js/)
   assert.equal(workflow.match(/pristine-dsh-build-closure\.json/g)?.length, 4)
   assert.equal(workflow.match(/restored-dsh-build-closure\.json/g)?.length, 4)
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
@@ -1033,7 +1033,7 @@ test('peer packer requires an absolute trusted pnpm launcher', async () => {
   try {
     await assert.rejects(
       run(process.execPath, [
-        join(projectRoot, 'scripts', 'pack-dsh-compatibility-peers.mjs'),
+        join(projectRoot, 'dist', 'scripts', 'pack-dsh-compatibility-peers.js'),
         '--source-root', sourceRoot,
         '--artifact-root', artifactRoot,
         '--channel', 'pinned',
@@ -1076,7 +1076,7 @@ test('peer packer rejects an unselected checkout before producing artifacts', as
     await writeFile(launcher, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
     await assert.rejects(
       run(process.execPath, [
-        join(projectRoot, 'scripts', 'pack-dsh-compatibility-peers.mjs'),
+        join(projectRoot, 'dist', 'scripts', 'pack-dsh-compatibility-peers.js'),
         '--source-root', projectRoot,
         '--artifact-root', artifactRoot,
         '--channel', 'pinned',

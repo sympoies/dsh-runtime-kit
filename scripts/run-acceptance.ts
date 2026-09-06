@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process'
+import { PACKAGE_ROOT } from '../src/package-root.js'
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import {
@@ -16,8 +17,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, isAbsolute, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 import {
@@ -26,22 +26,22 @@ import {
   buildAcceptanceSummary,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
-} from '../dist/src/acceptance/contract.js'
-import { cloneAuthenticatedDshSource } from '../dist/src/acceptance/dsh-clone.js'
-import { digestDshBuildClosure } from '../dist/src/acceptance/dsh-build.js'
-import { extractFreshPackage } from '../dist/src/acceptance/package-staging.js'
+} from '../src/acceptance/contract.js'
+import { cloneAuthenticatedDshSource } from '../src/acceptance/dsh-clone.js'
+import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
+import { extractFreshPackage } from '../src/acceptance/package-staging.js'
 import {
   createToolPath,
   discoverPreparedPnpmStore,
-} from '../dist/src/acceptance/tool-path.js'
-import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
-import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
+} from '../src/acceptance/tool-path.js'
+import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { manageDshPatch } from '../src/compat/dsh-patch.js'
 import {
   inspectSelectedDshCheckout,
   inspectSelectedDshCheckoutIdentity,
-} from '../dist/src/compat/git-checkout.js'
+} from '../src/compat/git-checkout.js'
 
-const sourceProjectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const sourceProjectRoot = PACKAGE_ROOT
 const CLI_SCHEMA = 'dsh-runtime-kit.acceptance-cli.v1'
 const MAX_OUTPUT = 64 * 1024 * 1024
 const SCENARIO_TIMEOUT_MS = 5 * 60 * 1000
@@ -53,8 +53,23 @@ const RUN_ID = /^[a-z0-9][a-z0-9-]{7,127}$/u
 const MINIMUM_NODE_MAJOR = 24
 let activePhase = 'arguments'
 
-/** @param {string} phase */
-function enterPhase(phase) {
+type TrustedFile = Readonly<{ path: string, sha256: string }>
+type Tools = Readonly<{ git: TrustedFile, tar: TrustedFile, pnpm: TrustedFile, npm: TrustedFile }>
+type Env = Record<string, string>
+type PackageArtifact = Readonly<{ tarball: string, packageLock: Buffer }>
+type RunCheckedOptions = {
+  cwd?: string,
+  env?: Env,
+  timeout?: number,
+  label: string,
+  failureDetails?: (result: SpawnSyncReturns<string>) => Record<string, unknown>,
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string'
+}
+
+function enterPhase(phase: string) {
   activePhase = phase
 }
 
@@ -69,8 +84,7 @@ function assertSupportedNodeRuntime() {
   )
 }
 
-/** @param {unknown} error */
-function unexpectedAcceptanceFailure(error) {
+function unexpectedAcceptanceFailure(error: unknown) {
   const causeCode = error !== null
     && typeof error === 'object'
     && 'code' in error
@@ -158,19 +172,24 @@ function parseCli() {
     parsed.values['baseline-nils-bin-dir'],
   ].filter(value => value !== undefined)
   const hasPackageTarball = parsed.values['package-tarball'] !== undefined
-  const hasPackageSha256 = parsed.values['package-sha256'] !== undefined
+  const packageSha256 = parsed.values['package-sha256']
+  const hasPackageSha256 = packageSha256 !== undefined
+  const baselinePackageTarball = parsed.values['baseline-package-tarball']
+  const baselinePackageSha256 = parsed.values['baseline-package-sha256']
+  const baselineNilsBinDir = parsed.values['baseline-nils-bin-dir']
+  const baselineNilsSourceCommit = parsed.values['baseline-nils-source-commit']
   const baselineValues = [
-    parsed.values['baseline-package-tarball'],
-    parsed.values['baseline-package-sha256'],
-    parsed.values['baseline-nils-bin-dir'],
-    parsed.values['baseline-nils-source-commit'],
+    baselinePackageTarball,
+    baselinePackageSha256,
+    baselineNilsBinDir,
+    baselineNilsSourceCommit,
   ]
   const hasAnyBaseline = baselineValues.some(value => value !== undefined)
-  const hasCompleteBaseline = baselineValues.every(value => value !== undefined)
+  const hasCompleteBaseline = baselineValues.every(isString)
   const nilsSourceCommit = parsed.values['nils-source-commit']
   const nilsArchiveName = parsed.values['nils-archive-name']
   const nilsArchiveSha256 = parsed.values['nils-archive-sha256']
-  if (required.some(value => typeof value !== 'string')
+  if (!required.every(isString)
     || paths.some(value => typeof value !== 'string' || !isAbsolute(value))
     || (parsed.values['run-id'] !== undefined
       && !RUN_ID.test(parsed.values['run-id']))
@@ -183,10 +202,10 @@ function parseCli() {
     || typeof nilsArchiveSha256 !== 'string'
     || !/^[0-9a-f]{64}$/u.test(nilsArchiveSha256)
     || (hasPackageSha256
-      && !/^[0-9a-f]{64}$/u.test(parsed.values['package-sha256']))
+      && !/^[0-9a-f]{64}$/u.test(packageSha256))
     || (hasCompleteBaseline
-      && (!/^[0-9a-f]{64}$/u.test(parsed.values['baseline-package-sha256'])
-        || !/^[0-9a-f]{40,64}$/u.test(parsed.values['baseline-nils-source-commit'])))) {
+      && ((baselinePackageSha256 !== undefined && !/^[0-9a-f]{64}$/u.test(baselinePackageSha256))
+        || (baselineNilsSourceCommit !== undefined && !/^[0-9a-f]{40,64}$/u.test(baselineNilsSourceCommit))))) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_ARGUMENT_INVALID',
       'acceptance executable and source paths must be absolute',
@@ -222,13 +241,11 @@ function parseCli() {
   })
 }
 
-/** @param {string} path */
-async function digest(path) {
+async function digest(path: string) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
 }
 
-/** @param {string} path @param {string} label */
-async function trustedExecutable(path, label) {
+async function trustedExecutable(path: string, label: string): Promise<TrustedFile> {
   let canonical
   let info
   try {
@@ -258,8 +275,7 @@ async function trustedExecutable(path, label) {
   })
 }
 
-/** @param {string} path @param {string} label */
-async function trustedRegularFile(path, label) {
+async function trustedRegularFile(path: string, label: string): Promise<TrustedFile> {
   let canonical
   let info
   try {
@@ -286,8 +302,7 @@ async function trustedRegularFile(path, label) {
   })
 }
 
-/** @param {string} path */
-async function trustedNilsBinDirectory(path) {
+async function trustedNilsBinDirectory(path: string): Promise<Readonly<Record<string, TrustedFile>>> {
   let canonical
   let info
   try {
@@ -316,11 +331,13 @@ async function trustedNilsBinDirectory(path) {
     'git-cli',
     'review-specialists',
     'semantic-commit',
-  ].map(async name => [name, await trustedExecutable(resolve(canonical, name), `baseline ${name}`)]))))
+  ].map(async (name): Promise<[string, TrustedFile]> => [
+    name,
+    await trustedExecutable(resolve(canonical, name), `baseline ${name}`),
+  ]))))
 }
 
-/** @param {string} path @param {string} label */
-async function jsonFile(path, label) {
+async function jsonFile(path: string, label: string) {
   try {
     return JSON.parse(await readFile(path, 'utf8'))
   } catch {
@@ -331,8 +348,7 @@ async function jsonFile(path, label) {
   }
 }
 
-/** @param {string} output @param {string} label */
-function receiptFromOutput(output, label) {
+function receiptFromOutput(output: string, label: string) {
   const candidates = output.split('\n').map(line => line.trim()).filter(Boolean).reverse()
   for (const candidate of candidates) {
     try {
@@ -348,12 +364,7 @@ function receiptFromOutput(output, label) {
   )
 }
 
-/**
- * @param {{path:string,sha256:string}} binary
- * @param {string} expectedName
- * @param {Record<string,string>} env
- */
-function nilsIdentity(binary, expectedName, env) {
+function nilsIdentity(binary: TrustedFile, expectedName: string, env: Env) {
   const result = spawnSync(binary.path, ['--version'], {
     env,
     encoding: 'utf8',
@@ -376,12 +387,7 @@ function nilsIdentity(binary, expectedName, env) {
   })
 }
 
-/**
- * @param {string} command
- * @param {string[]} args
- * @param {{cwd?:string,env?:Record<string,string>,timeout?:number,label:string,failureDetails?:(result:any)=>Record<string,unknown>}} options
- */
-function runChecked(command, args, options) {
+function runChecked(command: string, args: string[], options: RunCheckedOptions) {
   const result = spawnSync(command, args, {
     cwd: options.cwd,
     env: options.env,
@@ -399,8 +405,7 @@ function runChecked(command, args, options) {
   return result
 }
 
-/** @param {string} root @param {{path:string,sha256:string}} source @param {string} name */
-async function snapshotBinary(root, source, name) {
+async function snapshotBinary(root: string, source: TrustedFile, name: string) {
   const destination = resolve(root, 'bin', name)
   await copyFile(source.path, destination, constants.COPYFILE_EXCL)
   await chmod(destination, 0o500)
@@ -414,15 +419,14 @@ async function snapshotBinary(root, source, name) {
   return copied
 }
 
-/**
- * @param {string} root
- * @param {string} sourceRoot
- * @param {string} revision
- * @param {Record<string,{path:string,sha256:string}>} tools
- * @param {Record<string,string>} env
- * @param {(sourceRoot:string)=>Promise<void>} authenticateSource
- */
-async function prepareDsh(root, sourceRoot, revision, tools, env, authenticateSource) {
+async function prepareDsh(
+  root: string,
+  sourceRoot: string,
+  revision: string,
+  tools: Tools,
+  env: Env,
+  authenticateSource: (sourceRoot: string) => Promise<void>,
+) {
   const destination = resolve(root, 'dsh')
   await cloneAuthenticatedDshSource({
     sourceRoot,
@@ -466,12 +470,7 @@ async function prepareDsh(root, sourceRoot, revision, tools, env, authenticateSo
   return destination
 }
 
-/**
- * @param {string} root
- * @param {Record<string,{path:string,sha256:string}>} tools
- * @param {Record<string,string>} env
- */
-async function preparePackageArtifact(root, tools, env) {
+async function preparePackageArtifact(root: string, tools: Tools, env: Env): Promise<PackageArtifact> {
   const packed = runChecked(tools.npm.path, [
     'pack',
     '--json',
@@ -496,22 +495,20 @@ async function preparePackageArtifact(root, tools, env) {
   })
 }
 
-/** @param {{path:string,sha256:string}} tarball */
-async function providedPackageArtifact(tarball) {
+async function providedPackageArtifact(tarball: TrustedFile): Promise<PackageArtifact> {
   return Object.freeze({
     tarball: tarball.path,
     packageLock: await readFile(resolve(sourceProjectRoot, 'package-lock.json')),
   })
 }
 
-/**
- * @param {string} root
- * @param {{tarball:string,packageLock:Buffer}} artifact
- * @param {string} tarballSha256
- * @param {Record<string,{path:string,sha256:string}>} tools
- * @param {Record<string,string>} env
- */
-async function prepareOperationsLeg(root, artifact, tarballSha256, tools, env) {
+async function prepareOperationsLeg(
+  root: string,
+  artifact: PackageArtifact,
+  tarballSha256: string,
+  tools: Tools,
+  env: Env,
+) {
   const legRoot = resolve(root, 'operations-leg')
   await mkdir(legRoot, { mode: 0o700 })
   const project = await extractFreshPackage({
@@ -522,7 +519,7 @@ async function prepareOperationsLeg(root, artifact, tarballSha256, tools, env) {
     env,
     label: 'operations leg',
   })
-  const operationPackages = {}
+  const operationPackages: Record<string, string> = {}
   for (const [key, version] of [
     ['v1', '0.0.0-acceptance.1'],
     ['v2', '0.0.0-acceptance.2'],
@@ -557,14 +554,13 @@ async function prepareOperationsLeg(root, artifact, tarballSha256, tools, env) {
   })
 }
 
-/**
- * @param {string} project
- * @param {Buffer} packageLock
- * @param {{path:string,sha256:string}} npm
- * @param {Record<string,string>} env
- * @param {string} label
- */
-async function installPackageDependencies(project, packageLock, npm, env, label) {
+async function installPackageDependencies(
+  project: string,
+  packageLock: Buffer,
+  npm: TrustedFile,
+  env: Env,
+  label: string,
+) {
   await writeFile(resolve(project, 'package-lock.json'), packageLock, {
     mode: 0o600,
     flag: 'wx',
@@ -586,14 +582,13 @@ async function installPackageDependencies(project, packageLock, npm, env, label)
   })
 }
 
-/**
- * @param {string} root
- * @param {{tarball:string,packageLock:Buffer}} artifact
- * @param {string} tarballSha256
- * @param {Record<string,{path:string,sha256:string}>} tools
- * @param {Record<string,string>} env
- */
-async function prepareRuntimeLeg(root, artifact, tarballSha256, tools, env) {
+async function prepareRuntimeLeg(
+  root: string,
+  artifact: PackageArtifact,
+  tarballSha256: string,
+  tools: Tools,
+  env: Env,
+) {
   const legRoot = resolve(root, 'runtime-leg')
   await mkdir(legRoot, { mode: 0o700 })
   const project = await extractFreshPackage({
@@ -614,21 +609,20 @@ async function prepareRuntimeLeg(root, artifact, tarballSha256, tools, env) {
   return project
 }
 
-/**
- * @param {string} script
- * @param {Record<string,string>} env
- * @param {string} label
- * @param {{path:string,sha256:string}} systemdRun
- * @param {{timeout?:number}} [options]
- */
-async function runScenario(script, env, label, systemdRun, options = {}) {
+async function runScenario(
+  script: string,
+  env: Env,
+  label: string,
+  systemdRun: TrustedFile,
+  options: { timeout?: number } = {},
+) {
   const before = await digest(script)
   const unit = 'dsh-runtime-kit-acceptance-' + randomUUID()
   const timeout = options.timeout ?? SCENARIO_TIMEOUT_MS
   const scenarioEnvironment = Object.entries(env)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, value]) => name + '=' + value)
-  const managerEnvironment = {
+  const managerEnvironment: Env = {
     PATH: '/usr/bin:/bin',
     LANG: 'C.UTF-8',
     LC_ALL: 'C.UTF-8',
@@ -753,7 +747,7 @@ async function main() {
       mkdir(cache, { mode: 0o700 }),
       writeFile(gitConfig, '', { encoding: 'utf8', flag: 'wx', mode: 0o600 }),
     ])
-    const env = {
+    const env: Env = {
       CI: 'true',
       HOME: home,
       XDG_CONFIG_HOME: config,
@@ -788,7 +782,7 @@ async function main() {
       selected.revision,
       tools,
       env,
-      async authenticatedDshSourceRoot => {
+      async (authenticatedDshSourceRoot: string) => {
         await inspectSelectedDshCheckoutIdentity({
           sourceRoot: authenticatedDshSourceRoot,
           channel: 'pinned',
@@ -878,7 +872,7 @@ async function main() {
     const baselineRoot = resolve(runRoot, 'baseline')
     await mkdir(resolve(baselineRoot, 'bin'), { recursive: true, mode: 0o700 })
     const baselineBinaries = Object.freeze(Object.fromEntries(await Promise.all(
-      Object.entries(baselineSources).map(async ([name, source]) => [
+      Object.entries(baselineSources).map(async ([name, source]): Promise<[string, TrustedFile]> => [
         name,
         await snapshotBinary(baselineRoot, source, name),
       ]),
@@ -999,7 +993,7 @@ async function main() {
     }
 
     const operationsScript = resolve(operationsLeg.project, 'test', 'operations-smoke.ts')
-    const controlDigests = new Map([
+    const controlDigests = new Map<string, string>([
       [artifact.tarball, packageSha256],
       [baselinePackage.path, baselinePackage.sha256],
       ...[
@@ -1016,8 +1010,8 @@ async function main() {
         pnpm,
         npm,
         systemdRun,
-      ].map(item => [item.path, item.sha256]),
-      ...Object.values(baselineBinaries).map(item => [item.path, item.sha256]),
+      ].map((item): [string, string] => [item.path, item.sha256]),
+      ...Object.values(baselineBinaries).map((item): [string, string] => [item.path, item.sha256]),
     ])
     async function verifyControlPlane() {
       for (const [path, expected] of controlDigests) {
@@ -1236,7 +1230,7 @@ async function main() {
       ['pnpm', pnpm, pnpm],
       ['npm', npm, npm],
       ['systemd-run', systemdRun, systemdRun],
-    ]) {
+    ] satisfies ReadonlyArray<readonly [string, TrustedFile, TrustedFile]>) {
       if (await digest(original.path) !== original.sha256
         || await digest(copy.path) !== copy.sha256) {
         throw new AcceptanceError(

@@ -1959,7 +1959,7 @@ exec /usr/bin/git-upload-pack "$@"
 
 test('acceptance runner is packaged with its scenario programs and rejects old receipt injection flags', async () => {
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
-  assert.equal(manifest.scripts.acceptance, 'node scripts/run-acceptance.mjs')
+  assert.equal(manifest.scripts.acceptance, 'node dist/scripts/run-acceptance.js')
   assert.equal(manifest.engines.node, '>=24.0.0')
   assert.equal(
     readFileSync(join(projectRoot, '.node-version'), 'utf8').trim(),
@@ -1969,7 +1969,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.ok(manifest.files.includes('test/operations-smoke.ts'))
   assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.ts'))
   assert.ok(manifest.files.includes('test/fixtures/authoritative-acceptance-canary'))
-  const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
+  const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.ts'), 'utf8')
   const authoritativeSmoke = readFileSync(
     join(projectRoot, 'test', 'authoritative-acceptance-smoke.ts'),
     'utf8',
@@ -2127,7 +2127,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
 
   await assert.rejects(
     run(process.execPath, [
-      join(projectRoot, 'scripts', 'run-acceptance.mjs'),
+      join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
       '--semantic-commit-receipt', '/tmp/forged.json',
     ], { cwd: projectRoot, encoding: 'utf8' }),
     error => {
@@ -2140,7 +2140,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
 
   await assert.rejects(
     run(process.execPath, [
-      join(projectRoot, 'scripts', 'run-acceptance.mjs'),
+      join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
       '--agent-docs-bin', '/bin/true',
@@ -2164,7 +2164,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
 
   await assert.rejects(
     run(process.execPath, [
-      join(projectRoot, 'scripts', 'run-acceptance.mjs'),
+      join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
       '--agent-docs-bin', '/bin/true',
@@ -2197,7 +2197,7 @@ test('acceptance runner reports a sanitized phase for unexpected workspace failu
   try {
     await assert.rejects(
       run(process.execPath, [
-        join(projectRoot, 'scripts', 'run-acceptance.mjs'),
+        join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
         '--dsh-source-root', '/tmp',
         '--agent-hook-bin', '/bin/true',
         '--agent-docs-bin', '/bin/true',

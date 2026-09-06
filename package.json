@@ -7,9 +7,9 @@
   "bin": {
     "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
     "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
-    "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs",
-    "dsh-runtime-kit-manage-dsh-patch": "./scripts/manage-dsh-patch.mjs",
-    "dsh-runtime-kit-manage-dsh-tui-patch": "./scripts/manage-dsh-tui-patch.mjs"
+    "dsh-runtime-kit-check-parity": "./dist/scripts/check-rule-parity-source.js",
+    "dsh-runtime-kit-manage-dsh-patch": "./dist/scripts/manage-dsh-patch.js",
+    "dsh-runtime-kit-manage-dsh-tui-patch": "./dist/scripts/manage-dsh-tui-patch.js"
   },
   "exports": {
     ".": "./dist/index.js",
@@ -22,7 +22,7 @@
     "./workspace-lease": "./dist/src/workspace-lease/index.js",
     "./artifacts": "./dist/src/artifacts/index.js",
     "./build-provenance": "./dist/src/operations/build-provenance.js",
-    "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
+    "./check-rule-parity-source": "./dist/scripts/check-rule-parity-source.js",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"
   },
@@ -39,7 +39,6 @@
     "compatibility",
     "policy",
     "patches",
-    "scripts/check-rule-parity-source.mjs",
     "docs",
     "scripts",
     "test/smoke.ts",
@@ -80,7 +79,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:emit": "tsc -p tsconfig.json --noCheck",
-    "build:provenance": "node scripts/write-build-provenance.mjs",
+    "build:provenance": "node dist/scripts/write-build-provenance.js",
     "pretest": "npm run build",
     "test": "node --test test/*.test.ts",
     "test:composition-contracts": "node --test test/composition-contracts.test.ts",
@@ -93,15 +92,15 @@
     "test:workspace-lease-smoke": "node test/workspace-lease-smoke.ts",
     "test:workspace-lease-native-smoke": "node test/workspace-lease-native-smoke.ts",
     "test:operations-smoke": "node test/operations-smoke.ts",
-    "check:compatibility": "node scripts/check-dsh-compatibility.mjs",
-    "dsh-patch": "node scripts/manage-dsh-patch.mjs",
-    "dsh-tui-patch": "node scripts/manage-dsh-tui-patch.mjs",
-    "pack:compatibility-peers": "node scripts/pack-dsh-compatibility-peers.mjs",
-    "stage:compatibility-peers": "node scripts/stage-dsh-compatibility-peers.mjs",
-    "acceptance": "node scripts/run-acceptance.mjs",
-    "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
-    "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
-    "verify:policy-source": "node scripts/verify-policy-parity.mjs",
+    "check:compatibility": "node dist/scripts/check-dsh-compatibility.js",
+    "dsh-patch": "node dist/scripts/manage-dsh-patch.js",
+    "dsh-tui-patch": "node dist/scripts/manage-dsh-tui-patch.js",
+    "pack:compatibility-peers": "node dist/scripts/pack-dsh-compatibility-peers.js",
+    "stage:compatibility-peers": "node dist/scripts/stage-dsh-compatibility-peers.js",
+    "acceptance": "node dist/scripts/run-acceptance.js",
+    "benchmark:policy": "node --expose-gc dist/scripts/benchmark-policy.js",
+    "benchmark:policy:real": "node dist/scripts/benchmark-policy-real.js",
+    "verify:policy-source": "node dist/scripts/verify-policy-parity.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test:main-agent-e2e": "node test/main-agent-e2e.ts"

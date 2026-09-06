@@ -7,7 +7,14 @@ const COMPATIBILITY_SCHEMA = 'dsh-runtime-kit.dsh-compatibility.v1'
 const DIAGNOSTIC_SCHEMA = 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1'
 const SHA1_PATTERN = /^[0-9a-f]{40}$/
 const EXACT_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/
-const CHANNELS = Object.freeze(['pinned', 'upstream-next'])
+/** The two compatibility channels `compatibility/dsh.json` must declare, shared with the scripts that select one. */
+export const CHANNELS = ['pinned', 'upstream-next'] as const
+export type Channel = typeof CHANNELS[number]
+
+/** Narrow a CLI argument to a channel without widening what is accepted. */
+export function isChannel(value: string | undefined): value is Channel {
+  return (CHANNELS as readonly string[]).includes(value ?? '')
+}
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const SUPPORTED_DSH_RELEASES = Object.freeze({
   '0.1.1-rc.2': Object.freeze({
@@ -566,7 +573,7 @@ async function readJson(path: string) {
  */
 export async function inspectDshSource(input: {sourceRoot: string, channel: string, revision: string, clean: boolean, manifest: unknown}) {
   const manifest = validateDshCompatibilityManifest(input.manifest)
-  if (!CHANNELS.includes(input.channel)) {
+  if (!isChannel(input.channel)) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_CHANNEL_INVALID',
       `Unknown DSH compatibility channel: ${input.channel}`,

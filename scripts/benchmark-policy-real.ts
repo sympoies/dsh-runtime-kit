@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { spawn, spawnSync } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   accessSync,
@@ -15,21 +17,38 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
-import { fileURLToPath } from 'node:url'
 
-import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
-import { createNilsTransport } from '../dist/src/policy/nils-transport.js'
+import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { createNilsTransport } from '../src/policy/nils-transport.js'
+import type { Context, ToolExecution } from '../src/policy/nils-transport.js'
+import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+
+type Disposer = () => unknown
+type ChildEnvironment = Record<string, string | undefined>
+type ChildOutcome = { exitCode: number | null, signal: NodeJS.Signals | null }
+/** The spawn request shape the nils transport hands to `ctx.subprocess.spawn`. */
+type BenchmarkSpawnSpec = {
+  argv: readonly string[],
+  cwd: string,
+  env?: ChildEnvironment,
+  signal?: AbortSignal,
+  stdio: {
+    stdin?: { data?: string },
+    stdout?: { maxBytes?: number },
+    stderr?: { maxBytes?: number },
+  },
+}
 
 const PACKED_MARKER = 'DSH_RUNTIME_KIT_REAL_BENCHMARK_PACKED'
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
 
-function sha256(value) {
+function sha256(value: string | Uint8Array) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function executable(input) {
+function executable(input: string) {
   const candidates = input.includes('/')
     ? [resolve(input)]
     : (process.env.PATH ?? '').split(delimiter).filter(Boolean).map(directory => join(directory, input))
@@ -42,7 +61,7 @@ function executable(input) {
   throw new Error(`required executable is unavailable: ${input}`)
 }
 
-function run(bin, args, options = {}) {
+function run(bin: string, args: readonly string[], options: { cwd?: string, env?: ChildEnvironment } = {}) {
   const result = spawnSync(bin, args, {
     cwd: options.cwd,
     env: options.env,
@@ -66,7 +85,7 @@ function runPackedCopy() {
     }
     run(executable('tar'), ['-xzf', join(temporary, packed[0].filename), '-C', temporary])
     const child = spawnSync(process.execPath, [
-      join(temporary, 'package', 'scripts', 'benchmark-policy-real.mjs'),
+      join(temporary, 'package', 'dist', 'scripts', 'benchmark-policy-real.js'),
     ], {
       cwd: join(temporary, 'package'),
       env: { ...process.env, [PACKED_MARKER]: '1' },
@@ -81,8 +100,8 @@ function runPackedCopy() {
   }
 }
 
-function safeChildEnvironment(overrides) {
-  const output = {}
+function safeChildEnvironment(overrides: ChildEnvironment | undefined) {
+  const output: ChildEnvironment = {}
   for (const name of [
     'HOME', 'USER', 'LOGNAME', 'PATH', 'SHELL', 'LANG', 'LANGUAGE', 'TZ',
     'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TMP', 'TEMP', 'NO_PROXY', 'no_proxy',
@@ -96,9 +115,9 @@ function safeChildEnvironment(overrides) {
   return output
 }
 
-function realSubprocessService(live) {
+function realSubprocessService(live: Set<ChildProcess>) {
   return {
-    spawn(spec) {
+    spawn(spec: BenchmarkSpawnSpec) {
       const [bin, ...args] = spec.argv
       const stdoutLimit = spec.stdio.stdout?.maxBytes ?? 64 * 1024
       const stderrLimit = spec.stdio.stderr?.maxBytes ?? 8 * 1024
@@ -115,17 +134,17 @@ function realSubprocessService(live) {
       live.add(child)
       if (spec.stdio.stdin?.data !== undefined) child.stdin.end(spec.stdio.stdin.data)
       else child.stdin.end()
-      child.stdout.on('data', chunk => {
+      child.stdout.on('data', (chunk: Buffer) => {
         const remaining = stdoutLimit - stdout.byteLength
         if (remaining > 0) stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)])
         if (chunk.byteLength > remaining) stdoutLossy = true
       })
-      child.stderr.on('data', chunk => {
+      child.stderr.on('data', (chunk: Buffer) => {
         const remaining = stderrLimit - stderr.byteLength
         if (remaining > 0) stderr = Buffer.concat([stderr, chunk.subarray(0, remaining)])
         if (chunk.byteLength > remaining) stderrLossy = true
       })
-      const done = new Promise((resolveDone, rejectDone) => {
+      const done = new Promise<ChildOutcome>((resolveDone, rejectDone) => {
         child.once('error', rejectDone)
         child.once('close', (exitCode, signal) => {
           live.delete(child)
@@ -147,11 +166,11 @@ function realSubprocessService(live) {
           stderr: { readFrom: () => ({ text: stderr.toString('utf8'), lossy: stderrLossy }) },
         },
         terminate,
-        async waitForExit(signal) {
+        async waitForExit(signal?: AbortSignal) {
           if (signal?.aborted) return false
           const aborted = signal === undefined
-            ? new Promise(() => {})
-            : new Promise(resolveAbort => signal.addEventListener('abort', () => resolveAbort(false), { once: true }))
+            ? new Promise<boolean>(() => {})
+            : new Promise<boolean>(resolveAbort => signal.addEventListener('abort', () => resolveAbort(false), { once: true }))
           const closed = Promise.resolve(done).then(() => {
             if (child.pid === undefined) return true
             try {
@@ -168,7 +187,7 @@ function realSubprocessService(live) {
   }
 }
 
-function percentile95(samples) {
+function percentile95(samples: readonly number[]) {
   const ordered = [...samples].sort((left, right) => left - right)
   return ordered[Math.max(0, Math.ceil(ordered.length * 0.95) - 1)]
 }
@@ -200,8 +219,8 @@ async function benchmarkPackedRuntime() {
   }
 
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-real-benchmark-'))
-  const disposers = []
-  const live = new Set()
+  const disposers: Disposer[] = []
+  const live = new Set<ChildProcess>()
   try {
     const home = join(temporary, 'home')
     const runtime = join(temporary, 'runtime')
@@ -225,13 +244,13 @@ async function benchmarkPackedRuntime() {
     writeFileSync(config, `schema_version = "agent-hook.config.v1"\n\n[policy]\npath = ${JSON.stringify(policy)}\ndigest = "sha256:${sha256(readFileSync(policy))}"\n`, { mode: 0o600 })
 
     const ctx = {
-      effect(factory) {
+      effect(factory: () => Disposer | void) {
         const dispose = factory()
         if (typeof dispose === 'function') disposers.push(dispose)
       },
       subprocess: realSubprocessService(live),
     }
-    const transport = createNilsTransport(/** @type {any} */ (ctx), {
+    const transport = createNilsTransport(ctx as unknown as Context, {
       agentHook,
       agentHookConfig: config,
       agentHookPolicy: policy,
@@ -250,12 +269,12 @@ async function benchmarkPackedRuntime() {
         name: 'runtime_kit_plus_one',
         arguments: { value: 41 },
         signal: new AbortController().signal,
-      }, {
+      } as unknown as ToolExecution, {
         sessionId: 'real-benchmark-session',
         cwd: workspace,
         turn: 1,
         step: sequence,
-      })
+      }, undefined)
       if (result !== undefined) throw new Error(`released policy did not allow benchmark input: ${JSON.stringify(result)}`)
     }
     const evaluateLifecycle = async () => {
@@ -269,14 +288,14 @@ async function benchmarkPackedRuntime() {
         name: 'runtime_kit_plus_one',
         arguments: { value: 41 },
         signal,
-      }
+      } as unknown as ToolExecution
       const context = {
         sessionId: 'real-benchmark-session',
         cwd: workspace,
         turn: 1,
         step: sequence,
       }
-      const dataRequest = (phase, sinkId, payload) => ({
+      const dataRequest = (phase: 'pre-call' | 'final-result', sinkId: string, payload: unknown) => ({
         schema_version: 'agent-hook.data-policy.evaluate.v1',
         phase,
         source_id: 'tool.native',
@@ -301,24 +320,24 @@ async function benchmarkPackedRuntime() {
             ],
         payload,
       })
-      const evaluateData = async request => {
+      const evaluateData = async (request: Record<string, unknown>) => {
         const outcome = await transport.evaluateData(request, signal, context)
         if (outcome?.kind !== 'data-policy' || outcome.decision.action !== 'allow') {
           throw new Error(`candidate data policy did not allow benchmark input: ${JSON.stringify(outcome)}`)
         }
       }
       await evaluateData(dataRequest('pre-call', 'session.persist', exec.arguments))
-      const pre = await transport.evaluate(exec, context)
+      const pre = await transport.evaluate(exec, context, undefined)
       if (pre !== undefined) throw new Error(`candidate pre-tool policy did not allow benchmark input: ${JSON.stringify(pre)}`)
       await evaluateData(dataRequest('pre-call', 'tool.execute', exec.arguments))
-      const result = { isError: false, value: 42, content: [{ type: 'text', text: '42' }] }
+      const result: ToolExecutionResult = { isError: false, value: 42, content: [{ type: 'text', text: '42' }] }
       const post = await transport.evaluatePost(exec, result, context)
       if (post !== undefined) throw new Error(`candidate post-tool policy did not allow benchmark input: ${JSON.stringify(post)}`)
       await evaluateData(dataRequest('final-result', 'session.persist', result))
     }
     const evaluate = lifecycleMode ? evaluateLifecycle : evaluatePreTool
     for (let index = 0; index < contract.warmup_iterations; index += 1) await evaluate()
-    const samplesMs = []
+    const samplesMs: number[] = []
     for (let index = 0; index < contract.iterations; index += 1) {
       const started = performance.now()
       await evaluate()
@@ -328,7 +347,7 @@ async function benchmarkPackedRuntime() {
     const p95Ms = percentile95(samplesMs)
     const activeAfter = transport.active
     const liveChildrenAfter = live.size
-    const exceeded = []
+    const exceeded: string[] = []
     if (p95Ms > contract.p95_ms) exceeded.push('p95_ms')
     if (activeAfter !== contract.max_active_after) exceeded.push('active_after')
     if (liveChildrenAfter !== contract.max_live_children_after) exceeded.push('live_children_after')

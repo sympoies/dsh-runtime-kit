@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { promisify } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
-import { inspectSelectedDshCheckout } from '../dist/src/compat/git-checkout.js'
-import { inspectCanonicalPackageArtifact } from '../dist/src/compat/package-artifact.js'
+import { DshCompatibilityError, isChannel, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
+import { inspectCanonicalPackageArtifact } from '../src/compat/package-artifact.js'
 
 const run = promisify(execFile)
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
+
+/** A validated `workspace_artifacts` entry of `compatibility/dsh.json`. */
+type WorkspaceArtifactContract = { path: string, version: string, artifact_sha256: string }
 
 function parseCli() {
   let parsed
@@ -45,7 +48,7 @@ function parseCli() {
   const receipt = parsed.values.receipt
   if (typeof sourceRoot !== 'string' || !isAbsolute(sourceRoot)
     || typeof artifactRoot !== 'string' || !isAbsolute(artifactRoot)
-    || !['pinned', 'upstream-next'].includes(channel ?? '')
+    || !isChannel(channel)
     || typeof gitBin !== 'string' || !isAbsolute(gitBin)
     || typeof pnpmBin !== 'string' || !isAbsolute(pnpmBin)
     || typeof receipt !== 'string' || !isAbsolute(receipt)) {
@@ -64,7 +67,7 @@ function parseCli() {
   }
 }
 
-async function trustedLauncher(path) {
+async function trustedLauncher(path: string) {
   let canonical
   let metadata
   try {
@@ -88,7 +91,7 @@ async function trustedLauncher(path) {
   return canonical
 }
 
-function contained(root, child) {
+function contained(root: string, child: string) {
   const candidate = resolve(root, child)
   const rel = relative(root, candidate)
   if (rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))) {
@@ -127,8 +130,8 @@ async function main() {
     gitBin: input.gitBin,
     manifest,
   })
-  const artifacts = new Map()
-  for (const [name, contract] of Object.entries(manifest.workspace_artifacts)) {
+  const artifacts = new Map<string, { contract: WorkspaceArtifactContract, packageRoot: string, dependencies: Set<string> }>()
+  for (const [name, contract] of Object.entries<WorkspaceArtifactContract>(manifest.workspace_artifacts)) {
     const packageRoot = await realpath(contained(sourceRoot, contract.path))
     const packageRel = relative(sourceRoot, packageRoot)
     if (packageRel === '..' || packageRel.startsWith(`..${sep}`) || isAbsolute(packageRel)) {
@@ -152,7 +155,7 @@ async function main() {
         `Selected DSH workspace package ${name} has the wrong identity`,
       )
     }
-    const dependencies = new Set()
+    const dependencies = new Set<string>()
     for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
       for (const dependency of Object.keys(packageManifest[field] ?? {})) {
         if (!dependency.startsWith('@deepseek-ai/')) continue
@@ -167,11 +170,11 @@ async function main() {
     }
     artifacts.set(name, { contract, packageRoot, dependencies })
   }
-  const reachable = new Set()
-  const pending = Object.keys(manifest.public_packages)
+  const reachable = new Set<string>()
+  const pending: string[] = Object.keys(manifest.public_packages)
   while (pending.length > 0) {
     const name = pending.shift()
-    if (reachable.has(name)) continue
+    if (name === undefined || reachable.has(name)) continue
     reachable.add(name)
     for (const dependency of artifacts.get(name)?.dependencies ?? []) pending.push(dependency)
   }
@@ -184,10 +187,8 @@ async function main() {
   }
 
   const stagingRoot = await mkdtemp(resolve(input.artifactRoot, '.staging-'))
-  /** @type {Array<{name: string, version: string, staged: string, tarballSha256: string, artifactSha256: string}>} */
-  const packages = []
-  /** @type {Array<{name: string, version: string, path: string, tarball_sha256: string, artifact_sha256: string}>} */
-  const receiptPackages = []
+  const packages: Array<{name: string, version: string, staged: string, tarballSha256: string, artifactSha256: string}> = []
+  const receiptPackages: Array<{name: string, version: string, path: string, tarball_sha256: string, artifact_sha256: string}> = []
   try {
     for (const [name, { contract, packageRoot }] of artifacts) {
       let packed

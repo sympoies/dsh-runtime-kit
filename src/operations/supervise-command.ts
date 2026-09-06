@@ -10,18 +10,22 @@ const COMMAND_GATE = '--command-gate'
 const COMMAND_GATE_AUTHORIZATION = 'run\n'
 const SELF = fileURLToPath(import.meta.url)
 
-function writeStatus(value) {
+type ChildOutcome =
+  | { error: Error }
+  | { status: number | null, signal: NodeJS.Signals | null }
+
+function writeStatus(value: Record<string, unknown>) {
   // This descriptor is owned by the supervisor; the executed command never
   // inherits it, so command output cannot forge the control result.
   writeSync(STATUS_FD, Buffer.from(`${JSON.stringify(value)}\n`))
 }
 
-function killWindowsChild(pid) {
-  if (!Number.isSafeInteger(pid)) return
+function killWindowsChild(pid: number | undefined) {
+  if (typeof pid !== 'number' || !Number.isSafeInteger(pid)) return
   try { process.kill(pid, 'SIGKILL') } catch {}
 }
 
-async function commandGate(bin, args) {
+async function commandGate(bin: string, args: string[]) {
   let authorization = ''
   process.stdin.setEncoding('utf8')
   for await (const chunk of process.stdin) {
@@ -37,7 +41,7 @@ async function commandGate(bin, args) {
     detached: false,
     stdio: ['ignore', 'inherit', 'inherit'],
   })
-  const result = await new Promise(resolve => {
+  const result = await new Promise<ChildOutcome>(resolve => {
     child.once('error', error => resolve({ error }))
     // A signalled gate can leave the governed command holding the captured
     // stdio pipes open. Report the gate loss immediately so the outer owner
@@ -56,7 +60,7 @@ async function commandGate(bin, args) {
   return result.status ?? 70
 }
 
-async function main(bin, args) {
+async function main(bin: string | undefined, args: string[]) {
   const timeoutMs = Number(process.env.DSH_RUNTIME_KIT_SUPERVISOR_TIMEOUT_MS)
   if (bin === undefined || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
     writeStatus({ kind: 'supervisor-error', message: 'invalid supervisor request' })
@@ -74,22 +78,22 @@ async function main(bin, args) {
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  const stdout = []
-  const stderr = []
+  const stdout: Buffer[] = []
+  const stderr: Buffer[] = []
   let stdoutBytes = 0
   let stderrBytes = 0
   let terminal = false
 
   child.stdin.on('error', () => {})
 
-  const terminateSupervisor = kind => {
+  const terminateSupervisor = (kind: 'output-limit' | 'timeout') => {
     if (terminal) return
     terminal = true
     writeStatus({ kind, timeout_ms: timeoutMs })
     if (process.platform === 'win32') killWindowsChild(child.pid)
     else process.exit(70)
   }
-  const collect = (chunks, stream) => chunk => {
+  const collect = (chunks: Buffer[], stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
     const next = Buffer.from(chunk)
     if (stream === 'stdout') stdoutBytes += next.byteLength
     else stderrBytes += next.byteLength
@@ -102,7 +106,7 @@ async function main(bin, args) {
   child.stdout.on('data', collect(stdout, 'stdout'))
   child.stderr.on('data', collect(stderr, 'stderr'))
 
-  const resultPromise = new Promise(resolve => {
+  const resultPromise = new Promise<ChildOutcome>(resolve => {
     child.once('error', error => resolve({ error }))
     child.once('exit', (status, signal) => {
       if (signal !== null) resolve({ status, signal })

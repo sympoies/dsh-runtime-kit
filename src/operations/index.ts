@@ -112,9 +112,7 @@ const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
 const MIN_COMMAND_TIMEOUT_MS = 100
-// `supervise-command.mjs` is plain JavaScript that the build does not emit,
-// so it is resolved from the shipped sources rather than from `dist`.
-const COMMAND_SUPERVISOR = packageAsset('src', 'operations', 'supervise-command.mjs')
+const COMMAND_SUPERVISOR = fileURLToPath(new URL('./supervise-command.js', import.meta.url))
 const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
@@ -1244,13 +1242,22 @@ function packageBuildProvenance(packageRoot: string) {
   } catch (error) {
     throw invalidBuildProvenance(error instanceof Error ? error.message : 'build provenance is invalid', { path: declared })
   }
-  for (const declaredRoot of [...validated.sources, ...validated.outputs]) {
+  // A source root may be a directory or a single regular file (this package
+  // declares `index.ts` and `policy.ts` beside `src`); an output root is always
+  // a directory. Neither may be a symlink.
+  const roots = [
+    ...validated.sources.map(path => ({ path, allowFile: true })),
+    ...validated.outputs.map(path => ({ path, allowFile: false })),
+  ]
+  for (const { path: declaredRoot, allowFile } of roots) {
     const absolute = resolve(root, declaredRoot)
     if (!pathIsWithin(root, absolute)) {
       throw invalidBuildProvenance('build provenance names a path outside the package', { path: declaredRoot })
     }
     const rootStat = lstatMaybe(absolute)
-    if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    const acceptable = rootStat !== null && !rootStat.isSymbolicLink()
+      && (rootStat.isDirectory() || (allowFile && rootStat.isFile()))
+    if (!acceptable) {
       throw invalidBuildProvenance('build provenance names a missing root', { path: declaredRoot })
     }
   }

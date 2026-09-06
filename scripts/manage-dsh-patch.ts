@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DshPatchError, manageDshPatch } from '../dist/src/compat/dsh-patch.js'
+import { DshPatchError, isPatchAction, manageDshPatch } from '../src/compat/dsh-patch.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
 
 function argumentsFromCli() {
   let parsed
@@ -31,7 +31,7 @@ function argumentsFromCli() {
   const action = parsed.values.action
   const sourceRoot = parsed.values['source-root']
   const gitBin = parsed.values['git-bin']
-  if (!['check', 'apply', 'reverse'].includes(action ?? '')
+  if (!isPatchAction(action)
     || typeof sourceRoot !== 'string' || !isAbsolute(sourceRoot)
     || typeof gitBin !== 'string' || !isAbsolute(gitBin)) {
     throw new DshPatchError(

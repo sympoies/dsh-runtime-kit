@@ -14,14 +14,14 @@
 // ordinary contents and fail every install as stale, with no rebuild able to fix
 // it.
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-import { BUILD_PROVENANCE_SCHEMA, digestSourceFiles } from '../dist/src/operations/build-provenance.js'
+import { BUILD_PROVENANCE_SCHEMA, digestSourceFiles } from '../src/operations/build-provenance.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
 const manifest = JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf8'))
 const declared = manifest.dsh?.build
 if (typeof declared !== 'string') {
@@ -29,7 +29,7 @@ if (typeof declared !== 'string') {
   process.exit(64)
 }
 
-const SOURCES = ['src', 'index.ts', 'policy.ts', 'bin']
+const SOURCES = ['src', 'index.ts', 'policy.ts', 'bin', 'scripts']
 const OUTPUTS = ['dist']
 
 const packed = spawnSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
@@ -42,7 +42,7 @@ if (packed.status !== 0) {
 }
 
 /** Package-relative paths npm will place in the tarball. */
-const packedPaths = JSON.parse(packed.stdout)[0].files.map(file => file.path)
+const packedPaths: string[] = JSON.parse(packed.stdout)[0].files.map((file: { path: string }) => file.path)
 
 // Only a root that survives packing may be declared: the engine walks these
 // inside the extracted package and refuses a root that is not there.

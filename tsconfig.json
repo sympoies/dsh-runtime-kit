@@ -21,6 +21,7 @@
     "index.ts",
     "policy.ts",
     "bin/**/*.ts",
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "scripts/**/*.ts"
   ]
 }

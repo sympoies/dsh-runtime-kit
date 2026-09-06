@@ -1627,6 +1627,11 @@ try {
     'index.ts',
     'policy.ts',
     'dist/bin/dsh-runtime-kit-launch.js',
+    'dist/bin/dsh-runtime-kit.js',
+    'dist/scripts/check-rule-parity-source.js',
+    'dist/scripts/manage-dsh-patch.js',
+    'dist/scripts/manage-dsh-tui-patch.js',
+    'dist/src/operations/supervise-command.js',
     'src/compat/dsh-rc7.ts',
     'src/compat/agent-console.ts',
     'src/compat/agent-console-artifact.ts',
@@ -1656,12 +1661,12 @@ try {
     'compatibility/dsh-tui-patches.json',
     'compatibility/agent-console.json',
     'compatibility/nils-cli.json',
-    'scripts/benchmark-policy.mjs',
-    'scripts/check-dsh-compatibility.mjs',
-    'scripts/manage-dsh-patch.mjs',
-    'scripts/manage-dsh-tui-patch.mjs',
-    'scripts/pack-dsh-compatibility-peers.mjs',
-    'scripts/stage-dsh-compatibility-peers.mjs',
+    'scripts/benchmark-policy.ts',
+    'scripts/check-dsh-compatibility.ts',
+    'scripts/manage-dsh-patch.ts',
+    'scripts/manage-dsh-tui-patch.ts',
+    'scripts/pack-dsh-compatibility-peers.ts',
+    'scripts/stage-dsh-compatibility-peers.ts',
     'src/compat/contract.ts',
     'src/compat/dsh-patch.ts',
     'src/compat/dsh-tui-patch.ts',
@@ -1676,8 +1681,8 @@ try {
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
-    'scripts/check-rule-parity-source.mjs',
-    'scripts/verify-policy-parity.mjs',
+    'scripts/check-rule-parity-source.ts',
+    'scripts/verify-policy-parity.ts',
     'docs/policies/git-delivery.md',
     'docs/policies/review-thread-convergence.md',
     'docs/workspace-leases.md',
@@ -1702,8 +1707,8 @@ try {
     parseYaml(packedText('policy/runtime-rule-parity.yaml')).schema_version,
     'dsh-runtime-kit.runtime-rule-parity.v1',
   )
-  assert.match(packedText('scripts/check-rule-parity-source.mjs'), /policy\/rule-parity\.yaml/u)
-  assert.match(packedText('scripts/verify-policy-parity.mjs'), /policy\/runtime-rule-parity\.yaml/u)
+  assert.match(packedText('scripts/check-rule-parity-source.ts'), /policy\/rule-parity\.yaml/u)
+  assert.match(packedText('scripts/verify-policy-parity.ts'), /policy\/runtime-rule-parity\.yaml/u)
   const sourceSkillFiles = collectFiles(join(projectRoot, 'skills'))
     .map(relative => `skills/${relative}`)
     .sort()

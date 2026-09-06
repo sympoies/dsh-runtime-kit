@@ -94,7 +94,8 @@ packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 
 ```sh
-node scripts/manage-dsh-patch.mjs --action apply \
+npm run build
+node dist/scripts/manage-dsh-patch.js --action apply \
   --source-root /absolute/deepseek-harness
 pnpm --dir /absolute/deepseek-harness run build:lib:host
 ```
@@ -103,7 +104,7 @@ Unknown revisions, partial application, content drift, and unrelated changes
 fail closed. Rollback reverses the same patch and proves the checkout pristine:
 
 ```sh
-node scripts/manage-dsh-patch.mjs --action reverse \
+node dist/scripts/manage-dsh-patch.js --action reverse \
   --source-root /absolute/deepseek-harness
 pnpm --dir /absolute/deepseek-harness run build:lib:host
 ```

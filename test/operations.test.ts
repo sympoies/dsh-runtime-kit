@@ -47,7 +47,7 @@ function packedProvenanceDigest(dir, sources) {
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit.js')
-const commandSupervisor = join(projectRoot, 'src', 'operations', 'supervise-command.mjs')
+const commandSupervisor = join(projectRoot, 'dist', 'src', 'operations', 'supervise-command.js')
 
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 
@@ -171,6 +171,12 @@ function stageBuildOutput(dir, options = {}) {
   const sources = options.sources ?? ['src']
   const outputs = options.outputs ?? ['dist']
   for (const source of sources) {
+    // A source root may be a single file, as `index.ts` and `policy.ts` are in
+    // this package's own provenance.
+    if (source.endsWith('.js')) {
+      writeFileSync(join(dir, source), options.sourceText ?? 'export const a = 1\n', { mode: 0o600 })
+      continue
+    }
     mkdirSync(join(dir, source), { recursive: true, mode: 0o700 })
     writeFileSync(join(dir, source, 'entry.js'), options.sourceText ?? 'export const a = 1\n', { mode: 0o600 })
   }
@@ -3829,6 +3835,21 @@ test('a package whose declared build output matches its sources is admitted', ()
   const subject = fixture()
   try {
     const staged = stageBuildOutput(stageBundle(subject.root, '1.6.1'))
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.plan.action, 'install')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a build provenance may declare a single file as a source root', () => {
+  // The package's own provenance names `index.ts` and `policy.ts` beside the
+  // `src` directory, so the install-side check must accept a regular file
+  // where it accepts a directory.
+  const subject = fixture()
+  try {
+    const staged = stageBuildOutput(stageBundle(subject.root, '1.6.1'), { sources: ['index.js', 'src'] })
     const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
     assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
     assert.equal(preview.value.data.plan.action, 'install')

@@ -93,9 +93,21 @@ changes.
 
 `npm run build:emit` is the same compile with `--noCheck`: it emits `dist/` without
 resolving the DSH peer types. It exists for the CI legs that install the
-consumer with `--omit=peer` and need the compiled `scripts/*.mjs` imports before
-the selected DSH closure is staged; it is not a substitute for `npm run build`,
+consumer with `--omit=peer` and need the compiled `dist/scripts/**` entry points
+before the selected DSH closure is staged; it is not a substitute for `npm run build`,
 which those legs still run through `pretest` once the closure is in place.
+
+The repository scripts are TypeScript as well. `scripts/*.ts` compile into
+`dist/scripts/`, and everything that runs one names the compiled file: the three
+shipped `bin` entries and the `./check-rule-parity-source` export (which run from
+an installed tree under `node_modules`, where Node refuses to strip types), the
+npm scripts, the workflow, and the commands in this document. A script resolves
+the package root through `src/package-root.ts`, never through
+`dirname(import.meta.url)`, because the compiled file sits one level deeper.
+`npm run build:provenance` is itself a compiled script, so a fresh clone runs
+`npm run build` (or `build:emit`) before it. The only JavaScript left in the
+repository is `test/fixtures/authoritative-acceptance-canary/`; see the test
+paragraph below for why.
 
 The tests under `test/` are TypeScript too, and Node runs them directly:
 `npm test` is `node --test test/*.test.ts`, which relies on Node 24 type stripping
@@ -193,7 +205,8 @@ installer. Apply the authenticated patch, rebuild, run the smoke, then reverse
 and prove the upstream checkout pristine:
 
 ```sh
-node scripts/manage-dsh-patch.mjs --action apply \
+npm run build
+node dist/scripts/manage-dsh-patch.js --action apply \
   --source-root /path/to/deepseek-harness
 pnpm --dir /path/to/deepseek-harness run build:lib:host
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
@@ -202,7 +215,7 @@ AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN=/path/to/nils-cli/bin/git-cli \
 DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN=/path/to/nils-cli/bin/semantic-commit \
 npm run test:smoke
-node scripts/manage-dsh-patch.mjs --action reverse \
+node dist/scripts/manage-dsh-patch.js --action reverse \
   --source-root /path/to/deepseek-harness
 pnpm --dir /path/to/deepseek-harness run clean
 pnpm --dir /path/to/deepseek-harness run build:lib:host

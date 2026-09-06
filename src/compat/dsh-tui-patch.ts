@@ -4,6 +4,7 @@ import { lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 import { checkUpstreamReference } from './upstream-reference.js'
+import { isPatchAction, type PatchAction } from './dsh-patch.js'
 
 const SCHEMA = 'dsh-runtime-kit.dsh-tui-patches.v1'
 const RECEIPT_SCHEMA = 'dsh-runtime-kit.dsh-tui-patch-receipt.v1'
@@ -299,10 +300,10 @@ function validatePatchTargets(bytes: Buffer, expected: string[]) {
 
 /** Inspect, apply, or reverse the reviewed patch in one installed DSH TUI package. */
 export async function manageDshTuiPatch(input: {
-    action: 'check' | 'apply' | 'reverse', packageRoot: string, patchRoot: string,
+    action: PatchAction, packageRoot: string, patchRoot: string,
     manifest: unknown, gitBin: string
   }) {
-  if (!['check', 'apply', 'reverse'].includes(input.action)
+  if (!isPatchAction(input.action)
     || !isAbsolute(input.packageRoot) || !isAbsolute(input.patchRoot)) {
     throw new DshTuiPatchError(
       'DSH_RUNTIME_KIT_DSH_TUI_PATCH_ARGUMENT_INVALID',

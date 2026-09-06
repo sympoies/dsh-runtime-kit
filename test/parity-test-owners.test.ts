@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 
 import { parse } from 'yaml'
 
-import { verifyParityTestOwners } from '../scripts/check-rule-parity-source.mjs'
+import { verifyParityTestOwners } from '../dist/scripts/check-rule-parity-source.js'
 
 const ROOT = dirname(dirname(new URL(import.meta.url).pathname))
 const INVENTORY_URL = new URL('../policy/rule-parity.yaml', import.meta.url)
