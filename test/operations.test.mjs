@@ -23,7 +23,27 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
-import { buildSourceDigest } from '../src/operations/build-provenance.js'
+import { digestSourceFiles } from '../src/operations/build-provenance.js'
+
+/**
+ * Compute a source digest the way a build must: over the file list `npm pack`
+ * will actually produce, not over a walk of the working tree. The two differ —
+ * npm drops the names it always ignores and a tarball carries no directory
+ * entries — so a tree walk here would disagree with the engine's view of the
+ * extracted package and every install would fail as stale.
+ */
+function packedProvenanceDigest(dir, sources) {
+  const packed = spawnSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
+    cwd: dir,
+    encoding: 'utf8',
+  })
+  assert.equal(packed.status, 0, packed.stderr)
+  const roots = sources.map(source => source.replace(/\/+$/u, ''))
+  const files = JSON.parse(packed.stdout)[0].files
+    .map(file => file.path)
+    .filter(path => roots.some(root => path === root || path.startsWith(`${root}/`)))
+  return digestSourceFiles(dir, files)
+}
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
@@ -166,7 +186,7 @@ function stageBuildOutput(dir, options = {}) {
       schema_version: 'dsh-runtime-kit.build-provenance.v1',
       sources,
       outputs,
-      source_sha256: buildSourceDigest(dir, sources),
+      source_sha256: packedProvenanceDigest(dir, sources),
     })
   }
   return dir
@@ -3824,6 +3844,53 @@ test('a package that declares no build output stays admissible', () => {
     const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
     assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
     assert.equal(preview.value.data.plan.action, 'install')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a source root holding npm-ignored names and an empty directory is still admitted', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBundle(subject.root, '1.6.5')
+    mkdirSync(join(staged, 'src', 'sub'), { recursive: true, mode: 0o700 })
+    writeFileSync(join(staged, 'src', 'sub', 'kept.js'), 'export const c = 3\n', { mode: 0o600 })
+    // npm never packs these, and a tarball carries no directory entries, so an
+    // empty directory does not survive a pack and extract either. A digest
+    // taken over the working tree would disagree with the packed tree here and
+    // fail every install as stale with no rebuild able to fix it.
+    writeFileSync(join(staged, 'src', '.gitignore'), 'node_modules\n', { mode: 0o600 })
+    writeFileSync(join(staged, 'src', '.editor.swp'), 'scratch\n', { mode: 0o600 })
+    mkdirSync(join(staged, 'src', 'emptied'), { recursive: true, mode: 0o700 })
+    stageBuildOutput(staged)
+    const preview = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.plan.action, 'install')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a build provenance that records its own digest is refused as unsatisfiable', () => {
+  const subject = fixture()
+  try {
+    const staged = stageBundle(subject.root, '1.6.6')
+    mkdirSync(join(staged, 'src'), { recursive: true, mode: 0o700 })
+    writeFileSync(join(staged, 'src', 'entry.js'), 'export const a = 1\n', { mode: 0o600 })
+    mkdirSync(join(staged, 'dist'), { recursive: true, mode: 0o700 })
+    writeFileSync(join(staged, 'dist', 'entry.js'), 'export const a = 1\n', { mode: 0o600 })
+    const manifest = JSON.parse(readFileSync(join(staged, 'package.json'), 'utf8'))
+    manifest.dsh.build = './src/build-provenance.json'
+    writeJson(join(staged, 'package.json'), manifest)
+    writeJson(join(staged, 'src', 'build-provenance.json'), {
+      schema_version: 'dsh-runtime-kit.build-provenance.v1',
+      sources: ['src'],
+      outputs: ['dist'],
+      source_sha256: 'a'.repeat(64),
+    })
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', staged])
+    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
+    assert.equal(rejected.value.error.code, 'invalid-build-provenance')
   } finally {
     subject.cleanup()
   }
