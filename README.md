@@ -52,7 +52,8 @@ tools, sandbox, approvals, skills, and subagents.
 - `runtime_kit_governed_commit`, a structured, no-shell completion path bound
   to the current session-owned non-default managed worktree. It accepts no
   repository/workdir routing and returns a validated `semantic-commit`
-  receipt.
+  receipt, or a typed `no-repository` result with guidance when the session
+  runs in a folder that is not a Git repository.
 - Optional DSH-native Main Agent Mode when the host exposes its subagent
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
@@ -70,7 +71,7 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.1` minimum; exactly validated through `1.28.1` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.3` |
 
 The package deliberately supports a rolling window of exactly three reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;

@@ -9,7 +9,6 @@ import { approveEscalation, canonicalPath, validateEscalationArgs } from '@deeps
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import { applyPolicy } from '../dist/policy.js'
 import {
-  allowsNonRepositoryFinishLineDelegation,
   boundedUtf8Segments,
   createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
@@ -93,7 +92,7 @@ test('workspace disposal cleanup completes before a replacement session starts',
   await barrier.wait({ session: { header: { cwd: '/workspace/two' } } })
 })
 
-test('only per-operation authenticated advisory non-repository results may delegate', () => {
+test('finish-line authority follows the platform and the managed coordination mode', () => {
   const principal = (mode, baselineFailureCode) => ({
     environment: { AGENT_SESSION_COORDINATION_MODE: mode },
     ...(baselineFailureCode === undefined ? {} : { baselineFailureCode }),
@@ -139,11 +138,6 @@ test('only per-operation authenticated advisory non-repository results may deleg
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('enforce')), true)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('advisory')), false)
   assert.equal(requiresAuthoritativeFinishLine('darwin', principal('off')), false)
-  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', undefined), false)
-  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('enforce')), false)
-  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('advisory')), true)
-  assert.equal(allowsNonRepositoryFinishLineDelegation('linux', principal('off')), true)
-  assert.equal(allowsNonRepositoryFinishLineDelegation('darwin', principal('advisory')), false)
 })
 
 test('lifecycle prompt projection stops consuming segments at its UTF-8 budget', () => {

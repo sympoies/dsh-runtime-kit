@@ -208,8 +208,12 @@ target before the tool body, while native nils policy independently requires
 the exact linked worktree and its pinned remote-default projection. JavaScript then resolves
 the configured `semantic-commit` executable, spawns one literal argv vector,
 joins cancellation and teardown, and exposes only a strict bounded commit
-receipt. Branch, staging, expected-head, hooks, and signing behavior remain
-owned by nils-cli and Git rather than being reimplemented in the plugin.
+receipt. When the session cwd has no `.git` ancestor the tool returns the typed
+`no-repository` result (`status`, `cwd`, `guidance`) before resolving or
+spawning anything: a non-git folder is context, not a denial, and nils-cli
+(from 1.28.2) admits the call there for exactly this answer. Branch, staging,
+expected-head, hooks, and signing behavior remain owned by nils-cli and Git
+rather than being reimplemented in the plugin.
 
 The static command gates are transcript guardrails, not a shell or native-code
 sandbox. They reject malformed or unmodeled shell grammar, executable
@@ -329,7 +333,10 @@ authenticated for that exact execution rather than deriving Git identity a
 second time. One session that edits repositories A and B therefore owns two
 ledgers, and the stop boundary requires and releases each one independently. An
 operation the provider proved touches no repository registers no edit generation
-anywhere, so a non-repository write creates no Git validation obligation. When
+anywhere, so a non-repository write creates no Git validation obligation. A
+session anchored outside every repository likewise owns no stop boundary: its
+shell commands run as ordinary host operations, and only the repositories the
+turn edited are checked at stop. When
 the target projection itself fails, the ledger propagates the workspace-lease
 service's own typed cause rather than replacing it with a finish-line reason:
 that service denies the same execution with that cause immediately afterwards,
@@ -935,7 +942,7 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.28.1` archive, authenticates
+helpers. Package CI downloads the exact nils-cli `1.28.3` archive, authenticates
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.

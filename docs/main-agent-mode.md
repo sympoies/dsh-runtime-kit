@@ -88,11 +88,12 @@ Mode simply never activates and the rest of the bundle is unaffected.
   repository scope. Exact typed scope failures may preserve the authenticated
   principal, but baseline metadata never authorizes a later tool call. On
   Linux, each Bash operation is classified again against its actual workdir
-  and exact command. Advisory/off mode delegates only nils' exact
-  `finish-line-not-in-repository` result for the authenticated absolute system
-  `pwd` form; DSH maps the ordinary exact `pwd` spelling to that form for
-  classification and materializes the equivalent foreground cwd result without
-  shell lookup or argument mutation. Repository capabilities are retained in
+  and exact command. A session whose cwd is not a repository (nils answers
+  `finish-line-not-in-repository`) carries no finish-line obligation for any
+  principal: its shell commands run as ordinary host operations under the
+  normal policy transport, writes beside that cwd register no edit generation,
+  and stop checks only the repositories the turn edited. Repository
+  capabilities are retained in
   separate per-workdir ledgers; stop always checks the canonical session-header
   repository first and then every operation repository before releasing all of
   them. Editors, other commands,

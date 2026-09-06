@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path'
+import { existsSync } from 'node:fs'
+import { dirname, isAbsolute, join } from 'node:path'
 
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
@@ -191,6 +192,32 @@ function failure(runtime: {HarnessError?: new (message: string, code: string) =>
   return error
 }
 
+type NoRepositoryResult = { schema_version: typeof RESULT_SCHEMA, status: 'no-repository', cwd: string, guidance: string }
+
+/**
+ * Whether any ancestor of `cwd` carries a `.git` entry (directory or the
+ * `gitdir:` file of a linked worktree). Mirrors the agent-hook seam, which
+ * admits the tool outside every repository for exactly this answer.
+ */
+function insideRepository(cwd: string): boolean {
+  let current = cwd
+  for (;;) {
+    if (existsSync(join(current, '.git'))) return true
+    const parent = dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
+}
+
+function noRepositoryResult(cwd: string): NoRepositoryResult {
+  return {
+    schema_version: RESULT_SCHEMA,
+    status: 'no-repository',
+    cwd,
+    guidance: 'The authenticated session cwd is not inside a Git repository, so there is nothing to commit. Start the session from a managed worktree (git-cli worktree add) or an existing repository to deliver a governed commit.',
+  }
+}
+
 /**
  * Create the first-class DSH governed commit tool. Repository routing is
  * intentionally absent from its model schema: the exact worktree is the
@@ -201,6 +228,7 @@ export function createGovernedCommitTool(ctx: Context, config: {
     governedCommitTimeoutMs?: number,
     governedCommitTeardownTimeoutMs?: number,
     canonicalPath: (path: string) => string,
+    hasRepository?: (cwd: string) => boolean,
     HarnessError?: new (message: string, code: string) => Error,
     TOOL_ABORTED?: string,
   }): ToolDefinition  {
@@ -208,6 +236,7 @@ export function createGovernedCommitTool(ctx: Context, config: {
     throw new TypeError('dsh-runtime-kit: governed commit requires DSH canonicalPath')
   }
   const semanticCommit = config.semanticCommit ?? 'semantic-commit'
+  const hasRepository = config.hasRepository ?? insideRepository
   if (typeof semanticCommit !== 'string'
     || semanticCommit.length === 0
     || semanticCommit !== semanticCommit.trim()
@@ -291,7 +320,22 @@ export function createGovernedCommitTool(ctx: Context, config: {
       additionalProperties: false,
     },
     output: {
+      // Two variants discriminated by `status`, each with its own required
+      // fields, so a committed receipt cannot validate without its commit and
+      // staged summary and a no-repository answer cannot validate without its
+      // guidance.
       schema: {
+        oneOf: [{
+          type: 'object',
+          properties: {
+            schema_version: { type: 'string', const: RESULT_SCHEMA },
+            status: { type: 'string', const: 'no-repository' },
+            cwd: { type: 'string' },
+            guidance: { type: 'string' },
+          },
+          required: ['schema_version', 'status', 'cwd', 'guidance'],
+          additionalProperties: false,
+        }, {
         type: 'object',
         properties: {
           schema_version: { type: 'string', const: RESULT_SCHEMA },
@@ -329,9 +373,13 @@ export function createGovernedCommitTool(ctx: Context, config: {
         },
         required: ['schema_version', 'status', 'commit', 'staged'],
         additionalProperties: false,
+        }],
       },
       render: (_args, value) => {
-        const result = ((value) as ReturnType<typeof semanticReceipt>)
+        const result = ((value) as ReturnType<typeof semanticReceipt> | NoRepositoryResult)
+        if (result.status === 'no-repository') {
+          return [{ type: 'text', text: `No governed commit: ${result.guidance}` }]
+        }
         return [{
           type: 'text',
           text: `Created governed commit ${result.commit.sha}: ${result.commit.subject} (${result.staged.file_count} staged files).`,
@@ -355,6 +403,12 @@ export function createGovernedCommitTool(ctx: Context, config: {
       }
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
         throw failure(config, 'authenticated session worktree is unavailable', 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE')
+      }
+      // A non-repository cwd is context, not a denial: there is nothing to
+      // commit, so the model gets a typed result with the next step instead
+      // of an opaque semantic-commit rejection.
+      if (!hasRepository(cwd)) {
+        return noRepositoryResult(cwd)
       }
       if (exec.signal.aborted) {
         throw failure(config, 'governed commit was cancelled', config.TOOL_ABORTED ?? 'GOVERNED_COMMIT_ABORTED')

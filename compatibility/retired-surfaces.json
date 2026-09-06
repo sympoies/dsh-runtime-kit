@@ -4,7 +4,7 @@
   "closeout": "https://github.com/sympoies/dsh-runtime-kit/issues/65",
   "minimum_supported": {
     "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
-    "nils_cli": "1.28.1",
+    "nils_cli": "1.28.3",
     "dsh": ["0.1.1-rc.2", "0.1.2-alpha.4", "0.1.2-rc.1"]
   },
   "surfaces": [
@@ -257,6 +257,18 @@
       "first_supported": { "runtime_kit": "issue 199 tiered policy", "nils_cli": "1.28.1" },
       "compatibility_window": "none; the rule declaration is unchanged and a nils-cli older than 1.28.1 still denies, which the minimum supported release now excludes",
       "rollback": "reinstall the pre-program cleanup package d1f723bef520fd53ab609c67e6307a588ca0dd4d49755c02ec33c75a40fc43a4 through the digest-reviewed rollback operation"
+    },
+    {
+      "id": "non-repository-pwd-only-finish-line-delegation",
+      "category": "finish-line",
+      "status": "removed",
+      "summary": "A session whose cwd was not a repository was denied every Bash command, write and stop as finish-line-unavailable on Linux, except that a managed advisory or off-mode principal could run the exact system pwd through nils' not-in-repository result. Issue #199 makes a non-repository cwd context only: nils' not-in-repository answer now means the cwd carries no finish-line obligation for any principal, so the pwd-only delegation, its result materialization and the principal predicate are removed.",
+      "paths": ["src/finish-line/index.js", "src/policy/index.js"],
+      "identifiers": ["allowsNonRepositoryFinishLineDelegation", "allowsNonRepositoryDelegation", "nonRepositoryPwdResult", "nonRepositoryPwdCalls"],
+      "replacement": { "owner": "runtime-kit", "contract": "finish-line coordinator: not-in-repository from agent-hook finish-line open classifies the identity as obligation-free (ordinary shell, unregistered write, no stop boundary); repositories the turn edits keep their ledgers" },
+      "first_supported": { "runtime_kit": "issue 199 non-git cwd", "nils_cli": "1.28.3" },
+      "compatibility_window": "none; the delegation was reachable only for managed advisory/off principals and only for pwd, and every other non-repository operation was denied",
+      "rollback": "reinstall the tiered-policy package from PR #205 through the digest-reviewed rollback operation"
     }
   ]
 }

@@ -89,7 +89,7 @@ function leaseProvider(overrides = {}) {
   })
 }
 
-function finishLineClient({ stopAction = () => 'allow' } = {}) {
+function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
   const opens = []
   const edits = []
   const stops = []
@@ -102,6 +102,9 @@ function finishLineClient({ stopAction = () => 'allow' } = {}) {
     client: {
       async open(request) {
         opens.push(structuredClone(request))
+        if (repositories !== undefined && !repositories.some(root => request.cwd === root || request.cwd.startsWith(`${root}/`))) {
+          return { kind: 'not-in-repository' }
+        }
         return { runnerCapability: 'finish-line-runner:opaque', correlationId }
       },
       async beginEdit(request) {
@@ -145,7 +148,7 @@ function finishLineClient({ stopAction = () => 'allow' } = {}) {
  * with the exact wiring the default bundle installs, so the seam under test is
  * the production one rather than an injected double.
  */
-async function harness(overrides = {}, { stopAction, onWrite } = {}) {
+async function harness(overrides = {}, { stopAction, onWrite, repositories } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -153,7 +156,7 @@ async function harness(overrides = {}, { stopAction, onWrite } = {}) {
   await ctx.plugin(WorkspaceLease)
   ctx.workspaceLease.registerProvider(leaseProvider(overrides))
 
-  const transport = finishLineClient({ stopAction })
+  const transport = finishLineClient({ stopAction, repositories })
   const coordinator = createFinishLineCoordinator(ctx, {
     client: transport.client,
     createOperationId: () => `operation:${transport.edits.length + 1}`,
@@ -280,6 +283,67 @@ test('a write outside every repository creates no Git validation obligation', as
   // path outside every checkout.
   assert.deepEqual(transport.stops.map(stop => stop.cwd), [REPO_A.root])
   assert.deepEqual([...new Set(transport.opens.map(open => open.cwd))], [REPO_A.root])
+})
+
+test('a session anchored outside every repository has no finish-line obligation and still tracks the repositories it edits', async () => {
+  // nils answers `not-in-repository` for the plain anchor and opens a runner
+  // for the two repositories; the coordinator must treat the anchor as
+  // context only (#199) while every repository edit keeps its obligation.
+  const { ctx, coordinator, transport } = await harness({}, { repositories: [REPO_A.root, REPO_B.root] })
+  const agent = stubAgent('session-1', '/srv/notes')
+  publish(ctx, agent)
+
+  // A shell command in the plain directory is an ordinary host operation.
+  const probe = await coordinator.probe({
+    token: Symbol('probe'),
+    callId: CallId('call:read'),
+    rootCallId: CallId('call:read'),
+    name: 'bash',
+    arguments: { command: 'cat notes.md', description: 'read the notes' },
+    signal: testSignal,
+    agent,
+  }, { sessionId: 'session-1', cwd: '/srv/notes', turn: 1, callId: 'call:read', rootCallId: 'call:read', name: 'bash' })
+  assert.deepEqual(probe, { ok: true, kind: 'ordinary' })
+  assert.deepEqual(transport.opens.map(open => open.cwd), ['/srv/notes'])
+
+  // A write beside the notes registers nothing; a write into a repository
+  // still registers its edit generation in that repository's ledger.
+  const plain = await write(ctx, agent, '/srv/notes/todo.md', 'call:plain')
+  assert.equal(plain.isError, false, plain.error?.message)
+  assert.deepEqual(transport.edits, [])
+  const repository = await write(ctx, agent, `${REPO_B.root}/src/index.js`, 'call:b')
+  assert.equal(repository.isError, false, repository.error?.message)
+  assert.deepEqual(transport.edits.map(edit => edit.cwd), [REPO_B.root])
+
+  // Stop consults only the repository this turn modified; the plain anchor
+  // owns no stop boundary and blocks nothing.
+  assert.equal(await coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(transport.stops.map(stop => stop.cwd), [REPO_B.root])
+  assert.deepEqual(transport.releases.map(release => release.cwd), [REPO_B.root])
+})
+
+test('a non-repository anchor does not let a blocked repository ledger stop', async () => {
+  const { ctx, coordinator, transport } = await harness({}, {
+    repositories: [REPO_A.root, REPO_B.root],
+    stopAction: request => request.cwd === REPO_B.root ? 'block' : 'allow',
+  })
+  const agent = stubAgent('session-1', '/srv/notes')
+  publish(ctx, agent)
+  const result = await write(ctx, agent, `${REPO_B.root}/src/index.js`, 'call:b')
+  assert.equal(result.isError, false, result.error?.message)
+
+  // The plain anchor owns no stop boundary, but the repository the turn edited
+  // still does, and its block verdict still holds the turn.
+  assert.equal(await coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), false)
+  assert.deepEqual(transport.stops.map(stop => stop.cwd), [REPO_B.root])
 })
 
 test('a lease denial reaches the model with its own typed cause', async () => {

@@ -58,17 +58,6 @@ export function requiresAuthoritativeFinishLine(platform: NodeJS.Platform, princ
 }
 
 /**
- * Only an authenticated managed advisory/off principal may consume an exact
- * per-operation `finish-line-not-in-repository` result on Linux.
- */
-export function allowsNonRepositoryFinishLineDelegation(platform: NodeJS.Platform, principal: {environment?: Readonly<Record<string, string>>} | undefined) {
-  const mode = principal?.environment?.AGENT_SESSION_COORDINATION_MODE
-  return platform === 'linux'
-    && principal !== undefined
-    && (mode === 'advisory' || mode === 'off')
-}
-
-/**
  * Serialize asynchronous Agent cleanup against the next acceptance startup in
  * the same workspace. DSH disposal events deliberately do not await returned
  * promises, so the barrier must be recorded synchronously by the listener and
@@ -347,10 +336,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       await config.managedSessionBridge?.authenticate?.(String(agent.id), { agent, signal })
     },
     requiresFinishLine: identity => requiresAuthoritativeFinishLine(
-      process.platform,
-      resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
-    ),
-    allowsNonRepositoryDelegation: identity => allowsNonRepositoryFinishLineDelegation(
       process.platform,
       resolveManagedSessionPrincipal(ctx, identity.sessionId, config.managedSessionBridge),
     ),

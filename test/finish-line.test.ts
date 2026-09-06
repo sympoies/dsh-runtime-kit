@@ -18,7 +18,6 @@ function fixture({
   },
   now = Date.now,
   requiresFinishLine,
-  allowsNonRepositoryDelegation,
   authenticatePrincipal,
   resolveEditRoots,
   sessionCwd = '/workspace/project',
@@ -123,7 +122,6 @@ function fixture({
     maxSameTurnSteers,
     now,
     requiresFinishLine,
-    allowsNonRepositoryDelegation,
     authenticatePrincipal,
     resolveEditRoots,
     createOperationId: () => `operation:${++operation}`,
@@ -213,39 +211,30 @@ test('an authenticated advisory session bypasses Linux-only finish-line without 
   await subject.dispose()
 })
 
-test('a typed non-repository result returns pwd for only the matching Bash workdir', async () => {
-  const subject = fixture({
-    sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
-  })
+test('a non-repository workdir runs any Bash command as an ordinary host operation while a repository workdir keeps its ledger', async () => {
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   const originalOpen = subject.client.open
+  const homeCommands = []
   subject.client.open = async request => {
     if (request.cwd !== '/workspace/home') return originalOpen(request)
-    if (request.command !== undefined) assert.equal(request.command, '/usr/bin/pwd')
+    homeCommands.push(request.command)
     return { kind: 'not-in-repository' }
   }
 
+  // No repository owns the session cwd, so nothing is materialized or
+  // recorded for the command: it is delegated exactly as written.
   const home = execution(subject, {
     name: 'bash',
-    arguments: Object.freeze({ command: 'pwd', description: 'Show home directory' }),
-    callId: 'home-pwd',
+    arguments: Object.freeze({ command: 'cat notes.md', description: 'Read the notes' }),
+    callId: 'home-read',
   })
   assert.deepEqual(await subject.coordinator.begin(home, context(home, {
     cwd: '/workspace/home',
   })), { ok: true })
-  const homeResult = await subject.coordinator.execute(home)
-  assert.equal(homeResult.kind, 'result')
-  assert.deepEqual(homeResult.result.value, {
-    kind: 'foreground',
-    exitCode: 0,
-    signal: null,
-    timedOut: false,
-    aborted: false,
-    timeoutMs: 30 * 60 * 1_000,
-    stdout: { text: '/workspace/home\n', truncated: false },
-    stderr: { text: '', truncated: false },
-  })
-  assert.equal(home.arguments.command, 'pwd')
+  assert.deepEqual(await subject.coordinator.execute(home), { kind: 'delegate' })
+  assert.deepEqual(homeCommands, ['cat notes.md'])
+  assert.equal(home.arguments.command, 'cat notes.md')
+  assert.equal(subject.runs.length, 0)
 
   const repository = execution(subject, {
     name: 'bash',
@@ -269,17 +258,13 @@ test('a typed non-repository result returns pwd for only the matching Bash workd
   assert.deepEqual(subject.stops.map(stop => stop.cwd), ['/workspace/project'])
 })
 
-test('a prepared non-repository pwd rejects in-place argument mutation before delegation', async () => {
-  const subject = fixture({
-    sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
-  })
+test('a non-repository Bash command is probed as ordinary and delegated without a finish-line run', async () => {
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   subject.client.open = async () => ({ kind: 'not-in-repository' })
-  const arguments_ = { command: 'pwd', description: 'Show home directory' }
   const exec = execution(subject, {
     name: 'bash',
-    arguments: arguments_,
-    callId: 'mutable-home-pwd',
+    arguments: { command: 'pwd', description: 'Show home directory' },
+    callId: 'home-pwd',
   })
 
   assert.deepEqual(await subject.coordinator.probe(exec, context(exec, {
@@ -288,20 +273,14 @@ test('a prepared non-repository pwd rejects in-place argument mutation before de
   assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
     cwd: '/workspace/home',
   })), { ok: true })
-  arguments_.command = 'printf compromised > /workspace/project/tracked.txt'
-  arguments_.run_in_background = true
-
-  await assert.rejects(
-    subject.coordinator.execute(exec),
-    /non-repository correlation invalid/,
-  )
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.equal(subject.runs.length, 0)
+  assert.equal(subject.coordinator.activeReservations, 0)
 })
 
 test('repository and non-repository workdirs retain independent ledgers across one turn', async () => {
   const subject = fixture({
     sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
     runtime: operation => ({
       timeoutMs: 5_000,
       execution: {
@@ -331,6 +310,10 @@ test('repository and non-repository workdirs retain independent ledgers across o
       cwd: '/workspace/home',
     })), { ok: true })
     const routed = await subject.coordinator.execute(exec)
+    if (workdir === '/workspace/home') {
+      assert.deepEqual(routed, { kind: 'delegate' })
+      continue
+    }
     assert.equal(routed.kind, 'result')
     subject.coordinator.result(exec, routed.result)
   }
@@ -441,11 +424,72 @@ test('an unsatisfied header repository blocks stop after work in another reposit
   assert.match(subject.steered[0].content[0].text, /validation-required/)
 })
 
-test('a non-repository workdir cannot delegate an absolute repository write', async () => {
+test('a repository-anchored session cannot relax its obligation through a non-repository workdir', async () => {
+  // The anchor is a repository; the model points a Bash `workdir` at a plain
+  // directory. nils answers not-in-repository for that workdir, but only the
+  // anchor itself may consume that answer: the derived identity keeps failing
+  // closed, so the repository's validation generation cannot be bypassed.
+  const subject = fixture()
+  const originalOpen = subject.client.open
+  subject.client.open = async request => request.cwd === '/srv/notes'
+    ? { kind: 'not-in-repository' }
+    : originalOpen(request)
+  const probed = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'printf x > /workspace/project/tracked.txt', description: 'Write from a plain workdir', workdir: '/srv/notes' },
+    callId: 'plain-workdir-probe',
+  })
+  assert.deepEqual(await subject.coordinator.probe(probed, context(probed)), { ok: false, reason: 'finish-line-unavailable' })
+
+  // The un-probed reservation path reaches the same answer in execute.
+  const reserved = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'printf x > /workspace/project/tracked.txt', description: 'Write from a plain workdir', workdir: '/srv/notes' },
+    callId: 'plain-workdir-reserved',
+  })
+  assert.deepEqual(await subject.coordinator.begin(reserved, context(reserved)), { ok: true })
+  await assert.rejects(subject.coordinator.execute(reserved), /finish-line capability unavailable/)
+  assert.equal(subject.runs.length, 0)
+  assert.equal(subject.coordinator.activeReservations, 0)
+})
+
+test('a non-repository anchor still owes validation when nils binds a repository-targeting command to a runner', async () => {
   const subject = fixture({
     sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
+    runtime: operation => ({
+      timeoutMs: 5_000,
+      execution: {
+        kind: 'bash-v1',
+        workdir: operation.workdir ?? '/workspace/home',
+        outputMaxBytes: 64 * 1024,
+        runner: { kind: 'danger-full-access' },
+      },
+    }),
   })
+  const originalOpen = subject.client.open
+  subject.client.open = async request => request.command?.includes('/workspace/project')
+    ? originalOpen(request)
+    : { kind: 'not-in-repository' }
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'printf x > /workspace/project/tracked.txt', description: 'Write through an absolute repository path' },
+    callId: 'anchor-repository-write',
+  })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/home' })), { ok: true })
+  const routed = await subject.coordinator.execute(exec)
+  assert.equal(routed.kind, 'result')
+  subject.coordinator.result(exec, routed.result)
+  assert.equal(subject.runs.length >= 1, true)
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+  assert.deepEqual(subject.stops.map(stop => stop.cwd), ['/workspace/home'])
+})
+
+test('an open failure for a non-repository anchor propagates instead of delegating', async () => {
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   const commands = []
   subject.client.open = async request => {
     commands.push(request.command)
@@ -473,21 +517,15 @@ test('a non-repository workdir cannot delegate an absolute repository write', as
   ])
 })
 
-test('concurrent non-repository opens cannot reuse another command classification', async () => {
-  const subject = fixture({
-    sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
-  })
+test('concurrent non-repository opens each bind their own command before delegating', async () => {
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   let releasePwd
   const pwdGate = new Promise(resolve => { releasePwd = resolve })
   const commands = []
   subject.client.open = async request => {
     commands.push(request.command)
-    if (request.command === '/usr/bin/pwd') {
-      await pwdGate
-      return { kind: 'not-in-repository' }
-    }
-    throw new Error('finish-line non-repository operation unauthorized')
+    if (request.command === 'pwd') await pwdGate
+    return { kind: 'not-in-repository' }
   }
   const pwd = execution(subject, {
     name: 'bash',
@@ -512,28 +550,22 @@ test('concurrent non-repository opens cannot reuse another command classificatio
   await new Promise(resolve => setImmediate(resolve))
   releasePwd()
 
-  const pwdRouted = await pwdResult
-  assert.equal(pwdRouted.kind, 'result')
-  assert.equal(pwdRouted.result.value.stdout.text, '/workspace/home\n')
+  assert.deepEqual(await pwdResult, { kind: 'delegate' })
+  assert.deepEqual(await writeResult, { kind: 'delegate' })
   assert.equal(pwd.arguments.command, 'pwd')
-  await assert.rejects(writeResult, /finish-line non-repository operation unauthorized/)
-  assert.deepEqual(commands, [
-    '/usr/bin/pwd',
-    'printf x > /workspace/project/tracked.txt',
-    'printf x > /workspace/project/tracked.txt',
-  ])
+  // The write's classification waited for the gated pwd open and then bound
+  // its own command; neither reused the other's answer.
+  assert.deepEqual(commands, ['pwd', 'printf x > /workspace/project/tracked.txt'])
+  assert.equal(subject.runs.length, 0)
 })
 
-test('a non-repository session keeps editor mutations fail-closed', async () => {
-  const subject = fixture({
-    sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
-  })
+test('a non-repository session edits without a finish-line obligation', async () => {
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   subject.client.open = async () => ({ kind: 'not-in-repository' })
   const exec = execution(subject, {
     name: 'edit',
     arguments: {
-      file_path: '/workspace/project/a.txt',
+      file_path: '/workspace/home/a.txt',
       old_string: 'old',
       new_string: 'new',
     },
@@ -541,15 +573,14 @@ test('a non-repository session keeps editor mutations fail-closed', async () => 
 
   assert.deepEqual(await subject.coordinator.begin(exec, context(exec, {
     cwd: '/workspace/home',
-  })), { ok: false, reason: 'finish-line-unavailable' })
+  })), { ok: true })
+  assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
   assert.equal(subject.edits.length, 0)
+  assert.equal(subject.coordinator.activeReservations, 0)
 })
 
 test('a no-tool non-repository turn classifies its stop through exact open', async () => {
-  const subject = fixture({
-    sessionCwd: '/workspace/home',
-    allowsNonRepositoryDelegation: () => true,
-  })
+  const subject = fixture({ sessionCwd: '/workspace/home' })
   subject.client.open = async request => {
     assert.equal(request.cwd, '/workspace/home')
     return { kind: 'not-in-repository' }
@@ -756,7 +787,7 @@ test('a non-contract foreground Bash command is executed once by nils and invali
   assert.equal(routed.kind, 'result')
   assert.equal(subject.edits.length, 0)
   assert.equal(subject.runs.length, 2)
-  assert.equal(subject.runs[1].command, '/usr/bin/pwd')
+  assert.equal(subject.runs[1].command, 'pwd')
   assert.equal(subject.runs[1].execution.kind, 'bash-v1')
   assert.deepEqual(subject.runs[1].execution.runner, { kind: 'danger-full-access' })
   subject.coordinator.result(exec, routed.result)

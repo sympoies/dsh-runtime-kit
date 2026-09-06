@@ -150,7 +150,9 @@ it mutates — not whether it happens to be a shell.
 - `runtime_kit_governed_commit` declares no path because it has no target to
   choose: it always commits the canonical live Session cwd. The anchor is
   therefore the whole proof, and with no anchor the commit is refused rather
-  than admitted unscoped. This is the operation the lease exists to coordinate,
+  than admitted unscoped. An `unmanaged` anchor (a cwd with no `.git`
+  ancestor) is not a refusal: the tool answers `status: "no-repository"` with
+  guidance and touches nothing. This is the operation the lease exists to coordinate,
   and it is the only producer of the durable terminal-outcome record that
   authenticated recovery reads.
 - An operation with no repository target, a read-only form, an unknown tool, or
