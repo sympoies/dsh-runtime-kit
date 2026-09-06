@@ -12,17 +12,79 @@ export function activationSha256(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-/** @param {string} policyPath @param {string} policyDigest */
-export function renderAgentHookConfig(policyPath, policyDigest) {
+const RULE_ID = /^dsh\.[a-z0-9][a-z0-9-]{0,63}$/
+
+/**
+ * Validate a receipt-bound policy override map: rule id to the only downgrade
+ * runtime-kit writes, `advise`. Returns a copy with sorted keys, or `undefined`
+ * for an absent map. An empty map is rejected so "no overrides" has exactly
+ * one spelling in every digest.
+ * @param {unknown} value
+ * @returns {Record<string, 'advise'> | undefined}
+ */
+export function validatePolicyOverrides(value) {
+  if (value === undefined) return undefined
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('policy overrides must be an object of rule id to "advise"')
+  }
+  const entries = Object.entries(value)
+  if (entries.length === 0) throw new TypeError('policy overrides must name at least one rule')
+  if (entries.length > 64) throw new TypeError('policy overrides name too many rules')
+  /** @type {Record<string, 'advise'>} */
+  const sorted = {}
+  for (const [id, mode] of entries.sort(([left], [right]) => (left < right ? -1 : 1))) {
+    if (!RULE_ID.test(id)) throw new TypeError(`policy override names an invalid rule id: ${id}`)
+    if (mode !== 'advise') throw new TypeError(`policy override for ${id} must be "advise"`)
+    sorted[id] = 'advise'
+  }
+  return sorted
+}
+
+/**
+ * Digest of an activation asset set. The override digest joins the set only
+ * when overrides exist, so a target without overrides keeps the digest the
+ * accepted baseline computed.
+ * @param {{catalog_sha256: string, document_sha256: string, policy_sha256: string, policy_overrides_sha256?: string}} assets
+ */
+export function assetSetSha256(assets) {
+  return activationSha256(JSON.stringify({
+    catalog_sha256: assets.catalog_sha256,
+    document_sha256: assets.document_sha256,
+    policy_sha256: assets.policy_sha256,
+    ...assets.policy_overrides_sha256 === undefined
+      ? {}
+      : { policy_overrides_sha256: assets.policy_overrides_sha256 },
+  }))
+}
+
+/** @param {Record<string, 'advise'>} overrides */
+export function policyOverridesSha256(overrides) {
+  return activationSha256(JSON.stringify(validatePolicyOverrides(overrides)))
+}
+
+/**
+ * Render the digest-bound agent-hook config. Overrides are the only mutable
+ * input and they are part of the plan digest, the receipt, and the activation
+ * manifest; nothing else may add an `[overrides]` table.
+ * @param {string} policyPath
+ * @param {string} policyDigest
+ * @param {Record<string, 'advise'> | undefined} [overrides]
+ */
+export function renderAgentHookConfig(policyPath, policyDigest, overrides = undefined) {
   if (policyPath.includes('\0') || !isAbsolute(policyPath) || !DIGEST.test(policyDigest)) {
     throw new TypeError('agent-hook config requires an absolute policy path and exact digest')
   }
-  return `schema_version = "agent-hook.config.v1"
+  const validated = validatePolicyOverrides(overrides)
+  let text = `schema_version = "agent-hook.config.v1"
 
 [policy]
 path = ${JSON.stringify(policyPath)}
 digest = "sha256:${policyDigest}"
 `
+  for (const [id, mode] of Object.entries(validated ?? {})) {
+    text += `\n[overrides.${JSON.stringify(id)}]\nmode = "${mode}"\n`
+  }
+  return text
 }
 
 /** @param {string} parent @param {string} child */
@@ -195,8 +257,20 @@ export function readActivation(root) {
     || typeof docs.home !== 'string' || docs.state !== 'state/agent-docs'
     || !DIGEST.test(assets.policy_sha256)
     || !DIGEST.test(assets.catalog_sha256)
-    || !DIGEST.test(assets.document_sha256)) {
+    || !DIGEST.test(assets.document_sha256)
+    || (assets.policy_overrides_sha256 !== undefined && !DIGEST.test(assets.policy_overrides_sha256))
+    || (activation.policy_overrides === undefined) !== (assets.policy_overrides_sha256 === undefined)) {
     throw new TypeError('activation manifest has an incompatible contract')
+  }
+  /** @type {Record<string, 'advise'> | undefined} */
+  let overrides
+  try {
+    overrides = validatePolicyOverrides(activation.policy_overrides)
+  } catch {
+    throw new TypeError('activation manifest carries invalid policy overrides')
+  }
+  if (overrides !== undefined && policyOverridesSha256(overrides) !== assets.policy_overrides_sha256) {
+    throw new TypeError('activation policy overrides do not match their digest')
   }
   const assetRoot = `assets/${activation.asset_set_sha256}`
   if (hook.config !== `${assetRoot}/agent-hook/config.toml`
@@ -231,16 +305,19 @@ export function readActivation(root) {
   verifyDigest(policy, assets.policy_sha256, 'policy')
   verifyDigest(catalog, assets.catalog_sha256, 'agent-docs catalog')
   verifyDigest(document, assets.document_sha256, 'agent-docs document')
-  const expectedSet = activationSha256(JSON.stringify({
+  const expectedSet = assetSetSha256({
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
     policy_sha256: assets.policy_sha256,
-  }))
+    ...assets.policy_overrides_sha256 === undefined
+      ? {}
+      : { policy_overrides_sha256: /** @type {string} */ (assets.policy_overrides_sha256) },
+  })
   if (expectedSet !== activation.asset_set_sha256) {
     throw new TypeError('activation asset-set digest does not match its members')
   }
   const configText = readFileSync(config, 'utf8')
-  if (configText !== renderAgentHookConfig(policy, assets.policy_sha256)) {
+  if (configText !== renderAgentHookConfig(policy, assets.policy_sha256, overrides)) {
     throw new TypeError('agent-hook config does not bind the activated policy')
   }
   return {

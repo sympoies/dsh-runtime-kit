@@ -141,6 +141,51 @@ artifact rather than resolving a mutable target again.
 A successful digest-only replay may omit `--package`. If it is supplied, it
 must still resolve to the exact reviewed target.
 
+### Debug-time policy downgrades
+
+The packaged policy declares one enforcement tier per rule (see
+[Policy enforcement tiers](compatibility.md#policy-enforcement-tiers)).
+Governed-seam rules (Tier B) block by default and are declared
+`downgrade-only`; a debugging session may project one of them to a reminder
+through a receipt-bound file, never through an environment variable:
+
+```sh
+cat > policy-overrides.json <<'JSON'
+{
+  "schema_version": "dsh-runtime-kit.policy-overrides.v1",
+  "overrides": { "dsh.block-direct-git-commit": "advise" }
+}
+JSON
+dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
+  dsh-runtime-kit setup --profile headless \
+  --package @sympoies/dsh-runtime-kit@<approved-version> \
+  --policy-overrides policy-overrides.json --format json
+```
+
+`--policy-overrides` is accepted by `setup` and `update` together with
+`--package`, at preview and again at apply. Only `advise` is a legal value,
+and only a rule the packaged bundle declares `downgrade-only` may be named;
+a locked integrity or reminder rule fails the preview as
+`policy-override-not-downgradable` before anything is mutated. The override
+map is part of the plan target, so it changes the plan digest, is rendered into
+the digest-bound `agent-hook` config as an `[overrides."<rule id>"]` table,
+and is recorded in the operation receipt and in `activation.json`
+(`policy_overrides`, `assets.policy_overrides_sha256`). An `update` without
+the file returns the seam to blocking; `rollback` restores whatever the
+previous receipt carried.
+
+`doctor` reports the effective state under `policy`: `downgrades` lists the
+rule ids whose effective DSH mode is `advise` as read from
+`agent-hook inventory`, and `tier_table_sha256` digests the tier and
+override class of every rule. A profile with active downgrades stays
+`healthy` and adds `policy-downgrades-active` to `advisories`, so the state
+is visible without failing the profile. A downgraded profile must not be used
+to produce acceptance evidence.
+
+When a downgraded seam fires, the model sees the seam's remediation followed by
+`downgraded to advise by <config path> [overrides.<rule id>]` as ordinary
+policy context.
+
 ## Declared profile lifecycle
 
 The package declares the surfaces the transaction may touch in
@@ -470,7 +515,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.27.37 executables for every supported DSH row.
+the released and validated v1.28.1 executables for every supported DSH row.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

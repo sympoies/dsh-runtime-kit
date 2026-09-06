@@ -3978,7 +3978,12 @@ test('policy denials report only blocking reasons from the normalized decision',
   assert.equal(delegated, false)
 })
 
-test('opaque shell fan-out denials explain the direct executable recovery path', async () => {
+test('a multi-code denial without nils context lists every code and adds no retired fan-out text', async () => {
+  // nils-cli 1.28.1 blocks an unclassifiable shell command only for the
+  // integrity groups and the governed seams whose subject it names, and it
+  // carries its own guidance as context, so the "opaque to multiple
+  // classifiers" fallback runtime-kit used to author is a retired surface
+  // (compatibility/retired-surfaces.json: shell-classification-fail-closed-fan-out).
   const blockingCodes = [
     'block-direct-git-commit',
     'block-direct-git-worktree',
@@ -4001,34 +4006,11 @@ test('opaque shell fan-out denials explain the direct executable recovery path',
   const { result, delegated } = await subject.invoke({ value: 41 })
 
   assert.equal(result.kind, 'deny')
-  assert.match(result.reason, /blocked before command dispatch/i)
-  assert.match(result.reason, /run executable repository scripts directly/i)
-  assert.match(result.reason, /without a bash\/sh wrapper/i)
-  assert.match(result.reason, /split compound operations into separate tool calls/i)
   for (const code of blockingCodes) assert.match(result.reason, new RegExp(code))
+  assert.doesNotMatch(result.reason, /opaque to multiple policy classifiers/i)
+  assert.doesNotMatch(result.reason, /run executable repository scripts directly/i)
+  assert.doesNotMatch(result.reason, /without a bash\/sh wrapper/i)
   assert.equal(delegated, false)
-
-  const partialCodes = blockingCodes.slice(1)
-  const partialSubject = harness({
-    envelope: decision('block', {
-      reasons: partialCodes.map(code => ({
-        rule_id: `dsh.${code}`,
-        code,
-        disposition: 'block',
-      })),
-    }),
-  })
-  const partial = await partialSubject.invoke({ value: 41 })
-
-  assert.equal(partial.result.kind, 'deny')
-  for (const code of partialCodes) {
-    assert.match(partial.result.reason, new RegExp(code))
-  }
-  assert.doesNotMatch(partial.result.reason, /blocked before command dispatch/i)
-  assert.doesNotMatch(partial.result.reason, /run executable repository scripts directly/i)
-  assert.doesNotMatch(partial.result.reason, /without a bash\/sh wrapper/i)
-  assert.doesNotMatch(partial.result.reason, /split compound operations into separate tool calls/i)
-  assert.equal(partial.delegated, false)
 })
 
 test('typed shell guidance is the first visible denial line and keeps policy diagnostics', async () => {
