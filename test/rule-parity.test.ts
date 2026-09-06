@@ -1,4 +1,3 @@
-// @ts-check
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -22,7 +21,7 @@ const EXPECTED_DISPOSITIONS = new Map(Object.entries({
     {
       test_owner: {
         repository: 'dsh-runtime-kit',
-        path: 'test/provider-retirements.test.mjs',
+        path: 'test/provider-retirements.test.ts',
         state: 'active',
       },
       assertion: 'the shipped DSH runtime has no Claude provider or automatic Claude coauthor-trailer surface',
@@ -124,7 +123,7 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
       assert.deepEqual(capability.retirement_evidence, {
         test_owner: {
           repository: 'dsh-runtime-kit',
-          path: 'test/provider-retirements.test.mjs',
+          path: 'test/provider-retirements.test.ts',
           state: 'active',
         },
         assertion: 'the shipped DSH runtime has no Claude provider or automatic Claude coauthor-trailer surface',

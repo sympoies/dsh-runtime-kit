@@ -19,7 +19,7 @@
  * durable store and broker behavior.
  *
  * Usage:
- *   NILS_BIN_DIR=/path/to/nils-cli/target/debug node test/main-agent-e2e.mjs
+ *   NILS_BIN_DIR=/path/to/nils-cli/target/debug node test/main-agent-e2e.ts
  */
 
 import assert from 'node:assert/strict'

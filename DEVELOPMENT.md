@@ -97,6 +97,17 @@ consumer with `--omit=peer` and need the compiled `scripts/*.mjs` imports before
 the selected DSH closure is staged; it is not a substitute for `npm run build`,
 which those legs still run through `pretest` once the closure is in place.
 
+The tests under `test/` are TypeScript too, and Node runs them directly:
+`npm test` is `node --test test/*.test.ts`, which relies on Node 24 type stripping
+from the checkout. Two rules follow. A specifier between test files must name
+the real extension (`./helpers/x.ts`), because Node has no `NodeNext`-style
+`.js`-to-`.ts` mapping at runtime. And `test/fixtures/**` stays JavaScript,
+because the canary fixture is installed into a DSH profile under
+`node_modules`, where Node refuses to strip types. `npm run typecheck:test`
+(`tsconfig.test.json`, `noEmit`, `allowImportingTsExtensions`) typechecks the
+test program; it is advisory rather than a declared gate while the suite still
+builds partial doubles that the production types reject.
+
 **No npm lifecycle hook may run the build.** `INSTALL_LIFECYCLE_SCRIPTS` in
 `src/operations/index.ts` refuses an installed package declaring any of
 `preinstall`, `install`, `postinstall`, `prepare`, `preprepare`,

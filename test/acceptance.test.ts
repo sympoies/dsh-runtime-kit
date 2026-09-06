@@ -1734,7 +1734,7 @@ test('scenario failure parser accepts only bounded operation signal metadata', (
 
 test('authoritative scenario emits exactly one bounded diagnostic for an uncaught failure', async () => {
   await assert.rejects(
-    run(process.execPath, [join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs')], {
+    run(process.execPath, [join(projectRoot, 'test', 'authoritative-acceptance-smoke.ts')], {
       cwd: projectRoot,
       encoding: 'utf8',
       env: {},
@@ -1965,16 +1965,16 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     readFileSync(join(projectRoot, '.node-version'), 'utf8').trim(),
     '24',
   )
-  assert.ok(manifest.files.includes('test/smoke.mjs'))
-  assert.ok(manifest.files.includes('test/operations-smoke.mjs'))
-  assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.mjs'))
+  assert.ok(manifest.files.includes('test/smoke.ts'))
+  assert.ok(manifest.files.includes('test/operations-smoke.ts'))
+  assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.ts'))
   assert.ok(manifest.files.includes('test/fixtures/authoritative-acceptance-canary'))
   const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
   const authoritativeSmoke = readFileSync(
-    join(projectRoot, 'test', 'authoritative-acceptance-smoke.mjs'),
+    join(projectRoot, 'test', 'authoritative-acceptance-smoke.ts'),
     'utf8',
   )
-  const packedSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const packedSmoke = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   assert.match(runner, /const MINIMUM_NODE_MAJOR = 24/u)
   assert.match(runner, /DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED/u)
   assert.match(runner, /assertSupportedNodeRuntime\(\)\n\s+const input = parseCli\(\)/u)
@@ -2054,7 +2054,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)
   assert.match(runner, /const runtimeProject = await prepareRuntimeLeg/u)
-  assert.match(runner, /'test',\s*'authoritative-acceptance-smoke\.mjs'/u)
+  assert.match(runner, /'test',\s*'authoritative-acceptance-smoke\.ts'/u)
   assert.match(runner, /action: 'reverse'/u)
   assert.match(runner, /unpatched DSH host build/u)
   assert.match(runner, /unpatched DSH tools scenario/u)
@@ -2096,7 +2096,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     'utf8',
   )
   assert.match(checkoutInspector, /safe\.directory=/u)
-  const operationsSmoke = readFileSync(join(projectRoot, 'test', 'operations-smoke.mjs'), 'utf8')
+  const operationsSmoke = readFileSync(join(projectRoot, 'test', 'operations-smoke.ts'), 'utf8')
   assert.doesNotMatch(operationsSmoke, /function stageBundle/u)
   assert.doesNotMatch(operationsSmoke, /spawnSync\('pnpm', \['dsh'/u)
   assert.match(operationsSmoke, /apps', 'cli', 'lib', 'bin\.js/u)
@@ -2109,7 +2109,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.doesNotMatch(operationsSmoke, /assert\.match\(doctor\.dsh\.version/u)
   assert.match(operationsSmoke, /upstream:patch-state-unchanged/u)
   assert.doesNotMatch(operationsSmoke, /assert\.equal\(upstreamBefore, ''\)/u)
-  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   assert.doesNotMatch(
     runtimeSmoke,
     /DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance'/u,

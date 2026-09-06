@@ -196,7 +196,7 @@ test('the Agent Console release and runtime patch select the same TUI', () => {
 })
 
 test('the Agent Console smoke adapter advertises its configured reasoning effort', () => {
-  const smokeSource = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const smokeSource = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   assert.match(smokeSource, /reasoning:\s*\{\s*efforts:\s*\[\{ id: 'high', name: 'high' \}\]\s*\}/)
 })
 
@@ -239,7 +239,7 @@ test('public Agent Console smoke consumes the contract-pinned TUI specifier', ()
 })
 
 test('public Agent Console smoke authenticates the contract tarball before local install', () => {
-  const source = readFileSync(join(projectRoot, 'test', 'smoke.mjs'), 'utf8')
+  const source = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
   const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
   const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")

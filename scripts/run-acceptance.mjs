@@ -998,7 +998,7 @@ async function main() {
       },
     }
 
-    const operationsScript = resolve(operationsLeg.project, 'test', 'operations-smoke.mjs')
+    const operationsScript = resolve(operationsLeg.project, 'test', 'operations-smoke.ts')
     const controlDigests = new Map([
       [artifact.tarball, packageSha256],
       [baselinePackage.path, baselinePackage.sha256],
@@ -1077,7 +1077,7 @@ async function main() {
       tools,
       env,
     )
-    const runtimeScript = resolve(runtimeProject, 'test', 'smoke.mjs')
+    const runtimeScript = resolve(runtimeProject, 'test', 'smoke.ts')
     enterPhase('packed-runtime-scenario')
     const packedRuntime = await runScenario(
       runtimeScript,
@@ -1088,7 +1088,7 @@ async function main() {
     const authoritativeScript = resolve(
       runtimeProject,
       'test',
-      'authoritative-acceptance-smoke.mjs',
+      'authoritative-acceptance-smoke.ts',
     )
     const authoritativeEnv = {
       ...scenarioEnv,

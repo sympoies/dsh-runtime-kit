@@ -1418,7 +1418,7 @@ test('a failed target projection preserves the lease cause it came from', async 
 
   // The ledger reserves nothing and reports no reason of its own; the lease
   // service denies this same execution with `cause` right after this
-  // boundary returns. test/finish-line-repository-scope.test.mjs pins that
+  // boundary returns. test/finish-line-repository-scope.test.ts pins that
   // composed behaviour so this is verified rather than assumed.
   assert.deepEqual(
     await subject.coordinator.begin(exec, context(exec, { cwd: '/workspace/repo-a' })),

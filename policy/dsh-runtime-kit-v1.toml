@@ -13,7 +13,7 @@ version = "2026.09.06.1"
 # `downgrade-only`, so a receipt-bound `--policy-overrides` file may project
 # them to `advise`; `reminder` rules are locked and only ever emit context.
 # The `# tier:` line that follows each `[[rules]]` header is checked by
-# test/policy-parity.test.mjs.
+# test/policy-parity.test.ts.
 
 [[rules]]
 # tier: integrity
