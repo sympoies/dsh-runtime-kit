@@ -212,6 +212,67 @@ script fails as `lifecycle-scripts-declared` before any profile mutation. A
 package without a declaration is admitted under this engine's own compatibility
 manifest and reported by doctor as undeclared.
 
+## Declared build provenance
+
+The refused-script list is the complete set of npm lifecycle hooks
+(`preinstall`, `install`, `postinstall`, `prepare`, `preprepare`,
+`postprepare`, `prepublish`, `prepublishOnly`, `prepack`, `postpack`,
+`dependencies`), so no hook can run a build, and `npm pack --ignore-scripts`
+runs none either. A package that ships build output therefore cannot prove that
+the output corresponds to the sources beside it: a stale artifact packs,
+installs and runs while the source tree, the plan digest and the receipt all
+stay internally consistent.
+
+A package that ships build output declares
+`package.json#dsh.build`, a package-relative JSON path to a provenance file:
+
+```json
+{
+  "schema_version": "dsh-runtime-kit.build-provenance.v1",
+  "sources": ["src"],
+  "outputs": ["dist"],
+  "source_sha256": "<digest of sources, recorded by the build>"
+}
+```
+
+Every preview that packs a target recomputes the digest over the declared source
+roots as packed and compares it to the recorded value. A mismatch fails as
+`build-output-stale` before any profile mutation; a declaration that is
+malformed, names a path outside the package, names a missing root, overlaps
+sources with outputs, or lives inside its own declared sources fails as
+`invalid-build-provenance`. A source tree that trips a traversal budget fails as
+`installed-package-limit` and one holding an escaping symlink or a special entry
+as `unsafe-profile-tree`, so a tree problem is never reported as a bad
+declaration.
+
+Both sides digest an **explicit file list**, never a tree they walk themselves.
+The working tree and the packed tree are not the same set: `npm pack` drops the
+names npm always ignores (`.gitignore`, `.npmignore`, `.npmrc`, `.DS_Store`,
+`.*.swp`, `*.orig`, `package-lock.json`) and a tarball carries no directory
+entries, so an empty directory does not survive a pack and extract. A tree walk
+on each side would disagree over entirely ordinary contents and fail every
+install as stale with no rebuild able to fix it.
+
+**A build must therefore take its file list from `npm pack --dry-run --json`,
+whose `files[].path` is exactly what the tarball will hold, and pass it to the
+exported `digestSourceFiles`.** Do not call `packedSourceDigest` against a
+working tree; it is the engine's side, for an already-extracted package. The
+helpers are exported as `@sympoies/dsh-runtime-kit/build-provenance` so both
+sides share one implementation.
+
+The digest binds each path with the entry kind, the symlink target, the
+executable bit, and file content. Mode beyond that bit, mtime and inode are
+excluded, because a checkout does not preserve them — so the same content
+digests the same anywhere, and a `touch` cannot forge freshness.
+
+Scope: this authenticates the sources, not the output. A `dist/` left partially
+written by an interrupted build still matches its sources and is admitted; what
+the gate refuses is output built from *different* sources. Nothing is bound into
+the reviewed plan, so the receipt shape is unchanged.
+
+A package that declares no `dsh.build` ships its reviewed sources directly and
+is admitted unchanged.
+
 Compatibility is checked before any mutation. `setup`, `update`, and `rollback`
 compare the bound DSH release against the releases the reviewed package itself
 declares in its `compatibility/dsh.json`; a mismatch fails as

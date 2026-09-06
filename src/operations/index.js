@@ -29,6 +29,13 @@ import { parseArgs } from 'node:util'
 import { parse as parseYaml } from 'yaml'
 
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
+import {
+  assertProvenanceOutsideSources,
+  BuildSourceContainmentError,
+  BuildSourceLimitError,
+  packedSourceDigest,
+  validateBuildProvenance,
+} from './build-provenance.js'
 import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import {
   activationSha256,
@@ -1266,6 +1273,106 @@ function invalidLifecycle(message, details = {}) {
 }
 
 /** @param {string} message @param {Record<string, unknown>} [details] */
+function invalidBuildProvenance(message, details = {}) {
+  return new OperationsError('invalid-build-provenance', message, 65, details)
+}
+
+/**
+ * Authenticate a reviewed package that ships build output against the sources
+ * it was built from. A package that declares no `dsh.build` ships its reviewed
+ * sources directly and is admitted unchanged.
+ *
+ * The build records the digest of the sources it consumed; this recomputes that
+ * digest from the sources as packed. They disagree exactly when the output no
+ * longer corresponds to the shipped sources — the failure no other signal
+ * catches, because `npm pack --ignore-scripts` runs no build and every
+ * lifecycle hook that could is already refused.
+ *
+ * Scope: this authenticates the sources, not the output. A `dist/` left
+ * partially written by an interrupted build still matches its sources and is
+ * admitted; what the gate refuses is output built from *different* sources.
+ *
+ * Throws or returns nothing: verification is the whole contribution, and no
+ * provenance is bound into the reviewed plan.
+ *
+ * @param {string} packageRoot
+ */
+function packageBuildProvenance(packageRoot) {
+  const manifest = readJson(join(packageRoot, 'package.json')).value
+  if (!plainRecord(manifest)) throw new OperationsError('invalid-package-spec', 'package manifest must be an object')
+  const dsh = plainRecord(manifest.dsh) ? manifest.dsh : {}
+  if (dsh.build === undefined) return null
+  const declared = dsh.build
+  if (typeof declared !== 'string'
+    || !/^\.\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.json$/u.test(declared)) {
+    throw invalidBuildProvenance('dsh.build must be a package-relative JSON path')
+  }
+  const root = resolve(packageRoot)
+  const provenancePath = resolve(root, declared)
+  if (provenancePath === root || !pathIsWithin(root, provenancePath)) {
+    throw invalidBuildProvenance('dsh.build must stay inside the package')
+  }
+  const stat = lstatMaybe(provenancePath)
+  if (stat === null || stat.isSymbolicLink() || !stat.isFile()) {
+    throw invalidBuildProvenance('build provenance must be a regular file inside the package', { path: declared })
+  }
+  const raw = readFileSync(provenancePath)
+  let parsed
+  try {
+    parsed = JSON.parse(raw.toString('utf8'))
+  } catch {
+    throw invalidBuildProvenance('build provenance is not valid JSON', { path: declared })
+  }
+  let validated
+  try {
+    validated = validateBuildProvenance(parsed)
+    // A provenance file inside its own sources would be an input to the digest
+    // it records, so no value could ever satisfy the check.
+    assertProvenanceOutsideSources(relative(root, provenancePath), validated.sources)
+  } catch (error) {
+    throw invalidBuildProvenance(error instanceof Error ? error.message : 'build provenance is invalid', { path: declared })
+  }
+  for (const declaredRoot of [...validated.sources, ...validated.outputs]) {
+    const absolute = resolve(root, declaredRoot)
+    if (!pathIsWithin(root, absolute)) {
+      throw invalidBuildProvenance('build provenance names a path outside the package', { path: declaredRoot })
+    }
+    const rootStat = lstatMaybe(absolute)
+    if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+      throw invalidBuildProvenance('build provenance names a missing root', { path: declaredRoot })
+    }
+  }
+  let observed
+  try {
+    observed = packedSourceDigest(root, validated.sources)
+  } catch (error) {
+    // A budget trip or a containment refusal is a property of the tree, not of
+    // the declaration, and an unexpected read failure is environmental. Keeping
+    // them apart stops a transient error from blaming a correct package, the
+    // same separation `packageTreeDigest` already makes.
+    if (error instanceof BuildSourceLimitError) {
+      throw new OperationsError('installed-package-limit', error.message, 65)
+    }
+    if (error instanceof BuildSourceContainmentError) {
+      throw new OperationsError('unsafe-profile-tree', error.message, 65)
+    }
+    throw new OperationsError(
+      'invalid-package-spec',
+      'declared build provenance sources could not be read from the packed package',
+      65,
+    )
+  }
+  if (observed !== validated.source_sha256) {
+    throw new OperationsError(
+      'build-output-stale',
+      'packed build output was produced from different sources than the package ships; rebuild before packing',
+      65,
+      { declared_source_sha256: validated.source_sha256, observed_source_sha256: observed },
+    )
+  }
+}
+
+/** @param {string} message @param {Record<string, unknown>} [details] */
 function unsupportedLifecycle(message, details = {}) {
   return new OperationsError('unsupported-lifecycle-manifest', message, 65, details)
 }
@@ -1583,6 +1690,10 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
     const installedSha256 = packageTreeDigest(extractedPackage, extracted)
     const assets = packageAssets(extractedPackage)
     const lifecycle = packageLifecycle(extractedPackage)
+    // Verification is the whole contribution: the gate throws, and nothing is
+    // bound into the plan, because a receipt shape change would break the
+    // baseline-engine readability the lifecycle binding protects.
+    packageBuildProvenance(extractedPackage)
     return {
       temporary,
       extracted: extractedPackage,

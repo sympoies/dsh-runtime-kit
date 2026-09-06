@@ -21,6 +21,7 @@
     "./authoritative-acceptance": "./src/authoritative-acceptance/index.js",
     "./workspace-lease": "./src/workspace-lease/index.js",
     "./artifacts": "./src/artifacts/index.js",
+    "./build-provenance": "./src/operations/build-provenance.js",
     "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"
