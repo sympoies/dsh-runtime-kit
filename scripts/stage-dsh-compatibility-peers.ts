@@ -1,19 +1,22 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { createHash } from 'node:crypto'
 import { lstat, readFile, realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
+import { DshCompatibilityError, validateDshCompatibilityManifest } from '../src/compat/contract.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
   prepareAuthenticatedPackageScope,
-} from '../dist/src/compat/package-artifact.js'
+} from '../src/compat/package-artifact.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
+
+/** One `data.packages` entry of a `dsh-runtime-kit.dsh-peer-pack.v1` receipt. */
+type ReceiptPackage = { name: string, version: string, path: string, tarball_sha256: string, artifact_sha256: string }
 
 function parseCli() {
   let parsed
@@ -48,8 +51,7 @@ function parseCli() {
   return { receipt: resolve(receipt), artifactRoot: resolve(artifactRoot), consumerRoot: resolve(consumerRoot) }
 }
 
-/** @param {string} root @param {string} candidate */
-function contained(root, candidate) {
+function contained(root: string, candidate: string) {
   const rel = relative(root, candidate)
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
@@ -84,7 +86,7 @@ async function main() {
     )
   }
   const expectedNames = Object.keys(manifest.workspace_artifacts).sort()
-  const actualNames = receipt.data.packages.map(item => item?.name).sort()
+  const actualNames = receipt.data.packages.map((item: ReceiptPackage | null | undefined) => item?.name).sort()
   if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED',
@@ -146,7 +148,7 @@ async function main() {
         )
       } catch (error) {
         if (error instanceof DshCompatibilityError) throw error
-        if (/** @type {NodeJS.ErrnoException} */ (error).code !== 'ENOENT') {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
           throw new DshCompatibilityError(
             'DSH_RUNTIME_KIT_DSH_PEER_STAGE_FAILED',
             `DSH peer install target ${item.name} cannot be inspected`,

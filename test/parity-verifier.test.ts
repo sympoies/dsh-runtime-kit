@@ -8,7 +8,7 @@ import { parse, stringify } from 'yaml'
 import {
   verifyParityInventory,
   verifyParitySource,
-} from '../scripts/check-rule-parity-source.mjs'
+} from '../dist/scripts/check-rule-parity-source.js'
 
 const SOURCE_URL = new URL('./fixtures/legacy-hook-rules.yaml', import.meta.url)
 const INVENTORY_URL = new URL('../policy/rule-parity.yaml', import.meta.url)

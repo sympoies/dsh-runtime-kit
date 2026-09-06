@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -8,7 +9,57 @@ import { resolve } from 'node:path'
 
 import { parse } from 'yaml'
 
-const packageRoot = new URL('..', import.meta.url).pathname
+interface ManifestRule {
+  id: string
+  products: unknown
+  events: unknown
+  matcher: unknown
+  legacy_handler: string | null
+  capability: {
+    id: string
+    handler_id?: string
+    reason_code?: string
+  }
+}
+
+interface Manifest {
+  schema_version: string
+  rules: ManifestRule[]
+}
+
+interface CapabilityGroup {
+  id: string
+  disposition: string
+  migration_task: string
+}
+
+interface RuntimeRuleParity {
+  schema_version: string
+  source: {
+    repository: string
+    commit: string
+    manifest: string
+    manifest_schema: string
+    manifest_sha256: string
+    legacy_registrations: string
+    legacy_registrations_sha256: string
+    counts: unknown
+  }
+  capability_groups: CapabilityGroup[]
+  rules: unknown[]
+}
+
+interface NilsCapabilityGroup {
+  id: string
+  migration_task: string
+}
+
+interface NilsFixture {
+  schema_version: string
+  capabilities: NilsCapabilityGroup[]
+}
+
+const packageRoot = PACKAGE_ROOT
 const sourceRootArgument = process.argv[2] ?? process.env.AGENT_RUNTIME_KIT_SOURCE_ROOT
 const nilsRootArgument = process.argv[3] ?? process.env.NILS_CLI_SOURCE_ROOT
 if (sourceRootArgument === undefined || sourceRootArgument === '') {
@@ -17,13 +68,15 @@ if (sourceRootArgument === undefined || sourceRootArgument === '') {
 }
 const sourceRoot = resolve(sourceRootArgument)
 
-const parity = parse(readFileSync(resolve(packageRoot, 'policy/runtime-rule-parity.yaml'), 'utf8'))
+const parity: RuntimeRuleParity = parse(
+  readFileSync(resolve(packageRoot, 'policy/runtime-rule-parity.yaml'), 'utf8'),
+)
 assert.equal(parity.schema_version, 'dsh-runtime-kit.runtime-rule-parity.v1')
-const git = (...args) => execFileSync('git', ['-C', sourceRoot, ...args], {
+const git = (...args: string[]): string => execFileSync('git', ['-C', sourceRoot, ...args], {
   encoding: 'utf8',
   maxBuffer: 2 * 1024 * 1024,
 })
-const repositoryIdentity = (value) => value.trim()
+const repositoryIdentity = (value: string): string => value.trim()
   .replace(/^git@github\.com:/, 'https://github.com/')
   .replace(/^ssh:\/\/git@github\.com\//, 'https://github.com/')
   .replace(/\.git$/, '')
@@ -39,14 +92,17 @@ const registrationsRaw = git(
   'show',
   `${parity.source.commit}:${parity.source.legacy_registrations}`,
 )
-const manifest = parse(manifestRaw)
-const sha256 = (value) => createHash('sha256').update(value).digest('hex')
-const stable = (value) => Array.isArray(value)
+const manifest: Manifest = parse(manifestRaw)
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object'
+)
+const stable = (value: unknown): unknown => Array.isArray(value)
   ? value.map(stable)
-  : value !== null && typeof value === 'object'
+  : isRecord(value)
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]))
     : value
-const sourceKey = (rule) => rule.capability.handler_id === undefined
+const sourceKey = (rule: ManifestRule): string => rule.capability.handler_id === undefined
   ? `reason:${rule.capability.reason_code}`
   : `handler:${rule.capability.handler_id}`
 
@@ -95,13 +151,17 @@ assert.equal(
 )
 
 if (nilsRootArgument !== undefined && nilsRootArgument !== '') {
-  const nilsFixture = JSON.parse(readFileSync(resolve(
+  const nilsFixture: NilsFixture = JSON.parse(readFileSync(resolve(
     nilsRootArgument,
     'crates/agent-hook/tests/fixtures/dsh-policy-capability-groups.v1.json',
   ), 'utf8'))
   assert.equal(nilsFixture.schema_version, 'agent-hook.dsh-policy-capability-groups.v1')
-  const parityGroups = new Map(parity.capability_groups.map(group => [group.id, group]))
-  const nilsGroups = new Map(nilsFixture.capabilities.map(group => [group.id, group]))
+  const parityGroups = new Map(
+    parity.capability_groups.map((group): [string, CapabilityGroup] => [group.id, group]),
+  )
+  const nilsGroups = new Map(
+    nilsFixture.capabilities.map((group): [string, NilsCapabilityGroup] => [group.id, group]),
+  )
   assert.equal(
     nilsGroups.size,
     nilsFixture.capabilities.length,
@@ -109,7 +169,7 @@ if (nilsRootArgument !== undefined && nilsRootArgument !== '') {
   )
   for (const group of nilsFixture.capabilities) {
     const parityGroup = parityGroups.get(group.id)
-    assert.notEqual(parityGroup, undefined, `nils capability group ${group.id} is unknown`)
+    assert.ok(parityGroup !== undefined, `nils capability group ${group.id} is unknown`)
     assert.equal(
       group.migration_task,
       parityGroup.migration_task,
@@ -117,7 +177,7 @@ if (nilsRootArgument !== undefined && nilsRootArgument !== '') {
     )
   }
   for (const group of parity.capability_groups.filter(
-    candidate => candidate.disposition === 'nils-capability',
+    (candidate: CapabilityGroup) => candidate.disposition === 'nils-capability',
   )) {
     assert.notEqual(
       nilsGroups.get(group.id),

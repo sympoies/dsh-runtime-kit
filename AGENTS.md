@@ -37,7 +37,8 @@ Apply the reviewed patch to a pristine selected checkout, rebuild the host
 libraries, and run the keyless end-to-end smoke test:
 
 ```sh
-node scripts/manage-dsh-patch.mjs --action apply \
+npm run build
+node dist/scripts/manage-dsh-patch.js --action apply \
   --source-root /path/to/deepseek-harness
 cd /path/to/deepseek-harness
 ./node_modules/.bin/tsx scripts/clean.ts
@@ -84,7 +85,7 @@ unfiltered build unless rebuild time actually matters.
 Rolling back reverses the same two stages:
 
 ```sh
-node scripts/manage-dsh-patch.mjs --action reverse \
+node dist/scripts/manage-dsh-patch.js --action reverse \
   --source-root /path/to/deepseek-harness
 # then repeat both rebuild stages above
 ```
@@ -124,7 +125,7 @@ contracts under test fail as typed bridge errors (`policy-output-invalid`,
 two-repository attribution legs; a single-repository smoke cannot distinguish
 per-repository authority from anchor authority, because the resolved root equals
 the anchor there. `npm run test:operations-smoke` is not standalone — it is a leg
-of `scripts/run-acceptance.mjs`, which supplies the packed operation packages it
+of `scripts/run-acceptance.ts`, which supplies the packed operation packages it
 requires.
 
 The test must install this package into a clean temporary DSH profile, verify

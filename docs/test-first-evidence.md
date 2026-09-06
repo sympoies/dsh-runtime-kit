@@ -1778,7 +1778,7 @@ delivery, deployment, and a new live DSH acceptance remain separate gates.
 
 The first hosted #60 acceptance failed closed in the packed-runtime phase after
 artifact preparation succeeded. A focused static regression then began RED
-because `scripts/run-acceptance.mjs` neither authenticated nor snapshotted the
+because `scripts/run-acceptance.ts` neither authenticated nor snapshotted the
 released `main-agent` companion. The repair resolves it only as a sibling of the
 already authenticated `agent-hook`, snapshots it into the private run root,
 passes its path explicitly, validates its nils-cli identity, and rechecks both

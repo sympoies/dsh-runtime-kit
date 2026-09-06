@@ -968,7 +968,7 @@ those external boundaries.
 acceptance and promotion requirements. This section records the architectural
 rationale and implementation boundary behind that contract.
 
-Acceptance is a separate promotion boundary. `scripts/run-acceptance.mjs`
+Acceptance is a separate promotion boundary. `scripts/run-acceptance.ts`
 copies six content-addressed nils executables into a private run root, fixes the
 tool PATH, creates disposable HOME/XDG state, and snapshots the package before
 candidate code runs. It clones the manifest-selected DSH commit without

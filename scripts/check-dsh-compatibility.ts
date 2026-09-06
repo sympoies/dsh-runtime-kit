@@ -1,19 +1,25 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { dirname, isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, resolve } from 'node:path'
 
 import {
   DshCompatibilityError,
   validateDshCompatibilityManifest,
-} from '../dist/src/compat/contract.js'
-import { inspectSelectedDshCheckout } from '../dist/src/compat/git-checkout.js'
+} from '../src/compat/contract.js'
+import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
+const CHANNELS = ['pinned', 'upstream-next'] as const
+type Channel = typeof CHANNELS[number]
 
-function parseCli(argv) {
+function isChannel(value: string | undefined): value is Channel {
+  return (CHANNELS as readonly string[]).includes(value ?? '')
+}
+
+function parseCli(argv: string[]) {
   let parsed
   try {
     parsed = parseArgs({
@@ -35,7 +41,7 @@ function parseCli(argv) {
   }
   if (typeof parsed.values['source-root'] !== 'string'
     || !isAbsolute(parsed.values['source-root'])
-    || !['pinned', 'upstream-next'].includes(parsed.values.channel ?? '')
+    || !isChannel(parsed.values.channel)
     || parsed.values.format !== 'json'
     || typeof parsed.values['git-bin'] !== 'string'
     || !isAbsolute(parsed.values['git-bin'])) {

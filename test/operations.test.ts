@@ -47,7 +47,7 @@ function packedProvenanceDigest(dir, sources) {
 
 const projectRoot = resolve(import.meta.dirname, '..')
 const cli = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit.js')
-const commandSupervisor = join(projectRoot, 'src', 'operations', 'supervise-command.mjs')
+const commandSupervisor = join(projectRoot, 'dist', 'src', 'operations', 'supervise-command.js')
 
 const sha256 = value => createHash('sha256').update(value).digest('hex')
 

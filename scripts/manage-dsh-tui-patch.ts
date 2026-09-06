@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isAbsolute, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DshTuiPatchError, manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
+import { DshTuiPatchError, manageDshTuiPatch } from '../src/compat/dsh-tui-patch.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const projectRoot = PACKAGE_ROOT
+const PATCH_ACTIONS = ['check', 'apply', 'reverse'] as const
+type PatchAction = typeof PATCH_ACTIONS[number]
+
+function isPatchAction(value: string | undefined): value is PatchAction {
+  return (PATCH_ACTIONS as readonly string[]).includes(value ?? '')
+}
 const usage = 'usage: manage-dsh-tui-patch --action check|apply|reverse --package-root ABSOLUTE [--git-bin ABSOLUTE]'
 
 function argumentsFromCli() {
@@ -32,7 +38,7 @@ function argumentsFromCli() {
   const action = parsed.values.action
   const packageRoot = parsed.values['package-root']
   const gitBin = parsed.values['git-bin']
-  if (!['check', 'apply', 'reverse'].includes(action ?? '')
+  if (!isPatchAction(action)
     || typeof packageRoot !== 'string' || !isAbsolute(packageRoot)
     || typeof gitBin !== 'string' || !isAbsolute(gitBin)) {
     throw new DshTuiPatchError(

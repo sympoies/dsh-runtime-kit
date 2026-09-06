@@ -1,16 +1,27 @@
 #!/usr/bin/env node
 
+import { PACKAGE_ROOT } from '../src/package-root.js'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { performance } from 'node:perf_hooks'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-import { validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
-import { evaluatePolicyPerformanceBudget } from '../dist/src/compat/performance.js'
-import { createNilsTransport } from '../dist/src/policy/nils-transport.js'
+import { validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { evaluatePolicyPerformanceBudget } from '../src/compat/performance.js'
+import { createNilsTransport } from '../src/policy/nils-transport.js'
+import type { Context, ToolExecution } from '../src/policy/nils-transport.js'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+type Disposer = () => unknown
+/** The part of the transport's spawn request this controlled provider reads. */
+type BenchmarkSpawnSpec = { stdio: { stdin: { data: string } } }
+type BenchmarkHandle = {
+  done: Promise<{ exitCode: number, signal: null }>,
+  collected: { stdout: { readFrom: () => { text: string, lossy: boolean } } },
+  terminate(): void,
+  waitForExit(): Promise<boolean>,
+}
+
+const projectRoot = PACKAGE_ROOT
 const manifest = validateDshCompatibilityManifest(JSON.parse(
   await readFile(resolve(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
 ))
@@ -24,15 +35,15 @@ if (typeof global.gc !== 'function') {
   })}\n`)
   process.exitCode = 1
 } else {
-  const disposers = []
-  const live = new Set()
+  const disposers: Disposer[] = []
+  const live = new Set<BenchmarkHandle>()
   const ctx = {
-    effect(factory) {
+    effect(factory: () => Disposer | void) {
       const dispose = factory()
       if (typeof dispose === 'function') disposers.push(dispose)
     },
     subprocess: {
-      spawn(spec) {
+      spawn(spec: BenchmarkSpawnSpec) {
         const ingress = JSON.parse(spec.stdio.stdin.data)
         const requestId = `request:${createHash('sha256')
           .update(spec.stdio.stdin.data)
@@ -53,7 +64,7 @@ if (typeof global.gc !== 'function') {
             recovery_applied: false,
           },
         })
-        const handle = {
+        const handle: BenchmarkHandle = {
           done: Promise.resolve({ exitCode: 0, signal: null }),
           collected: {
             stdout: { readFrom: () => ({ text: envelope, lossy: false }) },
@@ -70,7 +81,7 @@ if (typeof global.gc !== 'function') {
       },
     },
   }
-  const transport = createNilsTransport(ctx, {
+  const transport = createNilsTransport(ctx as unknown as Context, {
     agentHook: '/benchmark/agent-hook',
     agentHookConfig: '/benchmark/agent-hook/config.toml',
     agentHookPolicy: '/benchmark/agent-hook/policy.toml',
@@ -90,12 +101,12 @@ if (typeof global.gc !== 'function') {
       name: 'runtime_kit_plus_one',
       arguments: { value: 41 },
       signal,
-    }, {
+    } as unknown as ToolExecution, {
       sessionId: 'benchmark-session',
       cwd: projectRoot,
       turn: 1,
       step: sequence,
-    })
+    }, undefined)
     if (result !== undefined) throw new Error('controlled policy provider did not allow')
   }
 
@@ -103,8 +114,8 @@ if (typeof global.gc !== 'function') {
     for (let index = 0; index < contract.warmup_iterations; index += 1) await evaluate()
     global.gc()
     const heapBefore = process.memoryUsage().heapUsed
-    const samplesMs = []
-    const batchRetainedHeapBytes = []
+    const samplesMs: number[] = []
+    const batchRetainedHeapBytes: number[] = []
     for (let batch = 0; batch < contract.batches; batch += 1) {
       for (let index = 0; index < contract.iterations; index += 1) {
         const started = performance.now()
@@ -143,10 +154,13 @@ if (typeof global.gc !== 'function') {
       teardown_live_handles_after: live.size,
     })}\n`)
   } catch (error) {
+    const diagnostic = typeof error === 'object' && error !== null && 'diagnostic' in error
+      ? error.diagnostic
+      : undefined
     process.stdout.write(`${JSON.stringify({
       schema_version: 'dsh-runtime-kit.policy-performance.v1',
       ok: false,
-      error: error?.diagnostic ?? { code: 'DSH_RUNTIME_KIT_POLICY_BENCHMARK_FAILED' },
+      error: diagnostic ?? { code: 'DSH_RUNTIME_KIT_POLICY_BENCHMARK_FAILED' },
     })}\n`)
     process.exitCode = 1
   }

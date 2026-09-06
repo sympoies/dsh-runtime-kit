@@ -72,7 +72,7 @@ exec node "$basedir/../pnpm/bin/pnpm.mjs" "$@"
       valid: true,
       args: ['store', 'path', '--silent', '--store-dir', storeRoot],
     })
-    const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.mjs'), 'utf8')
+    const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.ts'), 'utf8')
     assert.match(runner, /discoverPreparedPnpmStore/u)
     assert.match(
       runner,

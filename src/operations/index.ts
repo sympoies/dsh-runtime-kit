@@ -112,9 +112,7 @@ const HEALTH_COMMAND_TIMEOUT_MS = 30_000
 const PACKAGE_COMMAND_TIMEOUT_MS = 120_000
 const MUTATION_COMMAND_TIMEOUT_MS = 10 * 60_000
 const MIN_COMMAND_TIMEOUT_MS = 100
-// `supervise-command.mjs` is plain JavaScript that the build does not emit,
-// so it is resolved from the shipped sources rather than from `dist`.
-const COMMAND_SUPERVISOR = packageAsset('src', 'operations', 'supervise-command.mjs')
+const COMMAND_SUPERVISOR = fileURLToPath(new URL('./supervise-command.js', import.meta.url))
 const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
