@@ -37,6 +37,68 @@ export {
   inspectAgentConsoleRc7Profile,
 } from './src/compat/agent-console.js'
 
+// `ctx.skills` reaches the Cordis `Context` interface through a module
+// augmentation in `@deepseek-ai/dsh-skill`, which only loads once a declaring
+// module is referenced. Reference the declared peer that imports it rather than
+// `dsh-skill` itself, which this package does not declare.
+/** @typedef {import('@deepseek-ai/dsh-skill-filesystem').FileSystemSkillProvider} FileSystemSkillProvider */
+
+/** @typedef {import('@deepseek-ai/cordis').Context} Context */
+/** @typedef {import('node:fs').Stats} Stats */
+
+/**
+ * The context this bundle is applied to: DSH's Cordis `Context` after the
+ * `native-execution-boundaries-v5` source patch this package requires, which
+ * adds the pre-waterfall model guard. The pinned `@deepseek-ai/dsh-llm` types
+ * describe the unpatched runtime and cannot express it, so declare it here.
+ *
+ * @typedef {Context & {
+ *   llm: Context['llm'] & {
+ *     guard: (guard: (options: any) => Promise<string | undefined>) => () => void,
+ *   },
+ * }} PatchedContext
+ */
+
+/**
+ * Bundle configuration. Unknown keys are carried through to the child plugins
+ * and the nils providers, which validate the fields they own.
+ *
+ * @typedef {{
+ *   privateSkillsDir?: string,
+ *   privateSkillMaxDepth?: number,
+ *   privateSkillMaxEntries?: number,
+ *   artifactsRoot?: string,
+ *   healthProbeTimeoutMs?: number,
+ *   healthDisposeTimeoutMs?: number,
+ *   protectedRoots?: string[],
+ *   [key: string]: unknown,
+ * }} RuntimeKitConfig
+ */
+
+/**
+ * @typedef {{
+ *   path: string,
+ *   type: 'file' | 'directory',
+ *   dev: number,
+ *   ino: number,
+ *   mode: number,
+ *   uid: number,
+ *   size: number,
+ *   mtimeMs: number,
+ *   ctimeMs: number,
+ * }} PrivateEntry
+ */
+
+/**
+ * @typedef {{
+ *   root: string,
+ *   rootFingerprint: PrivateEntry,
+ *   entries: PrivateEntry[],
+ * }} PrivateTree
+ */
+
+/** @typedef {{ maxDepth?: number, maxEntries?: number }} PrivateLimitOptions */
+
 export const name = 'dsh-runtime-kit'
 export const inject = [
   'agents',
@@ -60,6 +122,7 @@ const MAX_PRIVATE_FILE_BYTES = 4 * 1024 * 1024
 const MAX_PRIVATE_TOTAL_BYTES = 32 * 1024 * 1024
 const PRIVATE_PROVIDER = 'dsh-runtime-kit-private-snapshot'
 
+/** @param {RuntimeKitConfig} config */
 function configuredPrivateSkillsDir(config) {
   const configured = config.privateSkillsDir
     ?? process.env.DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR
@@ -87,6 +150,8 @@ const ARTIFACT_LIMIT_FIELDS = Object.freeze({
  * Resolve the owner-private artifact store root. It defaults to a
  * runtime-kit-owned directory below the DSH home so it shares the harness's
  * private state boundary; an explicit absolute override is accepted.
+ *
+ * @param {RuntimeKitConfig} config
  */
 function configuredArtifactsRoot(config) {
   const configured = config.artifactsRoot ?? process.env.DSH_RUNTIME_KIT_ARTIFACTS_ROOT
@@ -101,12 +166,14 @@ function configuredArtifactsRoot(config) {
   return join(home, 'dsh-runtime-kit', 'artifacts', 'v1')
 }
 
+/** @param {RuntimeKitConfig} config */
 function artifactLimits(config) {
+  /** @type {Record<string, number>} */
   const limits = {}
   for (const [field, target] of Object.entries(ARTIFACT_LIMIT_FIELDS)) {
     const value = config[field]
     if (value === undefined) continue
-    if (!Number.isInteger(value) || value < 1) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
       throw new TypeError(`dsh-runtime-kit: ${field} must be a positive integer`)
     }
     limits[target] = value
@@ -114,14 +181,21 @@ function artifactLimits(config) {
   return limits
 }
 
+/**
+ * @param {unknown} value
+ * @param {number} fallback
+ * @param {number} hardMaximum
+ * @param {string} field
+ */
 function boundedLimit(value, fallback, hardMaximum, field) {
   if (value === undefined) return fallback
-  if (!Number.isInteger(value) || value < 1) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new TypeError(`dsh-runtime-kit: ${field} must be a positive integer`)
   }
   return Math.min(value, hardMaximum)
 }
 
+/** @param {PrivateLimitOptions} [options] */
 function privateLimits(options = {}) {
   return {
     maxDepth: boundedLimit(
@@ -139,16 +213,22 @@ function privateLimits(options = {}) {
   }
 }
 
+/** @param {Stats} metadata */
 function writableByGroupOrWorld(metadata) {
   return (metadata.mode & 0o022) !== 0
 }
 
+/**
+ * @param {Stats} metadata
+ * @param {string} subject
+ */
 function assertCurrentUserOwner(metadata, subject) {
   if (typeof process.getuid === 'function' && metadata.uid !== process.getuid()) {
     throw new Error(`dsh-runtime-kit: ${subject} must be owned by the current user`)
   }
 }
 
+/** @param {string} directory */
 async function assertTrustedAncestor(directory) {
   const metadata = await stat(directory)
   if (!metadata.isDirectory()) {
@@ -163,6 +243,12 @@ async function assertTrustedAncestor(directory) {
   }
 }
 
+/**
+ * @param {string} path
+ * @param {'file' | 'directory'} type
+ * @param {Stats} metadata
+ * @returns {PrivateEntry}
+ */
 function entryFingerprint(path, type, metadata) {
   return {
     path,
@@ -177,6 +263,10 @@ function entryFingerprint(path, type, metadata) {
   }
 }
 
+/**
+ * @param {PrivateEntry} expected
+ * @param {Stats} metadata
+ */
 function sameFingerprint(expected, metadata) {
   return expected.dev === metadata.dev
     && expected.ino === metadata.ino
@@ -187,6 +277,11 @@ function sameFingerprint(expected, metadata) {
     && expected.ctimeMs === metadata.ctimeMs
 }
 
+/**
+ * @param {string} root
+ * @param {{ maxDepth: number, maxEntries: number }} limits
+ * @returns {Promise<PrivateTree>}
+ */
 async function trustedPrivateTree(root, limits) {
   const rootLinkMetadata = await lstat(root)
   if (rootLinkMetadata.isSymbolicLink()) {
@@ -208,11 +303,11 @@ async function trustedPrivateTree(root, limits) {
     if (cursor === filesystemRoot) break
   }
 
+  /** @type {PrivateEntry[]} */
   const entries = []
   const stack = [{ directory: canonical, depth: 0 }]
   let totalBytes = 0
-  while (stack.length > 0) {
-    const current = stack.pop()
+  for (let current = stack.pop(); current !== undefined; current = stack.pop()) {
     const children = await readdir(current.directory, { withFileTypes: true })
     children.sort((left, right) => left.name.localeCompare(right.name))
     for (const child of children) {
@@ -263,11 +358,19 @@ async function trustedPrivateTree(root, limits) {
   }
 }
 
+/**
+ * @param {PrivateTree} left
+ * @param {PrivateTree} right
+ */
 function sameTree(left, right) {
   return JSON.stringify(left.rootFingerprint) === JSON.stringify(right.rootFingerprint)
     && JSON.stringify(left.entries) === JSON.stringify(right.entries)
 }
 
+/**
+ * @param {string} root
+ * @param {string} child
+ */
 function containedDestination(root, child) {
   const destination = resolve(root, child)
   if (destination !== root && !destination.startsWith(`${root}${sep}`)) {
@@ -276,6 +379,10 @@ function containedDestination(root, child) {
   return destination
 }
 
+/**
+ * @param {PrivateTree} observation
+ * @param {string} snapshotRoot
+ */
 async function copyPrivateTree(observation, snapshotRoot) {
   const fileContents = new Map()
   const directories = observation.entries
@@ -314,6 +421,10 @@ async function copyPrivateTree(observation, snapshotRoot) {
   return fileContents
 }
 
+/**
+ * @param {string} raw
+ * @param {number} start
+ */
 function findClosingFrontmatter(raw, start) {
   let lineStart = start
   while (lineStart <= raw.length) {
@@ -329,6 +440,7 @@ function findClosingFrontmatter(raw, start) {
   return undefined
 }
 
+/** @param {string} raw */
 function parseFrontmatter(raw) {
   const firstLineEnd = raw.indexOf('\n')
   if (firstLineEnd < 0 || raw.slice(0, firstLineEnd).replace(/\r$/, '') !== '---') return undefined
@@ -339,6 +451,10 @@ function parseFrontmatter(raw) {
   return { data, body: raw.slice(closing.bodyStart).trim() }
 }
 
+/**
+ * @param {Record<string, unknown>} data
+ * @param {string} key
+ */
 function frontmatterBoolean(data, key) {
   if (!Object.hasOwn(data, key)) return undefined
   const value = data[key]
@@ -352,6 +468,7 @@ function frontmatterBoolean(data, key) {
   throw new TypeError(`frontmatter field "${key}" must be a boolean`)
 }
 
+/** @param {Record<string, unknown>} data */
 function parseInvocationPolicy(data) {
   for (const legacy of ['disableModelInvocation', 'modelInvocable', 'userInvocable']) {
     if (Object.hasOwn(data, legacy)) {
@@ -364,6 +481,11 @@ function parseInvocationPolicy(data) {
   }
 }
 
+/**
+ * @param {string} raw
+ * @param {string} path
+ * @param {string} resourcePath
+ */
 function parsePrivateSkill(raw, path, resourcePath) {
   const parsed = parseFrontmatter(raw)
   if (parsed === undefined) return undefined
@@ -389,6 +511,11 @@ function parsePrivateSkill(raw, path, resourcePath) {
   })
 }
 
+/**
+ * @param {PrivateTree} observation
+ * @param {string} snapshotRoot
+ * @param {Map<string, Buffer>} contents
+ */
 function privateDefinitions(observation, snapshotRoot, contents) {
   const definitions = []
   const names = new Set()
@@ -413,6 +540,10 @@ function privateDefinitions(observation, snapshotRoot, contents) {
   return Object.freeze(definitions.sort((left, right) => left.name.localeCompare(right.name)))
 }
 
+/**
+ * @param {PrivateTree} observation
+ * @param {string} snapshotRoot
+ */
 async function sealSnapshot(observation, snapshotRoot) {
   for (const entry of observation.entries.filter(candidate => candidate.type === 'file')) {
     const executable = (entry.mode & 0o111) !== 0
@@ -427,6 +558,10 @@ async function sealSnapshot(observation, snapshotRoot) {
   await chmod(snapshotRoot, 0o500)
 }
 
+/**
+ * @param {PrivateTree} observation
+ * @param {string} snapshotRoot
+ */
 async function removeSnapshot(observation, snapshotRoot) {
   try {
     await chmod(snapshotRoot, 0o700)
@@ -445,6 +580,9 @@ async function removeSnapshot(observation, snapshotRoot) {
  * and 32 MiB total. Every regular file is read through O_NOFOLLOW and matched
  * before/after by inode metadata, the source tree is revalidated after copy,
  * and definitions are parsed from retained bytes rather than reopened paths.
+ *
+ * @param {unknown} configured
+ * @param {PrivateLimitOptions} [options]
  */
 export async function snapshotPrivateSkills(configured, options = {}) {
   if (typeof configured !== 'string' || !isAbsolute(configured)) {
@@ -484,6 +622,10 @@ export async function snapshotPrivateSkills(configured, options = {}) {
   }
 }
 
+/**
+ * @param {PatchedContext} ctx
+ * @param {RuntimeKitConfig} [config]
+ */
 export async function apply(ctx, config = {}) {
   const privateRoot = configuredPrivateSkillsDir(config)
   const privateSnapshot = privateRoot === undefined
@@ -503,6 +645,7 @@ export async function apply(ctx, config = {}) {
     const { installNilsHealthProviders } = await import('./src/health/nils-provider.js')
     const childPlugins = createChildPluginStatus()
     const managedSessionBridge = createManagedSessionBridge()
+    /** @type {RuntimeKitConfig} */
     const configuredRuntime = { ...config, managedSessionBridge }
     await ctx.plugin(RuntimeHealth, {
       probeTimeoutMs: config.healthProbeTimeoutMs,
@@ -518,6 +661,7 @@ export async function apply(ctx, config = {}) {
       dshRuntime,
       childPlugins,
     })
+    /** @type {RuntimeKitConfig} */
     const runtimeConfig = { ...configuredRuntime, ...authenticatedNils }
     await health.require('runtime-core')
     await Promise.all([

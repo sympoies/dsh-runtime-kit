@@ -13,6 +13,8 @@
     ]
   },
   "include": [
+    "index.js",
+    "bin/**/*.js",
     "policy.js",
     "src/**/*.js"
   ]

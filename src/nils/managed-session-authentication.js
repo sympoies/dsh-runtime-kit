@@ -179,6 +179,7 @@ function remainingAuthenticationMs(deadlineAt) {
  *   cliTimeoutMs?: number,
  *   cliTeardownTimeoutMs?: number,
  *   maxActiveCliCalls?: number,
+ *   [key: string]: unknown,
  * }} config
  * @param {{bind?: (id:string, principal:unknown) => (() => void), registerAuthenticator?: (candidate:(id:string, execution:unknown) => Promise<unknown>) => (() => void)}} bridge
  * @param {Readonly<NodeJS.ProcessEnv>} [environment]

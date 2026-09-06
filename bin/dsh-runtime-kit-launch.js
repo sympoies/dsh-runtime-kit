@@ -6,6 +6,10 @@ import { delimiter, join } from 'node:path'
 
 import { readActivation, resolveActivationRoot } from '../src/activation/index.js'
 
+/**
+ * @param {string} message
+ * @returns {never}
+ */
 function fail(message) {
   process.stderr.write(`dsh-runtime-kit-launch: ${message}\n`)
   process.exit(64)
@@ -32,6 +36,7 @@ if (existsSync(join(runtimeRoot, 'activation.json'))) {
     fail(error instanceof Error ? error.message : 'activation manifest is invalid')
   }
 }
+/** @type {NodeJS.ProcessEnv} */
 const environment = {
   ...process.env,
   DSH_RUNTIME_KIT_RUNTIME_ROOT: runtimeRoot,
@@ -44,6 +49,7 @@ const environment = {
   },
 }
 
+/** @param {string} command */
 function resolveCommand(command) {
   if (command.includes('/')) return command
   for (const directory of (environment.PATH ?? '').split(delimiter).filter(Boolean)) {

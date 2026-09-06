@@ -1,4 +1,5 @@
 // @ts-check
+/** @typedef {import('@deepseek-ai/cordis').Context} Context */
 
 /** @typedef {'main_agent_mode' | 'review_specialists'} ChildPluginName */
 /** @typedef {{state: 'pending' | 'active' | 'unloaded' | 'failed', reason?: 'activation-rejected' | 'lifecycle-failed', error_name?: string}} ChildPluginState */
@@ -86,7 +87,7 @@ function projectFiberState(fiber) {
  * @param {() => unknown | Promise<unknown>} activate
  * @param {{warn?: (...args: unknown[]) => void} | undefined} logger
  * @param {((name: 'main_agent_mode' | 'review_specialists', state: ChildPluginState) => void) | undefined} onTransition
- * @param {{effect?: (install: () => (() => void), name?: string) => unknown, on?: (name: string, listener: (...args: any[]) => void) => unknown} | undefined} lifecycleContext
+ * @param {Context | undefined} lifecycleContext
  */
 export function observeChildPluginActivation(
   status,

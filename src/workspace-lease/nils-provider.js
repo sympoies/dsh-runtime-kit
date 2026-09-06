@@ -441,6 +441,7 @@ function releaseResult(raw) {
  *   workspaceLeaseTimeoutMs?: number,
  *   workspaceLeaseTeardownTimeoutMs?: number,
  *   maxActiveWorkspaceLeaseRequests?: number,
+ *   [key: string]: unknown,
  * }} [config]
  * @returns {WorkspaceLeaseProvider}
  */

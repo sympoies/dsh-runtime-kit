@@ -821,7 +821,7 @@ function ownRegistration(ctx, dispose, label) {
  *
  * @param {Context} ctx
  * @param {import('./index.js').RuntimeHealth} health
- * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string}} config
+ * @param {{agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}} config
  * @param {{compatibility?: unknown, dshRuntime: unknown, childPlugins: {main_agent_mode: {state:string}, review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}} options
  */
 export async function installNilsHealthProviders(ctx, health, config, options) {

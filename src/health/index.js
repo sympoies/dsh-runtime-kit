@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto'
 
 import { Service } from '@deepseek-ai/cordis'
 
+/** @typedef {import('@deepseek-ai/cordis').Context} Context */
+
 export const HEALTH_SNAPSHOT_SCHEMA = 'dsh-runtime-kit.health-snapshot.v1'
 
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u
@@ -521,7 +523,11 @@ async function admit(health, selected, session, signal, refreshProject = false) 
 /**
  * Install model-hidden health admission on DSH's native pre-waterfall model
  * guard and monotonic post-waterfall tool guard.
- * @param {{llm: {guard: (guard: (options: any) => Promise<string | undefined>) => () => void}, sessions: {get: (id: string) => unknown}, tools: {guard: (guard: (exec: any) => string | undefined) => () => void}}} ctx
+ * `llm.guard` comes from this package's `native-execution-boundaries-v5` source
+ * patch and is absent from the pinned DSH types; `sessions` and `tools` are the
+ * native runtime surfaces, so take their shapes from `Context` rather than
+ * restating them less precisely.
+ * @param {{llm: {guard: (guard: (options: any) => Promise<string | undefined>) => () => void}, sessions: Context['sessions'], tools: Context['tools']}} ctx
  * @param {RuntimeHealth} health
  * @param {{sessionRequirements?: unknown[], toolRequirements?: Record<string, unknown[]>}} [config]
  */
