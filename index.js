@@ -37,12 +37,11 @@ export {
   inspectAgentConsoleRc7Profile,
 } from './src/compat/agent-console.js'
 
-// The DSH runtime packages augment the Cordis `Context` interface (`skills`,
-// `llm`, `tools`, `sessions`). Those augmentations only reach this file's type
-// graph when the declaring modules are referenced, so pull them in by type.
-/** @typedef {import('@deepseek-ai/dsh-skill').SkillRegistry} SkillRegistry */
-/** @typedef {import('@deepseek-ai/dsh-llm').LlmRuntime} LlmRuntime */
-/** @typedef {import('@deepseek-ai/dsh-tools').ToolRunContext} ToolRunContext */
+// `ctx.skills` reaches the Cordis `Context` interface through a module
+// augmentation in `@deepseek-ai/dsh-skill`, which only loads once a declaring
+// module is referenced. Reference the declared peer that imports it rather than
+// `dsh-skill` itself, which this package does not declare.
+/** @typedef {import('@deepseek-ai/dsh-skill-filesystem').FileSystemSkillProvider} FileSystemSkillProvider */
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
 /** @typedef {import('node:fs').Stats} Stats */

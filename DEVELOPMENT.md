@@ -100,16 +100,24 @@ A TypeScript source layout would therefore need a build step. That is a
 packaging decision, not a digest one: the operations plan digest binds the
 packed tarball and extracted package-tree identity, so it guarantees that apply
 installs exactly the artifact preview reviewed, whether that artifact holds
-sources or build output. What actually blocks a build step is the local install
-path. `src/operations/index.js` and every packing test harness resolve a local
-directory target through `npm pack --ignore-scripts`, so no build runs at pack
-time and a stale `dist/` would install while the source tree, the typecheck and
-the receipt all still look correct — the same failure shape as skipping the
-`tsdown` stage of the DSH rebuild. A build step therefore needs a pack-time
-freshness gate that fails closed before it needs anything else. Publishing to
-the registry is not the constrained half: `lifecycle-scripts-declared` refuses
-an installed package that declares `preinstall`, `install`, `postinstall`, or
-`prepare`, which `prepublishOnly` and a CI build both avoid.
+sources or build output.
+
+What actually blocks a build step is that **no packaging path can ever run it**.
+`INSTALL_LIFECYCLE_SCRIPTS` in `src/operations/index.js` refuses an installed
+package declaring any of `preinstall`, `install`, `postinstall`, `prepare`,
+`preprepare`, `postprepare`, `prepublish`, `prepublishOnly`, `prepack`,
+`postpack`, or `dependencies`, so every npm hook that could build is closed —
+`prepublishOnly` and `prepack` included. A plain `build` script is permitted
+because it is not a lifecycle name, but nothing invokes it automatically. On top
+of that, `src/operations/index.js` and most packing harnesses pass
+`--ignore-scripts` (11 of the 14 `npm pack` call sites; the three that do not
+gain nothing, because the hooks they would run are exactly the refused ones).
+
+A stale build output would therefore install while the source tree, the
+typecheck, the digest and the receipt all still look correct — the same failure
+shape as skipping the `tsdown` stage of the DSH rebuild. Any build step needs a
+content-based pack-time freshness gate that fails closed before it needs
+anything else.
 
 ## Routine validation
 

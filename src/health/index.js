@@ -5,8 +5,6 @@ import { createHash } from 'node:crypto'
 import { Service } from '@deepseek-ai/cordis'
 
 /** @typedef {import('@deepseek-ai/cordis').Context} Context */
-/** @typedef {import('@deepseek-ai/dsh-session').Session} Session */
-/** @typedef {import('@deepseek-ai/dsh-tools').ToolRunContext} ToolRunContext */
 
 export const HEALTH_SNAPSHOT_SCHEMA = 'dsh-runtime-kit.health-snapshot.v1'
 
