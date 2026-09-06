@@ -552,7 +552,7 @@ Three deployments are deliberately distinct:
 
 The engine is the checkout's own operations plane. `--engine-root` selects
 another installed `@sympoies/dsh-runtime-kit` tree that carries
-`bin/dsh-runtime-kit.js` and `bin/dsh-runtime-kit-launch.js` — the packed
+`dist/bin/dsh-runtime-kit.js` and `dist/bin/dsh-runtime-kit-launch.js` — the packed
 candidate inside the acceptance sandbox, whose source checkout has no installed
 dependencies — and the receipt records which engine root and version ran.
 

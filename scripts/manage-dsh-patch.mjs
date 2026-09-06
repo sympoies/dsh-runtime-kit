@@ -5,7 +5,7 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { DshPatchError, manageDshPatch } from '../src/compat/dsh-patch.js'
+import { DshPatchError, manageDshPatch } from '../dist/src/compat/dsh-patch.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 

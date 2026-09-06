@@ -21,13 +21,13 @@ import { test } from 'node:test'
 
 import { Context, symbols } from '@deepseek-ai/cordis'
 
-import { RuntimeHealth } from '../src/health/index.js'
+import { RuntimeHealth } from '../dist/src/health/index.js'
 import {
   createSnapshotExecutionOwner,
   installNilsHealthProviders,
   resolveNilsHealthCompatibility,
   snapshotExecutable,
-} from '../src/health/nils-provider.js'
+} from '../dist/src/health/nils-provider.js'
 
 const OWNER = '@sympoies/dsh-runtime-kit'
 

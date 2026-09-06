@@ -4,13 +4,13 @@ import { test } from 'node:test'
 import {
   WORKSPACE_LEASE_UNAVAILABLE,
   WorkspaceLeaseError,
-} from '../src/workspace-lease/index.js'
+} from '../dist/src/workspace-lease/index.js'
 import {
   applyNilsWorkspaceLease,
   createNilsWorkspaceLeaseProvider,
-} from '../src/workspace-lease/nils-provider.js'
-import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
-import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+} from '../dist/src/workspace-lease/nils-provider.js'
+import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
+import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 function agentHookArgs(...args) {
   return [

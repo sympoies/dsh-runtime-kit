@@ -1,0 +1,13 @@
+{
+  "schema_version": "dsh-runtime-kit.build-provenance.v1",
+  "sources": [
+    "src",
+    "index.ts",
+    "policy.ts",
+    "bin"
+  ],
+  "outputs": [
+    "dist"
+  ],
+  "source_sha256": "3cbf4a12c4188c4042ecc70e1f3e42303e1fb5427fb82bd8e5052e27c610a512"
+}

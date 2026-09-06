@@ -73,7 +73,7 @@ the source-of-truth list below; they are not automatic model context.
 - `docs/architecture.md` owns runtime design and trust-boundary rationale.
 - `docs/operations.md` owns activation and operator procedures, including the
   repository-owned generic deploy dispatcher `.agents/scripts/deploy.sh`
-  (implemented in `src/deploy/index.js`) that the shared `meta:deploy` skill
+  (implemented in `src/deploy/index.ts`) that the shared `meta:deploy` skill
   invokes through `agent-run exec --cwd <repo> -- ./.agents/scripts/deploy.sh`.
 - `docs/acceptance.md` owns the current local-rehearsal and final-promotion
   acceptance boundary.
@@ -85,39 +85,57 @@ Keep DSH/TUI-version-specific adaptation isolated under `src/compat/`,
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
-The shipped sources are JavaScript with JSDoc types; `npm run typecheck` checks
-`index.js`, `bin/**`, `policy.js`, and `src/**` under `strict` through
-`jsconfig.json`. Do not convert them to `.ts` files executed by Node's type
-stripping: Node refuses to strip types from any file whose real path contains a
-`node_modules` segment, and both production surfaces of this package resolve to
-one (`dsh plugin add` installs the tarball as a real directory under the
-profile's `node_modules`, and the operations CLI is installed with `npm install
---global`). `test/smoke.mjs` does not exercise that failure because it launches
-DSH through `pnpm dsh`, whose script runs the source checkout under `tsx`. The
-Gate 0 record on issue #202 holds the probes.
+The shipped sources are TypeScript. `npm run build` compiles them to `dist/`
+with `tsc -p tsconfig.json`, and `npm run typecheck` is the same compile with
+`--noEmit`. Import specifiers keep their `.js` extension: `NodeNext` resolves
+`./x.js` to `x.ts`, so nothing in the source rewrites when the build layout
+changes.
 
-A TypeScript source layout would therefore need a build step. That is a
-packaging decision, not a digest one: the operations plan digest binds the
-packed tarball and extracted package-tree identity, so it guarantees that apply
-installs exactly the artifact preview reviewed, whether that artifact holds
-sources or build output.
+`npm run build:emit` is the same compile with `--noCheck`: it emits `dist/` without
+resolving the DSH peer types. It exists for the CI legs that install the
+consumer with `--omit=peer` and need the compiled `scripts/*.mjs` imports before
+the selected DSH closure is staged; it is not a substitute for `npm run build`,
+which those legs still run through `pretest` once the closure is in place.
 
-What actually blocks a build step is that **no packaging path can ever run it**.
-`INSTALL_LIFECYCLE_SCRIPTS` in `src/operations/index.js` refuses an installed
-package declaring any of `preinstall`, `install`, `postinstall`, `prepare`,
-`preprepare`, `postprepare`, `prepublish`, `prepublishOnly`, `prepack`,
-`postpack`, or `dependencies`, so every npm hook that could build is closed —
-`prepublishOnly` and `prepack` included. A plain `build` script is permitted
-because it is not a lifecycle name, but nothing invokes it automatically. On top
-of that, `src/operations/index.js` and most packing harnesses pass
-`--ignore-scripts` (11 of the 14 `npm pack` call sites; the three that do not
-gain nothing, because the hooks they would run are exactly the refused ones).
+**No npm lifecycle hook may run the build.** `INSTALL_LIFECYCLE_SCRIPTS` in
+`src/operations/index.ts` refuses an installed package declaring any of
+`preinstall`, `install`, `postinstall`, `prepare`, `preprepare`,
+`postprepare`, `prepublish`, `prepublishOnly`, `prepack`, `postpack`, or
+`dependencies`. A plain `build` script is permitted because it is not a
+lifecycle name, and `pretest` runs it before the suite, but nothing builds
+automatically at pack or install time. `npm pack --ignore-scripts` would not run
+a hook even if one were allowed.
 
-A stale build output would therefore install while the source tree, the
-typecheck, the digest and the receipt all still look correct — the same failure
-shape as skipping the `tsdown` stage of the DSH rebuild. Any build step needs a
-content-based pack-time freshness gate that fails closed before it needs
-anything else.
+That is why the artifact carries its own freshness proof.
+`package.json#dsh.build` declares
+[`compatibility/build-provenance.json`](compatibility/build-provenance.json),
+which records the digest of the sources the build consumed;
+`npm run build:provenance` writes it. The operations engine recomputes that
+digest from the sources **as packed** and refuses a mismatch as
+`build-output-stale`. Without it a stale `dist/` would install while the source
+tree, the typecheck, the plan digest and the receipt all still looked correct —
+the same failure shape as skipping the `tsdown` stage of the DSH rebuild.
+
+Two rules follow, and both are easy to get wrong:
+
+- The provenance writer takes its file list from `npm pack --dry-run --json`,
+  never from a walk of the working tree. `npm` drops the names it always
+  ignores and a tarball carries no directory entries, so a working-tree walk
+  disagrees with the extracted package over entirely ordinary contents and fails
+  every install as stale with no rebuild able to fix it.
+- The tarball ships `src/**` beside `dist/**`. The engine needs the packed
+  sources to recompute the digest at all, and a review still reads the source in
+  the artifact itself.
+
+Resolve a packaged asset with `packageAsset()` from `src/package-root.ts`, not
+with `new URL(..., import.meta.url)`. A built module sits under `dist/` at a
+depth that differs per file, so a module-relative asset path resolves inside the
+build output where no asset exists.
+
+Node still refuses to strip types from any `.ts` under `node_modules`
+(`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`, re-verified on Node 26), which
+is why the package ships compiled JavaScript rather than executing its
+TypeScript directly. The Gate 0 record on issue #202 holds those probes.
 
 ## Routine validation
 

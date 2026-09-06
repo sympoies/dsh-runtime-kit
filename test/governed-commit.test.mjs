@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createGovernedCommitTool } from '../src/governed-commit/index.js'
-import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+import { createGovernedCommitTool } from '../dist/src/governed-commit/index.js'
+import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 const expectedHead = 'a'.repeat(40)
 
@@ -41,7 +41,7 @@ function semanticReceipt() {
     target: null,
     staged: {
       file_count: 1,
-      files: [{ status: 'M', path: 'src/runtime.js', old_path: null }],
+      files: [{ status: 'M', path: 'src/runtime.ts', old_path: null }],
     },
   }
 }
@@ -164,7 +164,7 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
     },
     staged: {
       file_count: 1,
-      files: [{ status: 'M', path: 'src/runtime.js', old_path: null }],
+      files: [{ status: 'M', path: 'src/runtime.ts', old_path: null }],
     },
   })
 })

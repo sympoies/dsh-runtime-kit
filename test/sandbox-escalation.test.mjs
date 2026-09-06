@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { normalizeSandboxEscalationRequest } from '../src/policy/index.js'
+import { normalizeSandboxEscalationRequest } from '../dist/src/policy/index.js'
 
 const isNonWideningEcho = (permissions, effectiveMode) => permissions === effectiveMode
   || (permissions === 'workspace-write' && effectiveMode === 'danger-full-access')

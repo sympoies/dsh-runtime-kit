@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
-import { digestSourceFiles } from '../src/operations/build-provenance.js'
+import { digestSourceFiles } from '../dist/src/operations/build-provenance.js'
 
 /**
  * Compute a source digest the way a build must: over the file list `npm pack`
@@ -46,7 +46,7 @@ function packedProvenanceDigest(dir, sources) {
 }
 
 const projectRoot = resolve(import.meta.dirname, '..')
-const cli = join(projectRoot, 'bin', 'dsh-runtime-kit.js')
+const cli = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit.js')
 const commandSupervisor = join(projectRoot, 'src', 'operations', 'supervise-command.mjs')
 
 const sha256 = value => createHash('sha256').update(value).digest('hex')
@@ -3813,7 +3813,7 @@ test('a package whose declared build output is stale is rejected before any prof
     // Edit a source after the provenance was recorded. This is exactly the
     // shape of forgetting to rebuild: the tree, the receipt and the digest all
     // still look coherent, and only the recorded source identity disagrees.
-    writeFileSync(join(staged, 'src', 'entry.js'), 'export const a = 2\n', { mode: 0o600 })
+    writeFileSync(join(staged, 'src', 'entry.ts'), 'export const a = 2\n', { mode: 0o600 })
     const manifestBefore = readFileSync(join(subject.profileDir, 'package.json'))
     const rejected = run(subject, ['setup', '--profile', 'work', '--package', staged])
     assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
@@ -3854,7 +3854,7 @@ test('a source root holding npm-ignored names and an empty directory is still ad
   try {
     const staged = stageBundle(subject.root, '1.6.5')
     mkdirSync(join(staged, 'src', 'sub'), { recursive: true, mode: 0o700 })
-    writeFileSync(join(staged, 'src', 'sub', 'kept.js'), 'export const c = 3\n', { mode: 0o600 })
+    writeFileSync(join(staged, 'src', 'sub', 'kept.ts'), 'export const c = 3\n', { mode: 0o600 })
     // npm never packs these, and a tarball carries no directory entries, so an
     // empty directory does not survive a pack and extract either. A digest
     // taken over the working tree would disagree with the packed tree here and
@@ -3876,7 +3876,7 @@ test('a build provenance that records its own digest is refused as unsatisfiable
   try {
     const staged = stageBundle(subject.root, '1.6.6')
     mkdirSync(join(staged, 'src'), { recursive: true, mode: 0o700 })
-    writeFileSync(join(staged, 'src', 'entry.js'), 'export const a = 1\n', { mode: 0o600 })
+    writeFileSync(join(staged, 'src', 'entry.ts'), 'export const a = 1\n', { mode: 0o600 })
     mkdirSync(join(staged, 'dist'), { recursive: true, mode: 0o700 })
     writeFileSync(join(staged, 'dist', 'entry.js'), 'export const a = 1\n', { mode: 0o600 })
     const manifest = JSON.parse(readFileSync(join(staged, 'package.json'), 'utf8'))

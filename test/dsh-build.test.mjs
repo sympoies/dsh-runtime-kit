@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import {
   DshBuildClosureError,
   digestDshBuildClosure,
-} from '../src/acceptance/dsh-build.js'
+} from '../dist/src/acceptance/dsh-build.js'
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-build-'))

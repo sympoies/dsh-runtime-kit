@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createCliClient } from '../src/main-agent/cli-client.js'
-import { parseStartTime } from '../src/main-agent/lanes.js'
+import { createCliClient } from '../dist/src/main-agent/cli-client.js'
+import { parseStartTime } from '../dist/src/main-agent/lanes.js'
 
 function createHarness({ handleFactory } = {}) {
   const effects = []

@@ -12,7 +12,7 @@ import {
   DshPatchError,
   manageDshPatch,
   validateDshPatchManifest,
-} from '../src/compat/dsh-patch.js'
+} from '../dist/src/compat/dsh-patch.js'
 
 const run = promisify(execFile)
 const sha256 = value => createHash('sha256').update(value).digest('hex')

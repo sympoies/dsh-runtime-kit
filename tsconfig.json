@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2023",
+    "lib": [
+      "ES2023"
+    ],
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": [
+      "node"
+    ],
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "noEmitOnError": true
+  },
+  "include": [
+    "index.ts",
+    "policy.ts",
+    "bin/**/*.ts",
+    "src/**/*.ts"
+  ]
+}

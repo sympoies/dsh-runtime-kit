@@ -20,7 +20,7 @@ capability_groups:
     status: implemented
     source_keys:
       - reason:read-only-capability
-    implementation_owner: dsh-runtime-kit:src/policy/index.js#applyPolicy
+    implementation_owner: dsh-runtime-kit:src/policy/index.ts#applyPolicy
     test_owners:
       - dsh-runtime-kit:test/plugin-contract.test.mjs#pre-body-policy-admission
     stronger_replacement: Every DSH tool crosses the monotonic nils pre-execute gate; the legacy shadow-only Bash observation is no longer an enforcement boundary.
@@ -234,7 +234,7 @@ capability_groups:
     status: implemented
     source_keys:
       - handler:session-start-healthcheck
-    implementation_owner: dsh-runtime-kit:src/health/index.js#installRuntimeHealthAdmission
+    implementation_owner: dsh-runtime-kit:src/health/index.ts#installRuntimeHealthAdmission
     test_owners:
       - dsh-runtime-kit:test/runtime-health.test.mjs#project-health-refresh
       - dsh-runtime-kit:test/runtime-health-provider.test.mjs#authenticated-nils-providers
@@ -265,7 +265,7 @@ capability_groups:
     status: implemented
     source_keys:
       - handler:user-prompt-agent-docs
-    implementation_owner: dsh-runtime-kit:src/context/index.js#createRuntimeContextTool
+    implementation_owner: dsh-runtime-kit:src/context/index.ts#createRuntimeContextTool
     test_owners:
       - dsh-runtime-kit:test/context.test.mjs
       - dsh-runtime-kit:test/plugin-contract.test.mjs#automatic-tool-prerequisites

@@ -5,7 +5,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import * as runtimeKit from '../index.js'
+import * as runtimeKit from '../dist/index.js'
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 

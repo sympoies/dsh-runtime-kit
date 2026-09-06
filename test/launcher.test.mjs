@@ -5,10 +5,10 @@ import { join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 
-import { activationSha256, assetSetSha256, renderAgentHookConfig } from '../src/activation/index.js'
+import { activationSha256, assetSetSha256, renderAgentHookConfig } from '../dist/src/activation/index.js'
 
 const projectRoot = resolve(import.meta.dirname, '..')
-const launcher = join(projectRoot, 'bin', 'dsh-runtime-kit-launch.js')
+const launcher = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit-launch.js')
 
 function invoke(runtimeRoot, extraEnvironment = {}) {
   return spawnSync(process.execPath, [

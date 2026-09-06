@@ -135,7 +135,7 @@ test('no shipped file carries an active registration, config key, or branch for 
     }
   }
   const packageJson = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  assert.equal(existsSync(join(ROOT, 'src', 'artifacts', 'memory-provider.js')), false)
+  assert.equal(existsSync(join(ROOT, 'src', 'artifacts', 'memory-provider.ts')), false)
   assert.equal(packageJson.files.includes('test/helpers'), false, 'test helpers never ship')
 })
 

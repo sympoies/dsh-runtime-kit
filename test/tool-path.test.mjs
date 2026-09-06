@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { createToolPath } from '../src/acceptance/tool-path.js'
+import { createToolPath } from '../dist/src/acceptance/tool-path.js'
 
 test('tool path preserves a package-relative pnpm launcher runtime', async () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-tool-path-'))

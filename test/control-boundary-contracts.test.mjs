@@ -28,7 +28,7 @@ import {
   validateTrustLineageHead,
   verifyProtocolSignatureDigest,
   mapTrustAuthorityFailureCode,
-} from '../src/manager/index.js'
+} from '../dist/src/manager/index.js'
 import {
   ONE_DIGEST,
   THREE_DIGEST,

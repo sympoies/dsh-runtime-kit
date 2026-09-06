@@ -29,12 +29,12 @@ import {
   waitForScenarioOperationMarker,
   resolveSourceCandidateAcceptance,
   scenarioFailureDiagnostic,
-} from '../src/acceptance/contract.js'
+} from '../dist/src/acceptance/contract.js'
 import {
   NILS_COMPATIBILITY_CANDIDATE_ENV,
   nilsCompatibilityCandidateEnvironment,
   sanitizeAcceptanceScenarioEnvironment,
-} from '../src/acceptance/scenario-environment.js'
+} from '../dist/src/acceptance/scenario-environment.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const run = promisify(execFile)
@@ -1285,7 +1285,7 @@ test('scenario diagnostics distrust accessors and allow only public cause codes'
 })
 
 test('scenario diagnostics preserve every declared public operations cause code', () => {
-  const operationsSource = readFileSync(join(projectRoot, 'src/operations/index.js'), 'utf8')
+  const operationsSource = readFileSync(join(projectRoot, 'src/operations/index.ts'), 'utf8')
   const constructors = [...operationsSource.matchAll(/new OperationsError\(/gu)]
   const declaredCodes = [...operationsSource.matchAll(
     /new OperationsError\(\s*['"]([a-z][a-z0-9-]*)['"]/gu,
@@ -1477,7 +1477,7 @@ test('subprocess failure diagnostics never expose child output or error messages
 })
 
 test('authoritative canary deadline diagnostics accept only a bound allowlisted marker', async () => {
-  const { recordScenarioCanaryFailure } = await import('../src/acceptance/contract.js')
+  const { recordScenarioCanaryFailure } = await import('../dist/src/acceptance/contract.js')
   const processInstance = 'sha256:' + 'a'.repeat(64)
   const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
   for (const causeCode of [
@@ -1535,7 +1535,7 @@ test('authoritative canary deadline diagnostics accept only a bound allowlisted 
 })
 
 test('authoritative canary deadline diagnostics reject spoofed or unbounded markers', async () => {
-  const { recordScenarioCanaryFailure } = await import('../src/acceptance/contract.js')
+  const { recordScenarioCanaryFailure } = await import('../dist/src/acceptance/contract.js')
   const processInstance = 'sha256:' + 'a'.repeat(64)
   const marker = 'DSH_AUTHORITATIVE_ACCEPTANCE_FAILURE='
   const valid = {
@@ -1906,7 +1906,7 @@ exec /usr/bin/git-upload-pack "$@"
     assert.equal(readFileSync(sourceObservation, 'utf8'), resolve(sourceRoot, '.git'))
 
     const { cloneAuthenticatedDshSource } = await import(
-      '../src/acceptance/dsh-clone.js'
+      '../dist/src/acceptance/dsh-clone.js'
     )
     const authenticatedSources = []
     await cloneAuthenticatedDshSource({
@@ -2092,7 +2092,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(canary, /completion settlement failed closed/u)
   assert.match(authoritativeSmoke, /completion_settlement: positive\.completion_settlement/u)
   const checkoutInspector = readFileSync(
-    join(projectRoot, 'src', 'compat', 'git-checkout.js'),
+    join(projectRoot, 'src', 'compat', 'git-checkout.ts'),
     'utf8',
   )
   assert.match(checkoutInspector, /safe\.directory=/u)
@@ -2118,9 +2118,9 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     [...runtimeSmoke.matchAll(/(?:from\s+|import\s*\()\s*['"](\.\.\/[^'"]+)['"]/gu)]
       .map(match => match[1]),
     [
-      '../src/compat/dsh-patch.js',
-      '../src/compat/dsh-tui-patch.js',
-      '../src/compat/agent-console-artifact.js',
+      '../dist/src/compat/dsh-patch.js',
+      '../dist/src/compat/dsh-tui-patch.js',
+      '../dist/src/compat/agent-console-artifact.js',
     ],
     'the trusted runtime scenario controller may load only reviewed compatibility owners',
   )

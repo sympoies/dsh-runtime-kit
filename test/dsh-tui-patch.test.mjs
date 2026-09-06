@@ -10,7 +10,7 @@ import {
   DshTuiPatchError,
   manageDshTuiPatch,
   validateDshTuiPatchManifest,
-} from '../src/compat/dsh-tui-patch.js'
+} from '../dist/src/compat/dsh-tui-patch.js'
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sha256 = value => createHash('sha256').update(value).digest('hex')

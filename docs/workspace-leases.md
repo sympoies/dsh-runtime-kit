@@ -307,7 +307,7 @@ before durable release.
 
 ## Native nils transport
 
-`src/workspace-lease/nils-provider.js` is a transport and schema adapter, not a
+`src/workspace-lease/nils-provider.ts` is a transport and schema adapter, not a
 second policy engine. It maps the six host-authenticated lifecycle calls to
 `agent-hook workspace-lease resolve|bind|begin|complete|renew|release`, always
 with the configured absolute DSH-only config, policy, and state roots. The

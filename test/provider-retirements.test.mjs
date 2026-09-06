@@ -33,13 +33,13 @@ async function filesBelow(path) {
 test('the shipped DSH runtime has no Claude provider or automatic Claude coauthor-trailer surface', async () => {
   assert.throws(
     () => assertNoRetiredRuntimeSurface(
-      'index.js',
+      'index.ts',
       "registerProvider('claude'); enableCoauthorTrailer()",
     ),
   )
   const paths = [
-    join(ROOT, 'index.js'),
-    join(ROOT, 'policy.js'),
+    join(ROOT, 'index.ts'),
+    join(ROOT, 'policy.ts'),
     ...await filesBelow(join(ROOT, 'src')),
     ...await filesBelow(join(ROOT, 'skills')),
     ...await filesBelow(join(ROOT, 'scripts')),
@@ -66,8 +66,8 @@ test('the shipped DSH runtime has no Claude provider or automatic Claude coautho
     const tarball = join(temporary, packed.filename)
     const runtimeArtifacts = packed.files
       .map(file => file.path)
-      .filter(path => path === 'index.js'
-        || path === 'policy.js'
+      .filter(path => path === 'index.ts'
+        || path === 'policy.ts'
         || path === 'package.json'
         || path === 'cordis.patch.yml'
         || path.startsWith('src/')

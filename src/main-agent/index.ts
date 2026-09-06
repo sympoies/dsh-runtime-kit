@@ -1,0 +1,2009 @@
+import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+
+import {
+  dshRc7AgentRoute,
+  dshRc7RunInfo,
+  dshRc7SessionHeader,
+} from '../compat/dsh-rc7.js'
+import { createCliClient } from './cli-client.js'
+import { LIVENESS_SCHEMA, createLaneRegistry, publishLivenessSidecar } from './lanes.js'
+import {
+  CLOSEOUT_SCHEMA,
+  REVIEW_SCHEMA,
+  checkpointDocument,
+  laneChildActivity,
+  supervisionEnvelope,
+  writePrivateJson,
+} from './orchestration.js'
+
+export type Context = import('@deepseek-ai/cordis').Context
+export type ToolDefinition = import('@deepseek-ai/dsh-tools').ToolDefinition
+export type SubagentRuntime = import('@deepseek-ai/dsh-subagent').SubagentRuntime
+export type Lane = import('./lanes.js').Lane
+
+const WORKER_START_RESULT_SCHEMA = 'main-agent.worker-start-result.v1'
+const EXTERNAL_LAUNCH_SCHEMA = 'main-agent.external-launch.v1'
+const CAPABILITIES_SCHEMA = 'main-agent.capabilities.v1'
+const READINESS_SCHEMA = 'main-agent.runtime-readiness.v1'
+const EXTERNAL_RUNTIME_CAPABILITY = 'main-agent.external-runtime.v1'
+const DEFAULT_WORKER_SUBAGENT_PROVIDER = 'spawn'
+const MANAGED_WORKSPACE_PROVIDER = 'dsh-runtime-kit'
+const MANAGED_WORKSPACE_VERSION = 1
+const LANE_SECTION_ORDER = 118
+const DEFAULT_MAX_LANES = 8
+const HARD_MAX_LANES = 64
+const DEFAULT_BROKER_READY_TIMEOUT_MS = 15_000
+const HARD_BROKER_READY_TIMEOUT_MS = 60_000
+const BROKER_READY_POLL_MS = 100
+const BROKER_STATUS_SCHEMA = 'agent-session.coordination-broker.v1'
+const LANE_SCHEMA = 'dsh-runtime-kit.main-agent-lane.v2'
+const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
+const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
+const QUEUE_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.queuePrompt')
+const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
+  runInitialize: 'main_agent_run_initialize',
+  workerLaunch: 'main_agent_worker_launch',
+  workerInterrupt: 'main_agent_worker_interrupt',
+  laneClose: 'main_agent_lane_close',
+  workerSupervise: 'main_agent_worker_supervise',
+  workerRequestChanges: 'main_agent_worker_request_changes',
+  workerAccept: 'main_agent_worker_accept',
+  runCloseout: 'main_agent_run_closeout',
+})
+
+/**
+ * Queue one host-authored revision prompt across the legacy service method and
+ * the alpha.4 symbol-keyed host capability.
+ */
+async function queueRevisionPrompt(subagents: SubagentRuntime, parent: any, childId: any, content: any[], signal: AbortSignal) {
+  const source = { kind: (('plugin') as const), plugin: 'dsh-runtime-kit' }
+  const queuePrompt = ((subagents) as any)[QUEUE_SUBAGENT_PROMPT]
+  if (typeof queuePrompt === 'function') {
+    await queuePrompt.call(subagents, parent, childId, content, source, signal)
+    return
+  }
+  const followup = ((subagents) as any).followup
+  if (typeof followup !== 'function') {
+    throw new TypeError('subagent host prompt queue is unavailable')
+  }
+  await followup.call(subagents, parent, childId, content, { source, signal })
+}
+
+/** Canonical owner inventory consumed by runtime registration and health admission. */
+export const MAIN_AGENT_TOOL_INVENTORY = Object.freeze({
+  controller: Object.freeze(Object.values(MAIN_AGENT_CONTROLLER_TOOLS)),
+  lane: Object.freeze([LANE_BOOTSTRAP_TOOL, LANE_CHECKPOINT_TOOL]),
+})
+
+/**
+ * Bundle-owned global tools hidden from a managed worker lane. rc.7 validates
+ * visibility filters against the exact global registry, so this list contains
+ * only tools this bundle guarantees it registered before launch.
+ */
+const DEFAULT_LANE_VISIBILITY_DENIED_TOOLS = MAIN_AGENT_TOOL_INVENTORY.controller
+
+/**
+ * Tools a managed worker lane must never execute. The monotonic child guard
+ * retains legacy and cross-product names even when they are absent from the
+ * current global registry, so a later registration cannot grant authority.
+ */
+const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
+  'subagent',
+  'send_message',
+  'list_agents',
+  'workflow',
+  ...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS,
+])
+
+/**
+ * The one orchestration tool a lane child owns: its own fenced checkpoint. It
+ * is registered per child inside that child's context, never globally, so no
+ * other session can reach another lane's checkpoint authority.
+ */
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
+const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
+  'AGENT_SESSION_ID',
+  'AGENT_SESSION_RUNTIME_ID',
+  'AGENT_SESSION_STATE_DIR',
+  'AGENT_SESSION_COORDINATION_MODE',
+  'AGENT_SESSION_CAPABILITY_FILE',
+  'AGENT_SESSION_CHECKPOINT_FILE',
+  'AGENT_SESSION_BIN',
+])
+
+function laneError(code: string, details?: unknown) {
+  const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
+  return new Error(`dsh-runtime-kit:${code}${suffix}`)
+}
+
+function requireNonEmptyString(value: unknown, code: string) {
+  if (typeof value !== 'string' || value.length === 0) throw laneError(code)
+  return value
+}
+
+const LIVENESS_FILE_NAME = 'dsh-runtime-liveness.json'
+const AGENT_SESSION_BASENAME = 'agent-session'
+const WORKER_ENV_KEY = /^[A-Z][A-Z0-9_]*$/
+/**
+ * A session id names one path segment. Rejecting separators and dots here is
+ * what makes the sidecar containment check a containment check: without it the
+ * declared id can carry `..` and both sides of a derived-path comparison
+ * normalize identically.
+ */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+
+function isProperDescendant(candidate: string, root: string) {
+  const resolvedRoot = resolve(root)
+  const resolvedCandidate = resolve(candidate)
+  return resolvedCandidate !== resolvedRoot
+    && resolvedCandidate.startsWith(`${resolvedRoot}${sep}`)
+}
+
+/**
+ * The sidecar must be the conventional file inside the session state
+ * directory the payload declares, so a malformed or hostile envelope cannot
+ * redirect the rename-publish onto an unrelated file. The declared session id
+ * must be a single safe path segment, and the resolved target must be a proper
+ * descendant of the resolved state directory — a derived-path equality alone
+ * would accept a traversing id on both sides.
+ */
+function containedLivenessFile(externalLaunch: Record<string, any>) {
+  const stateDir = externalLaunch.worker_env?.AGENT_SESSION_STATE_DIR
+  const sessionId = externalLaunch.worker_env?.AGENT_SESSION_ID
+  if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) return false
+  if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return false
+  const expected = resolve(stateDir, 'sessions', sessionId, LIVENESS_FILE_NAME)
+  return resolve(externalLaunch.liveness_file) === expected
+    && isProperDescendant(expected, resolve(stateDir, 'sessions'))
+}
+
+/**
+ * Worker environment values are replayed by the lane worker as a shell command
+ * prefix, so they must be shell-safe as well as single-line: a space alone
+ * breaks a legitimate path, and a metacharacter would inject a command. The
+ * rendered section quotes every value too, but validation refuses rather than
+ * relying on the renderer alone.
+ */
+function validWorkerEnv(workerEnv: unknown) {
+  if (workerEnv === null || typeof workerEnv !== 'object' || Array.isArray(workerEnv)) return false
+  const entries = Object.entries(((workerEnv) as Record<string, unknown>))
+  return entries.length > 0 && entries.every(([key, value]) => WORKER_ENV_KEY.test(key)
+    && typeof value === 'string'
+    && value.length > 0
+    && [...value].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0
+      // Control characters, DEL, unicode line and bidi separators, and every
+      // shell metacharacter (quotes, whitespace, expansion, redirection,
+      // separators) are refused.
+      if (codePoint < 0x20 || codePoint === 0x7f) return false
+      if ([0x85, 0x2028, 0x2029].includes(codePoint)) return false
+      if (codePoint >= 0x202a && codePoint <= 0x202e) return false
+      if (codePoint >= 0x2066 && codePoint <= 0x2069) return false
+      return /^[A-Za-z0-9_@%+=:,./~-]$/.test(character)
+    }))
+}
+
+function bootstrapKeyFromPrompt(prompt: unknown) {
+  if (typeof prompt !== 'string') return undefined
+  const matches = [...prompt.matchAll(/--idempotency-key ([A-Za-z0-9._:-]{8,128}) --format json/g)]
+  return matches.length === 1 ? matches[0][1] : undefined
+}
+
+function nativeBootstrapPrompt(bootstrapKey: string) {
+  return 'Main Agent Mode is explicitly active for this managed worker assignment. '
+    + `Call the native \`${LANE_BOOTSTRAP_TOOL}\` tool now with \`idempotency_key\` `
+    + `set to \`${bootstrapKey}\`. Do not run the shell bootstrap command and do not `
+    + 'perform any other action before the native tool succeeds; then follow the returned '
+    + '`worker_instructions` and private assignment.'
+}
+
+/**
+ * Map an rc.7 subagent stop reason onto the sidecar contract's documented
+ * `completed | failed | interrupted` vocabulary. An unknown or absent reason
+ * is never vouched as success.
+ */
+function laneTurnOutcome(stopReason: unknown) {
+  switch (stopReason) {
+    case 'completed':
+      return 'completed'
+    case 'aborted':
+      return 'interrupted'
+    case 'error':
+    case 'max-tokens':
+    case 'refusal':
+      return 'failed'
+    default:
+      return 'failed'
+  }
+}
+
+/**
+ * argv[0] is executed verbatim, so a basename match is not enough: any
+ * writable directory could hold a file called `agent-session`, including a
+ * lane's own worktree. Require the exact trusted binary path and the `broker`
+ * verb.
+ *
+ * The verb is not at a fixed index: the producer emits global options first
+ * (`--state-dir <path>`, and `--host <name>` where a host label applies), so
+ * this walks past option/value pairs instead of indexing. Assuming index 1 is
+ * what made a real payload look hostile.
+ */
+function brokerArgvIsTrusted(argv: readonly string[], agentSessionCli: string) {
+  const [command] = argv
+  if (typeof command !== 'string' || command.length === 0) return false
+  try {
+    // Release managers commonly expose the configured executable through a
+    // stable symlink while the sibling producer reports its canonical target.
+    // Compare existing filesystem identities, not lexical spellings; the
+    // producer path is what is executed after this check.
+    if (realpathSync(command) !== realpathSync(agentSessionCli)) return false
+  } catch {
+    return false
+  }
+  for (let index = 1; index < argv.length; index += 1) {
+    const token = argv[index]
+    if (typeof token !== 'string' || token.length === 0) return false
+    // Every global option this CLI accepts before a verb takes one value, so a
+    // flag consumes the next token; the first bare token must be the verb.
+    if (token.startsWith('-')) {
+      if (token.includes('=')) continue
+      index += 1
+      continue
+    }
+    return token === 'broker'
+  }
+  return false
+}
+
+function validExternalLaunch(externalLaunch: Record<string, any>, agentSessionCli: string) {
+  return externalLaunch !== null
+    && typeof externalLaunch === 'object'
+    && externalLaunch.schema_version === EXTERNAL_LAUNCH_SCHEMA
+    && typeof externalLaunch.launch_id === 'string'
+    && externalLaunch.launch_id.length > 0
+    && typeof externalLaunch.prompt === 'string'
+    && externalLaunch.prompt.length > 0
+    && bootstrapKeyFromPrompt(externalLaunch.prompt) !== undefined
+    && externalLaunch.worker_env !== null
+    && typeof externalLaunch.worker_env === 'object'
+    && typeof externalLaunch.liveness_file === 'string'
+    && isAbsolute(externalLaunch.liveness_file)
+    // The sidecar is published by renaming over this path, so it must be the
+    // conventional file inside the payload's own session state directory: an
+    // envelope must never be able to name an arbitrary write target.
+    && containedLivenessFile(externalLaunch)
+    // The producer declares which sidecar schema it will read; refuse rather
+    // than publish a document the CLI would reject as invalid evidence.
+    && (externalLaunch.liveness_schema === undefined
+      || externalLaunch.liveness_schema === LIVENESS_SCHEMA)
+    && validWorkerEnv(externalLaunch.worker_env)
+    && Array.isArray(externalLaunch.broker_heartbeat_argv)
+    && externalLaunch.broker_heartbeat_argv.length > 0
+    && externalLaunch.broker_heartbeat_argv.every(
+      (value: unknown) => typeof value === 'string' && value.length > 0,
+    )
+    && Array.isArray(externalLaunch.broker_stop_argv)
+    && externalLaunch.broker_stop_argv.every(
+      (value: unknown) => typeof value === 'string' && value.length > 0,
+    )
+    // argv[0] is executed verbatim, so it must be the exact coordination
+    // binary this module is contracted to run.
+    && brokerArgvIsTrusted(externalLaunch.broker_heartbeat_argv, agentSessionCli)
+    && (externalLaunch.broker_stop_argv.length === 0
+      || brokerArgvIsTrusted(externalLaunch.broker_stop_argv, agentSessionCli))
+}
+
+function laneEnvironmentSection(lane: Lane) {
+  // Every value is shell-quoted and rendered on its own line inside a fenced
+  // block: a value is a path, so an unquoted single-line prefix would break on
+  // whitespace and would make any metacharacter executable.
+  const rows = Object.entries(lane.workerEnv)
+    .map(([key, value]) => `${key}='${value.replaceAll("'", `'\\''`)}'`)
+    .join('\n')
+  return [
+    `You are the managed worker lane for assignment ${lane.assignmentId}.`,
+    'The native lane tools already apply this authenticated session environment.',
+    'For any other `main-agent` or `agent-session` shell command, prefix that',
+    'same command with every assignment below (copy verbatim, no substitutions).',
+    'A standalone export tool call does not persist into the next shell process:',
+    '',
+    '```sh',
+    rows,
+    '```',
+    '',
+    'Without this same-process environment the coordination CLI cannot authenticate you.',
+    'Never invent, reorder, or omit any of these values.',
+  ].join('\n')
+}
+
+function laneSummary(lane: Lane) {
+  return {
+    schema_version: LANE_SCHEMA,
+    assignment_id: lane.assignmentId,
+    worker_session_id: lane.workerSessionId,
+    launch_id: lane.launchId,
+    child_session_id: lane.childId,
+    lane_state: lane.state,
+  }
+}
+
+function launchSummary(lane: Lane, disposition: 'launched' | 'reattached') {
+  return { ...laneSummary(lane), disposition }
+}
+
+/**
+ * Main Agent Mode orchestration for DSH: executes the external-launch
+ * contract that `main-agent worker start --launch.agent dsh` returns, spawns
+ * each lane as an in-process continuable child bound to one trusted host-issued
+ * worktree, maintains the per-lane broker heartbeat and liveness sidecar, and
+ * installs the per-child authority guard plus environment instructions.
+ *
+ * Contract: nils-cli `main-agent-dsh-external-runtime-v1.md`; tracking
+ * sympoies/dsh-runtime-kit#6 (M2).
+ */
+export function applyMainAgentMode(ctx: Context, config: {
+    mainAgentCli?: string,
+    agentSessionCli?: string,
+    laneWorktreeRoot?: string,
+    workerSubagentProvider?: string,
+    workerProvider?: string,
+    workerModel?: string,
+    laneDeniedTools?: readonly string[],
+    maxLanes?: number,
+    cliTimeoutMs?: number,
+    cliTeardownTimeoutMs?: number,
+    maxActiveCliCalls?: number,
+    brokerReadyTimeoutMs?: number,
+    managedSessionBridge?: {
+      register?: (resolver:(id:string) => unknown) => (() => void),
+      resolve?: (id:string) => unknown,
+    },
+    [key: string]: unknown,
+  } = {}) {
+  const mainAgentCli = typeof config.mainAgentCli === 'string' && config.mainAgentCli.length > 0
+    ? config.mainAgentCli
+    : 'main-agent'
+  // The trusted coordination binary. Defaults to the sibling of an absolute
+  // `mainAgentCli` (the released package ships them together) so the argv the
+  // envelope proposes can be compared against a path this module chose.
+  const agentSessionCli = typeof config.agentSessionCli === 'string'
+    && config.agentSessionCli.length > 0
+    ? config.agentSessionCli
+    : isAbsolute(mainAgentCli)
+      ? resolve(dirname(mainAgentCli), AGENT_SESSION_BASENAME)
+      : AGENT_SESSION_BASENAME
+  /**
+ * Portable bundle configuration names the released CLI instead of pinning
+ * one host path. Resolve that name through DSH's trusted host executable
+ * seam before comparing it with producer-owned absolute argv/env values.
+ */
+
+  const resolveTrustedAgentSessionCli = async (signal: AbortSignal | undefined) => {
+    if (isAbsolute(agentSessionCli)) return agentSessionCli
+    try {
+      const executable = await ctx.subprocess.resolveExecutable(agentSessionCli, undefined, signal)
+      return isAbsolute(executable) ? executable : undefined
+    } catch {
+      return undefined
+    }
+  }
+  // When configured, every lane worktree must live under this root; the
+  // worktree becomes the lane worker's shell workdir and sandbox root, so an
+  // unconstrained value is a lane-isolation hole.
+  const laneWorktreeRoot = typeof config.laneWorktreeRoot === 'string'
+    && isAbsolute(config.laneWorktreeRoot)
+    ? resolve(config.laneWorktreeRoot)
+    : undefined
+  const workerSubagentProvider = typeof config.workerSubagentProvider === 'string'
+    && config.workerSubagentProvider.length > 0
+    ? config.workerSubagentProvider
+    : DEFAULT_WORKER_SUBAGENT_PROVIDER
+  // Deny sets are monotonic: configuration extends the mandatory core, it can
+  // never remove a tool a managed lane must not reach.
+  const laneDeniedTools = new Set([
+    ...DEFAULT_LANE_DENIED_TOOLS,
+    ...Array.isArray(config.laneDeniedTools)
+      ? config.laneDeniedTools.filter(name => typeof name === 'string' && name.length > 0)
+      : [],
+  ])
+  const maxLanes = typeof config.maxLanes === 'number'
+    && Number.isInteger(config.maxLanes)
+    && config.maxLanes > 0
+    ? Math.min(config.maxLanes, HARD_MAX_LANES)
+    : DEFAULT_MAX_LANES
+  const brokerReadyTimeoutMs = typeof config.brokerReadyTimeoutMs === 'number'
+    && Number.isInteger(config.brokerReadyTimeoutMs)
+    && config.brokerReadyTimeoutMs > 0
+    ? Math.min(config.brokerReadyTimeoutMs, HARD_BROKER_READY_TIMEOUT_MS)
+    : DEFAULT_BROKER_READY_TIMEOUT_MS
+  const client = createCliClient(ctx, config)
+  const lanes = createLaneRegistry()
+  const hostSubagents = ((ctx.subagents) as any)
+  const workspaceRefs: WeakMap<object, {lane: Lane, parent: any}> = new WeakMap()
+  if (typeof hostSubagents.registerContinuableWorkspaceProvider !== 'function'
+    || typeof hostSubagents.closeContinuable !== 'function') {
+    throw laneError('main-agent-host-workspace-unavailable')
+  }
+  hostSubagents.registerContinuableWorkspaceProvider({
+    name: MANAGED_WORKSPACE_PROVIDER,
+    version: MANAGED_WORKSPACE_VERSION,
+    validate(ref: unknown, parent: any) {
+      if (ref === null || typeof ref !== 'object') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+      const selected = workspaceRefs.get(ref)
+      if (selected === undefined || selected.parent !== parent || selected.lane.state !== 'open') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+    },
+    async prepare(request: any) {
+      const { sessionId, parent, ref, persistedCwd } = request
+      const selected = ref !== undefined && ref !== null && typeof ref === 'object'
+        ? workspaceRefs.get(ref)
+        : undefined
+      const lane = selected?.lane ?? lanes.byChild(sessionId)
+      if (lane === undefined || lane.parent !== parent || lane.state !== 'open') {
+        throw laneError('main-agent-host-workspace-ref-invalid')
+      }
+      if (persistedCwd !== undefined && persistedCwd !== lane.worktree) {
+        throw laneError('main-agent-host-workspace-resume-mismatch')
+      }
+      if (lane.childId.length === 0) {
+        lane.childId = sessionId
+        lanes.bindChild(lane)
+      } else if (lane.childId !== sessionId) {
+        throw laneError('main-agent-host-workspace-child-mismatch')
+      }
+      return { cwd: lane.worktree }
+    },
+    async activate(request: any) {
+      const { agent } = request
+      const lane = lanes.byChild(String(agent?.session?.header?.id ?? ''))
+      if (lane === undefined || agent?.session?.header?.cwd !== lane.worktree) {
+        throw laneError('main-agent-host-workspace-activation-mismatch')
+      }
+      const workspaceLease = ((ctx) as any).workspaceLease
+      if (workspaceLease === undefined || typeof workspaceLease.ref !== 'function') {
+        throw laneError('main-agent-host-workspace-lease-unavailable')
+      }
+      await workspaceLease.ref(agent)
+    },
+  })
+  const controllers: Map<string, Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>> = new Map()
+  const authenticatingControllers: Map<string, Promise<Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>>> = new Map()
+  const launching: Map<string, Promise<unknown>> = new Map()
+  // Run boundaries published before `startContinuable` resolves cannot be
+  // matched yet (rc.7 emits the first start edge during materialization), so
+  // they are buffered and replayed once the lane binds its child id.
+  const pendingRunEvents: Array<{ kind: 'start' | 'end', payload: Record<string, any> }> = []
+  const MAX_PENDING_RUN_EVENTS = 64
+  // Capacity is reserved across the launch awaits so concurrent launches of
+  // distinct assignments cannot all pass a stale registry-size check.
+  let reservedLanes = 0
+  let closing = false
+  let ambientControllerOwner: string | undefined
+
+  const resolveSessionPrincipal = (sessionId: string) => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined
+    const controller = controllers.get(sessionId)
+    if (controller !== undefined) return controller
+    const lane = lanes.byMember(sessionId) ?? lanes.byChild(sessionId)
+    if (lane === undefined || lane.state !== 'open') return undefined
+    return Object.freeze({
+      sessionId: lane.workerSessionId,
+      environment: Object.freeze({ ...lane.workerEnv }),
+    })
+  }
+  const disposeSessionBridge = config.managedSessionBridge?.register?.(resolveSessionPrincipal)
+
+  /**
+ * Agent Console injects one capability-bearing managed-session principal
+ * into the top-level DSH process. Authenticate it before the first policy
+ * lifecycle request so an ordinary single-agent session is not forced to
+ * initialize an unrelated Main Agent run merely to use shell, context, and
+ * finish-line capabilities. No ambient field is restored until the
+ * producer-owned self-readiness command proves the exact id, incarnation,
+ * checkpoint, and trusted helper path.
+ */
+
+  const authenticateManagedController = async (controllerSessionId: string, exec: any) => {
+    const bound = controllers.get(controllerSessionId)
+    if (bound !== undefined) return bound
+    const pending = authenticatingControllers.get(controllerSessionId)
+    if (pending !== undefined) return pending
+    const authentication = (async () => {
+      const candidateEnvironment = controllerBootstrapEnvironment(exec)
+      const readiness = await runEnvelope([
+        mainAgentCli,
+        'self',
+        'readiness',
+        '--format',
+        'json',
+      ], exec, controllerCwd(exec), candidateEnvironment)
+      if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
+        throw laneError('main-agent-controller-not-ready')
+      }
+      const principal = await controllerPrincipal(
+        readiness,
+        exec.signal,
+        candidateEnvironment,
+      )
+      const existing = controllers.get(controllerSessionId)
+      if (existing !== undefined && !sameControllerPrincipal(existing, principal)) {
+        throw laneError('main-agent-controller-binding-conflict')
+      }
+      controllers.set(controllerSessionId, principal)
+      return principal
+    })()
+    authenticatingControllers.set(controllerSessionId, authentication)
+    try {
+      return await authentication
+    } finally {
+      if (authenticatingControllers.get(controllerSessionId) === authentication) {
+        authenticatingControllers.delete(controllerSessionId)
+      }
+    }
+  }
+
+  ctx.effect(() => async () => {
+    closing = true
+    // A fiber teardown or plugin reload leaves the process alive, so the
+    // pinned harness identity would keep vouching for every `open` lane and
+    // the CLI could never classify a stop. Mark each lane terminated and
+    // publish best effort before dropping the bookkeeping, and release the
+    // heartbeats explicitly rather than relying on ctx ownership alone.
+    const activeLanes = lanes.list()
+    for (const lane of activeLanes) {
+      lane.state = 'terminated'
+      lane.turn = undefined
+      void publishLivenessSidecar(lane).catch(() => {})
+    }
+    await Promise.allSettled(activeLanes.map(lane => hostSubagents.closeContinuable(
+        ((lane.parent) as any),
+        ((lane.childId) as any),
+        new AbortController().signal,
+    )))
+    for (const lane of activeLanes) {
+      lane.stopHeartbeat?.()
+    }
+    pendingRunEvents.length = 0
+    authenticatingControllers.clear()
+    controllers.clear()
+    ambientControllerOwner = undefined
+    lanes.clear()
+    if (typeof disposeSessionBridge === 'function') disposeSessionBridge()
+  }, 'dsh-runtime-kit main-agent lanes')
+
+  /**
+ * Serialize the launch critical section per assignment: concurrent
+ * launches of the same assignment (parallel tool calls, retries) queue
+ * behind one another instead of racing the registry check, so at most one
+ * workspace binding, heartbeat, and child ever exist per lane.
+ */
+
+  const withLaunchLock = <T>(assignmentId: string, run: () => Promise<T>) : Promise<T> => {
+    const previous = launching.get(assignmentId) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(run)
+    const tail = next.then(() => {}, () => {})
+    launching.set(assignmentId, tail)
+    void tail.then(() => {
+      if (launching.get(assignmentId) === tail) launching.delete(assignmentId)
+    })
+    return next
+  }
+
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const { id: sessionId, parentSession } = dshRc7SessionHeader(payload?.agent)
+    // Partial AGENT_SESSION_* values are also used as subprocess-isolation
+    // sentinels. Only the producer's complete principal can claim the
+    // managed-controller authentication path; once complete, authentication
+    // still fails closed on every value and the producer-owned readiness
+    // receipt below.
+    const hasManagedSessionCandidate = CONTROLLER_PRINCIPAL_ENV_KEYS.every(
+      name => typeof process.env[name] === 'string' && process.env[name].length > 0,
+    )
+    if (typeof sessionId === 'string'
+      && sessionId.length > 0
+      && (typeof parentSession !== 'string' || parentSession.length === 0)
+      && hasManagedSessionCandidate
+      && config.managedSessionBridge?.resolve?.(sessionId) === undefined) {
+      try {
+        await authenticateManagedController(sessionId, payload)
+      } catch {
+        return {
+          kind: (('reject') as const),
+          reason: 'dsh-runtime-kit:managed-controller-authentication-failed',
+        }
+      }
+    }
+    return next()
+  })
+
+  // Lane turn evidence: fold child run boundaries into the sidecar. The
+  // evidence is optional in the CLI contract, so unknown payload shapes stay
+  // silent rather than guessing.
+  /**
+ * rc.7 publishes the child session id as `id` on SubagentRunInfo and
+ * SubagentRunEndInfo; that is the contract field, not a defensive guess.
+ */
+
+  const laneForRunPayload = (payload: unknown) => {
+    const candidate = dshRc7RunInfo(payload).id
+    return typeof candidate === 'string' ? lanes.byChild(candidate) : undefined
+  }
+  const nowEpoch = () => String(Math.floor(Date.now() / 1000))
+
+  const runEventRecord = (payload: unknown) : Record<string, any> | undefined => {
+    const info = dshRc7RunInfo(payload)
+    return info.id === undefined ? undefined : info
+  }
+
+  const applyRunStart = (lane: Lane) => {
+    if (lane.state !== 'open') return
+    lane.turn = {
+      phase: 'working',
+      phaseChangedAt: nowEpoch(),
+      currentTurn: { startedAt: nowEpoch() },
+      lastTurn: lane.turn?.lastTurn,
+    }
+    void publishLivenessSidecar(lane).catch(() => {})
+  }
+
+  const applyRunEnd = (lane: Lane, record: Record<string, any>) => {
+    if (lane.state !== 'open') return
+    lane.turn = {
+      phase: 'waiting',
+      phaseChangedAt: nowEpoch(),
+      currentTurn: undefined,
+      lastTurn: {
+        completedAt: nowEpoch(),
+        outcome: laneTurnOutcome(dshRc7RunInfo(record).stopReason),
+      },
+    }
+    void publishLivenessSidecar(lane).catch(() => {})
+  }
+
+  /**
+ * Replay the run boundaries that arrived while this lane was still binding
+ * its child id, so a lane whose first turn settled before `startContinuable`
+ * resolved never advertises a turn that is already over.
+ */
+
+  const replayPendingRunEvents = (lane: Lane) => {
+    const mine = pendingRunEvents.filter(event => event.payload.id === lane.childId)
+    if (mine.length === 0) return
+    for (let index = pendingRunEvents.length - 1; index >= 0; index -= 1) {
+      if (pendingRunEvents[index].payload.id === lane.childId) pendingRunEvents.splice(index, 1)
+    }
+    for (const event of mine) {
+      if (event.kind === 'start') applyRunStart(lane)
+      else applyRunEnd(lane, event.payload)
+    }
+  }
+
+  const bufferRunEvent = (kind: 'start' | 'end', record: Record<string, any>) => {
+    if (typeof record.id !== 'string' || record.id.length === 0) return
+    if (pendingRunEvents.length >= MAX_PENDING_RUN_EVENTS) pendingRunEvents.shift()
+    pendingRunEvents.push({ kind, payload: record })
+  }
+
+  ctx.on('subagent/start', (payload) => {
+    const record = runEventRecord(payload)
+    if (record === undefined) return
+    const lane = laneForRunPayload(payload)
+    if (lane === undefined) {
+      bufferRunEvent('start', record)
+      return
+    }
+    applyRunStart(lane)
+  })
+  ctx.on('subagent/end', (payload) => {
+    const record = runEventRecord(payload)
+    if (record === undefined) return
+    const lane = laneForRunPayload(payload)
+    if (lane === undefined) {
+      bufferRunEvent('end', record)
+      return
+    }
+    applyRunEnd(lane, record)
+  })
+
+  // Per-child lane hardening: a monotonic deny-only guard (authority) plus the
+  // environment instruction section (guidance). The host-issued root child is
+  // bound by its DSH-reserved id; descendants inherit membership by lineage.
+  const registerContinuableSetup
+    = ((ctx.subagents) as any).registerContinuableSetup
+  if (typeof registerContinuableSetup !== 'function') {
+    throw new TypeError('subagent continuable setup registry is unavailable')
+  }
+  registerContinuableSetup.call(ctx.subagents, (childCtx: Context) => {
+    const agent = ((childCtx) as any).agent
+    const childHeader = dshRc7SessionHeader(agent)
+    const parentSession = childHeader.parentSession
+    // Lane membership is transitive: the host-bound root child and every
+    // deeper lane descendant get the same
+    // authority guard. Anything else is outside every lane.
+    const childSession = childHeader.id
+    const lane = typeof childSession === 'string'
+      ? lanes.byChild(childSession)
+        ?? (typeof parentSession === 'string' ? lanes.byMember(parentSession) : undefined)
+      : undefined
+    if (lane === undefined) return () => {}
+    if (typeof childSession === 'string' && childSession.length > 0) {
+      lanes.bindMember(childSession, lane)
+    }
+    const disposers: Array<() => void> = []
+    if (typeof childSession === 'string' && childSession.length > 0) {
+      disposers.push(() => { lanes.unbindMember(childSession) })
+    }
+    disposers.push(childCtx.tools.guard(
+      (exec: { name: string }) => (laneDeniedTools.has(exec.name)
+        ? 'dsh-runtime-kit:main-agent-lane-tool-denied'
+        : undefined),
+    ))
+    // The checkpoint tool is scoped to this child's context, so a lane can only
+    // ever checkpoint its own assignment: there is no argument through which it
+    // could name another lane.
+    const checkpointFile = laneCheckpointFile(lane)
+    if (typeof childCtx.tools.register === 'function') {
+      const disposeBootstrap = childCtx.tools.register(
+        Object.freeze(laneBootstrapTool(lane)),
+      )
+      if (typeof disposeBootstrap === 'function') disposers.push(disposeBootstrap)
+    }
+    if (checkpointFile !== undefined && typeof childCtx.tools.register === 'function') {
+      const disposeCheckpoint = childCtx.tools.register(
+        Object.freeze(laneCheckpointTool(lane, checkpointFile)),
+      )
+      if (typeof disposeCheckpoint === 'function') disposers.push(disposeCheckpoint)
+    }
+    const systemPrompt = ((childCtx) as any).systemPrompt
+    if (systemPrompt !== undefined && typeof systemPrompt.section === 'function') {
+      const disposeSection = systemPrompt.section({
+        name: 'dsh-runtime-kit:main-agent-lane',
+        order: LANE_SECTION_ORDER,
+        text: laneEnvironmentSection(lane),
+      })
+      if (typeof disposeSection === 'function') disposers.push(disposeSection)
+    }
+    return () => {
+      for (const dispose of disposers.reverse()) dispose()
+    }
+  })
+
+  const controllerCwd = (exec: any) => {
+    const cwd = dshRc7SessionHeader(exec?.agent).cwd
+    if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
+      throw laneError('main-agent-controller-cwd-unavailable')
+    }
+    return cwd
+  }
+
+  /**
+ * Resolve the route a new lane child inherits from its controller. Keeping
+ * this as the service's read-only route observation and the launch path's
+ * single source prevents compatibility evidence from reimplementing the
+ * worker-provider/model fallback.
+ */
+
+  const workerRoute = (controllerAgent: any) => {
+    const controllerRoute = dshRc7AgentRoute(controllerAgent)
+    const provider = config.workerProvider ?? controllerRoute.provider
+    const model = config.workerModel ?? controllerRoute.model
+    if (typeof provider !== 'string' || typeof model !== 'string') {
+      throw laneError('main-agent-worker-route-unavailable')
+    }
+    const inheritsControllerRoute = provider === controllerRoute.provider
+      && model === controllerRoute.model
+    return Object.freeze({
+      provider,
+      model,
+      ...inheritsControllerRoute && typeof controllerRoute.reasoningEffort === 'string'
+        ? { reasoningEffort: controllerRoute.reasoningEffort }
+        : {},
+    })
+  }
+
+  /**
+ * Lane management is a controller-only surface. Tool visibility is not
+ * authority, so refuse any caller that is one of this registry's lane
+ * children rather than relying on the per-child deny filter alone.
+ */
+
+  const requireControllerCaller = (exec: any) => {
+    const header = dshRc7SessionHeader(exec?.agent)
+    const sessionId = header.id
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw laneError('main-agent-controller-identity-unavailable')
+    }
+    const parentSession = header.parentSession
+    const insideALane = lanes.byMember(sessionId) !== undefined
+      || lanes.byChild(sessionId) !== undefined
+      || (typeof parentSession === 'string'
+        && (lanes.byMember(parentSession) !== undefined
+          || lanes.byChild(parentSession) !== undefined))
+    if (insideALane) {
+      throw laneError('main-agent-lane-caller-denied', { session_id: sessionId })
+    }
+  }
+
+  /**
+ * Run initialization authenticates the one top-level DSH controller. A
+ * foreign subagent outside a managed lane must not be able to bind the
+ * process-wide controller principal merely because it is not in the lane
+ * registry yet.
+ */
+
+  const requireTopLevelControllerCaller = (exec: any) : string => {
+    requireControllerCaller(exec)
+    const header = dshRc7SessionHeader(exec?.agent)
+    if (typeof header.parentSession === 'string' && header.parentSession.length > 0) {
+      throw laneError('main-agent-controller-top-level-required')
+    }
+    return ((header.id) as string)
+  }
+
+  /**
+ * Rehydrate only the private session fields the hook admission layer owns.
+ * Readiness independently authenticates the session id, incarnation, and
+ * checkpoint; no provider tokens or arbitrary process environment cross the
+ * bridge.
+ */
+
+  const controllerPrincipal = async (
+    readiness: Record<string, any>,
+    signal: AbortSignal | undefined,
+    candidateEnvironment: Record<string, any> | undefined = process.env,
+  ) => {
+    const environment: Record<string, string> = {}
+    for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
+      const value = candidateEnvironment[name]
+      if (typeof value !== 'string' || value.length === 0) {
+        throw laneError('main-agent-controller-principal-unavailable')
+      }
+      environment[name] = value
+    }
+    let helperMatches = false
+    try {
+      const trustedAgentSessionCli = await resolveTrustedAgentSessionCli(signal)
+      helperMatches = trustedAgentSessionCli !== undefined
+        && realpathSync(environment.AGENT_SESSION_BIN) === realpathSync(trustedAgentSessionCli)
+    } catch {
+      helperMatches = false
+    }
+    if (readiness.session_id !== environment.AGENT_SESSION_ID
+      || readiness.session_incarnation !== environment.AGENT_SESSION_RUNTIME_ID
+      || readiness.checkpoint_file !== environment.AGENT_SESSION_CHECKPOINT_FILE) {
+      throw laneError('main-agent-controller-principal-mismatch')
+    }
+    if (!SESSION_ID.test(environment.AGENT_SESSION_ID)
+      || !isAbsolute(environment.AGENT_SESSION_STATE_DIR)
+      || !isAbsolute(environment.AGENT_SESSION_CAPABILITY_FILE)
+      || !isAbsolute(environment.AGENT_SESSION_CHECKPOINT_FILE)
+      || !isAbsolute(environment.AGENT_SESSION_BIN)
+      || !helperMatches) {
+      throw laneError('main-agent-controller-principal-invalid')
+    }
+    return Object.freeze({
+      sessionId: environment.AGENT_SESSION_ID,
+      environment: Object.freeze(environment),
+    })
+  }
+
+  const sameControllerPrincipal = (left: Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>, right: Readonly<{sessionId: string, environment: Readonly<Record<string, string>>}>) => left.sessionId === right.sessionId
+    && CONTROLLER_PRINCIPAL_ENV_KEYS.every(name => left.environment[name] === right.environment[name])
+
+  const selectControllerEnvironment = (source: Record<string, any>) => {
+    const selected: Record<string, string> = {}
+    for (const name of CONTROLLER_PRINCIPAL_ENV_KEYS) {
+      const value = source[name]
+      if (typeof value !== 'string' || value.length === 0) {
+        throw laneError('main-agent-controller-principal-unavailable')
+      }
+      selected[name] = value
+    }
+    return Object.freeze(selected)
+  }
+
+  const exactControllerEnvironment = (exec: any) => {
+    const sessionId = requireNonEmptyString(
+      dshRc7SessionHeader(exec?.agent).id,
+      'main-agent-controller-identity-unavailable',
+    )
+    const bound = controllers.get(sessionId)
+    if (bound !== undefined) return bound.environment
+    const bridged = ((config.managedSessionBridge?.resolve?.(sessionId)) as Record<string, any> | undefined)
+    return bridged !== null
+      && typeof bridged === 'object'
+      && typeof bridged.sessionId === 'string'
+      && bridged.sessionId.length > 0
+      && bridged.environment !== null
+      && typeof bridged.environment === 'object'
+      ? selectControllerEnvironment(bridged.environment)
+      : undefined
+  }
+
+  /**
+ * Only the exact top-level bootstrap path may select the process principal.
+ * Claim it synchronously before the first CLI spawn so two top-level Agents
+ * cannot race to authenticate as the same ambient managed session.
+ */
+
+  const controllerBootstrapEnvironment = (exec: any) => {
+    const sessionId = requireTopLevelControllerCaller(exec)
+    const exact = exactControllerEnvironment(exec)
+    if (exact !== undefined) return exact
+    if (ambientControllerOwner === undefined) ambientControllerOwner = sessionId
+    if (ambientControllerOwner !== sessionId) {
+      throw laneError('main-agent-controller-binding-conflict')
+    }
+    return selectControllerEnvironment(process.env)
+  }
+
+  const controllerExecutionEnvironment = (exec: any) => {
+    requireControllerCaller(exec)
+    const exact = exactControllerEnvironment(exec)
+    if (exact === undefined) {
+      throw laneError('main-agent-controller-principal-unavailable')
+    }
+    return exact
+  }
+
+  /**
+ * The lane's declared checkpoint file, or undefined when the launch payload
+ * did not name one inside this lane's own coordination directory. A lane
+ * without a contained checkpoint path gets no checkpoint tool at all: it is
+ * better for the worker to fall back to its documented CLI call than for
+ * this runtime to write to a path it cannot prove belongs to the lane.
+ */
+
+  const laneCheckpointFile = (lane: Lane) => {
+    const declared = lane.workerEnv.AGENT_SESSION_CHECKPOINT_FILE
+    const stateDir = lane.workerEnv.AGENT_SESSION_STATE_DIR
+    const sessionId = lane.workerEnv.AGENT_SESSION_ID
+    if (typeof declared !== 'string' || !isAbsolute(declared)) return undefined
+    if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) return undefined
+    if (typeof sessionId !== 'string' || !SESSION_ID.test(sessionId)) return undefined
+    const coordination = resolve(stateDir, 'sessions', sessionId, 'coordination')
+    return isProperDescendant(resolve(declared), coordination) ? resolve(declared) : undefined
+  }
+
+  /**
+ * The lane child's own fenced checkpoint, as a native tool.
+ *
+ * The worker used to write this private file itself — through a file tool in
+ * one composition and a shell `printf` in another — and a hook had to admit
+ * exactly one path to keep that write honest. Registering the write here
+ * removes both: the tool owns the path, the mode, and the CLI invocation,
+ * and the worker only supplies the fields the store validates.
+ */
+
+  const laneCheckpointTool = (lane: Lane, checkpointFile: string) : ToolDefinition => ({
+    name: LANE_CHECKPOINT_TOOL,
+    description: 'Record this worker lane\'s revision-fenced Main Agent checkpoint. '
+      + 'Supply the current assignment revision; a stale revision fails closed and '
+      + 'reports the current one.',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'One-line durable summary of what changed.' },
+        next_action: { type: 'string', description: 'One-line next action for this assignment.' },
+        state: {
+          type: 'string',
+          enum: ['working', 'blocked', 'submitted'],
+          description: 'Assignment state this checkpoint declares.',
+        },
+        result_summary: { type: 'string', description: 'One-line result summary when submitting.' },
+        blocker_summary: { type: 'string', description: 'One-line blocker summary when blocked.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this checkpoint write.' },
+      },
+      required: ['summary', 'next_action', 'if_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      const record = ((args) as Record<string, unknown>)
+      if (lane.state !== 'open') {
+        throw laneError('main-agent-lane-closed', { assignment_id: lane.assignmentId })
+      }
+      const ifRevision = record.if_revision
+      if (typeof ifRevision !== 'number' || !Number.isInteger(ifRevision) || ifRevision < 0) {
+        throw laneError('main-agent-revision-invalid')
+      }
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const document = checkpointDocument({
+        summary: ((record.summary) as string),
+        nextAction: ((record.next_action) as string),
+        state: ((record.state) as string | undefined),
+        resultSummary: ((record.result_summary) as string | undefined),
+        blockerSummary: ((record.blocker_summary) as string | undefined),
+      })
+      await writePrivateJson(checkpointFile, document)
+      // The worker principal is established by its own environment, so the
+      // call carries the lane's env and runs in the lane's worktree rather
+      // than inheriting whatever the controller process happens to hold.
+      return await runEnvelope([
+        mainAgentCli,
+        'checkpoint',
+        '--file',
+        checkpointFile,
+        '--if-revision',
+        String(ifRevision),
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, lane.worktree, lane.workerEnv)
+    },
+  })
+
+  /**
+ * Authenticate a DSH lane without asking a model shell subprocess to retain
+ * process-local environment from an earlier export. The launch envelope is
+ * the sole source of the worker principal and this tool is installed only in
+ * descendants of that host-bound lane child.
+ */
+
+  const laneBootstrapTool = (lane: Lane) : ToolDefinition => ({
+    name: LANE_BOOTSTRAP_TOOL,
+    description: 'Authenticate this managed worker lane and acquire its assignment claim. '
+      + 'Use the exact idempotency key from the startup prompt.',
+    parameters: {
+      type: 'object',
+      properties: {
+        idempotency_key: {
+          type: 'string',
+          description: 'Exact runtime-issued bootstrap key from this lane startup prompt.',
+        },
+      },
+      required: ['idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      if (lane.state !== 'open') {
+        throw laneError('main-agent-lane-closed', { assignment_id: lane.assignmentId })
+      }
+      const key = requireNonEmptyString(
+        ((args) as Record<string, unknown>).idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      if (!IDEMPOTENCY_KEY.test(key)) throw laneError('main-agent-idempotency-key-invalid')
+      return runEnvelope([
+        mainAgentCli,
+        'bootstrap',
+        '--idempotency-key',
+        key,
+        '--format',
+        'json',
+      ], exec, lane.worktree, lane.workerEnv)
+    },
+  })
+
+  const runEnvelope = async (argv: readonly string[], exec: any, cwd: string, env?: Readonly<Record<string, string>>) => {
+    const result = await client.run(argv, { cwd, signal: exec.signal, env })
+    if (!result.ok) throw laneError('main-agent-cli-failed', { code: result.code })
+    if (result.envelope.ok !== true) {
+      throw laneError('main-agent-cli-refused', {
+        code: result.envelope?.error?.code,
+        message: result.envelope?.error?.message,
+      })
+    }
+    return result.envelope.data
+  }
+
+  const initializeTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.runInitialize,
+    description: 'Run the fixed DSH compatibility and authenticated controller-readiness '
+      + 'gates, then initialize this controller\'s durable Main Agent run from one '
+      + 'private objective packet. Use this native tool instead of a shell command.',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective_file: {
+          type: 'string',
+          description: 'Absolute path to the private main-agent.objective-packet.v1 file.',
+        },
+        idempotency_key: {
+          type: 'string',
+          description: 'Stable idempotency key for this run initialization.',
+        },
+      },
+      required: ['objective_file', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      const controllerSessionId = requireTopLevelControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const objectiveFile = requireNonEmptyString(
+        record.objective_file,
+        'main-agent-objective-file-invalid',
+      )
+      if (!isAbsolute(objectiveFile)) throw laneError('main-agent-objective-file-invalid')
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+        throw laneError('main-agent-idempotency-key-invalid')
+      }
+      const cwd = controllerCwd(exec)
+      const candidateEnvironment = controllerBootstrapEnvironment(exec)
+      const capabilities = await runEnvelope([
+        mainAgentCli,
+        'capabilities',
+        '--provider',
+        'dsh',
+        '--format',
+        'json',
+      ], exec, cwd, candidateEnvironment)
+      if (capabilities?.schema_version !== CAPABILITIES_SCHEMA
+        || capabilities.compatible !== true
+        || capabilities.capabilities?.external_runtime !== EXTERNAL_RUNTIME_CAPABILITY) {
+        throw laneError('main-agent-capabilities-incompatible')
+      }
+      const readiness = await runEnvelope([
+        mainAgentCli,
+        'self',
+        'readiness',
+        '--format',
+        'json',
+      ], exec, cwd, candidateEnvironment)
+      if (readiness?.schema_version !== READINESS_SCHEMA || readiness.ready !== true) {
+        throw laneError('main-agent-controller-not-ready')
+      }
+      const verifiedPrincipal = await controllerPrincipal(
+        readiness,
+        exec.signal,
+        candidateEnvironment,
+      )
+      const existingPrincipal = controllers.get(controllerSessionId)
+      if (existingPrincipal !== undefined
+        && !sameControllerPrincipal(existingPrincipal, verifiedPrincipal)) {
+        throw laneError('main-agent-controller-binding-conflict')
+      }
+      const initialized = await runEnvelope([
+        mainAgentCli,
+        'init',
+        '--packet-file',
+        objectiveFile,
+        '--if-absent',
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd, verifiedPrincipal.environment)
+      controllers.set(controllerSessionId, verifiedPrincipal)
+      return {
+        ...initialized,
+        readiness: {
+          provider: 'dsh',
+          compatible: true,
+          controller_ready: true,
+          external_runtime: EXTERNAL_RUNTIME_CAPABILITY,
+        },
+      }
+    },
+  }
+
+  /**
+ * A DSH worker start is intentionally launch-only store-side, so the lane
+ * heartbeat owns the transition from a provisioned `starting` broker to an
+ * authenticated `ready` broker. Do not expose the child until that exact
+ * incarnation is usable: otherwise its first bootstrap/checkpoint can race
+ * the heartbeat and fail `coordination-unauthorized` after launch reported
+ * success.
+ */
+
+  const waitForBrokerReady = async (externalLaunch: Record<string, any>, exec: any, cwd: string, assignmentId: string) => {
+    const workerEnv = ((externalLaunch.worker_env) as Readonly<Record<string, string>>)
+    const stateDir = workerEnv.AGENT_SESSION_STATE_DIR
+    const sessionId = workerEnv.AGENT_SESSION_ID
+    const capabilityFile = workerEnv.AGENT_SESSION_CAPABILITY_FILE
+    const statusArgv = [
+      externalLaunch.broker_heartbeat_argv[0],
+      '--state-dir',
+      stateDir,
+      'broker',
+      'status',
+      '--session',
+      sessionId,
+      '--capability-file',
+      capabilityFile,
+      '--authenticated',
+      '--format',
+      'json',
+    ]
+    const deadline = Date.now() + brokerReadyTimeoutMs
+    let observedState = 'unavailable'
+    for (;;) {
+      const result = await client.run(statusArgv, {
+        cwd,
+        signal: exec.signal,
+        env: workerEnv,
+      })
+      if (result.ok && result.envelope.ok === true) {
+        const status = result.envelope.data
+        observedState = typeof status?.state === 'string' ? status.state : 'invalid'
+        if (status?.schema_version === BROKER_STATUS_SCHEMA
+          && status.session_id === sessionId
+          && status.state === 'ready'
+          && status.capability_available === true
+          && status.heartbeat_fresh === true) {
+          return
+        }
+      }
+      if (Date.now() >= deadline) {
+        throw laneError('main-agent-broker-readiness-timeout', {
+          assignment_id: assignmentId,
+          observed_state: observedState,
+        })
+      }
+      await delay(Math.min(BROKER_READY_POLL_MS, Math.max(1, deadline - Date.now())), undefined, {
+        signal: exec.signal,
+      })
+    }
+  }
+
+  const launchTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerLaunch,
+    description: 'Start one managed Main Agent Mode worker lane: run the fenced '
+      + 'main-agent worker start bookkeeping, spawn the lane child in its own '
+      + 'worktree, start its broker heartbeat, and publish its liveness sidecar. '
+      + 'Idempotent per assignment and idempotency key.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_file: {
+          type: 'string',
+          description: 'Absolute path of the private assignment-input JSON packet.',
+        },
+        idempotency_key: {
+          type: 'string',
+          description: 'Stable idempotency key for this worker start.',
+        },
+      },
+      required: ['assignment_file', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const assignmentFile = requireNonEmptyString(
+        record.assignment_file,
+        'main-agent-assignment-file-invalid',
+      )
+      if (!isAbsolute(assignmentFile)) throw laneError('main-agent-assignment-file-invalid')
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
+      // The CLI call itself allocates a store-side worker incarnation and its
+      // broker, so it belongs inside the lock: two concurrent launches of one
+      // assignment would otherwise allocate two incarnations and abandon the
+      // loser. The assignment file is the stable pre-call identity.
+      return withLaunchLock(assignmentFile, async () => {
+        if (closing) throw laneError('main-agent-mode-disposed')
+        const data = await runEnvelope([
+          mainAgentCli,
+          'worker',
+          'start',
+          '--assignment-file',
+          assignmentFile,
+          '--await-ready',
+          '0',
+          '--idempotency-key',
+          idempotencyKey,
+          '--format',
+          'json',
+        ], exec, cwd, controllerEnvironment)
+        const trustedAgentSessionCli = await resolveTrustedAgentSessionCli(exec.signal)
+        if (data?.schema_version !== WORKER_START_RESULT_SCHEMA
+          || trustedAgentSessionCli === undefined
+          || !validExternalLaunch(data.external_launch, trustedAgentSessionCli)) {
+          throw laneError('main-agent-external-launch-invalid')
+        }
+        const externalLaunch = data.external_launch
+        const assignmentId = requireNonEmptyString(
+          data.assignment?.assignment_id,
+          'main-agent-assignment-id-invalid',
+        )
+        const workerSessionId = requireNonEmptyString(
+          data.worker?.session_id,
+          'main-agent-worker-session-invalid',
+        )
+
+        /**
+         * Release a store-side incarnation this runtime is refusing to adopt,
+         * so a refused envelope never leaves a broker with no heartbeat, no
+         * stop, and no lane.
+         */
+        const releaseRefusedIncarnation = async () => {
+          const stopArgv = externalLaunch.broker_stop_argv
+          if (!Array.isArray(stopArgv) || stopArgv.length === 0) return
+          await client.run(stopArgv, { cwd, signal: exec.signal }).catch(() => undefined)
+        }
+
+        const existing = lanes.byAssignment(assignmentId)
+        if (existing !== undefined) {
+          if (existing.launchId !== externalLaunch.launch_id) {
+            await releaseRefusedIncarnation()
+            throw laneError('main-agent-lane-incarnation-conflict', {
+              assignment_id: assignmentId,
+            })
+          }
+          await publishLivenessSidecar(existing)
+          return launchSummary(existing, 'reattached')
+        }
+        // One sidecar path and one worker session belong to exactly one lane:
+        // sharing either would let one lane erase the other's evidence.
+        const collision = lanes.byLivenessFile(externalLaunch.liveness_file)
+          ?? lanes.byWorkerSession(workerSessionId)
+        if (collision !== undefined) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-identity-conflict', {
+            assignment_id: assignmentId,
+            conflicting_assignment_id: collision.assignmentId,
+          })
+        }
+        if (lanes.size + reservedLanes >= maxLanes) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-capacity', {
+            assignment_id: assignmentId,
+            max_lanes: maxLanes,
+          })
+        }
+        // Hold the slot across every await below; the registry only counts it
+        // once the lane is fully launched.
+        reservedLanes += 1
+        try {
+          return await launchLane()
+        } finally {
+          reservedLanes -= 1
+        }
+
+        async function launchLane() {
+        // The worktree becomes the lane worker's shell workdir and sandbox
+        // root, so it is validated like every other envelope-supplied path:
+        // it must be a real existing directory, and when a lane worktree root
+        // is configured it must live under it. Never silently fall back to the
+        // controller checkout — that would hand the lane the controller's own
+        // tree.
+        const worktree = data.assignment?.worktree
+        if (typeof worktree !== 'string' || !isAbsolute(worktree)) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-invalid', { assignment_id: assignmentId })
+        }
+        let workspaceCwd
+        try {
+          workspaceCwd = await realpath(worktree)
+        } catch {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-unavailable', { assignment_id: assignmentId })
+        }
+        if (laneWorktreeRoot !== undefined && !isProperDescendant(workspaceCwd, laneWorktreeRoot)) {
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-uncontained', {
+            assignment_id: assignmentId,
+          })
+        }
+        if (resolve(workspaceCwd) === resolve(workspaceCwd, '..')) {
+          // The filesystem root is never an isolated lane worktree.
+          await releaseRefusedIncarnation()
+          throw laneError('main-agent-lane-worktree-uncontained', {
+            assignment_id: assignmentId,
+          })
+        }
+        let lane: Lane | undefined
+        try {
+          const route = workerRoute(exec?.agent)
+          lane = {
+            assignmentId,
+            workerSessionId,
+            launchId: externalLaunch.launch_id,
+            livenessFile: externalLaunch.liveness_file,
+            childId: '',
+            parent: ((exec.agent) as any),
+            worktree: workspaceCwd,
+            state: 'open',
+            // The bootstrap prompt is submitted as the child's first turn and
+            // rc.7 publishes that turn's start edge before startContinuable
+            // resolves, so the lane would otherwise advertise `waiting` for the
+            // whole bootstrap turn. Seed `working` at launch instead.
+            turn: {
+              phase: 'working',
+              phaseChangedAt: nowEpoch(),
+              currentTurn: { startedAt: nowEpoch() },
+              lastTurn: undefined,
+            },
+            workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
+            bootstrapKey: ((bootstrapKeyFromPrompt(externalLaunch.prompt)) as string),
+            brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
+            sidecarChain: Promise.resolve(),
+            stopHeartbeat: undefined,
+          }
+          const workspaceRef = Object.freeze(Object.create(null))
+          workspaceRefs.set(workspaceRef, { lane, parent: ((exec.agent) as any) })
+          // Publish the sidecar before the heartbeat starts. The heartbeat's
+          // first act is to read this lane's runtime evidence, and it is what
+          // establishes the lane's broker readiness — so the evidence must
+          // already be there rather than arriving inside the heartbeat's
+          // startup retry window.
+          await publishLivenessSidecar(lane)
+          // The heartbeat must then be live before the child bootstraps: the
+          // worker's authenticated CLI calls require a ready broker.
+          const heartbeat = ctx.subprocess.spawn({
+            argv: [...externalLaunch.broker_heartbeat_argv],
+            cwd,
+            stdio: {
+              stdin: 'ignore',
+              stdout: { maxBytes: 16 * 1024 },
+              stderr: { maxBytes: 8 * 1024 },
+            },
+            graceMs: 1_000,
+          })
+          lane.stopHeartbeat = () => {
+            try { heartbeat.terminate() } catch {}
+          }
+          await waitForBrokerReady(externalLaunch, exec, cwd, assignmentId)
+          const started = await ctx.subagents.startContinuable(({
+            provider: workerSubagentProvider,
+            label: `main-agent:${assignmentId}`,
+            workspace: { provider: MANAGED_WORKSPACE_PROVIDER, ref: workspaceRef },
+            request: {
+              prompt: [{ type: 'text', text: nativeBootstrapPrompt(lane.bootstrapKey) }],
+              parent: ((exec.agent) as any),
+              agentOptions: route,
+              toolFilter: { deny: [...DEFAULT_LANE_VISIBILITY_DENIED_TOOLS] },
+            },
+            signal: exec.signal,
+          }) as any)
+          if (lane.childId !== started.childId) {
+            throw laneError('main-agent-host-workspace-child-mismatch')
+          }
+          lanes.add(lane)
+          // Run boundaries published during materialization arrive before the
+          // child id exists, so replay them now: a first turn that already
+          // settled must not leave the lane advertising `working` forever.
+          replayPendingRunEvents(lane)
+          return launchSummary(lane, 'launched')
+        } catch (error) {
+          // Roll every unadopted incarnation back, including failures before
+          // the lane object exists. Otherwise a missing route or rejected
+          // child would leave the nils-owned broker alive with no DSH lane.
+          if (lane !== undefined) {
+            lanes.remove(lane)
+            lane.state = 'terminated'
+            lane.turn = undefined
+            await publishLivenessSidecar(lane).catch(() => {})
+            lane.stopHeartbeat?.()
+          }
+          await releaseRefusedIncarnation()
+          throw error
+        }
+        }
+      })
+    },
+  }
+
+  const interruptTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerInterrupt,
+    description: 'Interrupt one managed worker lane: stop its current turn while '
+      + 'keeping the lane, its inbox, and its durable session intact.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Assignment whose lane to interrupt.' },
+      },
+      required: ['assignment_id'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      const record = ((args) as Record<string, unknown>)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const lane = lanes.byAssignment(assignmentId)
+      if (lane === undefined) throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
+      // Same policy as lane close: a settled or already-drained child has
+      // nothing to interrupt, and that is a lane state, not a transport error.
+      let interrupted = true
+      try {
+        ctx.subagents.interrupt(((lane.childId) as any), {
+          kind: 'user',
+          parentSessionId: ((dshRc7SessionHeader(lane.parent).id) as any),
+        })
+      } catch {
+        interrupted = false
+      }
+      // Only a verified interrupt writes a terminal turn record. Recording an
+      // `interrupted` turn for a child that was never stopped would let the CLI
+      // conclude the turn ended and reassign the lane while the original child
+      // keeps writing to the same worktree.
+      if (interrupted) {
+        lane.turn = {
+          phase: 'waiting',
+          phaseChangedAt: nowEpoch(),
+          currentTurn: undefined,
+          lastTurn: {
+            completedAt: nowEpoch(),
+            outcome: 'interrupted',
+          },
+        }
+        await publishLivenessSidecar(lane)
+      }
+      return { ...laneSummary(lane), operation: 'interrupt', interrupted }
+    },
+  }
+
+  const closeTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.laneClose,
+    description: 'Permanently close one managed worker lane after its assignment '
+      + 'reached a terminal state: interrupt the child, stop the broker '
+      + 'heartbeat, and mark the liveness sidecar terminated so reconcile and '
+      + 'deletion can proceed store-side.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Assignment whose lane to close.' },
+      },
+      required: ['assignment_id'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      const record = ((args) as Record<string, unknown>)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const lane = requireLane(assignmentId)
+      // Resolve every exec-derived input before mutating lane state: a throw
+      // after the mutation would strand the lane in the registry with its
+      // capacity slot held and no retry able to get past the same point.
+      const brokerCwd = controllerCwd(exec)
+      const closed = await closeLane(lane, exec, brokerCwd)
+      return closed.summary
+    },
+  }
+
+  /**
+ * Terminate one lane completely: DSH first releases the resident child and
+ * descendants child-first, then this runtime publishes termination, releases
+ * the heartbeat and broker, and drops the registry entry.
+ */
+
+  const closeLane = async (lane: Lane, exec: any, brokerCwd: string) => {
+    let published = false
+    await hostSubagents.closeContinuable(
+      ((lane.parent) as any),
+      ((lane.childId) as any),
+      exec.signal,
+    )
+    try {
+      lane.state = 'terminated'
+      lane.turn = undefined
+      // Publishing the terminated sidecar is best effort: releasing the
+      // heartbeat and broker must not depend on a filesystem write,
+      // or a failed publish would leave a half-closed lane no retry can fix.
+      published = await publishLivenessSidecar(lane).then(() => true, () => false)
+      lane.stopHeartbeat?.()
+      if (lane.brokerStopArgv.length > 0) {
+        // Best-effort broker release; the heartbeat's own shutdown also stops
+        // the broker, and stale broker state reconciles CLI-side.
+        await client.run(lane.brokerStopArgv, {
+          cwd: brokerCwd,
+          signal: exec.signal,
+        }).catch(() => undefined)
+      }
+    } finally {
+      // Release is unconditional once close starts: the lane is terminated,
+      // so leaving it registered would report it as live to the controller.
+      lane.stopHeartbeat?.()
+      lanes.remove(lane)
+    }
+    return {
+      summary: {
+        ...laneSummary(lane),
+        operation: 'close',
+        closed: true,
+        sidecar_published: published,
+      },
+      drained: true,
+    }
+  }
+
+  /**
+ * Resolve the lane a controller verb names, or refuse. Store-side verbs stay
+ * available through the CLI for assignments this runtime never launched; the
+ * lane-bound verbs below deliberately require the lane, because their whole
+ * purpose is the transport half.
+ */
+
+  const requireLane = (assignmentId: string) => {
+    const lane = lanes.byAssignment(assignmentId)
+    if (lane === undefined) {
+      throw laneError('main-agent-lane-not-found', { assignment_id: assignmentId })
+    }
+    return lane
+  }
+
+  const requireRevision = (record: Record<string, unknown>) => {
+    const value = record.if_revision
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw laneError('main-agent-revision-invalid')
+    }
+    return value
+  }
+
+  const superviseTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerSupervise,
+    description: 'Supervise one managed worker lane: run the store-side bounded '
+      + 'supervision macro and fold this runtime\'s lane transport facts (child '
+      + 'activity, turn phase, lane state) onto its typed classification.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Assignment to supervise.' },
+      },
+      required: ['assignment_id'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'supervise',
+        assignmentId,
+        '--format',
+        'json',
+      ], exec, cwd, controllerEnvironment)
+      const lane = lanes.byAssignment(assignmentId)
+      // Enumeration is read-only and never resumes a child. A listing failure
+      // is reported as unknown activity rather than failing supervision: the
+      // store's classification is the authoritative half of this envelope.
+      let childActivity
+      if (lane !== undefined) {
+        try {
+          const entries = await ctx.subagents.listChildren(
+            ((dshRc7SessionHeader(lane.parent).id) as any),
+            exec.signal,
+          )
+          childActivity = laneChildActivity(entries, lane.childId)
+        } catch {
+          childActivity = { activity: 'unknown', diagnostic: 'listing-unavailable' }
+        }
+      }
+      return supervisionEnvelope({ assignmentId, store, lane, childActivity })
+    },
+  }
+
+  const requestChangesTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerRequestChanges,
+    description: 'Return one submitted assignment to its exact worker lane for bounded '
+      + 'revisions: record the fenced store-side request-changes decision, then deliver '
+      + 'it into that lane\'s inbox. Never sends raw terminal input.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Submitted assignment to return.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        reason: { type: 'string', description: 'Bounded durable reason recorded for the worker.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this decision.' },
+      },
+      required: ['assignment_id', 'if_revision', 'reason', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const reason = requireNonEmptyString(record.reason, 'main-agent-reason-invalid')
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const ifRevision = requireRevision(record)
+      const lane = requireLane(assignmentId)
+      const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
+      // The store decision comes first: delivering a revision request the store
+      // refused would tell the lane to redo work under a fence that never moved.
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'request-changes',
+        assignmentId,
+        '--if-revision',
+        String(ifRevision),
+        '--reason',
+        reason,
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd, controllerEnvironment)
+      let delivered = false
+      let deliveryError
+      try {
+        await queueRevisionPrompt(
+          ctx.subagents,
+          ((lane.parent) as any),
+          ((lane.childId) as any),
+          [{
+            type: 'text',
+            text: [
+              `Main Agent requested changes for assignment ${assignmentId}.`,
+              `Reason: ${reason}`,
+              'Address it in this worktree, then record a fenced checkpoint with'
+              + ` \`${LANE_CHECKPOINT_TOOL}\` using the assignment's current revision.`,
+            ].join('\n'),
+          }],
+          exec.signal,
+        )
+        delivered = true
+      } catch (error) {
+        // The durable decision already landed, so a delivery failure is a
+        // reportable transport fact, not a reason to unwind the store. The
+        // worker also reads the decision from its own rehydrate path.
+        deliveryError = error instanceof Error ? error.message : String(error)
+      }
+      return {
+        schema_version: REVIEW_SCHEMA,
+        assignment_id: assignmentId,
+        decision: 'request-changes',
+        store,
+        delivered,
+        ...deliveryError === undefined ? {} : { delivery_error: deliveryError },
+        lane: laneSummary(lane),
+      }
+    },
+  }
+
+  const acceptTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.workerAccept,
+    description: 'Accept one submitted worker result after Main Agent review, recording '
+      + 'the fenced store-side acceptance. The lane stays live until it is closed '
+      + 'explicitly, so its worktree and inbox remain inspectable.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assignment_id: { type: 'string', description: 'Submitted assignment to accept.' },
+        if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this decision.' },
+      },
+      required: ['assignment_id', 'if_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const assignmentId = requireNonEmptyString(
+        record.assignment_id,
+        'main-agent-assignment-id-invalid',
+      )
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const ifRevision = requireRevision(record)
+      const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
+      const store = await runEnvelope([
+        mainAgentCli,
+        'worker',
+        'accept',
+        assignmentId,
+        '--if-revision',
+        String(ifRevision),
+        '--idempotency-key',
+        idempotencyKey,
+        '--format',
+        'json',
+      ], exec, cwd, controllerEnvironment)
+      const lane = lanes.byAssignment(assignmentId)
+      return {
+        schema_version: REVIEW_SCHEMA,
+        assignment_id: assignmentId,
+        decision: 'accept',
+        store,
+        delivered: false,
+        lane: lane === undefined ? null : laneSummary(lane),
+      }
+    },
+  }
+
+  const closeoutTool: ToolDefinition = {
+    name: MAIN_AGENT_CONTROLLER_TOOLS.runCloseout,
+    description: 'Close out the run: terminate every remaining lane, record the fenced '
+      + 'final run checkpoint through the store closeout macro, then drain this '
+      + 'runtime\'s lane descendants. The controller session survives to deliver the '
+      + 'final answer.',
+    parameters: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'One-line durable summary of the run.' },
+        next_action: { type: 'string', description: 'One-line next action after closeout.' },
+        result_summary: { type: 'string', description: 'One-line result summary for the run.' },
+        if_run_revision: { type: 'integer', minimum: 0, description: 'Expected current run revision.' },
+        idempotency_key: { type: 'string', description: 'Stable key for this closeout.' },
+      },
+      required: ['summary', 'next_action', 'if_run_revision', 'idempotency_key'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object' },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      if (closing) throw laneError('main-agent-mode-disposed')
+      requireControllerCaller(exec)
+      const record = ((args) as Record<string, unknown>)
+      const ifRunRevision = record.if_run_revision
+      if (typeof ifRunRevision !== 'number'
+        || !Number.isInteger(ifRunRevision)
+        || ifRunRevision < 0) {
+        throw laneError('main-agent-revision-invalid')
+      }
+      const idempotencyKey = requireNonEmptyString(
+        record.idempotency_key,
+        'main-agent-idempotency-key-invalid',
+      )
+      const document = checkpointDocument({
+        summary: ((record.summary) as string),
+        nextAction: ((record.next_action) as string),
+        resultSummary: ((record.result_summary) as string | undefined),
+      })
+      const cwd = controllerCwd(exec)
+      const controllerEnvironment = controllerExecutionEnvironment(exec)
+      // Every lane must be terminal before the store retires its worker: a lane
+      // left `open` would keep the pinned harness identity vouching for a
+      // runtime the store already considers retired.
+      const closedLanes = []
+      for (const lane of lanes.list()) {
+        closedLanes.push(await closeLane(lane, exec, cwd))
+      }
+      const directory = await realpath(
+        await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-')),
+      )
+      const checkpointFile = join(directory, 'closeout.json')
+      try {
+        await writePrivateJson(checkpointFile, document)
+        const store = await runEnvelope([
+          mainAgentCli,
+          'closeout',
+          '--if-run-revision',
+          String(ifRunRevision),
+          '--checkpoint-file',
+          checkpointFile,
+          '--idempotency-key',
+          idempotencyKey,
+          '--format',
+          'json',
+        ], exec, cwd, controllerEnvironment)
+        return {
+          schema_version: CLOSEOUT_SCHEMA,
+          store,
+          lanes_closed: closedLanes.map(entry => entry.summary),
+          drained: closedLanes.every(entry => entry.drained),
+        }
+      } finally {
+        await rm(directory, { recursive: true, force: true }).catch(() => {})
+      }
+    },
+  }
+
+  ctx.tools.register(Object.freeze(initializeTool))
+  ctx.tools.register(Object.freeze(launchTool))
+  ctx.tools.register(Object.freeze(interruptTool))
+  ctx.tools.register(Object.freeze(closeTool))
+  ctx.tools.register(Object.freeze(superviseTool))
+  ctx.tools.register(Object.freeze(requestChangesTool))
+  ctx.tools.register(Object.freeze(acceptTool))
+  ctx.tools.register(Object.freeze(closeoutTool))
+
+  /**
+   * The versioned orchestration service. It is deliberately read-only: every
+   * mutation is a tool, so each one carries a model-visible call, an argument
+   * record, and the store's fenced receipt. A service method that mutated the
+   * run would be an unlogged second write path onto the same durable state.
+   */
+  const orchestrationService = Object.freeze({
+    apiVersion: 2,
+    get laneCount() { return lanes.size },
+    get cliDegraded() { return client.degraded },
+    get maxLanes() { return maxLanes },
+    lanes() {
+      return lanes.list().map(laneSummary)
+    },
+    lane(assignmentId: string) {
+      const lane = lanes.byAssignment(assignmentId)
+      return lane === undefined ? undefined : laneSummary(lane)
+    },
+    workerRoute,
+    /** The tool names this runtime owns, so a composition can audit its surface. */
+    tools: MAIN_AGENT_TOOL_INVENTORY,
+  })
+  ctx.provide('mainAgentOrchestration', orchestrationService)
+  // The pre-service name stays bound to the same object: it shipped in the
+  // lane-runtime milestone and renaming a provided service is a breaking
+  // change for any composition that already injects it.
+  ctx.provide('dshRuntimeKitMainAgent', orchestrationService)
+}
+
+/**
+ * Child-fiber plugin: mounting through `ctx.plugin` gates Main Agent Mode on
+ * the subagent runtime without gating the rest of the bundle.
+ */
+export const mainAgentMode = Object.freeze({
+  name: 'dsh-runtime-kit-main-agent',
+  inject: ['agents', 'subagents', 'subprocess', 'tools', 'workspaceLease'],
+  apply: applyMainAgentMode,
+})

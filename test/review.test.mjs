@@ -6,7 +6,7 @@ import {
   installReviewSpecialists,
   reviewSpecialistsRuntime,
   reviewerPersona,
-} from '../src/review/index.js'
+} from '../dist/src/review/index.js'
 
 const EXPECTED_ROLES = [
   'reviewer-api-contract',
@@ -33,7 +33,7 @@ function finding(overrides = {}) {
   return {
     severity: 'high',
     confidence: 0.9,
-    path: 'src/example.js',
+    path: 'src/example.ts',
     line: 12,
     category: 'correctness',
     summary: 'A material problem was found.',

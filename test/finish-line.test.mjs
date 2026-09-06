@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createFinishLineCoordinator } from '../src/finish-line/index.js'
+import { createFinishLineCoordinator } from '../dist/src/finish-line/index.js'
 
 const correlationId = 'correlation:opaque'
 

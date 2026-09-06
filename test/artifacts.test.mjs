@@ -39,8 +39,8 @@ import {
   ArtifactService,
   applyArtifacts,
   createArtifactTools,
-} from '../src/artifacts/index.js'
-import { LocalArtifactProvider } from '../src/artifacts/local-provider.js'
+} from '../dist/src/artifacts/index.js'
+import { LocalArtifactProvider } from '../dist/src/artifacts/local-provider.js'
 import { MemoryArtifactProvider } from './helpers/memory-artifact-provider.mjs'
 
 const testSignal = new AbortController().signal

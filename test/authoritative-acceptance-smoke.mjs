@@ -21,12 +21,12 @@ import {
   scenarioOperationFailureMessage,
   scenarioOperationSucceeded,
   waitForScenarioOperationMarker,
-} from '../src/acceptance/contract.js'
+} from '../dist/src/acceptance/contract.js'
 import {
   NILS_COMPATIBILITY_CANDIDATE_ENV,
   nilsCompatibilityCandidateEnvironment,
   sanitizeAcceptanceScenarioEnvironment,
-} from '../src/acceptance/scenario-environment.js'
+} from '../dist/src/acceptance/scenario-environment.js'
 import {
   SCENARIO_CANARY_DEADLINE_ENV,
   SCENARIO_CANARY_EXECUTION_TIMEOUT_MS,

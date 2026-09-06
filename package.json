@@ -3,34 +3,36 @@
   "version": "0.0.0",
   "description": "Out-of-tree DeepSeek Harness runtime policy, skills, and workflow bundle for Sympoies agents",
   "type": "module",
-  "main": "index.js",
+  "main": "./dist/index.js",
   "bin": {
-    "dsh-runtime-kit": "./bin/dsh-runtime-kit.js",
-    "dsh-runtime-kit-launch": "./bin/dsh-runtime-kit-launch.js",
+    "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./scripts/check-rule-parity-source.mjs",
     "dsh-runtime-kit-manage-dsh-patch": "./scripts/manage-dsh-patch.mjs",
     "dsh-runtime-kit-manage-dsh-tui-patch": "./scripts/manage-dsh-tui-patch.mjs"
   },
   "exports": {
-    ".": "./index.js",
-    "./agent-console-profile": "./src/compat/agent-console.js",
-    "./governed-commit": "./src/governed-commit/index.js",
-    "./composition": "./src/composition/index.js",
-    "./manager": "./src/manager/index.js",
-    "./runtime-health": "./src/health/index.js",
-    "./authoritative-acceptance": "./src/authoritative-acceptance/index.js",
-    "./workspace-lease": "./src/workspace-lease/index.js",
-    "./artifacts": "./src/artifacts/index.js",
-    "./build-provenance": "./src/operations/build-provenance.js",
+    ".": "./dist/index.js",
+    "./agent-console-profile": "./dist/src/compat/agent-console.js",
+    "./governed-commit": "./dist/src/governed-commit/index.js",
+    "./composition": "./dist/src/composition/index.js",
+    "./manager": "./dist/src/manager/index.js",
+    "./runtime-health": "./dist/src/health/index.js",
+    "./authoritative-acceptance": "./dist/src/authoritative-acceptance/index.js",
+    "./workspace-lease": "./dist/src/workspace-lease/index.js",
+    "./artifacts": "./dist/src/artifacts/index.js",
+    "./build-provenance": "./dist/src/operations/build-provenance.js",
     "./check-rule-parity-source": "./scripts/check-rule-parity-source.mjs",
     "./policy/rule-parity.yaml": "./policy/rule-parity.yaml",
     "./package.json": "./package.json"
   },
   "files": [
-    "index.js",
+    "dist",
+    "index.ts",
+    "policy.ts",
     "bin",
-    "policy.js",
     "src",
+    "tsconfig.json",
     "agent-docs",
     "agents",
     "cordis.patch.yml",
@@ -76,6 +78,10 @@
     "zod"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:emit": "tsc -p tsconfig.json --noCheck",
+    "build:provenance": "node scripts/write-build-provenance.mjs",
+    "pretest": "npm run build",
     "test": "node --test test/*.test.mjs",
     "test:composition-contracts": "node --test test/composition-contracts.test.mjs",
     "test:admission-isolation": "node --test test/admission-isolation.test.mjs",
@@ -96,7 +102,7 @@
     "benchmark:policy": "node --expose-gc scripts/benchmark-policy.mjs",
     "benchmark:policy:real": "node scripts/benchmark-policy-real.mjs",
     "verify:policy-source": "node scripts/verify-policy-parity.mjs",
-    "typecheck": "tsc -p jsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:main-agent-e2e": "node test/main-agent-e2e.mjs"
   },
   "devDependencies": {
@@ -115,6 +121,7 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
-    "lifecycle": "./compatibility/profile-lifecycle.json"
+    "lifecycle": "./compatibility/profile-lifecycle.json",
+    "build": "./compatibility/build-provenance.json"
   }
 }

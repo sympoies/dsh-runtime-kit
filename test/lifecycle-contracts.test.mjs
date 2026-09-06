@@ -8,7 +8,7 @@ import {
   computeSemanticRequestDigest,
   createMemoryRuntimeStore,
   createWorkloadManager,
-} from '../src/manager/index.js'
+} from '../dist/src/manager/index.js'
 import {
   acceptingTrustVerifier,
   admissionSeal,

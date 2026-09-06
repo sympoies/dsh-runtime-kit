@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createRuntimeContextTool } from '../src/context/index.js'
-import { createNilsContextClient } from '../src/context/nils-context.js'
-import { createSnapshotExecutionOwner } from '../src/health/nils-provider.js'
-import { isolatedNilsEnvironment } from '../src/nils/session-environment.js'
+import { createRuntimeContextTool } from '../dist/src/context/index.js'
+import { createNilsContextClient } from '../dist/src/context/nils-context.js'
+import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
+import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 function execution(overrides = {}) {
   const signal = new AbortController().signal

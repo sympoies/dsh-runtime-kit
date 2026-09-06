@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { promisify } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
-import { inspectCanonicalPackageArtifact } from '../src/compat/package-artifact.js'
+import { DshCompatibilityError, validateDshCompatibilityManifest } from '../dist/src/compat/contract.js'
+import { inspectSelectedDshCheckout } from '../dist/src/compat/git-checkout.js'
+import { inspectCanonicalPackageArtifact } from '../dist/src/compat/package-artifact.js'
 
 const run = promisify(execFile)
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
