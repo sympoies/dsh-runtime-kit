@@ -706,7 +706,7 @@ export function createAuthoritativeAcceptanceCoordinator(ctx: Context, options: 
       if (published !== undefined) {
         throw new Error('dsh-runtime-kit: acceptance agent identity invalid')
       }
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await new Promise<void>(resolve => { setTimeout(resolve, 10) })
     }
     throw new Error('dsh-runtime-kit: acceptance agent publication unavailable')
   }

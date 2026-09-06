@@ -369,7 +369,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
     const { ledger, operationId } = registration
     // Every failure below drops the local reservation: the execution never
     // dispatches, so nothing later will settle it.
-    const fail = (error: unknown) : never => {
+    const fail: (error: unknown) => never = error => {
       preparedEdits.delete(exec)
       throw error
     }

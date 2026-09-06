@@ -588,7 +588,7 @@ export async function manageDshPatch(input: {
     )
   }
   const revision = await git(gitBin, sourceRoot, ['rev-parse', 'HEAD'])
-  const release = Object.entries(patch.validated_releases)
+  const release = (Object.entries(patch.validated_releases) as [string, Record<string, any>][])
     .find(([, candidate]) => candidate.revision === revision)
   if (release === undefined) {
     throw new DshPatchError(
@@ -598,7 +598,7 @@ export async function manageDshPatch(input: {
     )
   }
   const selectedTargets = Object.fromEntries(
-    Object.entries(patch.targets).flatMap(([path, target]) => {
+    (Object.entries(patch.targets) as [string, Record<string, any>][]).flatMap(([path, target]) => {
       if (target.release_hashes !== undefined && target.release_hashes[release[0]] === undefined) {
         return []
       }

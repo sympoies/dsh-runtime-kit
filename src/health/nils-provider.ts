@@ -444,7 +444,7 @@ export function createSnapshotExecutionOwner(
     signal.addEventListener('abort', forwardAbort, { once: true })
     if (signal.aborted) forwardAbort()
     let settle: () => void = () => {}
-    const settled = new Promise(resolve => { settle = ((resolve) as () => void) })
+    const settled = new Promise<void>(resolve => { settle = resolve as () => void })
     leases.set(token, { controller, settled })
     let released = false
     const release = () => {
@@ -479,7 +479,7 @@ export function createSnapshotExecutionOwner(
       const scopeToken = Symbol('authenticated transport scope')
       const scopeLeases: Map<symbol, {controller: AbortController, settled: Promise<void>}> = new Map()
       let settleScope: () => void = () => {}
-      const scopeSettled = new Promise(resolve => {
+      const scopeSettled = new Promise<void>(resolve => {
         settleScope = ((resolve) as () => void)
       })
       scopes.set(scopeToken, scopeSettled)
@@ -541,7 +541,7 @@ export function createSnapshotExecutionOwner(
       try {
         await Promise.race([
           disposal,
-          new Promise(resolve => { timer = setTimeout(resolve, disposeTimeoutMs) }),
+          new Promise<void>(resolve => { timer = setTimeout(resolve, disposeTimeoutMs) }),
         ])
       } finally {
         if (timer !== undefined) clearTimeout(timer)

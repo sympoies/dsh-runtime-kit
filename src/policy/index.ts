@@ -619,9 +619,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
   })
 
   if (dataPolicyEnabled) {
-    const terminalPolicyRuntime = /** @type {ToolTerminalPolicyRuntime} */ (
-      ((ctx.tools) as unknown)
-    )
+    const terminalPolicyRuntime = ctx.tools as unknown as ToolTerminalPolicyRuntime
     terminalPolicyRuntime.registerTerminalPolicy({
       async projectPersistence(call) {
         const session = call.agent?.session

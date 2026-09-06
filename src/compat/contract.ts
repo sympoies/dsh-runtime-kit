@@ -609,7 +609,7 @@ export async function inspectDshSource(input: {sourceRoot: string, channel: stri
 
   const missing = []
   const packages = []
-  for (const [name, contract] of Object.entries(manifest.public_packages)) {
+  for (const [name, contract] of Object.entries(manifest.public_packages) as [string, Record<string, any>][]) {
     const packageRoot = await canonicalContainedPath(root, containedPath(root, contract.path))
     const packageManifest = await readJson(joinPath(packageRoot, 'package.json'))
     const expectedVersion = contract.version ?? channel.version

@@ -129,7 +129,7 @@ export function createCliClient(ctx: Context, config: { cliTimeoutMs?: number, c
           return failure('cli-unavailable')
         }
         let onDeadline: () => void = () => {}
-        const deadline = new Promise(resolve => { onDeadline = () => resolve(undefined) })
+        const deadline = new Promise<undefined>(resolve => { onDeadline = () => resolve(undefined) })
         timer = setTimeout(() => {
           controller.abort(new Error('dsh-runtime-kit main-agent CLI deadline exceeded'))
           try { handle.terminate() } catch {}

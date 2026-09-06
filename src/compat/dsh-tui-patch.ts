@@ -371,7 +371,7 @@ export async function manageDshTuiPatch(input: {
   validatePatchTargets(patchBytes, Object.keys(patch.targets))
 
   const inspect = async () => {
-    const states = await Promise.all(Object.entries(patch.targets).map(async ([path, hashes]) => {
+    const states = await Promise.all((Object.entries(patch.targets) as [string, Record<string, any>][]).map(async ([path, hashes]) => {
       const target = await regularContainedFile(packageRoot, path, `DSH TUI patch target ${path}`)
       const actual = digest(await readFile(target))
       if (actual === hashes.before_sha256) return (('pristine') as const)
