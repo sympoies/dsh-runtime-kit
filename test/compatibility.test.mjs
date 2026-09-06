@@ -880,17 +880,17 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.27\.37-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /bda942ee83e9cdc02ab29a7ba3ac97a4c76aafeb2b53f88297bdc330a255577b/)
-  assert.match(workflow, /nils-cli-v1\.27\.37-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /584641aacba0faae210a61963283e8707fd70558e29fa97d67075ff4dc573429/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=3fd3a9bd089247405ec2be219234a7a24f54a98c/)
+  assert.match(workflow, /nils-cli-v1\.28\.1-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /95b7fbad4abc028982583839a0a6712999a76414b111874cdda29f3a72ebee9e/)
+  assert.match(workflow, /nils-cli-v1\.28\.1-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /fde1b5daaa594e4cf923303e9907930f2c93e2e352286042bdae8e3ee3b3e969/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=755c786c374821bb72f822fefe2ff80238090333/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // `rollback_validation` keeps the frozen #63 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=3fd3a9bd089247405ec2be219234a7a24f54a98c/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.27\.37-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=755c786c374821bb72f822fefe2ff80238090333/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.1-x86_64-unknown-linux-gnu\/bin"/)
   assert.doesNotMatch(workflow, /1\.27\.29|e6f50a34d68e7a6638eb104e423dcacd116c4071|rollback_archive/)
   assert.match(workflow, /node --test test\/runtime-health-provider\.test\.mjs/)
   const macosJob = workflow.slice(workflow.indexOf('  macos-runtime-health:'))

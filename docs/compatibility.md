@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.37` minimum; exactly validated through `1.27.37` |
+| nils-cli | `1.28.1` minimum; exactly validated through `1.28.1` |
 
 The package retains exactly the latest three reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
@@ -176,6 +176,32 @@ Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture
 guide explains the artifact, extraction, runtime boot, and benchmark trust
 boundaries in more detail.
+
+## Policy enforcement tiers
+
+Every `dsh.policy.v1` rule in
+[`policy/dsh-runtime-kit-v1.toml`](../policy/dsh-runtime-kit-v1.toml) belongs
+to one of three tiers. nils-cli (from 1.28.1) owns the table in
+`DshCapabilityGroup::tier()`, enforces it when the policy loads, and reports
+it per rule through `agent-hook inventory` as `tier` and
+`enforcement_default`; runtime-kit only declares the matching
+`override_class` and annotates each rule with a `# tier:` line that
+`test/policy-parity.test.mjs` checks against the table below and, when a
+companion is available, against the inventory.
+
+| Tier | Rules | Default | Downgrade |
+| --- | --- | --- | --- |
+| `integrity` (A) | `dsh.owner-unclaimed`, `dsh.semantic-conflict`, `dsh.operation-lifecycle-tool`, `dsh.operation-lifecycle-stop`, `dsh.agent-scope-lock-guard`, `dsh.checkout-lease-guard`, `dsh.mcp-secret-scan` | block | none; `locked`, and nils rejects any other declaration (`tier-a-rule-not-locked`) |
+| `governed-seam` (B) | `dsh.block-direct-git-commit`, `dsh.block-direct-git-worktree`, `dsh.block-direct-pr-create`, `dsh.block-unsafe-default-delivery`, `dsh.semantic-commit-body-gate`, `dsh.block-project-memory-write`, `dsh.portable-paths-scan`, `dsh.pre-edit-intent-gate` | block, naming the governed replacement | per rule to `advise` through `--policy-overrides` (see [operations](operations.md#debug-time-policy-downgrades)); `downgrade-only` |
+| `reminder` (C) | `dsh.block-direct-python`, `dsh.forge-label-reminder`, `dsh.memory-write-principle-reminder`, `dsh.skill-usage-reminder`, `dsh.stop-pre-pr-reminder`, `dsh.user-prompt-agent-memory`, `dsh.agent-activity` | context, once per session | n/a; `locked`, and a reminder never blocks |
+
+Two nils behaviours that this table changed are recorded as reduced surfaces:
+an unclassifiable Bash command (nested or dynamic execution, a shell-state
+preamble, an unreadable command field) now blocks only Tier A groups and the
+Tier B groups whose subject the command names (`git`, `gh`/`glab`,
+`semantic-commit`, an agent-memory path, a machine-local path), explaining
+the gap as context for every other group; and `block-direct-python` is a
+reminder that names the detected manager instead of a denial.
 
 ## Retired surfaces
 

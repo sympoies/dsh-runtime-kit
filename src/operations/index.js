@@ -32,14 +32,18 @@ import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
 import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import {
   activationSha256,
+  assetSetSha256,
+  policyOverridesSha256,
   readActivation,
   renderAgentHookConfig,
   resolveActivationRoot,
   resolveProviderDisjointPath,
   resolveProviderHomeTopology,
+  validatePolicyOverrides,
 } from '../activation/index.js'
 
 const PACKAGE_NAME = '@sympoies/dsh-runtime-kit'
+const POLICY_OVERRIDES_SCHEMA = 'dsh-runtime-kit.policy-overrides.v1'
 const LEGACY_STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v1'
 const STATE_SCHEMA = 'dsh-runtime-kit.operations-state.v2'
 const LEGACY_PLAN_SCHEMA = 'dsh-runtime-kit.operations-plan.v1'
@@ -518,27 +522,131 @@ function packageAssets(packageRoot) {
   }
   return {
     ...assets,
-    asset_set_sha256: activationSha256(JSON.stringify(assets)),
+    asset_set_sha256: assetSetSha256(assets),
+  }
+}
+
+/**
+ * Bind receipt-bound policy overrides into a target's asset set so the plan
+ * digest, the staged config, and the activation manifest all change with them.
+ * @param {ReturnType<typeof packageAssets>} assets
+ * @param {Record<string, 'advise'> | undefined} overrides
+ */
+function assetsWithOverrides(assets, overrides) {
+  if (overrides === undefined) return assets
+  const members = {
+    catalog_sha256: assets.catalog_sha256,
+    document_sha256: assets.document_sha256,
+    policy_sha256: assets.policy_sha256,
+    policy_overrides_sha256: policyOverridesSha256(overrides),
+  }
+  return { ...members, asset_set_sha256: assetSetSha256(members) }
+}
+
+/**
+ * The `override_class` declared for every `[[rules]]` entry of a runtime-kit
+ * policy bundle. The bundle is strict TOML written by this repository, so a
+ * line-oriented read of `id` and `override_class` inside each table is exact.
+ * @param {string} text
+ * @returns {Map<string, string>}
+ */
+function policyRuleClasses(text) {
+  /** @type {Map<string, string>} */
+  const classes = new Map()
+  /** @type {string | undefined} */
+  let id
+  /** @type {string | undefined} */
+  let overrideClass
+  const flush = () => {
+    if (id !== undefined && overrideClass !== undefined) classes.set(id, overrideClass)
+    id = undefined
+    overrideClass = undefined
+  }
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim()
+    if (line === '[[rules]]') { flush(); continue }
+    const match = /^(id|override_class)\s*=\s*"([^"]*)"\s*(?:#.*)?$/.exec(line)
+    if (match === null) continue
+    if (match[1] === 'id') id = match[2]
+    else overrideClass = match[2]
+  }
+  flush()
+  return classes
+}
+
+/**
+ * Accept a policy override only for a rule the packaged bundle itself declares
+ * `downgrade-only` (Tier B). Tier A and Tier C rules are `locked`, so naming
+ * one is a typed refusal before any mutation; nils rejects the same override
+ * at load time, and this check exists to fail at preview instead of at
+ * activation health.
+ * @param {string} packageRoot
+ * @param {Record<string, 'advise'> | undefined} overrides
+ */
+function assertOverridesDowngradable(packageRoot, overrides) {
+  if (overrides === undefined) return
+  const classes = policyRuleClasses(
+    readFileSync(join(packageRoot, 'policy', 'dsh-runtime-kit-v1.toml'), 'utf8'),
+  )
+  for (const id of Object.keys(overrides)) {
+    const overrideClass = classes.get(id)
+    if (overrideClass === undefined) {
+      throw new OperationsError('policy-override-unknown-rule', `policy override names no rule of the package: ${id}`, 64)
+    }
+    if (overrideClass !== 'downgrade-only') {
+      throw new OperationsError(
+        'policy-override-not-downgradable',
+        `policy override names a ${overrideClass} rule that cannot be downgraded: ${id}`,
+        64,
+      )
+    }
+  }
+}
+
+/**
+ * Read and validate a `dsh-runtime-kit.policy-overrides.v1` file.
+ * @param {string | undefined} path
+ * @returns {Record<string, 'advise'> | undefined}
+ */
+function readPolicyOverrides(path) {
+  if (path === undefined) return undefined
+  const absolute = resolve(path)
+  const stat = lstatMaybe(absolute)
+  if (stat === null || !stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024) {
+    throw new OperationsError('invalid-policy-overrides', 'policy overrides must be a small regular JSON file', 64)
+  }
+  const value = readJson(absolute).value
+  if (!plainRecord(value)
+    || value.schema_version !== POLICY_OVERRIDES_SCHEMA
+    || Object.keys(value).sort().join(',') !== 'overrides,schema_version') {
+    throw new OperationsError('invalid-policy-overrides', `policy overrides must carry ${POLICY_OVERRIDES_SCHEMA} and an overrides map`, 64)
+  }
+  try {
+    return validatePolicyOverrides(value.overrides)
+  } catch (error) {
+    throw new OperationsError('invalid-policy-overrides', error instanceof Error ? error.message : 'invalid policy overrides', 64)
   }
 }
 
 /** @param {unknown} value */
 function validateAssets(value) {
+  const keys = plainRecord(value) ? Object.keys(value).sort().join(',') : ''
+  const withOverrides = keys === 'asset_set_sha256,catalog_sha256,document_sha256,policy_overrides_sha256,policy_sha256'
   if (!plainRecord(value)
-    || Object.keys(value).sort().join(',') !== 'asset_set_sha256,catalog_sha256,document_sha256,policy_sha256'
-    || !['asset_set_sha256', 'catalog_sha256', 'document_sha256', 'policy_sha256']
-      .every(key => typeof value[key] === 'string' && DIGEST_PATTERN.test(value[key]))) {
+    || (keys !== 'asset_set_sha256,catalog_sha256,document_sha256,policy_sha256' && !withOverrides)
+    || !Object.keys(value).every(key => typeof value[key] === 'string' && DIGEST_PATTERN.test(value[key]))) {
     throw new OperationsError('invalid-operations-state', 'package target has invalid activation assets')
   }
-  const expected = activationSha256(JSON.stringify({
-    catalog_sha256: value.catalog_sha256,
-    document_sha256: value.document_sha256,
-    policy_sha256: value.policy_sha256,
-  }))
+  const expected = assetSetSha256({
+    catalog_sha256: /** @type {string} */ (value.catalog_sha256),
+    document_sha256: /** @type {string} */ (value.document_sha256),
+    policy_sha256: /** @type {string} */ (value.policy_sha256),
+    ...withOverrides ? { policy_overrides_sha256: /** @type {string} */ (value.policy_overrides_sha256) } : {},
+  })
   if (expected !== value.asset_set_sha256) {
     throw new OperationsError('invalid-operations-state', 'package target activation asset digest is inconsistent')
   }
-  return /** @type {{asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string}} */ (value)
+  return /** @type {{asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string,policy_overrides_sha256?:string}} */ (value)
 }
 
 /** @param {ReturnType<typeof pathsFor>} paths */
@@ -952,7 +1060,7 @@ function validateTarget(value) {
   }
   if (value.kind === 'registry') {
     if (Object.keys(value).some(key => ![
-      'kind', 'requested_spec', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets',
+      'kind', 'requested_spec', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets', 'policy_overrides',
     ].includes(key))
       || value.requested_spec !== `${PACKAGE_NAME}@${value.expected_version}`
       || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
@@ -960,14 +1068,25 @@ function validateTarget(value) {
       throw new OperationsError('invalid-operations-state', 'operations state contains an invalid registry target')
     }
   } else if (Object.keys(value).some(key => ![
-    'kind', 'requested_spec', 'source_path', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets',
+    'kind', 'requested_spec', 'source_path', 'expected_version', 'artifact_sha256', 'installed_sha256', 'assets', 'policy_overrides',
   ].includes(key)) || typeof value.source_path !== 'string' || !isAbsolute(value.source_path)
     || typeof value.artifact_sha256 !== 'string' || !DIGEST_PATTERN.test(value.artifact_sha256)
     || typeof value.installed_sha256 !== 'string' || !DIGEST_PATTERN.test(value.installed_sha256)) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid local package target')
   }
-  validateAssets(value.assets)
-  return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>}} */ (value)
+  const assets = validateAssets(value.assets)
+  /** @type {Record<string, 'advise'> | undefined} */
+  let overrides
+  try {
+    overrides = validatePolicyOverrides(value.policy_overrides)
+  } catch {
+    throw new OperationsError('invalid-operations-state', 'operations state contains invalid policy overrides')
+  }
+  if ((overrides === undefined) !== (assets.policy_overrides_sha256 === undefined)
+    || (overrides !== undefined && policyOverridesSha256(overrides) !== assets.policy_overrides_sha256)) {
+    throw new OperationsError('invalid-operations-state', 'package target policy overrides do not match their asset digest')
+  }
+  return /** @type {{kind:'registry',requested_spec:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>,policy_overrides?:Record<string,'advise'>}|{kind:'local',requested_spec:string,source_path:string,expected_version:string,artifact_sha256:string,installed_sha256:string,assets:ReturnType<typeof validateAssets>,policy_overrides?:Record<string,'advise'>}} */ (value)
 }
 
 /** @param {unknown} value */
@@ -1479,8 +1598,19 @@ function packPackageSpec(packageSpec, cwd, npmBin, home) {
   }
 }
 
-/** @param {Record<string, unknown>} target @param {ReturnType<typeof packPackageSpec>} packed @param {boolean} retainPacked */
-function resolvedTarget(target, packed, retainPacked) {
+/**
+ * @param {Record<string, unknown>} target
+ * @param {ReturnType<typeof packPackageSpec>} packed
+ * @param {boolean} retainPacked
+ * @param {Record<string, 'advise'> | undefined} [overrides]
+ */
+function resolvedTarget(target, packed, retainPacked, overrides = undefined) {
+  try {
+    assertOverridesDowngradable(join(packed.temporary, 'extracted', 'package'), overrides)
+  } catch (error) {
+    rmSync(packed.temporary, { recursive: true, force: true })
+    throw error
+  }
   TARGET_LIFECYCLES.set(target, packed.lifecycle)
   if (retainPacked) {
     PACKED_TARGETS.set(target, packed)
@@ -1501,8 +1631,14 @@ function withResolvedTarget(target, body) {
   }
 }
 
-/** @param {string} input @param {string} npmBin @param {string} home @param {boolean} [retainPacked] */
-function resolveTarget(input, npmBin, home, retainPacked = false) {
+/**
+ * @param {string} input
+ * @param {string} npmBin
+ * @param {string} home
+ * @param {boolean} [retainPacked]
+ * @param {Record<string, 'advise'> | undefined} [overrides] receipt-bound Tier B downgrades bound into the target
+ */
+function resolveTarget(input, npmBin, home, retainPacked = false, overrides = undefined) {
   let requestedSpec = input
   let candidate = input
   let prefix = ''
@@ -1538,8 +1674,9 @@ function resolveTarget(input, npmBin, home, retainPacked = false) {
         expected_version: manifest.version,
         artifact_sha256: packed.artifact_sha256,
         installed_sha256: packed.installed_sha256,
-        assets: packed.assets,
-      }, packed, retainPacked)
+        assets: assetsWithOverrides(packed.assets, overrides),
+        ...overrides === undefined ? {} : { policy_overrides: overrides },
+      }, packed, retainPacked, overrides)
   }
   const registry = /^@sympoies\/dsh-runtime-kit@(.+)$/.exec(input)
   if (registry === null || !EXACT_VERSION_PATTERN.test(registry[1])) {
@@ -1556,8 +1693,9 @@ function resolveTarget(input, npmBin, home, retainPacked = false) {
       expected_version: registry[1],
       artifact_sha256: packed.artifact_sha256,
       installed_sha256: packed.installed_sha256,
-      assets: packed.assets,
-    }, packed, retainPacked)
+      assets: assetsWithOverrides(packed.assets, overrides),
+      ...overrides === undefined ? {} : { policy_overrides: overrides },
+    }, packed, retainPacked, overrides)
 }
 
 /** @param {Set<string>} digests @param {unknown} target */
@@ -1653,7 +1791,7 @@ function installSpecForTarget(target, paths, npmBin) {
   try {
     if (packed.version !== target.expected_version || packed.artifact_sha256 !== target.artifact_sha256
       || packed.installed_sha256 !== target.installed_sha256
-      || stableJson(packed.assets) !== stableJson(target.assets)) {
+      || stableJson(assetsWithOverrides(packed.assets, target.policy_overrides)) !== stableJson(target.assets)) {
       throw new OperationsError('plan-drift', 'local package content changed after preview')
     }
     const inventory = reconcileArtifacts(paths)
@@ -2448,13 +2586,22 @@ function activationMatches(target, runtimeRoot, profile) {
       && activation.package_artifact_sha256 === target.artifact_sha256
       && activation.package_installed_sha256 === target.installed_sha256
       && activation.asset_set_sha256 === target.assets.asset_set_sha256
-      && stableJson(activation.assets) === stableJson({
-        policy_sha256: target.assets.policy_sha256,
-        catalog_sha256: target.assets.catalog_sha256,
-        document_sha256: target.assets.document_sha256,
-      })
+      && stableJson(activation.assets) === stableJson(manifestAssets(target))
+      && stableJson(activation.policy_overrides ?? null) === stableJson(target.policy_overrides ?? null)
   } catch {
     return false
+  }
+}
+
+/** @param {ReturnType<typeof validateTarget>} target */
+function manifestAssets(target) {
+  return {
+    policy_sha256: target.assets.policy_sha256,
+    catalog_sha256: target.assets.catalog_sha256,
+    document_sha256: target.assets.document_sha256,
+    ...target.assets.policy_overrides_sha256 === undefined
+      ? {}
+      : { policy_overrides_sha256: target.assets.policy_overrides_sha256 },
   }
 }
 
@@ -2467,11 +2614,8 @@ function activationManifest(target, profile) {
     package_artifact_sha256: target.artifact_sha256,
     package_installed_sha256: target.installed_sha256,
     asset_set_sha256: target.assets.asset_set_sha256,
-    assets: {
-      policy_sha256: target.assets.policy_sha256,
-      catalog_sha256: target.assets.catalog_sha256,
-      document_sha256: target.assets.document_sha256,
-    },
+    assets: manifestAssets(target),
+    ...target.policy_overrides === undefined ? {} : { policy_overrides: target.policy_overrides },
     agent_hook: {
       config: `assets/${target.assets.asset_set_sha256}/agent-hook/config.toml`,
       policy: `assets/${target.assets.asset_set_sha256}/agent-hook/policy.toml`,
@@ -2504,6 +2648,7 @@ function stagedActivationAssetsMatch(target, runtimeRoot) {
     return readFileSync(config, 'utf8') === renderAgentHookConfig(
       policy,
       target.assets.policy_sha256,
+      target.policy_overrides,
     )
   } catch {
     return false
@@ -2538,7 +2683,7 @@ function stageActivationAssets(paths, target, runtimeRoot) {
         throw new OperationsError('activation-staging-failed', 'reviewed activation assets could not be extracted')
       }
       const source = join(extracted, 'package')
-      const observedAssets = packageAssets(source)
+      const observedAssets = assetsWithOverrides(packageAssets(source), target.policy_overrides)
       if (stableJson(observedAssets) !== stableJson(target.assets)) {
         throw new OperationsError('activation-staging-failed', 'reviewed activation assets changed before staging')
       }
@@ -2555,6 +2700,7 @@ function stageActivationAssets(paths, target, runtimeRoot) {
         renderAgentHookConfig(
           join(finalRoot, 'agent-hook', 'policy.toml'),
           target.assets.policy_sha256,
+          target.policy_overrides,
         ),
         { mode: 0o600 },
       )
@@ -3163,8 +3309,9 @@ function duplicateIsTerminal(state, actual, receipt, paths) {
  * @param {string | undefined} packageInput
  * @param {string} dshInput
  * @param {{agentHook: string, agentDocs: string | undefined}} companions
+ * @param {Record<string, 'advise'> | undefined} [policyOverrides]
  */
-function applyMutation(operation, profile, paths, expectedPlanDigest, packageInput, dshInput, companions) {
+function applyMutation(operation, profile, paths, expectedPlanDigest, packageInput, dshInput, companions, policyOverrides = undefined) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
     const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
@@ -3183,7 +3330,7 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
         throw new OperationsError('plan-drift', 'runtime root or toolchain changed after the applied receipt')
       }
       if (packageInput !== undefined) {
-        const supplied = resolveTarget(packageInput, resolveExecutable('npm'), paths.home)
+        const supplied = resolveTarget(packageInput, resolveExecutable('npm'), paths.home, false, policyOverrides)
         if (stableJson(supplied) !== stableJson(priorState.last_applied.plan.target)) {
           throw new OperationsError('plan-drift', 'supplied package target does not match the applied receipt')
         }
@@ -3197,7 +3344,7 @@ function applyMutation(operation, profile, paths, expectedPlanDigest, packageInp
     const npmBin = resolveExecutable('npm')
     const requestedTarget = packageInput === undefined
       ? null
-      : resolveTarget(packageInput, npmBin, paths.home, true)
+      : resolveTarget(packageInput, npmBin, paths.home, true, policyOverrides)
     return withResolvedTarget(requestedTarget, () => {
     const reviewed = buildMutationPlan(
       operation,
@@ -3956,6 +4103,9 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
         : { ok: false, error: 'runtime activation does not match the managed package target' }
   }
   const hook = agentHookDoctor(agentHook, paths.home)
+  const policy = activation.ok === true && activation.status === 'activated'
+    ? agentHookPolicyInventory(agentHook, paths.home)
+    : { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null }
   const dsh = dshVersion(dshBin, paths.home)
   const docs = agentDocsDoctor(
     agentDocs,
@@ -3966,22 +4116,75 @@ function diagnose(profile, paths, agentHook, agentDocs, dshBin, activationInput)
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
+    && policy.ok
     && docs.ok
     && activation.ok
     && dsh.ok
     && lifecycle.error === undefined
+  // A downgraded seam is visible, not failing: the profile is healthy, and the
+  // advisory tells an operator (and acceptance) that this profile must not
+  // produce acceptance evidence.
+  const downgrades = /** @type {string[]} */ (
+    'downgrades' in policy && Array.isArray(policy.downgrades) ? policy.downgrades : []
+  )
+  const advisories = downgrades.length > 0 ? ['policy-downgrades-active'] : []
   return {
     schema_version: 'dsh-runtime-kit.doctor.v1',
     profile,
     status: healthy ? 'healthy' : 'needs-attention',
+    advisories,
     owned_status: ownedStatus,
     recovery,
     observed: publicActual(actual),
     lifecycle,
     agent_hook: hook,
+    policy,
     agent_docs: docs,
     activation,
     dsh,
+  }
+}
+
+/**
+ * Read the effective policy tiers from the activated agent-hook config. nils
+ * owns the tier table; runtime-kit only reports which Tier B rules the active
+ * config downgraded to `advise` and a digest of the table it observed.
+ * @param {ReturnType<typeof resolveAgentHookRuntime>} agentHook
+ * @param {string} home
+ */
+function agentHookPolicyInventory(agentHook, home) {
+  const [agentHookBin, ...args] = agentHook.argv(['inventory', '--format', 'json'])
+  const result = spawn(agentHookBin, args, home, { timeoutMs: HEALTH_COMMAND_TIMEOUT_MS })
+  if (result.status !== 0) return { ok: false, ...commandFailure(result), error: 'agent-hook inventory failed' }
+  try {
+    const value = JSON.parse(result.stdout)
+    if (!plainRecord(value) || value.schema_version !== 'cli.agent-hook.inventory.v1'
+      || value.ok !== true || !plainRecord(value.data) || !Array.isArray(value.data.rules)) {
+      return { ok: false, error: 'agent-hook inventory returned an incompatible envelope' }
+    }
+    const rows = value.data.rules.filter(plainRecord).map(rule => ({
+      id: typeof rule.id === 'string' ? rule.id : null,
+      tier: typeof rule.tier === 'string' ? rule.tier : null,
+      override_class: typeof rule.override_class === 'string' ? rule.override_class : null,
+      effective_mode: plainRecord(rule.effective_modes) && typeof rule.effective_modes.dsh === 'string'
+        ? rule.effective_modes.dsh
+        : null,
+    }))
+    if (rows.some(row => row.id === null)) {
+      return { ok: false, error: 'agent-hook inventory returned a rule without an id' }
+    }
+    return {
+      ok: true,
+      status: 'activated',
+      downgrades: rows.filter(row => row.effective_mode === 'advise').map(row => row.id),
+      tier_table_sha256: sha256(stableJson(rows.map(row => ({
+        id: row.id,
+        tier: row.tier,
+        override_class: row.override_class,
+      })))),
+    }
+  } catch {
+    return { ok: false, error: 'agent-hook inventory returned invalid JSON' }
   }
 }
 
@@ -4309,6 +4512,7 @@ export function main(argv = process.argv.slice(2)) {
         package: { type: 'string' },
         apply: { type: 'boolean', default: false },
         'expected-plan-digest': { type: 'string' },
+        'policy-overrides': { type: 'string' },
         format: { type: 'string', default: 'text' },
         repair: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
@@ -4341,6 +4545,11 @@ export function main(argv = process.argv.slice(2)) {
       throw new OperationsError('invalid-operation', `unsupported operation ${operation}`, 64)
     }
     if (parsed.values.profile === undefined) throw new OperationsError('missing-profile', '--profile is required', 64)
+    if (parsed.values['policy-overrides'] !== undefined
+      && (operation !== 'setup' && operation !== 'update' || parsed.values.package === undefined)) {
+      throw new OperationsError('unexpected-policy-overrides', '--policy-overrides is valid only with setup or update and --package', 64)
+    }
+    const policyOverrides = readPolicyOverrides(parsed.values['policy-overrides'])
     const profile = validateProfile(parsed.values.profile)
     const home = resolveHome()
     const paths = pathsFor(home, profile)
@@ -4436,7 +4645,9 @@ export function main(argv = process.argv.slice(2)) {
     assertOperationsTree(paths)
     if (!apply) {
       const npmBin = resolveExecutable('npm')
-      const target = parsed.values.package === undefined ? null : resolveTarget(parsed.values.package, npmBin, home)
+      const target = parsed.values.package === undefined
+        ? null
+        : resolveTarget(parsed.values.package, npmBin, home, false, policyOverrides)
       const actual = readActual(paths)
       const stateRead = readState(paths.state, profile)
       const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
@@ -4465,6 +4676,7 @@ export function main(argv = process.argv.slice(2)) {
         agentHook: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook',
         agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
       },
+      policyOverrides,
     )), format)
     return 0
   } catch (error) {

@@ -206,3 +206,99 @@ test('the packaged Task 3.2 through 3.4 policy selects every implemented typed c
     assert.equal(inventory.get(id)?.status, 'implemented', id)
   }
 })
+
+const TIER_TABLE = Object.freeze({
+  integrity: [
+    'dsh.owner-unclaimed',
+    'dsh.semantic-conflict',
+    'dsh.operation-lifecycle-tool',
+    'dsh.agent-scope-lock-guard',
+    'dsh.checkout-lease-guard',
+    'dsh.mcp-secret-scan',
+    'dsh.operation-lifecycle-stop',
+  ],
+  'governed-seam': [
+    'dsh.block-direct-git-commit',
+    'dsh.block-direct-git-worktree',
+    'dsh.block-direct-pr-create',
+    'dsh.block-unsafe-default-delivery',
+    'dsh.pre-edit-intent-gate',
+    'dsh.semantic-commit-body-gate',
+    'dsh.block-project-memory-write',
+    'dsh.portable-paths-scan',
+  ],
+  reminder: [
+    'dsh.block-direct-python',
+    'dsh.forge-label-reminder',
+    'dsh.memory-write-principle-reminder',
+    'dsh.skill-usage-reminder',
+    'dsh.stop-pre-pr-reminder',
+    'dsh.user-prompt-agent-memory',
+    'dsh.agent-activity',
+  ],
+})
+
+function policyRules() {
+  const text = readFileSync(task32PolicyPath, 'utf8')
+  return text.split('\n[[rules]]\n').slice(1).map(block => {
+    const id = /^id = "([^"]+)"/m.exec(block)[1]
+    const overrideClass = /^override_class = "([^"]+)"/m.exec(block)[1]
+    const group = /group = "([a-z0-9-]+)"/.exec(block)[1]
+    return { id, overrideClass, group }
+  })
+}
+
+function tierAnnotations() {
+  const text = readFileSync(task32PolicyPath, 'utf8')
+  return [...text.matchAll(/^\[\[rules\]\]\n# tier: ([a-z-]+)\nid = "([^"]+)"/gm)].map(match => [match[2], match[1]])
+}
+
+test('the packaged policy declares the accepted enforcement tiers: Tier B seams are downgrade-only and every other rule is locked', () => {
+  const rules = policyRules()
+  assert.equal(rules.length, 22)
+  const annotated = new Map(tierAnnotations())
+  assert.equal(annotated.size, rules.length, 'every rule carries one # tier: line')
+  for (const [tier, ids] of Object.entries(TIER_TABLE)) {
+    for (const id of ids) {
+      const rule = rules.find(candidate => candidate.id === id)
+      assert.ok(rule, `${id} is declared`)
+      assert.equal(annotated.get(id), tier, `${id} tier annotation`)
+      assert.equal(rule.overrideClass, tier === 'governed-seam' ? 'downgrade-only' : 'locked', `${id} override class`)
+    }
+  }
+  assert.equal(Object.values(TIER_TABLE).flat().length, rules.length, 'the tier table covers every rule exactly once')
+  assert.deepEqual(
+    rules.filter(rule => rule.overrideClass === 'downgrade-only').map(rule => rule.id).sort(),
+    [...TIER_TABLE['governed-seam']].sort(),
+  )
+})
+
+test('the released agent-hook inventory agrees with the packaged tier declarations when a companion is available', async () => {
+  const agentHook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? process.env.AGENT_HOOK_BIN
+  if (agentHook === undefined) return
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { spawnSync } = await import('node:child_process')
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-tier-parity-'))
+  try {
+    const policy = readFileSync(task32PolicyPath)
+    const policyPath = join(root, 'policy.toml')
+    writeFileSync(policyPath, policy, { mode: 0o600 })
+    const configPath = join(root, 'config.toml')
+    writeFileSync(configPath, `schema_version = "agent-hook.config.v1"\n\n[policy]\npath = ${JSON.stringify(policyPath)}\ndigest = "sha256:${sha256(policy)}"\n`, { mode: 0o600 })
+    const result = spawnSync(agentHook, ['--config', configPath, '--state-dir', join(root, 'state'), 'inventory', '--format', 'json'], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const envelope = JSON.parse(result.stdout)
+    const tiers = new Map(envelope.data.rules.map(rule => [rule.id, rule.tier]))
+    if ([...tiers.values()].every(tier => tier === undefined || tier === null)) {
+      // A companion older than the tier contract reports no tiers; the static
+      // declaration test above still binds the override classes.
+      return
+    }
+    for (const [tier, ids] of Object.entries(TIER_TABLE)) {
+      for (const id of ids) assert.equal(tiers.get(id), tier, `${id} tier reported by agent-hook`)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

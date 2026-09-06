@@ -57,6 +57,11 @@ tools, sandbox, approvals, skills, and subagents.
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
   DSH runtime root.
+- Tiered policy enforcement: integrity rules always block, governed delivery
+  seams block by default and may be downgraded to a reminder for debugging
+  through a receipt-bound `--policy-overrides` file, and reminders never
+  block. The tier table is owned by nils-cli and declared in the packaged
+  policy (see [compatibility](docs/compatibility.md#policy-enforcement-tiers)).
 
 ## Supported runtime
 
@@ -65,7 +70,7 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.27.37` minimum; exactly validated through `1.27.37` |
+| nils-cli | `1.28.1` minimum; exactly validated through `1.28.1` |
 
 The package deliberately supports a rolling window of exactly three reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;

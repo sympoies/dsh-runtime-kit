@@ -108,8 +108,8 @@ function stageBundle(root, version, options = {}) {
     })
     writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
       schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
-      minimum_supported_release: '1.27.37',
-      validated_release: '1.27.37',
+      minimum_supported_release: '1.28.1',
+      validated_release: '1.28.1',
     })
     if (options.lifecycleManifest !== null) {
       writeJson(
@@ -395,14 +395,41 @@ if (existsSync(join(home, 'corrupt-after-success'))) writeFileSync(join(installe
 
   const agentHook = join(root, 'fake-agent-hook.mjs')
   writeFileSync(agentHook, `#!/usr/bin/env node
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
-if (!process.argv.includes('doctor')) process.exit(91)
+if (!process.argv.includes('doctor') && !process.argv.includes('inventory')) process.exit(91)
 for (const flag of ['--config', '--policy', '--state-dir']) {
   const index = process.argv.indexOf(flag)
   if (index < 0 || !isAbsolute(process.argv[index + 1] ?? '')) process.exit(92)
 }
 const fixtureRoot = dirname(process.argv[1])
+if (process.argv.includes('inventory')) {
+  // Mirror the released inventory shape from the bound policy and config: a
+  // downgrade-only rule is a governed seam, everything else is locked, and an
+  // [overrides."<id>"] table in the config makes that rule's effective dsh
+  // mode advise.
+  const policyText = readFileSync(process.argv[process.argv.indexOf('--policy') + 1], 'utf8')
+  const configText = readFileSync(process.argv[process.argv.indexOf('--config') + 1], 'utf8')
+  const rules = []
+  for (const block of policyText.split('[[rules]]').slice(1)) {
+    const id = /^id = "([^"]+)"/m.exec(block)?.[1]
+    const overrideClass = /^override_class = "([^"]+)"/m.exec(block)?.[1] ?? 'locked'
+    if (id === undefined) continue
+    const advised = configText.includes('[overrides.' + JSON.stringify(id) + ']')
+    rules.push({
+      id,
+      override_class: overrideClass,
+      tier: overrideClass === 'downgrade-only' ? 'governed-seam' : 'integrity',
+      effective_modes: { dsh: advised ? 'advise' : 'enforce' },
+    })
+  }
+  process.stdout.write(JSON.stringify({
+    schema_version: 'cli.agent-hook.inventory.v1',
+    ok: true,
+    data: { schema_version: 'agent-hook.inventory.v1', rules },
+  }) + '\\n')
+  process.exit(0)
+}
 appendFileSync(join(fixtureRoot, 'agent-hook-doctor-calls.jsonl'), JSON.stringify({
   config: process.argv[process.argv.indexOf('--config') + 1],
   policy: process.argv[process.argv.indexOf('--policy') + 1],
@@ -422,7 +449,7 @@ process.stdout.write(JSON.stringify({
   const agentDocs = join(root, 'fake-agent-docs.mjs')
   writeFileSync(agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.37 (v1.27.37, test)\\n')
+process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
   return { commandDir, dsh, pnpm, agentHook, agentDocs }
@@ -2180,7 +2207,7 @@ test('doctor reports DSH-only agent-docs executable, catalog, and state health',
     assert.equal(healthy.value.data.status, 'healthy')
     assert.deepEqual(healthy.value.data.agent_docs, {
       ok: true,
-      version: '1.27.37',
+      version: '1.28.1',
       catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
       state_home: subject.agentDocsStateHome,
     })
@@ -2193,16 +2220,16 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const old = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(old.status, 65)
     assert.equal(old.value.data.agent_docs.ok, false)
-    assert.match(old.value.data.agent_docs.error, /supported range 1\.27\.37 through 1\.27\.37/)
+    assert.match(old.value.data.agent_docs.error, /supported range 1\.28\.1 through 1\.28\.1/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.37 (v1.27.37, test)\\n')
+process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const validatedCurrent = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(validatedCurrent.status, 0, validatedCurrent.stderr)
-    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.27.37')
+    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.28.1')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2238,26 +2265,26 @@ process.stdout.write('agent-docs 1.27.11 (v1.27.11, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.37 (v1.27.37, test)\\n')
+process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const validatedLatest = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(validatedLatest.status, 0, validatedLatest.stderr)
-    assert.equal(validatedLatest.value.data.agent_docs.version, '1.27.37')
+    assert.equal(validatedLatest.value.data.agent_docs.version, '1.28.1')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.38 (v1.27.38, test)\\n')
+process.stdout.write('agent-docs 1.28.2 (v1.28.2, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const newer = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(newer.status, 65)
     assert.equal(newer.value.data.agent_docs.ok, false)
-    assert.match(newer.value.data.agent_docs.error, /supported range 1\.27\.37 through 1\.27\.37/)
+    assert.match(newer.value.data.agent_docs.error, /supported range 1\.28\.1 through 1\.28\.1/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.37 (v1.27.37, test)\\n')
+process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
 
@@ -2299,7 +2326,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     assert.equal(oldNils.value.data.status, 'needs-attention')
     assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: '0.1.1-rc.2' })
     assert.equal(oldNils.value.data.agent_docs.ok, false)
-    assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.27\.37 through 1\.27\.37/)
+    assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.28\.1 through 1\.28\.1/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2310,17 +2337,17 @@ process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
     assert.equal(previousNils.status, 65, previousNils.stderr)
     assert.equal(previousNils.value.data.status, 'needs-attention')
     assert.equal(previousNils.value.data.agent_docs.ok, false)
-    assert.match(previousNils.value.data.agent_docs.error, /supported range 1\.27\.37 through 1\.27\.37/)
+    assert.match(previousNils.value.data.agent_docs.error, /supported range 1\.28\.1 through 1\.28\.1/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.37 (v1.27.37, test)\\n')
+process.stdout.write('agent-docs 1.28.1 (v1.28.1, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const currentNils = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(currentNils.status, 0, currentNils.stderr)
     assert.equal(currentNils.value.data.status, 'healthy')
-    assert.equal(currentNils.value.data.agent_docs.version, '1.27.37')
+    assert.equal(currentNils.value.data.agent_docs.version, '1.28.1')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2337,7 +2364,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     assert.equal(retained.value.data.status, 'needs-attention')
     assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.2-alpha.4' })
     assert.equal(retained.value.data.agent_docs.ok, false)
-    assert.match(retained.value.data.agent_docs.error, /supported range 1\.27\.37 through 1\.27\.37/)
+    assert.match(retained.value.data.agent_docs.error, /supported range 1\.28\.1 through 1\.28\.1/)
   } finally {
     subject.cleanup()
   }
@@ -4082,6 +4109,145 @@ test('a rollback plan binds the lifecycle declared by the retained prior artifac
     assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)
     assert.equal(refused.value.error.code, 'package-incompatible-dsh')
     assert.equal(readOperationsState(subject).current.installed_version, '2.0.0')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+const TIERED_FIXTURE_POLICY = `schema_version = "agent-hook.policy.v1"
+bundle_id = "dsh-runtime-kit-fixture"
+version = "2026.09.06.1"
+
+# tier: integrity
+[[rules]]
+id = "dsh.checkout-lease-guard"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 10
+mode = "enforce"
+failure_posture = "closed"
+override_class = "locked"
+capability = { id = "dsh.policy.v1", group = "checkout-lease-guard" }
+
+# tier: governed-seam
+[[rules]]
+id = "dsh.block-direct-git-commit"
+products = ["dsh"]
+events = ["PreToolUse"]
+matcher = "bash"
+priority = 20
+mode = "enforce"
+failure_posture = "closed"
+override_class = "downgrade-only"
+capability = { id = "dsh.policy.v1", group = "block-direct-git-commit" }
+`
+
+function writeOverrides(subject, name, value) {
+  const path = join(subject.root, name)
+  writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
+  return path
+}
+
+function tieredFixture() {
+  const subject = fixture()
+  for (const bundle of [subject.v1, subject.v2]) {
+    writeFileSync(join(bundle, 'policy', 'dsh-runtime-kit-v1.toml'), TIERED_FIXTURE_POLICY, { mode: 0o600 })
+  }
+  return subject
+}
+
+test('a receipt-bound policy override downgrades one Tier B seam and is visible in the plan, config, activation, receipt, and doctor', () => {
+  const subject = tieredFixture()
+  try {
+    const overrides = writeOverrides(subject, 'overrides.json', {
+      schema_version: 'dsh-runtime-kit.policy-overrides.v1',
+      overrides: { 'dsh.block-direct-git-commit': 'advise' },
+    })
+    const plain = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(plain.status, 0, plain.stdout)
+    const downgraded = run(subject, ['setup', '--profile', 'work', '--package', subject.v1, '--policy-overrides', overrides])
+    assert.equal(downgraded.status, 0, downgraded.stdout)
+    assert.notEqual(downgraded.value.data.plan_digest, plain.value.data.plan_digest, 'the overrides file is hashed into the plan digest')
+    assert.deepEqual(downgraded.value.data.plan.target.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+    assert.match(downgraded.value.data.plan.target.assets.policy_overrides_sha256, /^[a-f0-9]{64}$/)
+    assert.equal(plain.value.data.plan.target.assets.policy_overrides_sha256, undefined)
+
+    // The plain plan digest cannot apply a downgraded configuration.
+    const crossed = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1, '--policy-overrides', overrides,
+      '--apply', '--expected-plan-digest', plain.value.data.plan_digest,
+    ])
+    assert.equal(crossed.status, 65)
+    assert.equal(crossed.value.error.code, 'plan-drift')
+
+    const applied = run(subject, [
+      'setup', '--profile', 'work', '--package', subject.v1, '--policy-overrides', overrides,
+      '--apply', '--expected-plan-digest', downgraded.value.data.plan_digest,
+    ])
+    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+
+    const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    assert.deepEqual(activation.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+    assert.equal(activation.assets.policy_overrides_sha256, downgraded.value.data.plan.target.assets.policy_overrides_sha256)
+    const config = readFileSync(join(subject.runtimeRoot, activation.agent_hook.config), 'utf8')
+    assert.match(config, /\n\[overrides\."dsh\.block-direct-git-commit"\]\nmode = "advise"\n$/)
+    assert.equal(config.match(/\[overrides\./g).length, 1)
+
+    const state = JSON.parse(readFileSync(join(subject.home, 'runtime-kit', 'state', 'work.json'), 'utf8'))
+    assert.deepEqual(state.current.target.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+    assert.deepEqual(state.last_applied.plan.target.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.status, 0, doctor.stdout)
+    assert.equal(doctor.value.data.status, 'healthy')
+    assert.deepEqual(doctor.value.data.advisories, ['policy-downgrades-active'])
+    assert.deepEqual(doctor.value.data.policy.downgrades, ['dsh.block-direct-git-commit'])
+    assert.match(doctor.value.data.policy.tier_table_sha256, /^[a-f0-9]{64}$/)
+
+    // An update without overrides returns the seam to blocking and the
+    // activated config carries no overrides table; rollback restores them.
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    const updated = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    assert.equal(updated.policy_overrides, undefined)
+    assert.doesNotMatch(readFileSync(join(subject.runtimeRoot, updated.agent_hook.config), 'utf8'), /\[overrides\./)
+    const clean = run(subject, ['doctor', '--profile', 'work'])
+    assert.deepEqual(clean.value.data.advisories, [])
+    assert.deepEqual(clean.value.data.policy.downgrades, [])
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    const rolledBack = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    assert.deepEqual(rolledBack.policy_overrides, { 'dsh.block-direct-git-commit': 'advise' })
+    assert.match(readFileSync(join(subject.runtimeRoot, rolledBack.agent_hook.config), 'utf8'), /\[overrides\."dsh\.block-direct-git-commit"\]/)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('policy overrides are refused before any mutation when they name a locked rule, an unknown rule, or an invalid mode', () => {
+  const subject = tieredFixture()
+  try {
+    const cases = [
+      [{ 'dsh.checkout-lease-guard': 'advise' }, 'policy-override-not-downgradable'],
+      [{ 'dsh.no-such-rule': 'advise' }, 'policy-override-unknown-rule'],
+      [{ 'dsh.block-direct-git-commit': 'shadow' }, 'invalid-policy-overrides'],
+      [{}, 'invalid-policy-overrides'],
+    ]
+    for (const [map, code] of cases) {
+      const overrides = writeOverrides(subject, 'overrides.json', {
+        schema_version: 'dsh-runtime-kit.policy-overrides.v1',
+        overrides: map,
+      })
+      const rejected = run(subject, ['setup', '--profile', 'work', '--package', subject.v1, '--policy-overrides', overrides])
+      assert.equal(rejected.status, 64, rejected.stdout)
+      assert.equal(rejected.value.error.code, code, JSON.stringify(map))
+    }
+    const wrongSchema = writeOverrides(subject, 'overrides.json', { overrides: { 'dsh.block-direct-git-commit': 'advise' } })
+    const rejected = run(subject, ['setup', '--profile', 'work', '--package', subject.v1, '--policy-overrides', wrongSchema])
+    assert.equal(rejected.value.error.code, 'invalid-policy-overrides')
+    const misplaced = run(subject, ['doctor', '--profile', 'work', '--policy-overrides', wrongSchema])
+    assert.equal(misplaced.value.error.code, 'unexpected-policy-overrides')
+    assert.equal(existsSync(join(subject.profileDir, 'node_modules/@sympoies/dsh-runtime-kit')), false)
+    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
   } finally {
     subject.cleanup()
   }

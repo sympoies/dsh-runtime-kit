@@ -1,13 +1,21 @@
 schema_version = "agent-hook.policy.v1"
 bundle_id = "dsh-runtime-kit"
-version = "2026.08.24.1"
+version = "2026.09.06.1"
 
 # Tasks 3.2 through 3.4 port admission-critical mutation gates, bounded native
 # lifecycle reminders, metadata-only activity, and authenticated operation
 # leases into typed nils capabilities. DSH consumes allow/block for tool
 # admission and native context at accepted lifecycle boundaries.
+#
+# Every rule carries the enforcement tier accepted on issue #197 (child #199)
+# and frozen by nils `DshCapabilityGroup::tier()`: `integrity` rules are
+# locked and always block; `governed-seam` rules block by default and are
+# `downgrade-only`, so a receipt-bound `--policy-overrides` file may project
+# them to `advise`; `reminder` rules are locked and only ever emit context.
+# The `# tier:` line above each rule is checked by test/policy-parity.test.mjs.
 
 [[rules]]
+# tier: integrity
 id = "dsh.owner-unclaimed"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -19,6 +27,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "owner-unclaimed" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.semantic-conflict"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -30,6 +39,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "semantic-conflict" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.operation-lifecycle-tool"
 products = ["dsh"]
 events = ["PreToolUse", "PostToolUse", "PostToolUseFailure"]
@@ -41,6 +51,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "operation-lifecycle" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.agent-scope-lock-guard"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -52,6 +63,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "agent-scope-lock-guard" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-direct-git-commit"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -59,10 +71,11 @@ matcher = "bash"
 priority = 130
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "block-direct-git-commit" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-direct-git-worktree"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -70,10 +83,11 @@ matcher = "bash"
 priority = 140
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "block-direct-git-worktree" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-direct-pr-create"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -81,10 +95,11 @@ matcher = "bash"
 priority = 150
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "block-direct-pr-create" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.block-direct-python"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -96,6 +111,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "block-direct-python" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-unsafe-default-delivery"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -103,10 +119,11 @@ matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 170
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "block-unsafe-default-delivery" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.checkout-lease-guard"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -118,6 +135,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "checkout-lease-guard" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.pre-edit-intent-gate"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -125,10 +143,11 @@ matcher = "bash|write|edit|str_replace_editor|runtime_kit_governed_commit"
 priority = 190
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "pre-edit-intent-gate" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.semantic-commit-body-gate"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -136,10 +155,11 @@ matcher = "bash|runtime_kit_governed_commit"
 priority = 200
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "semantic-commit-body-gate" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.block-project-memory-write"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -147,10 +167,11 @@ matcher = "bash|write|edit|str_replace_editor"
 priority = 210
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "block-project-memory-write" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.forge-label-reminder"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -162,6 +183,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "forge-label-reminder" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.mcp-secret-scan"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -173,6 +195,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "mcp-secret-scan" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.memory-write-principle-reminder"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -184,6 +207,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "memory-write-principle-reminder" }
 
 [[rules]]
+# tier: governed-seam
 id = "dsh.portable-paths-scan"
 products = ["dsh"]
 events = ["PreToolUse"]
@@ -191,10 +215,11 @@ matcher = "bash|write|edit|str_replace_editor"
 priority = 250
 mode = "enforce"
 failure_posture = "closed"
-override_class = "locked"
+override_class = "downgrade-only"
 capability = { id = "dsh.policy.v1", group = "portable-paths-scan" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.skill-usage-reminder"
 products = ["dsh"]
 events = ["UserPromptSubmit"]
@@ -205,6 +230,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "skill-usage-reminder" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.stop-pre-pr-reminder"
 products = ["dsh"]
 events = ["Stop"]
@@ -215,6 +241,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "stop-pre-pr-reminder" }
 
 [[rules]]
+# tier: integrity
 id = "dsh.operation-lifecycle-stop"
 products = ["dsh"]
 events = ["Stop"]
@@ -225,6 +252,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "operation-lifecycle" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.user-prompt-agent-memory"
 products = ["dsh"]
 events = ["UserPromptSubmit"]
@@ -235,6 +263,7 @@ override_class = "locked"
 capability = { id = "dsh.policy.v1", group = "user-prompt-agent-memory" }
 
 [[rules]]
+# tier: reminder
 id = "dsh.agent-activity"
 products = ["dsh"]
 events = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop"]
