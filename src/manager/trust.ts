@@ -99,8 +99,12 @@ function validateTransitionEdge(transition: Record<string, any>, prior: Record<s
   if (prior.namespace !== next.namespace || transition.priorBundleDigest !== prior.metadata.digest
     || transition.nextBundleDigest !== next.metadata.digest) fail('lineage-invalid', 'trust transition bundle identity is inconsistent')
   if (Date.parse(transition.effectiveAt) > Date.parse(authorityTime)) fail('lineage-invalid', 'future-effective trust transition is not authoritative')
-  const priorKeys = new Map(prior.keys.map((key: Record<string, any>) => [key.keyId, key]))
-  const nextKeys = new Map(next.keys.map((key: Record<string, any>) => [key.keyId, key]))
+  // `prior` and `next` come from parsed JSON, so their members are untyped;
+  // the original JSDoc left them that way and this conversion keeps it rather
+  // than inventing a schema. The Map needs its own annotation because inference
+  // through an untyped `.map` collapses it to `Map<{}, {}>`.
+  const priorKeys: Map<string, Record<string, any>> = new Map(prior.keys.map((key: Record<string, any>) => [key.keyId, key]))
+  const nextKeys: Map<string, Record<string, any>> = new Map(next.keys.map((key: Record<string, any>) => [key.keyId, key]))
   const signer = priorKeys.get(transition.signerKeyId)
   if (signer === undefined || signer.use !== 'trust-transition' || signer.state !== 'active') fail('signature-trust-unapproved', 'trust transition signer is not active in the prior bundle')
   const expectedChanges: Record<string, any>[] = []

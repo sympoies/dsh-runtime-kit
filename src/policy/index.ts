@@ -266,16 +266,20 @@ function matchesAuthorization(authorization: Authorization, exec: Readonly<ToolE
  * justification in a Bash call. Treat only those known non-escalating echoes
  * as no-ops; every other shape stays under the native escalation validator.
  *
- * @param {{permissions: string | undefined, justification: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access', isNonWideningEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validate(permissions: any, justification: any): void}} input
  */
-
 export function normalizeSandboxEscalationRequest({
   permissions,
   justification,
   effectiveMode,
   isNonWideningEcho,
   validate,
-}): {permissions: string, justification: string} | undefined  {
+}: {
+  permissions: string | undefined,
+  justification: string | undefined,
+  effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access',
+  isNonWideningEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean,
+  validate(permissions: any, justification: any): void,
+}): {permissions: string, justification: string} | undefined {
   if (isNonWideningEcho(permissions, effectiveMode)
     && (justification === undefined || justification.trim().length === 0)) {
     return undefined

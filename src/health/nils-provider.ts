@@ -67,10 +67,10 @@ async function observeQuiescence(handle: SubprocessHandle, timeoutMs: number) {
     const firstObservation = Promise.resolve().then(() => handle.waitForExit())
     const observed = await Promise.race([
       firstObservation.then(value => ({ kind: (('observed') as const), value })),
-      new Promise(resolve => {
+      new Promise<{ kind: 'deadline' }>(resolve => {
         timer = setTimeout(() => {
           try { handle.terminate() } catch {}
-          resolve({ kind: (('deadline') as const) })
+          resolve({ kind: 'deadline' })
         }, timeoutMs)
       }),
     ])

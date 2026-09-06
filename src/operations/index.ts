@@ -784,9 +784,10 @@ function unownedManifest(raw: string) {
 }
 
 function lockInventory(lock: Record<string, unknown>) {
-  return new Set(['packages', 'snapshots'].flatMap(section => (
-    plainRecord(lock[section]) ? Object.keys(lock[section]) : []
-  )))
+  return new Set(['packages', 'snapshots'].flatMap(section => {
+    const entry = lock[section]
+    return plainRecord(entry) ? Object.keys(entry) : []
+  }))
 }
 
 function runtimeKitLockClosure(lock: Record<string, unknown>, inventory: Set<string>) {
@@ -1712,7 +1713,7 @@ function retainTargetArtifact(digests: Set<string>, target: unknown) {
 }
 
 function retainedArtifactDigests(paths: ReturnType<typeof pathsFor>) {
-  const digests = new Set()
+  const digests: Set<string> = new Set()
   if (lstatMaybe(dirname(paths.state)) === null) return digests
   for (const name of readdirSync(dirname(paths.state)).sort()) {
     if (!name.endsWith('.json')) continue
