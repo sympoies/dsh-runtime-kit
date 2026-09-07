@@ -31,7 +31,11 @@ const MAX_CATALOG_BYTES = 1024 * 1024
 const MAX_SCENARIOS = 128
 const MAX_TEXT_BYTES = 16 * 1024 * 1024
 const MAX_CAPTURE_FILES = 512
+const MAX_CAPTURE_NODES = 4096
+const MAX_CAPTURE_DEPTH = 32
+const MAX_CAPTURE_TOTAL_BYTES = 64 * 1024 * 1024
 const MAX_CAPTURE_FILE_BYTES = 8 * 1024 * 1024
+const MAX_ZSTD_FRAMES = 16_384
 const DEFAULT_TIMEOUT_MS = 30 * 60_000
 
 type FolderKind = typeof FOLDER_KINDS[number]
@@ -76,6 +80,27 @@ type CapturedCommand = {
   stdout: string
   stderr: string
   error?: string
+}
+
+type FileIdentity = {
+  path: string
+  sha256: string
+  bytes: number
+  mode: number
+  device: number
+  inode: number
+}
+
+type TranscriptScan = {
+  digests: ReturnType<typeof digestFile>[]
+  missingReminders: string[]
+  forbiddenOutcomes: string[]
+  policyDecisions: {
+    source: 'session-transcript' | 'unavailable'
+    actions: string[]
+    rule_ids: string[]
+  }
+  error?: { code: string, message: string, path: string }
 }
 
 class DriveError extends Error {
@@ -233,6 +258,28 @@ function executable(path: string, label: string) {
   return canonical
 }
 
+function fileIdentity(path: string): FileIdentity {
+  const metadata = safeRegularFile(path, 'executable identity')
+  const bytes = readFileSync(path)
+  return {
+    path,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.byteLength,
+    mode: metadata.mode & 0o777,
+    device: metadata.dev,
+    inode: metadata.ino,
+  }
+}
+
+function sameFileIdentity(left: FileIdentity, right: FileIdentity) {
+  return left.path === right.path
+    && left.sha256 === right.sha256
+    && left.bytes === right.bytes
+    && left.mode === right.mode
+    && left.device === right.device
+    && left.inode === right.inode
+}
+
 function command(
   executablePath: string,
   args: string[],
@@ -291,7 +338,11 @@ function setupProfile(input: Required<Pick<AcceptanceDriveInput,
   const digest = previewData?.plan_digest
   if (preview.exit_code !== 0 || previewEnvelope?.ok !== true
     || typeof digest !== 'string' || !/^[a-f0-9]{64}$/u.test(digest)) {
-    return { ok: false as const, command: preview, error: errorFrom(preview, 'profile-setup-preview-failed') }
+    return {
+      ok: false as const,
+      command: preview,
+      error: errorFrom(preview, 'profile-setup-preview-failed'),
+    }
   }
   const applied = command(
     input.runtimeKitBin,
@@ -302,9 +353,13 @@ function setupProfile(input: Required<Pick<AcceptanceDriveInput,
   )
   const appliedEnvelope = parsedEnvelope(applied.stdout)
   if (applied.exit_code !== 0 || appliedEnvelope?.ok !== true) {
-    return { ok: false as const, command: applied, error: errorFrom(applied, 'profile-setup-apply-failed') }
+    return {
+      ok: false as const,
+      command: applied,
+      error: errorFrom(applied, 'profile-setup-apply-failed'),
+    }
   }
-  return { ok: true as const, command: applied }
+  return { ok: true as const, preview, applied, planDigest: digest }
 }
 
 function doctorProfile(input: Required<Pick<AcceptanceDriveInput,
@@ -341,31 +396,45 @@ function observedFolderKind(workdir: string): FolderKind {
 }
 
 type FileSnapshot = Map<string, { mtimeMs: number, size: number }>
+type WalkBudget = { nodes: number, files: number, bytes: number }
 
 function within(root: string, child: string) {
   const fragment = relative(root, child)
   return fragment === '' || (!fragment.startsWith(`..${sep}`) && fragment !== '..' && !isAbsolute(fragment))
 }
 
-function walkFiles(root: string): FileSnapshot {
+function walkFiles(root: string, budget: WalkBudget): FileSnapshot {
   const snapshot: FileSnapshot = new Map()
   if (!existsSync(root)) return snapshot
   const canonicalRoot = realpathSync(root)
-  const visit = (directory: string) => {
+  const visit = (directory: string, depth: number) => {
+    if (depth > MAX_CAPTURE_DEPTH) {
+      throw new DriveError('evidence-budget-exceeded', 'evidence tree exceeds the depth limit')
+    }
     for (const name of readdirSync(directory).sort()) {
-      if (snapshot.size >= MAX_CAPTURE_FILES) return
+      budget.nodes += 1
+      if (budget.nodes > MAX_CAPTURE_NODES) {
+        throw new DriveError('evidence-budget-exceeded', 'evidence tree exceeds the node limit')
+      }
       const path = join(directory, name)
       const metadata = lstatSync(path)
       if (metadata.isSymbolicLink()) continue
       if (metadata.isDirectory()) {
-        visit(path)
-      } else if (metadata.isFile() && metadata.size <= MAX_CAPTURE_FILE_BYTES
-        && within(canonicalRoot, realpathSync(path))) {
+        visit(path, depth + 1)
+      } else if (metadata.isFile() && within(canonicalRoot, realpathSync(path))) {
+        if (metadata.size > MAX_CAPTURE_FILE_BYTES) {
+          throw new DriveError('evidence-budget-exceeded', 'an evidence file exceeds the per-file limit')
+        }
+        budget.files += 1
+        budget.bytes += metadata.size
+        if (budget.files > MAX_CAPTURE_FILES || budget.bytes > MAX_CAPTURE_TOTAL_BYTES) {
+          throw new DriveError('evidence-budget-exceeded', 'evidence files exceed the aggregate capture limit')
+        }
         snapshot.set(realpathSync(path), { mtimeMs: metadata.mtimeMs, size: metadata.size })
       }
     }
   }
-  visit(canonicalRoot)
+  visit(canonicalRoot, 0)
   return snapshot
 }
 
@@ -379,13 +448,15 @@ function evidenceRoots(workdir: string, dshHome: string) {
 }
 
 function snapshotEvidence(workdir: string, dshHome: string) {
-  return evidenceRoots(workdir, dshHome).map(root => ({ root, files: walkFiles(root) }))
+  const budget: WalkBudget = { nodes: 0, files: 0, bytes: 0 }
+  return evidenceRoots(workdir, dshHome).map(root => ({ root, files: walkFiles(root, budget) }))
 }
 
 function changedEvidence(before: ReturnType<typeof snapshotEvidence>) {
   const changed: string[] = []
+  const budget: WalkBudget = { nodes: 0, files: 0, bytes: 0 }
   for (const entry of before) {
-    for (const [path, identity] of walkFiles(entry.root)) {
+    for (const [path, identity] of walkFiles(entry.root, budget)) {
       const prior = entry.files.get(path)
       if (prior === undefined || prior.mtimeMs !== identity.mtimeMs || prior.size !== identity.size) changed.push(path)
     }
@@ -402,31 +473,125 @@ function digestFile(path: string) {
   }
 }
 
-function transcriptText(path: string) {
-  const bytes = readFileSync(path)
-  try {
-    if (path.endsWith('.gz')) return gunzipSync(bytes, { maxOutputLength: MAX_TEXT_BYTES }).toString('utf8')
-    if (path.endsWith('.zstd')) {
-      return zstdDecompressSync(bytes, { maxOutputLength: MAX_TEXT_BYTES }).toString('utf8')
+function concatenatedZstd(bytes: Buffer, maximum: number) {
+  const chunks: Buffer[] = []
+  let offset = 0
+  let outputBytes = 0
+  let frames = 0
+  while (offset < bytes.byteLength) {
+    frames += 1
+    if (frames > MAX_ZSTD_FRAMES || outputBytes >= maximum) {
+      throw new DriveError('transcript-budget-exceeded', 'zstd transcript exceeds its frame or output limit')
     }
-    return bytes.toString('utf8')
-  } catch {
-    return ''
+    const decoded = zstdDecompressSync(bytes.subarray(offset), {
+      info: true,
+      maxOutputLength: maximum - outputBytes,
+    } as never) as unknown as { buffer: Buffer, engine: { bytesWritten: number } }
+    const consumed = decoded.engine.bytesWritten
+    if (!Number.isSafeInteger(consumed) || consumed <= 0 || offset + consumed > bytes.byteLength) {
+      throw new DriveError('transcript-invalid', 'zstd transcript frame boundary is invalid')
+    }
+    chunks.push(decoded.buffer)
+    outputBytes += decoded.buffer.byteLength
+    offset += consumed
   }
+  return Buffer.concat(chunks, outputBytes)
 }
 
-function policyDecisions(transcripts: string[]) {
+function decodedTranscript(path: string, maximum: number) {
+  const bytes = readFileSync(path)
+  if (path.endsWith('.gz')) return gunzipSync(bytes, { maxOutputLength: maximum })
+  if (path.endsWith('.zstd')) return concatenatedZstd(bytes, maximum)
+  if (bytes.byteLength > maximum) {
+    throw new DriveError('transcript-budget-exceeded', 'plain transcript exceeds its output limit')
+  }
+  return bytes
+}
+
+function observedTranscriptRecord(value: unknown) {
+  const row = record(value)
+  const type = row?.type
+  return typeof type === 'string' && (
+    type === 'tool/result'
+    || type.startsWith('policy/')
+    || type.startsWith('approval/')
+    || type.startsWith('runtime-health/')
+    || type.startsWith('finish-line/')
+  )
+}
+
+function scanTranscripts(
+  transcripts: string[],
+  expectedReminders: string[],
+  forbiddenOutcomes: string[],
+): TranscriptScan {
   const actions = new Set<string>()
   const ruleIds = new Set<string>()
+  const reminders = new Set<string>()
+  const forbidden = new Set<string>()
+  const digests: ReturnType<typeof digestFile>[] = []
+  let compressedBytes = 0
+  let decompressedBytes = 0
   for (const path of transcripts) {
-    const text = transcriptText(path)
-    for (const match of text.matchAll(/\bdecision\.(allow|block|context|warn|transform)\b/gu)) actions.add(match[1]!)
-    for (const match of text.matchAll(/\bdsh\.[a-z0-9][a-z0-9-]{0,63}\b/gu)) ruleIds.add(match[0])
+    try {
+      const metadata = safeRegularFile(path, 'session transcript')
+      compressedBytes += metadata.size
+      if (compressedBytes > MAX_TEXT_BYTES || decompressedBytes >= MAX_TEXT_BYTES) {
+        throw new DriveError('transcript-budget-exceeded', 'transcripts exceed the aggregate scan limit')
+      }
+      const decoded = decodedTranscript(path, MAX_TEXT_BYTES - decompressedBytes)
+      decompressedBytes += decoded.byteLength
+      digests.push(digestFile(path))
+      for (const line of decoded.toString('utf8').split('\n')) {
+        if (line.length === 0) continue
+        let value
+        try {
+          value = JSON.parse(line)
+        } catch {
+          throw new DriveError('transcript-invalid', 'session transcript contains invalid JSONL')
+        }
+        if (!observedTranscriptRecord(value)) continue
+        for (const marker of expectedReminders) if (line.includes(marker)) reminders.add(marker)
+        for (const marker of forbiddenOutcomes) if (line.includes(marker)) forbidden.add(marker)
+        for (const match of line.matchAll(/\bdecision\.(allow|block|context|warn|transform)\b/gu)) {
+          actions.add(match[1]!)
+        }
+        for (const match of line.matchAll(/\bdsh\.[a-z0-9][a-z0-9-]{0,63}\b/gu)) {
+          ruleIds.add(match[0])
+        }
+      }
+    } catch (error) {
+      const errorCode = record(error)?.code
+      const normalized = error instanceof DriveError
+        ? error
+        : new DriveError(
+          errorCode === 'ERR_BUFFER_TOO_LARGE'
+            ? 'transcript-budget-exceeded'
+            : 'transcript-invalid',
+          error instanceof Error ? error.message : String(error),
+        )
+      return {
+        digests,
+        missingReminders: expectedReminders.filter(marker => !reminders.has(marker)),
+        forbiddenOutcomes: [...forbidden].sort(),
+        policyDecisions: {
+          source: actions.size > 0 || ruleIds.size > 0 ? 'session-transcript' : 'unavailable',
+          actions: [...actions].sort(),
+          rule_ids: [...ruleIds].sort(),
+        },
+        error: { code: normalized.code, message: normalized.message, path },
+      }
+    }
   }
   return {
-    source: actions.size > 0 || ruleIds.size > 0 ? 'session-transcript' : 'unavailable',
-    actions: [...actions].sort(),
-    rule_ids: [...ruleIds].sort(),
+    digests,
+    missingReminders: expectedReminders.filter(marker => !reminders.has(marker)),
+    forbiddenOutcomes: [...forbidden].sort(),
+    policyDecisions: {
+      source: actions.size > 0 || ruleIds.size > 0 ? 'session-transcript' : 'unavailable',
+      actions: [...actions].sort(),
+      rule_ids: [...ruleIds].sort(),
+    },
   }
 }
 
@@ -529,6 +694,8 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   const artifactDir = ensureAbsoluteDirectory(input.artifactDir, 'artifact directory')
   const dshBin = executable(input.dshBin, 'DSH executable')
   const runtimeKitBin = executable(input.runtimeKitBin, 'runtime-kit executable')
+  const dshIdentity = fileIdentity(dshBin)
+  const runtimeKitIdentity = fileIdentity(runtimeKitBin)
   const catalog = loadAcceptanceCatalog(input.catalogPath)
   if (!Array.isArray(input.scenarioIds) || input.scenarioIds.length === 0
     || new Set(input.scenarioIds).size !== input.scenarioIds.length) {
@@ -542,6 +709,23 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   })
   const normalized = { ...input, timeoutMs, workdir, dshHome, outputPath, artifactDir, dshBin, runtimeKitBin }
   const results: Array<Record<string, unknown>> = []
+  let setupEvidence: Record<string, unknown> | null = null
+  let doctorEvidence: Record<string, unknown> | null = null
+
+  const commandEvidence = (label: string, captured: CapturedCommand) => ({
+    command: { argv: captured.argv, cwd: captured.cwd },
+    exit_code: captured.exit_code,
+    signal: captured.signal,
+    stdout: writeArtifact(artifactDir, runId + '.' + label + '.stdout.txt', captured.stdout),
+    stderr: writeArtifact(artifactDir, runId + '.' + label + '.stderr.txt', captured.stderr),
+  })
+
+  const runContext = () => ({
+    dsh_executable: dshIdentity,
+    runtime_kit_executable: runtimeKitIdentity,
+    package_setup: setupEvidence,
+    doctor: doctorEvidence,
+  })
 
   const emitSharedFailure = (
     stage: string,
@@ -564,12 +748,25 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       timeoutMs,
       packageSpec: input.packageSpec,
     })
-    if (!setup.ok) emitSharedFailure('profile-setup', setup.error, setup.command)
+    if (!setup.ok) {
+      emitSharedFailure('profile-setup', setup.error, setup.command)
+    } else {
+      setupEvidence = {
+        package_spec_sha256: createHash('sha256').update(input.packageSpec).digest('hex'),
+        plan_digest: setup.planDigest,
+        preview: commandEvidence('profile-setup-preview', setup.preview),
+        apply: commandEvidence('profile-setup-apply', setup.applied),
+      }
+    }
   }
 
   if (results.length === 0) {
     const doctor = doctorProfile({ profile: input.profile, runtimeKitBin, workdir, dshHome, timeoutMs })
-    if (!doctor.ok) emitSharedFailure('profile-doctor', doctor.error, doctor.command)
+    if (!doctor.ok) {
+      emitSharedFailure('profile-doctor', doctor.error, doctor.command)
+    } else {
+      doctorEvidence = commandEvidence('profile-doctor', doctor.command)
+    }
   }
 
   if (results.length === 0) {
@@ -585,7 +782,21 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         continue
       }
       const startedAt = new Date()
-      const before = snapshotEvidence(workdir, dshHome)
+      let before
+      try {
+        before = snapshotEvidence(workdir, dshHome)
+      } catch (error) {
+        const normalizedError = error instanceof DriveError
+          ? error
+          : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
+        const row = preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
+          code: normalizedError.code,
+          message: normalizedError.message,
+        })
+        appendRow(outputPath, row)
+        results.push(row)
+        continue
+      }
       const executed = command(
         dshBin,
         ['--profile', input.profile, selectedScenario.task],
@@ -593,19 +804,54 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         dshHome,
         timeoutMs,
       )
-      const changed = changedEvidence(before)
-      const transcripts = changed.filter(path => path.includes(`${sep}sessions${sep}`)
+      let changed: string[] = []
+      let captureError: { code: string, message: string } | undefined
+      try {
+        changed = changedEvidence(before)
+      } catch (error) {
+        const normalizedError = error instanceof DriveError
+          ? error
+          : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
+        captureError = { code: normalizedError.code, message: normalizedError.message }
+      }
+      const transcripts = changed.filter(path => path.includes(sep + 'sessions' + sep)
         && (path.endsWith('.jsonl') || path.endsWith('.jsonl.gz') || path.endsWith('.jsonl.zstd')))
       const receipts = changed.filter(path => path.startsWith(join(dshHome, 'runtime-kit', 'state') + sep))
-      const transcriptContents = transcripts.map(transcriptText).join('\n')
-      const combined = `${executed.stdout}\n${executed.stderr}\n${transcriptContents}`
-      const missingReminders = selectedScenario.expected_reminders.filter(marker => !combined.includes(marker))
-      const forbidden = selectedScenario.forbidden_outcomes.filter(marker => (
-        marker === 'silent-stop' ? executed.stdout.trim().length === 0 : combined.includes(marker)
-      ))
+      const transcriptScan = scanTranscripts(
+        transcripts,
+        selectedScenario.expected_reminders,
+        selectedScenario.forbidden_outcomes.filter(marker => marker !== 'silent-stop'),
+      )
+      const commandOutput = executed.stdout + '\n' + executed.stderr
+      const missingReminders = transcriptScan.missingReminders
+      const forbidden = [...new Set([
+        ...selectedScenario.forbidden_outcomes.filter(marker => (
+          marker === 'silent-stop'
+            ? executed.stdout.trim().length === 0
+            : commandOutput.includes(marker)
+        )),
+        ...transcriptScan.forbiddenOutcomes,
+      ])].sort()
       const markerSeen = executed.stdout.includes(selectedScenario.success_marker)
+      let identityError: { code: string, message: string } | undefined
+      try {
+        if (!sameFileIdentity(dshIdentity, fileIdentity(dshBin))
+          || !sameFileIdentity(runtimeKitIdentity, fileIdentity(runtimeKitBin))) {
+          identityError = {
+            code: 'executable-identity-changed',
+            message: 'the DSH or runtime-kit executable identity changed during the run',
+          }
+        }
+      } catch (error) {
+        identityError = {
+          code: 'executable-identity-changed',
+          message: error instanceof Error ? error.message : String(error),
+        }
+      }
       const status = executed.exit_code === 0 && executed.signal === null && markerSeen
-        && missingReminders.length === 0 && forbidden.length === 0 ? 'pass' : 'fail'
+        && missingReminders.length === 0 && forbidden.length === 0
+        && captureError === undefined && transcriptScan.error === undefined
+        && identityError === undefined ? 'pass' : 'fail'
       const stdout = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stdout'), executed.stdout)
       const stderr = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stderr'), executed.stderr)
       const finishedAt = new Date()
@@ -617,6 +863,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         profile: input.profile,
         folder_kind: selectedScenario.folder_kind,
         workdir,
+        run_context: runContext(),
         stage: 'dsh-task',
         status,
         started_at: startedAt.toISOString(),
@@ -637,14 +884,25 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           success_marker_seen: markerSeen,
           missing_reminders: missingReminders,
           forbidden_outcomes_seen: forbidden,
-          session_transcripts: transcripts.map(digestFile),
+          session_transcripts: transcriptScan.digests,
           operation_receipts: receipts.map(digestFile),
-          policy_decisions: policyDecisions(transcripts),
+          policy_decisions: transcriptScan.policyDecisions,
+          transcript_scan_error: transcriptScan.error ?? null,
+          evidence_capture_error: captureError ?? null,
+          outcome_verification: {
+            basis: 'dsh-success-marker',
+            external_harness_verification_required: true,
+          },
         },
         ...(status === 'pass' ? {} : {
-          error: {
-            code: executed.error === undefined ? 'scenario-outcome-mismatch' : 'scenario-execution-failed',
-            message: executed.error ?? 'DSH did not produce the complete expected observable outcome',
+          error: identityError ?? transcriptScan.error ?? captureError ?? {
+            code: executed.error !== undefined || executed.exit_code !== 0 || executed.signal !== null
+              ? 'scenario-execution-failed'
+              : 'scenario-outcome-mismatch',
+            message: executed.error
+              ?? (executed.exit_code !== 0 || executed.signal !== null
+                ? 'DSH did not exit successfully'
+                : 'DSH did not produce the complete expected observable outcome'),
           },
         }),
       }
@@ -663,6 +921,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     run_id: runId,
     status: counts.pass === results.length ? 'pass' : 'fail',
     profile: input.profile,
+    run_context: runContext(),
     catalog: {
       path: realpathSync(input.catalogPath),
       sha256: createHash('sha256').update(readFileSync(input.catalogPath)).digest('hex'),

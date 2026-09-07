@@ -20,7 +20,11 @@ function executable(path: string, source: string) {
   return path
 }
 
-function fixtureCatalog(path: string, folderKind: 'git-repo' | 'non-git' | 'managed-worktree' = 'non-git') {
+function fixtureCatalog(
+  path: string,
+  folderKind: 'git-repo' | 'non-git' | 'managed-worktree' = 'non-git',
+  overrides: Record<string, unknown> = {},
+) {
   const value = {
     schema_version: 'dsh-runtime-kit.acceptance-scenarios.v1',
     scenarios: [{
@@ -33,6 +37,7 @@ function fixtureCatalog(path: string, folderKind: 'git-repo' | 'non-git' | 'mana
       expected_observable_outcome: 'result.txt exists and the final response carries the success marker.',
       expected_reminders: [],
       forbidden_outcomes: ['policy denial', 'silent stop'],
+      ...overrides,
     }],
   }
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`)
@@ -47,13 +52,44 @@ test('catalog expands every planned owner into stable folder-kind scenarios', ()
   assert.equal(catalog.schema_version, 'dsh-runtime-kit.acceptance-scenarios.v1')
   assert.equal(catalog.scenarios.length, 34)
   assert.equal(new Set(catalog.scenarios.map(row => row.id)).size, 34)
-  for (const owner of ['#55', '#56', '#57', '#58', '#59', '#60', '#61', '#62', '#63', '#64', '#65', '#79']) {
-    assert.ok(catalog.scenarios.some(row => row.owner.feature_issue === owner), `${owner} owns no scenario`)
-  }
-  assert.ok(catalog.scenarios.some(row => row.owner.program_child === '#E'))
   assert.deepEqual(
-    [...new Set(catalog.scenarios.map(row => row.folder_kind))].sort(),
-    ['git-repo', 'managed-worktree', 'non-git'],
+    catalog.scenarios.map(row => [row.id, row.owner.program_child, row.owner.feature_issue, row.folder_kind]),
+    [
+      ['workspace-identity.git-repo', '#D', '#56', 'git-repo'],
+      ['workspace-identity.non-git', '#D', '#56', 'non-git'],
+      ['workspace-identity.managed-worktree', '#D', '#56', 'managed-worktree'],
+      ['governed-commit.git-repo', '#D', '#55', 'git-repo'],
+      ['governed-commit.managed-worktree', '#D', '#55', 'managed-worktree'],
+      ['automatic-prerequisite.git-repo', '#D', '#57', 'git-repo'],
+      ['automatic-prerequisite.non-git', '#D', '#57', 'non-git'],
+      ['automatic-prerequisite.managed-worktree', '#D', '#57', 'managed-worktree'],
+      ['runtime-health.git-repo', '#D', '#58', 'git-repo'],
+      ['runtime-health.non-git', '#D', '#58', 'non-git'],
+      ['runtime-health.managed-worktree', '#D', '#58', 'managed-worktree'],
+      ['authoritative-acceptance.git-repo', '#D', '#59', 'git-repo'],
+      ['authoritative-acceptance.non-git', '#D', '#59', 'non-git'],
+      ['authoritative-acceptance.managed-worktree', '#D', '#59', 'managed-worktree'],
+      ['managed-subagent-workspace.git-repo', '#D', '#60', 'git-repo'],
+      ['managed-subagent-workspace.managed-worktree', '#D', '#60', 'managed-worktree'],
+      ['data-policy.git-repo', '#D', '#61', 'git-repo'],
+      ['data-policy.non-git', '#D', '#61', 'non-git'],
+      ['data-policy.managed-worktree', '#D', '#61', 'managed-worktree'],
+      ['restricted-role.git-repo', '#D', '#62', 'git-repo'],
+      ['restricted-role.non-git', '#D', '#62', 'non-git'],
+      ['restricted-role.managed-worktree', '#D', '#62', 'managed-worktree'],
+      ['session-artifact.git-repo', '#D', '#63', 'git-repo'],
+      ['session-artifact.non-git', '#D', '#63', 'non-git'],
+      ['session-artifact.managed-worktree', '#D', '#63', 'managed-worktree'],
+      ['profile-lifecycle.git-repo', '#D', '#64', 'git-repo'],
+      ['profile-lifecycle.non-git', '#D', '#64', 'non-git'],
+      ['profile-lifecycle.managed-worktree', '#D', '#64', 'managed-worktree'],
+      ['deploy-dispatcher.git-repo', '#D', '#79', 'git-repo'],
+      ['deploy-dispatcher.managed-worktree', '#D', '#79', 'managed-worktree'],
+      ['retired-surfaces.git-repo', '#D', '#65', 'git-repo'],
+      ['retired-surfaces.non-git', '#D', '#65', 'non-git'],
+      ['retired-surfaces.managed-worktree', '#D', '#65', 'managed-worktree'],
+      ['github-pr-delivery.managed-worktree', '#E', '#197', 'managed-worktree'],
+    ],
   )
 })
 
@@ -221,4 +257,180 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
     dshBin: dsh, runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'unsafe-output',
   }), /result parent must be an owner-only real directory/u)
   assert.equal(existsSync(marker), false)
+})
+
+test('task failure scans every zstd frame and excludes user prompt reminders', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-transcript-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog, 'non-git', {
+    expected_reminders: ['prompt-only-reminder', 'later-frame-reminder'],
+    forbidden_outcomes: ['forbidden-output', 'silent-stop'],
+  })
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const first = zlib.zstdCompressSync(Buffer.from(JSON.stringify({type:'user/message',data:{content:'prompt-only-reminder'}})+'\\n'))
+const second = zlib.zstdCompressSync(Buffer.from(JSON.stringify({type:'tool/result',data:{message:'later-frame-reminder decision.context dsh.later-frame'}})+'\\n'))
+fs.writeFileSync(path.join(sessions, 'multi.jsonl.zstd'), Buffer.concat([first, second]))
+process.stderr.write('forbidden-output\\n')
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'task-failure',
+  })
+  assert.equal(summary.status, 'fail')
+  const [result] = rows(output)
+  assert.equal(result.status, 'fail')
+  assert.equal(result.error.code, 'scenario-outcome-mismatch')
+  assert.equal(result.observed.success_marker_seen, true)
+  assert.deepEqual(result.observed.missing_reminders, ['prompt-only-reminder'])
+  assert.deepEqual(result.observed.forbidden_outcomes_seen, ['forbidden-output'])
+  assert.deepEqual(result.observed.policy_decisions.rule_ids, ['dsh.later-frame'])
+})
+
+test('an unscannable changed transcript fails closed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-corrupt-transcript-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+fs.writeFileSync(path.join(sessions, 'corrupt.jsonl.zstd'), 'not-a-zstd-frame')
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'corrupt-transcript',
+  })
+  const [result] = rows(output)
+  assert.equal(result.status, 'fail')
+  assert.equal(result.error.code, 'transcript-invalid')
+  assert.equal(result.observed.transcript_scan_error.code, 'transcript-invalid')
+})
+
+test('aggregate transcript expansion is bounded across concatenated frames', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-transcript-budget-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const line = JSON.stringify({type:'tool/result',data:{message:'x'.repeat(9 * 1024 * 1024)}})+'\\n'
+const frame = zlib.zstdCompressSync(Buffer.from(line))
+fs.writeFileSync(path.join(sessions, 'oversized.jsonl.zstd'), Buffer.concat([frame, frame]))
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'transcript-budget',
+  })
+  const [result] = rows(output)
+  assert.equal(result.status, 'fail')
+  assert.equal(result.error.code, 'transcript-budget-exceeded')
+})
+
+test('evidence traversal fails the row on an aggregate tree budget', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-evidence-budget-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const sessions = path.join(process.env.DSH_HOME, 'sessions')
+for (let index = 0; index < 4100; index += 1) fs.mkdirSync(path.join(sessions, String(index)), {recursive:true})
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'evidence-budget',
+  })
+  const [result] = rows(output)
+  assert.equal(result.status, 'fail')
+  assert.equal(result.error.code, 'evidence-budget-exceeded')
+  assert.equal(result.observed.evidence_capture_error.code, 'evidence-budget-exceeded')
+})
+
+test('successful package setup binds command artifacts and executable identities', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-provenance-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+const args = process.argv.slice(2)
+const data = args[0] === 'setup' && !args.includes('--apply')
+  ? {mode:'dry-run',plan_digest:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}
+  : args[0] === 'doctor' ? {status:'healthy'} : {mode:'apply',status:'applied'}
+process.stdout.write(JSON.stringify({ok:true,data})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'package-provenance',
+    packageSpec: join(root, 'built-package'),
+  })
+  const [result, summary] = rows(output)
+  assert.equal(result.status, 'pass')
+  assert.match(result.run_context.dsh_executable.sha256, /^[a-f0-9]{64}$/u)
+  assert.match(result.run_context.runtime_kit_executable.sha256, /^[a-f0-9]{64}$/u)
+  assert.equal(result.run_context.package_setup.plan_digest, 'a'.repeat(64))
+  assert.equal(existsSync(result.run_context.package_setup.preview.stdout.path), true)
+  assert.equal(existsSync(result.run_context.package_setup.apply.stdout.path), true)
+  assert.deepEqual(summary.run_context, result.run_context)
 })

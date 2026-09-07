@@ -158,6 +158,13 @@ not add a human explanation and retry. A failure that an external harness
 cannot diagnose from those surfaces is a reporting defect for the diagnostics
 child of the program, not an invitation to fix it during baseline capture.
 
+The runtime-health IDs deliberately use two invocations with different run
+IDs. First stage the unhealthy companion and retain the resulting
+`profile-doctor` / `precondition-unmet` row. Repair the companion outside the
+driver, then invoke the same scenario ID again and retain the repaired task
+row. Those paired rows are the scenario evidence; one synchronous driver
+process cannot pause while its external harness changes the profile.
+
 ## Result contract
 
 The output is append-only JSONL. Every selected scenario produces one
@@ -176,6 +183,9 @@ A result row reports:
 - new or changed DSH session transcript pointers and runtime-kit state receipts;
 - observed policy action/rule markers when the session transcript exposes them;
 - expected marker/reminders, missing reminders, and forbidden outcomes seen.
+- SHA-256 and filesystem identity for the DSH and runtime-kit executables, plus
+  successful setup/doctor command artifacts and plan digest when `--package`
+  is used.
 
 The result row is the index. Read the referenced stdout, stderr, transcript, or
 receipt only when the row says it is relevant. Do not paste raw local absolute
@@ -188,10 +198,23 @@ actual kind differs from the selected scenario. A missing success marker, a
 non-zero DSH exit, an expected reminder that never appeared, or a forbidden
 outcome produces `fail`.
 
+`pass` is the DSH execution-protocol result: the command exited cleanly, the
+task's success marker was reported, required structured reminder evidence was
+seen, forbidden output was absent, and every captured transcript was scanned.
+It is not the external harness's independent attestation of the natural-language
+`expected.observable_outcome`. The row therefore declares
+`outcome_verification.external_harness_verification_required: true`. Before
+accepting a scenario, Codex or Claude must inspect the named file, git, receipt,
+or provider state and record that observation in the child issue. A marker-only
+row never promotes a candidate by itself.
+
 Policy decisions are projected only from redacted, model-visible transcript
 markers. When the installed generation exposes no such structured marker, the
 row says `policy_decisions.source: "unavailable"`; it never invents an allow.
 Universal structured failure diagnosis remains a later program deliverable.
+Corrupt, truncated, oversized, over-deep, or otherwise unscannable evidence
+fails the scenario with a typed capture/scan code instead of silently becoming
+an empty transcript.
 
 ## Direct task and failure reading
 
