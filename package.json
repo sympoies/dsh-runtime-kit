@@ -77,8 +77,8 @@
     "zod"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "build:emit": "tsc -p tsconfig.json --noCheck",
+    "build": "tsc -p tsconfig.json && node dist/scripts/set-bin-executable.js",
+    "build:emit": "tsc -p tsconfig.json --noCheck && node dist/scripts/set-bin-executable.js",
     "build:provenance": "node dist/scripts/write-build-provenance.js",
     "pretest": "npm run build",
     "test": "node --test test/*.test.ts",
