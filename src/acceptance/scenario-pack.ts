@@ -323,15 +323,47 @@ function fixtureReceiptMatches(
     })
 }
 
+function digestEvidence(value: unknown) {
+  const row = record(value)
+  return row !== undefined && exactKeys(row, ['path', 'sha256', 'bytes'])
+    && typeof row.path === 'string' && row.path.length > 0 && row.path.length <= 4096
+    && typeof row.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(row.sha256)
+    && Number.isSafeInteger(row.bytes) && Number(row.bytes) >= 0 && Number(row.bytes) <= 128 * 1024 * 1024
+}
+
+function digestEvidenceList(value: unknown) {
+  return Array.isArray(value) && value.length <= 4096 && value.every(digestEvidence)
+}
+
+function cleanRetryMatches(value: unknown) {
+  const retry = record(value)
+  const decisions = record(retry?.policy_decisions)
+  return retry?.status === 'pass' && retry.success_gate_passed === true
+    && retry.exit_code === 0 && retry.signal === null && retry.success_marker_seen === true
+    && digestEvidence(retry.stdout) && digestEvidence(retry.stderr)
+    && Array.isArray(retry.missing_reminders) && retry.missing_reminders.length === 0
+    && Array.isArray(retry.forbidden_outcomes_seen) && retry.forbidden_outcomes_seen.length === 0
+    && digestEvidenceList(retry.session_transcripts) && digestEvidenceList(retry.operation_receipts)
+    && decisions !== undefined && exactKeys(decisions, ['source', 'actions', 'rule_ids'])
+    && (decisions.source === 'session-transcript' || decisions.source === 'unavailable')
+    && Array.isArray(decisions.actions) && decisions.actions.length <= 5
+    && decisions.actions.every(item => typeof item === 'string'
+      && /^(?:allow|block|context|warn|transform)$/u.test(item))
+    && Array.isArray(decisions.rule_ids) && decisions.rule_ids.length <= 4096
+    && decisions.rule_ids.every(item => typeof item === 'string'
+      && /^dsh\.[a-z0-9][a-z0-9-]{0,63}$/u.test(item))
+    && retry.transcript_scan_error === null && retry.evidence_capture_error === null
+    && retry.executable_identity_error === null
+}
+
 function fixtureChainMatches(result: JsonRecord, phase: AcceptanceScenarioPackPhase, family: string, scenarioId: string) {
   const fixture = record(record(result.observed)?.fixture)
   if (!fixtureReceiptMatches(fixture?.start, {
     stage: phase === 'success' ? 'prepare' : 'induce', phase, family, scenarioId,
   }) || !fixtureReceiptMatches(fixture?.cleanup, { stage: 'cleanup', phase, family, scenarioId })) return false
   if (phase === 'success') return fixture?.recovery === undefined && fixture?.clean_retry === undefined
-  const retry = record(fixture?.clean_retry)
   return fixtureReceiptMatches(fixture?.recovery, { stage: 'recover', phase, family, scenarioId })
-    && retry?.exit_code === 0 && retry.signal === null && retry.success_marker_seen === true
+    && cleanRetryMatches(fixture?.clean_retry)
 }
 
 export function appendAcceptanceAttestation(input: { outputPath: string, attestationPath: string }) {

@@ -834,6 +834,56 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     }
   }
 
+  const taskEvidence = (
+    scenarioValue: AcceptanceScenario,
+    captured: CapturedCommand,
+    evidenceBefore: ReturnType<typeof snapshotEvidence>,
+  ) => {
+    let changed: string[] = []
+    let captureError: { code: string, message: string } | undefined
+    try {
+      changed = changedEvidence(evidenceBefore)
+    } catch (error) {
+      const normalizedError = error instanceof DriveError
+        ? error
+        : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
+      captureError = { code: normalizedError.code, message: normalizedError.message }
+    }
+    const transcripts = changed.filter(path => path.includes(sep + 'sessions' + sep)
+      && (path.endsWith('.jsonl') || path.endsWith('.jsonl.gz') || path.endsWith('.jsonl.zstd')))
+    const receipts = changed.filter(path => path.startsWith(join(dshHome, 'runtime-kit', 'state') + sep))
+    const transcriptScan = scanTranscripts(
+      transcripts,
+      scenarioValue.expected_reminders,
+      scenarioValue.forbidden_outcomes.filter(marker => marker !== 'silent-stop'),
+    )
+    const commandOutput = captured.stdout + '\n' + captured.stderr
+    const missingReminders = transcriptScan.missingReminders
+    const forbidden = [...new Set([
+      ...scenarioValue.forbidden_outcomes.filter(marker => (
+        marker === 'silent-stop'
+          ? commandOutput.trim().length === 0
+          : commandOutput.includes(marker)
+      )),
+      ...transcriptScan.forbiddenOutcomes,
+    ])].sort()
+    const markerSeen = captured.stdout.includes(scenarioValue.success_marker)
+    const identityError = executableIdentityError()
+    return {
+      captureError,
+      transcripts,
+      receipts,
+      transcriptScan,
+      missingReminders,
+      forbidden,
+      markerSeen,
+      identityError,
+      pass: missingReminders.length === 0 && forbidden.length === 0
+        && captureError === undefined && transcriptScan.error === undefined
+        && identityError === undefined,
+    }
+  }
+
   const diagnosticEvidence = (
     scenarioId: string,
     observation: Parameters<typeof collectDiagnosticBundle>[0]['observation'],
@@ -1011,36 +1061,11 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         dshHome,
         timeoutMs,
       )
-      let changed: string[] = []
-      let captureError: { code: string, message: string } | undefined
-      try {
-        changed = changedEvidence(before)
-      } catch (error) {
-        const normalizedError = error instanceof DriveError
-          ? error
-          : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
-        captureError = { code: normalizedError.code, message: normalizedError.message }
-      }
-      const transcripts = changed.filter(path => path.includes(sep + 'sessions' + sep)
-        && (path.endsWith('.jsonl') || path.endsWith('.jsonl.gz') || path.endsWith('.jsonl.zstd')))
-      const receipts = changed.filter(path => path.startsWith(join(dshHome, 'runtime-kit', 'state') + sep))
-      const transcriptScan = scanTranscripts(
-        transcripts,
-        selectedScenario.expected_reminders,
-        selectedScenario.forbidden_outcomes.filter(marker => marker !== 'silent-stop'),
-      )
+      const evidence = taskEvidence(selectedScenario, executed, before)
       const commandOutput = executed.stdout + '\n' + executed.stderr
-      const missingReminders = transcriptScan.missingReminders
-      const forbidden = [...new Set([
-        ...selectedScenario.forbidden_outcomes.filter(marker => (
-          marker === 'silent-stop'
-            ? commandOutput.trim().length === 0
-            : commandOutput.includes(marker)
-        )),
-        ...transcriptScan.forbiddenOutcomes,
-      ])].sort()
-      const markerSeen = executed.stdout.includes(expectedMarker)
-      const identityError = executableIdentityError()
+      const {
+        captureError, transcripts, receipts, transcriptScan, missingReminders, forbidden, markerSeen, identityError,
+      } = evidence
       const stdout = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stdout'), executed.stdout)
       const stderr = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stderr'), executed.stderr)
       const taskFinishedAt = new Date()
@@ -1061,9 +1086,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         skipCommands: identityError !== undefined,
         sessionWindow: { started_at_ms: startedAt.getTime(), finished_at_ms: taskFinishedAt.getTime() },
       })
-      const commonEvidencePass = missingReminders.length === 0 && forbidden.length === 0
-        && captureError === undefined && transcriptScan.error === undefined
-        && identityError === undefined
+      const commonEvidencePass = evidence.pass
       const expectedFailureObserved = input.phase === 'deliberate-failure'
         && diagnostic.outcome.status === 'failed' && !markerSeen
       const fixtureRecovery = fixtureBin === undefined || packRow === undefined
@@ -1078,12 +1101,28 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           dshHome,
           timeoutMs,
         })
-      const recoveryExecuted = fixtureRecovery?.ok === true
+      let recoveryBefore: ReturnType<typeof snapshotEvidence> | undefined
+      let recoveryCaptureError: { code: string, message: string } | undefined
+      if (fixtureRecovery?.ok === true) {
+        try {
+          recoveryBefore = snapshotEvidence(workdir, dshHome)
+        } catch (error) {
+          const normalizedError = error instanceof DriveError
+            ? error
+            : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
+          recoveryCaptureError = { code: normalizedError.code, message: normalizedError.message }
+        }
+      }
+      const recoveryExecuted = fixtureRecovery?.ok === true && recoveryBefore !== undefined
         ? command(dshBin, ['--profile', input.profile, task], workdir, dshHome, timeoutMs)
         : undefined
+      const recoveryEvidence = recoveryExecuted === undefined || recoveryBefore === undefined
+        ? undefined
+        : taskEvidence(selectedScenario, recoveryExecuted, recoveryBefore)
       const recoveryPass = input.phase !== 'deliberate-failure' || (
         fixtureRecovery?.ok === true && recoveryExecuted?.exit_code === 0
-        && recoveryExecuted.signal === null && recoveryExecuted.stdout.includes(expectedMarker)
+        && recoveryExecuted.signal === null && recoveryEvidence?.markerSeen === true
+        && recoveryEvidence.pass
       )
       const fixtureCleanup = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
         executablePath: fixtureBin,
@@ -1144,21 +1183,33 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
                   command: commandEvidence('fixture-recover', fixtureRecovery.captured),
                 },
               }),
-              ...(recoveryExecuted === undefined ? {} : {
+              ...(recoveryExecuted === undefined && recoveryCaptureError === undefined ? {} : {
                 clean_retry: {
-                  exit_code: recoveryExecuted.exit_code,
-                  signal: recoveryExecuted.signal,
-                  success_marker_seen: recoveryExecuted.stdout.includes(expectedMarker),
-                  stdout: writeArtifact(
-                    artifactDir,
-                    `${runId}-${selectedScenario.id}.recovery.stdout.txt`,
-                    recoveryExecuted.stdout,
-                  ),
-                  stderr: writeArtifact(
-                    artifactDir,
-                    `${runId}-${selectedScenario.id}.recovery.stderr.txt`,
-                    recoveryExecuted.stderr,
-                  ),
+                  status: recoveryPass ? 'pass' : 'fail',
+                  success_gate_passed: recoveryEvidence?.pass === true,
+                  ...(recoveryExecuted === undefined ? {} : {
+                    exit_code: recoveryExecuted.exit_code,
+                    signal: recoveryExecuted.signal,
+                    success_marker_seen: recoveryEvidence?.markerSeen === true,
+                    stdout: writeArtifact(
+                      artifactDir,
+                      `${runId}-${selectedScenario.id}.recovery.stdout.txt`,
+                      recoveryExecuted.stdout,
+                    ),
+                    stderr: writeArtifact(
+                      artifactDir,
+                      `${runId}-${selectedScenario.id}.recovery.stderr.txt`,
+                      recoveryExecuted.stderr,
+                    ),
+                    missing_reminders: recoveryEvidence?.missingReminders ?? [],
+                    forbidden_outcomes_seen: recoveryEvidence?.forbidden ?? [],
+                    session_transcripts: recoveryEvidence?.transcriptScan.digests ?? [],
+                    operation_receipts: recoveryEvidence?.receipts.map(digestFile) ?? [],
+                    policy_decisions: recoveryEvidence?.transcriptScan.policyDecisions ?? null,
+                    transcript_scan_error: recoveryEvidence?.transcriptScan.error ?? null,
+                    executable_identity_error: recoveryEvidence?.identityError ?? null,
+                  }),
+                  evidence_capture_error: recoveryCaptureError ?? recoveryEvidence?.captureError ?? null,
                 },
               }),
               ...(fixtureCleanup === undefined ? {} : {

@@ -38,7 +38,17 @@ function fixtureObserved(
     start: fixtureStage(phase === 'success' ? 'prepare' : 'induce', phase, family, scenarioId),
     ...(phase === 'success' ? {} : {
       recovery: fixtureStage('recover', phase, family, scenarioId),
-      clean_retry: { exit_code: 0, signal: null, success_marker_seen: true },
+      clean_retry: {
+        status: 'pass', success_gate_passed: true,
+        exit_code: 0, signal: null, success_marker_seen: true,
+        stdout: { path: '/tmp/retry.stdout', sha256: '1'.repeat(64), bytes: 1 },
+        stderr: { path: '/tmp/retry.stderr', sha256: '2'.repeat(64), bytes: 0 },
+        missing_reminders: [], forbidden_outcomes_seen: [],
+        session_transcripts: [], operation_receipts: [],
+        policy_decisions: { source: 'unavailable', actions: [], rule_ids: [] },
+        transcript_scan_error: null, evidence_capture_error: null,
+        executable_identity_error: null,
+      },
     }),
     cleanup: fixtureStage('cleanup', phase, family, scenarioId),
   } }
@@ -181,6 +191,18 @@ test('deliberate-failure attestation requires diagnosis and recovery evidence', 
     () => appendAcceptanceAttestation({ outputPath: output, attestationPath }),
     /diagnosis must match the result outcome/u,
   )
+  const incompleteRows = readFileSync(output, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  delete incompleteRows[0].observed.fixture.clean_retry.missing_reminders
+  writeFileSync(output, `${incompleteRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+  writeFileSync(attestationPath, validAttestation)
+  assert.throws(
+    () => appendAcceptanceAttestation({ outputPath: output, attestationPath }),
+    /complete fixture stage chain/u,
+  )
+  incompleteRows[0].observed = fixtureObserved(
+    'deliberate-failure', 'runtime-health', 'runtime-health.non-git',
+  )
+  writeFileSync(output, `${incompleteRows.map(row => JSON.stringify(row)).join('\n')}\n`)
   writeFileSync(attestationPath, validAttestation)
   const appended = appendAcceptanceAttestation({ outputPath: output, attestationPath })
   assert.equal(appended.phase, 'deliberate-failure')
@@ -268,6 +290,35 @@ test('pack summary requires distinct successful result and attestation pairs for
   })
 
   const validRows = readFileSync(output, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const retryMutations: Array<[string, (retry: Record<string, unknown>) => void]> = [
+    ['missing missing_reminders', retry => { delete retry.missing_reminders }],
+    ['nonempty missing_reminders', retry => { retry.missing_reminders = ['missing'] }],
+    ['missing forbidden_outcomes_seen', retry => { delete retry.forbidden_outcomes_seen }],
+    ['nonempty forbidden_outcomes_seen', retry => { retry.forbidden_outcomes_seen = ['forbidden'] }],
+    ['missing transcript_scan_error', retry => { delete retry.transcript_scan_error }],
+    ['present transcript_scan_error', retry => { retry.transcript_scan_error = { code: 'invalid' } }],
+    ['missing evidence_capture_error', retry => { delete retry.evidence_capture_error }],
+    ['present evidence_capture_error', retry => { retry.evidence_capture_error = { code: 'invalid' } }],
+    ['missing executable_identity_error', retry => { delete retry.executable_identity_error }],
+    ['present executable_identity_error', retry => { retry.executable_identity_error = { code: 'invalid' } }],
+    ['invalid transcript list', retry => { retry.session_transcripts = [null] }],
+    ['invalid receipt list', retry => { retry.operation_receipts = [null] }],
+    ['invalid policy decisions', retry => { retry.policy_decisions = null }],
+    ['invalid stdout evidence', retry => { retry.stdout = null }],
+    ['invalid stderr evidence', retry => { retry.stderr = null }],
+  ]
+  for (const [name, mutate] of retryMutations) {
+    const invalidRows = structuredClone(validRows)
+    const result = invalidRows.find(row => row.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1'
+      && row.scenario_pack.phase === 'deliberate-failure')
+    mutate(result.observed.fixture.clean_retry)
+    const invalidOutput = join(root, `${name.replaceAll(' ', '-')}.jsonl`)
+    writeFileSync(invalidOutput, `${invalidRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+    const invalid = summarizeAcceptanceScenarioPack({ outputPath: invalidOutput, pack })
+    assert.equal(invalid.status, 'fail', name)
+    assert.equal(invalid.counts.missing_results, 1, name)
+  }
+
   const mismatchedRows = structuredClone(validRows)
   const firstAttestation = mismatchedRows.find(row => row.schema_version === 'dsh-runtime-kit.acceptance-harness-attestation.v1')
   firstAttestation.run_id = 'wrong-run'
