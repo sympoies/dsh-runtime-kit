@@ -38,6 +38,16 @@ required = false
 when = "always"
 notes = "Optional delivery-phase reference; AGENTS.md makes it mandatory when cross-repository work is proposed."
 
+[[document]]
+context = "acceptance-harness"
+scope = "project"
+path = "docs/acceptance-harness.md"
+product = ["codex", "claude"]
+phase = ["edit", "delivery"]
+required = true
+when = "always"
+notes = "External-harness runbook for installing an accepted runtime-kit candidate and driving typed DSH acceptance rows."
+
 [[validation]]
 context = "project-dev"
 product = ["codex", "claude", "hermes", "dsh"]
