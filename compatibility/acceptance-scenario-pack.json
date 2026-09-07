@@ -1,0 +1,208 @@
+{
+  "schema_version": "dsh-runtime-kit.acceptance-scenario-pack.v1",
+  "program_child": "#D",
+  "profile_isolation": "capability-family",
+  "families": [
+    {
+      "id": "workspace-identity",
+      "feature_issue": "#56",
+      "scenario_ids": [
+        "workspace-identity.git-repo",
+        "workspace-identity.non-git",
+        "workspace-identity.managed-worktree"
+      ],
+      "success_observation": "Inspect the target bytes, repository status, lease receipt, and sibling worktree state independently; authority must follow the physical workspace and unrelated repositories must remain unchanged.",
+      "deliberate_failure": {
+        "induction": "Start a distinct authenticated session that owns the same physical target before the unchanged task begins; use a unique session and lease identity for this scenario row.",
+        "diagnosis_task": "Attempt the unchanged workspace operation. When it cannot proceed, use dsh-runtime-kit diagnose and only the referenced lease/session evidence to report the stable code, owning component, evidence reference, next action, and an observable recovery check. Do not infer the cause from the prompt.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Release the inducing session through the host-owned lease lifecycle, then rerun the unchanged task under a new run id.",
+        "recovery_observation": "The inducing lease is absent, the clean retry reaches its catalog outcome, and no unrelated repository or worktree changed."
+      }
+    },
+    {
+      "id": "governed-commit",
+      "feature_issue": "#55",
+      "scenario_ids": [
+        "governed-commit.git-repo",
+        "governed-commit.managed-worktree"
+      ],
+      "success_observation": "Compare the primary/default ref, feature ref, commit signature, tree, and worktree status independently; only the authorized non-default feature ref may move.",
+      "deliberate_failure": {
+        "induction": "Prepare a repository state that violates the governed commit precondition without changing the task text, using a row-specific dirty or default-branch target that can be restored exactly.",
+        "diagnosis_task": "Attempt the unchanged commit workflow. If it is refused, use dsh-runtime-kit diagnose and the governed delivery receipt to report the stable code, owner, evidence reference, next action, and independent state check. Do not guess from shell stderr alone.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Restore the exact clean non-default repository state without bypassing the governed commit surface, then rerun under a new run id.",
+        "recovery_observation": "No default ref moved during the failure, the restored worktree is clean, and the retry produces only the authorized signed commit."
+      }
+    },
+    {
+      "id": "automatic-prerequisite",
+      "feature_issue": "#57",
+      "scenario_ids": [
+        "automatic-prerequisite.git-repo",
+        "automatic-prerequisite.non-git",
+        "automatic-prerequisite.managed-worktree"
+      ],
+      "success_observation": "Read the prepared output and the prerequisite evidence independently; prerequisite loading must precede mutation and remain deduplicated within the session.",
+      "deliberate_failure": {
+        "induction": "Replace the row's declared prerequisite target with a deterministic missing or digest-mismatched fixture while leaving the task text unchanged; retain its original bytes for exact restoration.",
+        "diagnosis_task": "Run the unchanged task. If prerequisite activation fails, use dsh-runtime-kit diagnose and the agent-docs/runtime evidence to report the typed code, owner, evidence reference, next action, and observable recovery check without a human cause hint.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Restore the authenticated prerequisite bytes and rerun the unchanged task in a clean family profile under a new run id.",
+        "recovery_observation": "Prerequisite evidence occurs once before mutation, the requested output is correct, and no failed-run artifact remains in the workdir."
+      }
+    },
+    {
+      "id": "runtime-health",
+      "feature_issue": "#58",
+      "scenario_ids": [
+        "runtime-health.git-repo",
+        "runtime-health.non-git",
+        "runtime-health.managed-worktree"
+      ],
+      "success_observation": "Read doctor, activation, target bytes, and repository status independently; the repaired companion must become healthy without restarting the external harness.",
+      "deliberate_failure": {
+        "induction": "Stage a same-name companion whose bytes do not match the activated digest, preserving the authenticated replacement outside the active companion directory.",
+        "diagnosis_task": "Run the unchanged task. When the health boundary stops activation, use dsh-runtime-kit diagnose and its doctor/native-health references to report the typed code, owner, evidence reference, next action, and observable recovery check. Do not rely on a supplied explanation.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Restore the authenticated companion, rerun doctor in the continuing harness, then rerun the unchanged scenario with a new run id.",
+        "recovery_observation": "No protected mutation occurred while unhealthy; doctor becomes healthy and the same external harness completes the retry."
+      }
+    },
+    {
+      "id": "authoritative-acceptance",
+      "feature_issue": "#59",
+      "scenario_ids": [
+        "authoritative-acceptance.git-repo",
+        "authoritative-acceptance.non-git",
+        "authoritative-acceptance.managed-worktree"
+      ],
+      "success_observation": "Inspect the target bytes, registered validation result, finish-line receipt, and repository status independently; completion must follow exact evidence and negative goals must leave state unchanged.",
+      "deliberate_failure": {
+        "induction": "Prepare a row-specific unmet validation or negative-goal state, and retain a hash of the target before the unchanged task is run.",
+        "diagnosis_task": "Attempt to finish the unchanged task before its authoritative condition is satisfied. Use dsh-runtime-kit diagnose and finish-line evidence to report the code, owner, evidence reference, next action, and observable recovery check without a cause hint.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Satisfy only the declared positive goal and exact registered validation, then retry finish-line under a new run id.",
+        "recovery_observation": "The negative target remained unchanged, the exact validation passed, and finish-line accepted only the repaired run."
+      }
+    },
+    {
+      "id": "managed-subagent-workspace",
+      "feature_issue": "#60",
+      "scenario_ids": [
+        "managed-subagent-workspace.git-repo",
+        "managed-subagent-workspace.managed-worktree"
+      ],
+      "success_observation": "Compare parent and child workspace identities, primary checkout bytes, returned child result, and final worktree inventory independently; the host must issue and remove the child worktree.",
+      "deliberate_failure": {
+        "induction": "Create a reversible row-specific workspace issuance conflict before the unchanged delegation task, without altering the parent checkout or task prompt.",
+        "diagnosis_task": "Attempt the unchanged delegation. If the host cannot issue the child workspace, use dsh-runtime-kit diagnose and the workspace/session receipts to report the code, owner, evidence reference, next action, and observable recovery check.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Remove only the inducing conflict through the host-owned workspace lifecycle, then retry delegation with a new run id.",
+        "recovery_observation": "The primary checkout stayed unchanged, the retry used a distinct child worktree, and no child worktree or lease remains."
+      }
+    },
+    {
+      "id": "data-policy",
+      "feature_issue": "#61",
+      "scenario_ids": [
+        "data-policy.git-repo",
+        "data-policy.non-git",
+        "data-policy.managed-worktree"
+      ],
+      "success_observation": "Hash ordinary and protected targets independently before and after the run; ordinary access must succeed and the protected target must remain byte-identical with typed policy evidence.",
+      "deliberate_failure": {
+        "induction": "Point the row's requested destination at its prepared protected-root fixture while preserving the ordinary source and a pre-run target digest.",
+        "diagnosis_task": "Attempt the unchanged data operation. After denial, use dsh-runtime-kit diagnose and its policy decision reference to report the typed code, owner, evidence reference, next action, and observable recovery check without reading a human explanation.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Return the destination to the declared ordinary fixture, keep the protected target untouched, and rerun under a new run id.",
+        "recovery_observation": "The protected digest never changed, the ordinary operation succeeds after recovery, and no policy downgrade was introduced."
+      }
+    },
+    {
+      "id": "restricted-role",
+      "feature_issue": "#62",
+      "scenario_ids": [
+        "restricted-role.git-repo",
+        "restricted-role.non-git",
+        "restricted-role.managed-worktree"
+      ],
+      "success_observation": "Hash the reviewed target and inspect the parent-visible child result independently; reviewer findings must return while the target remains byte-identical.",
+      "deliberate_failure": {
+        "induction": "Give the restricted reviewer a row-specific instruction that attempts one observable write after inspection, with the target digest retained before spawn.",
+        "diagnosis_task": "Run the restricted-role delegation and inspect the resulting denial through dsh-runtime-kit diagnose. Report the code, owner, evidence reference, next action, and observable recovery check; do not treat the expected denial as permission to mutate.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Discard the attempted mutation instruction, spawn a fresh read-only reviewer, and retrieve its findings under a new run id.",
+        "recovery_observation": "The target digest is unchanged across both runs and the clean reviewer result reaches the parent without a residual child process."
+      }
+    },
+    {
+      "id": "session-artifact",
+      "feature_issue": "#63",
+      "scenario_ids": [
+        "session-artifact.git-repo",
+        "session-artifact.non-git",
+        "session-artifact.managed-worktree"
+      ],
+      "success_observation": "Retrieve the artifact by stable id in the later-session step, compare its digest and bytes independently, and verify the workdir has no new artifact file.",
+      "deliberate_failure": {
+        "induction": "Use a row-specific nonexistent or mismatched artifact id for the later-session retrieval while retaining the valid artifact and its digest.",
+        "diagnosis_task": "Attempt the later-session retrieval. When it fails, use dsh-runtime-kit diagnose and artifact/session evidence to report the code, owner, evidence reference, next action, and observable recovery check without a human cause hint.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Retry with the recorded valid artifact id in a new session and run id; do not copy the artifact into the workdir as a workaround.",
+        "recovery_observation": "The valid bytes and digest match after later-session retrieval, the bad id remains unavailable, and the workdir is clean."
+      }
+    },
+    {
+      "id": "profile-lifecycle",
+      "feature_issue": "#64",
+      "scenario_ids": [
+        "profile-lifecycle.git-repo",
+        "profile-lifecycle.non-git",
+        "profile-lifecycle.managed-worktree"
+      ],
+      "success_observation": "Inspect preview/apply/update/rollback/repair/remove receipts and the caller workdir independently; every transition must be digest-bound and isolated from repository state.",
+      "deliberate_failure": {
+        "induction": "Interrupt a row-specific lifecycle apply at its supported failpoint, retaining the pending receipt and the caller workdir digest before recovery.",
+        "diagnosis_task": "Inspect the interrupted profile through dsh-runtime-kit diagnose and lifecycle commands. Report the stable code, owner, pending evidence reference, next action, and observable recovery check without guessing from filesystem layout.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Use the advertised doctor repair preview/apply path, then complete rollback or removal and boot the resulting profile under a new run id.",
+        "recovery_observation": "No pending transaction or profile lock remains, the resulting profile boots, and the caller repository/worktree digest is unchanged."
+      }
+    },
+    {
+      "id": "deploy-dispatcher",
+      "feature_issue": "#79",
+      "scenario_ids": [
+        "deploy-dispatcher.git-repo",
+        "deploy-dispatcher.managed-worktree"
+      ],
+      "success_observation": "Inspect dispatcher argv, environment, receipt, target state, and repository status independently; only the repository-owned deploy implementation may run.",
+      "deliberate_failure": {
+        "induction": "Make the row-specific repository deploy dispatcher unavailable or non-executable while retaining its original bytes and mode for exact restoration.",
+        "diagnosis_task": "Attempt the unchanged deploy request. Use dsh-runtime-kit diagnose and dispatcher evidence to report the stable code, owner, evidence reference, next action, and observable recovery check rather than substituting a direct deployment command.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Restore the repository-owned dispatcher bytes and executable role, then rerun the unchanged deploy request under a new run id.",
+        "recovery_observation": "No deployment occurred while the dispatcher was invalid; the restored dispatcher runs once and leaves the repository in its declared state."
+      }
+    },
+    {
+      "id": "retired-surfaces",
+      "feature_issue": "#65",
+      "scenario_ids": [
+        "retired-surfaces.git-repo",
+        "retired-surfaces.non-git",
+        "retired-surfaces.managed-worktree"
+      ],
+      "success_observation": "Inspect composed configuration, command discovery, and retired-surface inventory independently; no retired key, command, adapter, or compatibility fallback may be active.",
+      "deliberate_failure": {
+        "induction": "Stage one row-specific retired-surface fixture in the isolated profile composition without changing the runtime-kit package or the catalog task.",
+        "diagnosis_task": "Probe the unchanged profile and use dsh-runtime-kit diagnose plus composed-tree evidence to report the typed code, owner, evidence reference, next action, and observable recovery check; do not activate the retired surface.",
+        "required_diagnosis_fields": ["code", "component", "evidence_reference", "next_action", "observable_state_check"],
+        "recovery": "Remove only the inducing retired fixture through profile lifecycle setup/update, then boot and inspect the clean composition under a new run id.",
+        "recovery_observation": "The retired surface is absent, the clean profile boots, and no caller workdir or unrelated profile state changed."
+      }
+    }
+  ]
+}

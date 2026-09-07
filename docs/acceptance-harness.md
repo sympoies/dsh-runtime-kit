@@ -158,6 +158,125 @@ not add a human explanation and retry. A failure that an external harness
 cannot diagnose from those surfaces is a reporting defect for the diagnostics
 child of the program, not an invitation to fix it during baseline capture.
 
+## Run the #D feature scenario pack
+
+`compatibility/acceptance-scenario-pack.json` is the executable accounting
+contract for child #D. It maps all 33 #D catalog rows into twelve capability
+families and gives each row two case identities:
+
+- `<scenario-id>.success` runs the unchanged catalog task and requires an
+  independent observation of its natural-language outcome;
+- `<scenario-id>.deliberate-failure` runs the byte-identical catalog task in
+  the manifest's reversible degraded setup and passes only when the retained
+  structured session outcome is failed and the ordinary success marker is
+  absent. The external harness then diagnoses and performs a clean recovery.
+
+Use one clean scratch profile per capability family. Do not reuse a family
+profile for another family, and do not run two folder kinds in one driver
+invocation. Every case gets a distinct run id. Supply an owner-only executable
+fixture provider with `--fixture-bin`; the driver binds its identity and invokes
+`prepare`/`cleanup` for a success row or
+`induce`/`recover`/clean-retry/`cleanup` for a deliberate-failure row. First run
+the success half:
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive \
+  --profile headless \
+  --scenario workspace-identity.non-git \
+  --phase success \
+  --workdir /absolute/scenario-directory \
+  --output /absolute/results/feature-pack.jsonl \
+  --artifact-dir /absolute/results/artifacts \
+  --dsh-home /absolute/family-dsh-home \
+  --dsh-bin /absolute/activated-dsh-wrapper \
+  --fixture-bin /absolute/fixture-provider \
+  --run-id workspace-identity-non-git-success-1
+```
+
+Then apply only that family's `deliberate_failure.induction`, preserving what
+the manifest says is needed for exact recovery, and run the failure half with a
+different id:
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive \
+  --profile headless \
+  --scenario workspace-identity.non-git \
+  --phase deliberate-failure \
+  --workdir /absolute/scenario-directory \
+  --output /absolute/results/feature-pack.jsonl \
+  --artifact-dir /absolute/results/artifacts \
+  --dsh-home /absolute/family-dsh-home \
+  --dsh-bin /absolute/activated-dsh-wrapper \
+  --fixture-bin /absolute/fixture-provider \
+  --run-id workspace-identity-non-git-failure-1
+```
+
+The driver does not alter the catalog prompt for the failure half and rejects a
+marker-only or ordinary-success response. After the induced run stops at the
+typed boundary, the external harness invokes `dsh-runtime-kit diagnose` without
+a human cause hint and derives `code`, `component`, `evidence_reference`,
+`next_action`, and `observable_state_check` from the result's diagnostic bundle.
+The attestation append rejects diagnosis fields that do not match that exact
+failed result.
+
+The fixture provider receives only bounded arguments: `--schema`, `--stage`,
+`--phase`, `--family`, `--scenario`, and `--profile`; the workdir is its current
+directory and `DSH_HOME` selects the isolated family home. It must return one
+strict JSON envelope with schema
+`dsh-runtime-kit.acceptance-fixture-result.v1`, `ok: true`, matching identity
+fields, `status: "pass"`, and one or more portable `{kind, reference, sha256}`
+evidence rows. The driver refuses a missing, changed, non-executable, malformed,
+or mismatched provider. A deliberate-failure result passes only when induction
+produced a failed structured outcome, recovery succeeded, the byte-identical
+catalog task then passed as a clean retry, and cleanup succeeded.
+
+After each driver process returns, the external Codex or Claude harness—not the
+DSH task—inspects the declared file, Git state, receipt, artifact, process,
+lease, worktree, composed tree, or runtime-health state. It writes one bounded
+attestation JSON and appends it through the driver:
+
+```json
+{
+  "schema_version": "dsh-runtime-kit.acceptance-harness-attestation.v1",
+  "run_id": "workspace-identity-non-git-success-1",
+  "scenario_id": "workspace-identity.non-git",
+  "phase": "success",
+  "status": "pass",
+  "observable_state": {
+    "kind": "file-content",
+    "reference": "workspace-identity.txt",
+    "sha256": "<64 lowercase hex>",
+    "summary": "The independently read file contains non-git-ok and no repository was created."
+  }
+}
+```
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive \
+  --output /absolute/results/feature-pack.jsonl \
+  --attest /absolute/results/attestation.json
+```
+
+A `deliberate-failure` attestation adds exact `diagnosis` fields and a passing
+`recovery` object with a portable evidence reference. The append rejects an
+absolute/home path, a mismatched or non-passing result, an incomplete diagnosis,
+and a second attestation for the same run/scenario/phase. It never edits an
+earlier row.
+
+After all families and folder kinds finish, append the aggregate proof:
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive \
+  --output /absolute/results/feature-pack.jsonl \
+  --summarize-pack
+```
+
+`dsh-runtime-kit.acceptance-drive-pack-summary.v1` passes only with all 66
+distinct case ids, passing driver rows, passing external attestations, and
+distinct result run ids. Retain failed attempts in the JSONL; fix only an
+in-boundary defect already recorded on the child issue, recover through the
+manifest action, and append the new run instead of truncating history.
+
 ## Diagnose a headless failure
 
 After the failing DSH invocation, use the same scratch environment and profile:

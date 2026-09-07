@@ -23,6 +23,14 @@ import {
   collectDiagnosticBundle,
   sanitizeDiagnosticValue,
 } from '../diagnostics/index.js'
+import {
+  appendAcceptanceAttestation,
+  appendAcceptanceScenarioPackSummary,
+  loadAcceptanceScenarioPack,
+  ScenarioPackError,
+  scenarioPackCase,
+  type AcceptanceScenarioPackPhase,
+} from './scenario-pack.js'
 
 const CATALOG_SCHEMA = 'dsh-runtime-kit.acceptance-scenarios.v1'
 const RESULT_SCHEMA = 'dsh-runtime-kit.acceptance-drive-result.v1'
@@ -75,6 +83,9 @@ export type AcceptanceDriveInput = {
   runId?: string
   packageSpec?: string
   reportIssuePath?: string
+  scenarioPackPath?: string
+  phase?: AcceptanceScenarioPackPhase
+  fixtureBin?: string
 }
 
 type CapturedCommand = {
@@ -310,6 +321,49 @@ function command(
     stdout: typeof result.stdout === 'string' ? result.stdout : '',
     stderr: typeof result.stderr === 'string' ? result.stderr : '',
     ...(result.error === undefined ? {} : { error: result.error.message }),
+  }
+}
+
+function fixtureCommand(input: {
+  executablePath: string
+  stage: 'prepare' | 'induce' | 'recover' | 'cleanup'
+  phase: AcceptanceScenarioPackPhase
+  family: string
+  scenarioId: string
+  profile: string
+  workdir: string
+  dshHome: string
+  timeoutMs: number
+}) {
+  const captured = command(input.executablePath, [
+    '--schema', 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    '--stage', input.stage,
+    '--phase', input.phase,
+    '--family', input.family,
+    '--scenario', input.scenarioId,
+    '--profile', input.profile,
+  ], input.workdir, input.dshHome, input.timeoutMs)
+  const envelope = parsedEnvelope(captured.stdout)
+  const data = record(envelope?.data)
+  const references = Array.isArray(data?.evidence) ? data.evidence.map(record) : []
+  const validReferences = references.length > 0 && references.every(item => item !== undefined
+    && typeof item.kind === 'string' && item.kind.length > 0 && item.kind.length <= 96
+    && typeof item.reference === 'string' && item.reference.length > 0 && item.reference.length <= 1024
+    && !isAbsolute(item.reference) && !item.reference.startsWith('~') && !item.reference.includes('..')
+    && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(item.sha256))
+  const ok = captured.exit_code === 0 && captured.signal === null
+    && envelope?.schema_version === 'dsh-runtime-kit.acceptance-fixture-result.v1'
+    && envelope.ok === true && data?.status === 'pass'
+    && data.stage === input.stage && data.phase === input.phase
+    && data.family === input.family && data.scenario_id === input.scenarioId
+    && validReferences
+  return ok ? { ok: true as const, captured, data: data! } : {
+    ok: false as const,
+    captured,
+    error: {
+      code: 'fixture-stage-failed',
+      message: `fixture provider did not prove ${input.stage} for ${input.scenarioId}`,
+    },
   }
 }
 
@@ -719,6 +773,29 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     if (selectedScenario === undefined) throw new DriveError('unknown-scenario', `unknown scenario: ${id}`)
     return selectedScenario
   })
+  if (input.phase !== undefined && input.phase !== 'success' && input.phase !== 'deliberate-failure') {
+    throw new DriveError('invalid-phase', 'phase must be success or deliberate-failure')
+  }
+  const scenarioPack = input.phase === undefined
+    ? undefined
+    : loadAcceptanceScenarioPack(
+        input.scenarioPackPath ?? packageAsset('compatibility', 'acceptance-scenario-pack.json'),
+        catalog,
+      )
+  if (scenarioPack !== undefined && selected.some(item => item.owner.program_child !== '#D')) {
+    throw new DriveError('invalid-phase', 'scenario-pack phases apply only to #D scenarios')
+  }
+  if (scenarioPack !== undefined && input.fixtureBin === undefined) {
+    throw new DriveError('missing-fixture-provider', '--fixture-bin is required for scenario-pack phases')
+  }
+  const fixtureBin = scenarioPack === undefined ? undefined : executable(input.fixtureBin!, 'fixture provider')
+  const fixtureIdentity = fixtureBin === undefined ? undefined : fileIdentity(fixtureBin)
+  const isolationKey = createHash('sha256')
+    .update(JSON.stringify({ profile: input.profile, dsh_home: dshHome }))
+    .digest('hex')
+  const packMetadata = (scenarioValue: AcceptanceScenario) => scenarioPack === undefined
+    ? undefined
+    : scenarioPackCase(scenarioPack, scenarioValue.id, input.phase!, isolationKey)
   const normalized = { ...input, timeoutMs, workdir, dshHome, outputPath, artifactDir, dshBin, runtimeKitBin }
   const results: Array<Record<string, unknown>> = []
   let setupEvidence: Record<string, unknown> | null = null
@@ -735,6 +812,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   const runContext = () => ({
     dsh_executable: dshIdentity,
     runtime_kit_executable: runtimeKitIdentity,
+    ...(fixtureIdentity === undefined ? {} : { fixture_executable: fixtureIdentity }),
     package_setup: setupEvidence,
     doctor: doctorEvidence,
   })
@@ -742,7 +820,8 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   const executableIdentityError = () => {
     try {
       if (sameFileIdentity(dshIdentity, fileIdentity(dshBin))
-        && sameFileIdentity(runtimeKitIdentity, fileIdentity(runtimeKitBin))) return undefined
+        && sameFileIdentity(runtimeKitIdentity, fileIdentity(runtimeKitBin))
+        && (fixtureIdentity === undefined || sameFileIdentity(fixtureIdentity, fileIdentity(fixtureBin!)))) return undefined
       return {
         code: 'executable-identity-changed',
         message: 'the DSH or runtime-kit executable identity changed during the run',
@@ -801,6 +880,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       }, { skipDsh: true, skipCommands: identityError !== undefined })
       const row = {
         ...preconditionRow(normalized, selectedScenario, runId, stage, effectiveError, captured),
+        ...(packMetadata(selectedScenario) === undefined ? {} : { scenario_pack: packMetadata(selectedScenario) }),
         diagnostic_bundle: diagnostic.identity,
         session_outcome: diagnostic.outcome,
       }
@@ -843,10 +923,13 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     const actualFolderKind = observedFolderKind(workdir)
     for (const selectedScenario of selected) {
       if (selectedScenario.folder_kind !== actualFolderKind) {
-        const row = preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
-          code: 'folder-kind-mismatch',
-          message: `scenario requires ${selectedScenario.folder_kind}; workdir is ${actualFolderKind}`,
-        })
+        const row = {
+          ...preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
+            code: 'folder-kind-mismatch',
+            message: `scenario requires ${selectedScenario.folder_kind}; workdir is ${actualFolderKind}`,
+          }),
+          ...(packMetadata(selectedScenario) === undefined ? {} : { scenario_pack: packMetadata(selectedScenario) }),
+        }
         appendRow(outputPath, row)
         results.push(row)
         continue
@@ -859,17 +942,71 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         const normalizedError = error instanceof DriveError
           ? error
           : new DriveError('evidence-scan-failed', error instanceof Error ? error.message : String(error))
-        const row = preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
-          code: normalizedError.code,
-          message: normalizedError.message,
-        })
+        const row = {
+          ...preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
+            code: normalizedError.code,
+            message: normalizedError.message,
+          }),
+          ...(packMetadata(selectedScenario) === undefined ? {} : { scenario_pack: packMetadata(selectedScenario) }),
+        }
         appendRow(outputPath, row)
         results.push(row)
         continue
       }
+      const packRow = packMetadata(selectedScenario)
+      const fixtureStartStage = input.phase === 'deliberate-failure' ? 'induce' as const : 'prepare' as const
+      const fixtureStart = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
+        executablePath: fixtureBin,
+        stage: fixtureStartStage,
+        phase: input.phase!,
+        family: packRow.family,
+        scenarioId: selectedScenario.id,
+        profile: input.profile,
+        workdir,
+        dshHome,
+        timeoutMs,
+      })
+      if (fixtureStart !== undefined && !fixtureStart.ok) {
+        const fixtureCleanup = fixtureCommand({
+          executablePath: fixtureBin!,
+          stage: 'cleanup',
+          phase: input.phase!,
+          family: packRow!.family,
+          scenarioId: selectedScenario.id,
+          profile: input.profile,
+          workdir,
+          dshHome,
+          timeoutMs,
+        })
+        const row = {
+          ...preconditionRow(
+            normalized,
+            selectedScenario,
+            runId,
+            `fixture-${fixtureStartStage}`,
+            fixtureStart.error,
+            fixtureStart.captured,
+          ),
+          scenario_pack: packRow,
+          fixture_cleanup: fixtureCleanup.ok ? {
+            status: 'pass',
+            receipt: fixtureCleanup.data,
+            command: commandEvidence('fixture-cleanup', fixtureCleanup.captured),
+          } : {
+            status: 'fail',
+            error: fixtureCleanup.error,
+            command: commandEvidence('fixture-cleanup', fixtureCleanup.captured),
+          },
+        }
+        appendRow(outputPath, row)
+        results.push(row)
+        continue
+      }
+      const task = selectedScenario.task
+      const expectedMarker = selectedScenario.success_marker
       const executed = command(
         dshBin,
-        ['--profile', input.profile, selectedScenario.task],
+        ['--profile', input.profile, task],
         workdir,
         dshHome,
         timeoutMs,
@@ -897,20 +1034,16 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       const forbidden = [...new Set([
         ...selectedScenario.forbidden_outcomes.filter(marker => (
           marker === 'silent-stop'
-            ? executed.stdout.trim().length === 0
+            ? commandOutput.trim().length === 0
             : commandOutput.includes(marker)
         )),
         ...transcriptScan.forbiddenOutcomes,
       ])].sort()
-      const markerSeen = executed.stdout.includes(selectedScenario.success_marker)
+      const markerSeen = executed.stdout.includes(expectedMarker)
       const identityError = executableIdentityError()
-      const status = executed.exit_code === 0 && executed.signal === null && markerSeen
-        && missingReminders.length === 0 && forbidden.length === 0
-        && captureError === undefined && transcriptScan.error === undefined
-        && identityError === undefined ? 'pass' : 'fail'
       const stdout = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stdout'), executed.stdout)
       const stderr = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stderr'), executed.stderr)
-      const finishedAt = new Date()
+      const taskFinishedAt = new Date()
       const executionCode = executed.exit_code !== 0
         && /MISSING_CREDENTIAL|no API key for provider|provider[^\n]*(?:unavailable|failed|error)|(?:unavailable|failed)[^\n]*provider/iu.test(commandOutput)
         ? 'provider-unavailable'
@@ -926,8 +1059,49 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         })),
       }, {
         skipCommands: identityError !== undefined,
-        sessionWindow: { started_at_ms: startedAt.getTime(), finished_at_ms: finishedAt.getTime() },
+        sessionWindow: { started_at_ms: startedAt.getTime(), finished_at_ms: taskFinishedAt.getTime() },
       })
+      const commonEvidencePass = missingReminders.length === 0 && forbidden.length === 0
+        && captureError === undefined && transcriptScan.error === undefined
+        && identityError === undefined
+      const expectedFailureObserved = input.phase === 'deliberate-failure'
+        && diagnostic.outcome.status === 'failed' && !markerSeen
+      const fixtureRecovery = fixtureBin === undefined || packRow === undefined
+        || input.phase !== 'deliberate-failure' || !expectedFailureObserved ? undefined : fixtureCommand({
+          executablePath: fixtureBin,
+          stage: 'recover',
+          phase: input.phase,
+          family: packRow.family,
+          scenarioId: selectedScenario.id,
+          profile: input.profile,
+          workdir,
+          dshHome,
+          timeoutMs,
+        })
+      const recoveryExecuted = fixtureRecovery?.ok === true
+        ? command(dshBin, ['--profile', input.profile, task], workdir, dshHome, timeoutMs)
+        : undefined
+      const recoveryPass = input.phase !== 'deliberate-failure' || (
+        fixtureRecovery?.ok === true && recoveryExecuted?.exit_code === 0
+        && recoveryExecuted.signal === null && recoveryExecuted.stdout.includes(expectedMarker)
+      )
+      const fixtureCleanup = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
+        executablePath: fixtureBin,
+        stage: 'cleanup',
+        phase: input.phase!,
+        family: packRow.family,
+        scenarioId: selectedScenario.id,
+        profile: input.profile,
+        workdir,
+        dshHome,
+        timeoutMs,
+      })
+      const fixturePass = fixtureCleanup?.ok !== false && recoveryPass
+      const status = commonEvidencePass && fixturePass && (input.phase === 'deliberate-failure'
+        ? expectedFailureObserved
+        : executed.exit_code === 0 && executed.signal === null && markerSeen)
+        ? 'pass' : 'fail'
+      const finishedAt = new Date()
       const row = {
         schema_version: RESULT_SCHEMA,
         run_id: runId,
@@ -936,6 +1110,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         profile: input.profile,
         folder_kind: selectedScenario.folder_kind,
         workdir,
+        ...(packMetadata(selectedScenario) === undefined ? {} : { scenario_pack: packMetadata(selectedScenario) }),
         run_context: runContext(),
         stage: 'dsh-task',
         status,
@@ -946,7 +1121,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           observable_outcome: selectedScenario.expected_observable_outcome,
           reminders: selectedScenario.expected_reminders,
           forbidden_outcomes: selectedScenario.forbidden_outcomes,
-          success_marker: selectedScenario.success_marker,
+          success_marker: expectedMarker,
         },
         observed: {
           command: { argv: executed.argv, cwd: executed.cwd },
@@ -955,6 +1130,45 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           stdout,
           stderr,
           success_marker_seen: markerSeen,
+          expected_failure_observed: expectedFailureObserved,
+          ...(fixtureStart === undefined ? {} : {
+            fixture: {
+              start: {
+                stage: fixtureStartStage,
+                receipt: fixtureStart.data,
+                command: commandEvidence(`fixture-${fixtureStartStage}`, fixtureStart.captured),
+              },
+              ...(fixtureRecovery === undefined ? {} : {
+                recovery: {
+                  receipt: fixtureRecovery.data,
+                  command: commandEvidence('fixture-recover', fixtureRecovery.captured),
+                },
+              }),
+              ...(recoveryExecuted === undefined ? {} : {
+                clean_retry: {
+                  exit_code: recoveryExecuted.exit_code,
+                  signal: recoveryExecuted.signal,
+                  success_marker_seen: recoveryExecuted.stdout.includes(expectedMarker),
+                  stdout: writeArtifact(
+                    artifactDir,
+                    `${runId}-${selectedScenario.id}.recovery.stdout.txt`,
+                    recoveryExecuted.stdout,
+                  ),
+                  stderr: writeArtifact(
+                    artifactDir,
+                    `${runId}-${selectedScenario.id}.recovery.stderr.txt`,
+                    recoveryExecuted.stderr,
+                  ),
+                },
+              }),
+              ...(fixtureCleanup === undefined ? {} : {
+                cleanup: {
+                  receipt: fixtureCleanup.data,
+                  command: commandEvidence('fixture-cleanup', fixtureCleanup.captured),
+                },
+              }),
+            },
+          }),
           missing_reminders: missingReminders,
           forbidden_outcomes_seen: forbidden,
           session_transcripts: transcriptScan.digests,
@@ -971,7 +1185,13 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         session_outcome: diagnostic.outcome,
         ...(status === 'pass' ? {} : {
           error: identityError ?? transcriptScan.error ?? captureError ?? {
-            code: executionCode,
+            code: fixtureCleanup?.ok === false
+              ? 'fixture-cleanup-failed'
+              : input.phase === 'deliberate-failure' && expectedFailureObserved && !recoveryPass
+                ? 'fixture-recovery-failed'
+                : input.phase === 'deliberate-failure' && !expectedFailureObserved
+              ? 'expected-failure-not-observed'
+              : executionCode,
             message: executed.error
               ?? (executed.exit_code !== 0 || executed.signal !== null
                 ? 'DSH did not exit successfully'
@@ -1050,6 +1270,13 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     scenario_ids: selected.map(row => row.id),
     counts,
     report_issue_draft: reportIssueDraft,
+    ...(scenarioPack === undefined ? {} : {
+      scenario_pack: {
+        schema_version: scenarioPack.schema_version,
+        phase: input.phase,
+        case_ids: selected.map(row => `${row.id}.${input.phase}`),
+      },
+    }),
   }
   appendRow(outputPath, summary)
   return summary
@@ -1067,11 +1294,16 @@ function usage() {
     '',
     'Options:',
     '  --catalog <path>                default: packaged compatibility/acceptance-scenarios.json',
+    '  --scenario-pack <path>          default: packaged compatibility/acceptance-scenario-pack.json',
+    '  --phase <success|deliberate-failure>  run one #D scenario-pack half',
+    '  --fixture-bin <absolute path>  authenticated fixture provider required with --phase',
     '  --artifact-dir <absolute path>  default: <output>.artifacts',
     '  --runtime-kit-bin <path>        default: this dsh-runtime-kit executable',
     '  --package <spec-or-path>        run setup preview/apply first; local paths MUST be built before use',
     '  --run-id <id>                   stable row correlation id',
     '  --report-issue <absolute path>  draft a heuristic issue body for failures; never submits it',
+    '  --attest <absolute JSON path>   append one external-harness attestation to --output',
+    '  --summarize-pack                append the 66-case #D completion summary to --output',
     '  --timeout-ms <milliseconds>     per command, 100..1800000',
     '',
     'npm pack does not build this package and install-time lifecycle hooks are refused.',
@@ -1093,11 +1325,16 @@ export function main(argv: string[] = process.argv.slice(2)) {
         'dsh-home': { type: 'string' },
         'dsh-bin': { type: 'string' },
         catalog: { type: 'string' },
+        'scenario-pack': { type: 'string' },
+        phase: { type: 'string' },
+        'fixture-bin': { type: 'string' },
         'artifact-dir': { type: 'string' },
         'runtime-kit-bin': { type: 'string' },
         package: { type: 'string' },
         'run-id': { type: 'string' },
         'report-issue': { type: 'string' },
+        attest: { type: 'string' },
+        'summarize-pack': { type: 'boolean', default: false },
         'timeout-ms': { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
@@ -1105,6 +1342,48 @@ export function main(argv: string[] = process.argv.slice(2)) {
     if (parsed.values.help) {
       process.stdout.write(`${usage()}\n`)
       return 0
+    }
+    const supplied = (name: string) => {
+      const value = (parsed.values as Record<string, unknown>)[name]
+      return typeof value === 'boolean' ? value : value !== undefined
+    }
+    const rejectUnexpected = (allowed: string[]) => {
+      const unexpected = Object.keys(parsed.values).filter(name => supplied(name) && !allowed.includes(name))
+      if (unexpected.length > 0) {
+        throw new DriveError('invalid-mode', `unexpected option for acceptance-drive mode: --${unexpected[0]}`)
+      }
+    }
+    if (parsed.values.attest !== undefined && parsed.values['summarize-pack']) {
+      throw new DriveError('invalid-mode', '--attest and --summarize-pack are mutually exclusive')
+    }
+    if (parsed.values.attest !== undefined) {
+      rejectUnexpected(['output', 'attest'])
+      if (parsed.values.output === undefined) throw new DriveError('missing-argument', '--output is required')
+      const attestation = appendAcceptanceAttestation({
+        outputPath: parsed.values.output,
+        attestationPath: parsed.values.attest,
+      })
+      process.stdout.write(`${JSON.stringify(attestation)}\n`)
+      return 0
+    }
+    if (parsed.values['summarize-pack']) {
+      rejectUnexpected(['output', 'catalog', 'scenario-pack', 'summarize-pack'])
+      if (parsed.values.output === undefined) throw new DriveError('missing-argument', '--output is required')
+      const catalogPath = parsed.values.catalog ?? packageAsset('compatibility', 'acceptance-scenarios.json')
+      const catalog = loadAcceptanceCatalog(catalogPath)
+      const pack = loadAcceptanceScenarioPack(
+        parsed.values['scenario-pack'] ?? packageAsset('compatibility', 'acceptance-scenario-pack.json'),
+        catalog,
+      )
+      const summary = appendAcceptanceScenarioPackSummary({ outputPath: parsed.values.output, pack })
+      process.stdout.write(`${JSON.stringify(summary)}\n`)
+      return summary.status === 'pass' ? 0 : 1
+    }
+    if (parsed.values['scenario-pack'] !== undefined && parsed.values.phase === undefined) {
+      throw new DriveError('invalid-mode', '--scenario-pack requires --phase')
+    }
+    if (parsed.values['fixture-bin'] !== undefined && parsed.values.phase === undefined) {
+      throw new DriveError('invalid-mode', '--fixture-bin requires --phase')
     }
     const required = ['profile', 'workdir', 'output', 'dsh-home', 'dsh-bin'] as const
     for (const name of required) {
@@ -1130,13 +1409,18 @@ export function main(argv: string[] = process.argv.slice(2)) {
       ...(parsed.values['run-id'] === undefined ? {} : { runId: parsed.values['run-id'] }),
       ...(parsed.values.package === undefined ? {} : { packageSpec: parsed.values.package }),
       ...(parsed.values['report-issue'] === undefined ? {} : { reportIssuePath: parsed.values['report-issue'] }),
+      ...(parsed.values['scenario-pack'] === undefined ? {} : { scenarioPackPath: parsed.values['scenario-pack'] }),
+      ...(parsed.values.phase === undefined ? {} : { phase: parsed.values.phase as AcceptanceScenarioPackPhase }),
+      ...(parsed.values['fixture-bin'] === undefined ? {} : { fixtureBin: parsed.values['fixture-bin'] }),
     })
     process.stdout.write(`${JSON.stringify(summary)}\n`)
     return summary.status === 'pass' ? 0 : 1
   } catch (error) {
     const normalized = error instanceof DriveError
       ? error
-      : new DriveError('acceptance-drive-failed', error instanceof Error ? error.message : String(error), 70)
+      : error instanceof ScenarioPackError
+        ? new DriveError(error.code, error.message)
+        : new DriveError('acceptance-drive-failed', error instanceof Error ? error.message : String(error), 70)
     process.stdout.write(`${JSON.stringify({
       schema_version: 'cli.dsh-runtime-kit.acceptance-drive.v1',
       ok: false,
