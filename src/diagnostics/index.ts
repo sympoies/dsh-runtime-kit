@@ -942,7 +942,7 @@ function resolveExecutableMaybe(value: string) {
 
 function usage() {
   return [
-    'Usage: dsh-runtime-kit diagnose --profile <name> [--format json|text] [--bundle <absolute-directory>]',
+    'Usage: dsh-runtime-kit diagnose --profile <name> [--format json] [--bundle <absolute-directory>]',
     '',
     `Emits ${DIAGNOSTIC_BUNDLE_SCHEMA}.`,
     'The summary is redacted; bundle files are owner-only and never contain credentials or machine absolute paths.',
@@ -950,14 +950,13 @@ function usage() {
 }
 
 export function main(argv: string[] = process.argv.slice(2)) {
-  let format: 'json' | 'text' = 'text'
   try {
     const parsed = parseArgs({
       args: argv,
       strict: true,
       options: {
         profile: { type: 'string' },
-        format: { type: 'string', default: 'text' },
+        format: { type: 'string', default: 'json' },
         bundle: { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
@@ -967,8 +966,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
       return 0
     }
     if (parsed.positionals.length > 0) throw new DiagnosticError('unexpected-argument', 'diagnose accepts only named options')
-    if (parsed.values.format !== 'json' && parsed.values.format !== 'text') throw new DiagnosticError('invalid-format', '--format must be json or text')
-    format = parsed.values.format
+    if (parsed.values.format !== 'json') throw new DiagnosticError('invalid-format', '--format must be json')
     if (parsed.values.profile === undefined || !PROFILE_PATTERN.test(parsed.values.profile)) {
       throw new DiagnosticError('invalid-profile', '--profile is required and must be a valid profile name')
     }
@@ -985,7 +983,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
     })
     const output = parsed.values.bundle === undefined ? undefined : writeDiagnosticBundle(ownerOnlyDirectory(parsed.values.bundle, true), bundle)
     const rendered = output === undefined ? bundle : { ...bundle, bundle_manifest: output }
-    process.stdout.write(`${JSON.stringify(rendered, undefined, format === 'json' ? undefined : 2)}\n`)
+    process.stdout.write(`${JSON.stringify(rendered)}\n`)
     return bundle.session_outcome.status === 'failed' ? 1 : 0
   } catch (error) {
     const normalized = error instanceof DiagnosticError
@@ -996,7 +994,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
       ok: false,
       error: { code: normalized.code, message: sanitizedString(normalized.message) },
     }
-    process.stdout.write(`${JSON.stringify(envelope, undefined, format === 'json' ? undefined : 2)}\n`)
+    process.stdout.write(`${JSON.stringify(envelope)}\n`)
     return normalized.exitCode
   }
 }

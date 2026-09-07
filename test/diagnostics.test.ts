@@ -24,6 +24,15 @@ test('dsh-runtime-kit routes diagnose and prints its CLI contract', () => {
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /^Usage: dsh-runtime-kit diagnose --profile/u)
   assert.match(result.stdout, /dsh-runtime-kit\.diagnostic-bundle\.v1/u)
+  assert.doesNotMatch(result.stdout, /json\|text/u)
+
+  const invalid = spawnSync(
+    process.execPath,
+    [join(ROOT, 'dist', 'bin', 'dsh-runtime-kit.js'), 'diagnose', '--profile', 'headless', '--format', 'text'],
+    { cwd: ROOT, encoding: 'utf8' },
+  )
+  assert.equal(invalid.status, 64)
+  assert.equal(JSON.parse(invalid.stdout).error.code, 'invalid-format')
 })
 
 test('session outcome classifies every Gate 0 failure family with an actionable receipt', () => {
