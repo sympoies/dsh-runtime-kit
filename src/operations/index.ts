@@ -3218,7 +3218,15 @@ function applyMutation(operation: string, profile: string, paths: ReturnType<typ
       toolchain,
     )
     if (reviewed.plan_digest !== expectedPlanDigest) {
-      throw new OperationsError('plan-drift', 'profile or runtime-kit state changed after preview')
+      throw new OperationsError(
+        'plan-drift',
+        'profile or runtime-kit state changed after preview',
+        65,
+        {
+          expected_plan_digest: expectedPlanDigest,
+          observed_plan_digest: reviewed.plan_digest,
+        },
+      )
     }
     ensureRuntimeRootOwner(paths, runtimeRoot)
     const target = reviewed.plan.target === null ? null : validateTarget(reviewed.plan.target)

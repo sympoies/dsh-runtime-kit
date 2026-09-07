@@ -521,7 +521,7 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           ctx,
           agentHook.argv(contract === 'data-policy'
             ? ['data-policy', 'evaluate', '--format', 'json']
-            : ['dispatch', '--product', 'dsh', '--format', 'json']),
+            : ['dispatch', '--product', 'dsh', '--format', 'json', '--trace']),
           executionSignal,
         )
         operation.handle = executionLease.spawn({

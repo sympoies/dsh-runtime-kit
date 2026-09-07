@@ -9,6 +9,13 @@ An entry records the observed behavior, expected behavior, bounded impact,
 reproduction evidence, current workaround, and the condition that would make
 it actionable. Exclude secrets, private content, and unrelated session state.
 
+`dsh-runtime-kit acceptance-drive --report-issue <absolute-path>` may prepare a
+local `dsh-runtime-kit.heuristic-issue-draft.v1` Markdown body from failed
+scenario rows. The draft names `workflow::heuristic-records` as its suggested
+label, but the command never contacts, creates, or updates provider state. A
+human or an explicitly authorized delivery flow reviews the bounded scope and
+chooses whether to submit it.
+
 The inbox is not a substitute for an immediately actionable bug fix, a plan, or
 a delivery blocker. Promote an entry to the repository's normal issue or plan
 workflow once scope and acceptance are clear, and retain a link between the two

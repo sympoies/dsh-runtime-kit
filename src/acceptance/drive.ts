@@ -19,13 +19,17 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { parseArgs } from 'node:util'
 
 import { packageAsset } from '../package-root.js'
+import {
+  collectDiagnosticBundle,
+  sanitizeDiagnosticValue,
+} from '../diagnostics/index.js'
 
 const CATALOG_SCHEMA = 'dsh-runtime-kit.acceptance-scenarios.v1'
 const RESULT_SCHEMA = 'dsh-runtime-kit.acceptance-drive-result.v1'
 const SUMMARY_SCHEMA = 'dsh-runtime-kit.acceptance-drive-summary.v1'
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u
 const SCENARIO_ID_PATTERN = /^[a-z0-9][a-z0-9.-]{0,95}$/u
-const FEATURE_ISSUE_PATTERN = /^#(?:55|56|57|58|59|60|61|62|63|64|65|79|197)$/u
+const FEATURE_ISSUE_PATTERN = /^#(?:55|56|57|58|59|60|61|62|63|64|65|79|197|215)$/u
 const FOLDER_KINDS = ['git-repo', 'non-git', 'managed-worktree'] as const
 const MAX_CATALOG_BYTES = 1024 * 1024
 const MAX_SCENARIOS = 128
@@ -42,7 +46,7 @@ type FolderKind = typeof FOLDER_KINDS[number]
 
 export type AcceptanceScenario = {
   id: string
-  owner: { program_child: '#D' | '#E', feature_issue: string }
+  owner: { program_child: '#C' | '#D' | '#E', feature_issue: string }
   preconditions: string[]
   folder_kind: FolderKind
   task: string
@@ -70,6 +74,7 @@ export type AcceptanceDriveInput = {
   timeoutMs?: number
   runId?: string
   packageSpec?: string
+  reportIssuePath?: string
 }
 
 type CapturedCommand = {
@@ -154,10 +159,11 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
   }
   const owner = record(row.owner)
   if (owner === undefined || !exactKeys(owner, ['program_child', 'feature_issue'])
-    || (owner.program_child !== '#D' && owner.program_child !== '#E')
+    || (owner.program_child !== '#C' && owner.program_child !== '#D' && owner.program_child !== '#E')
     || typeof owner.feature_issue !== 'string' || !FEATURE_ISSUE_PATTERN.test(owner.feature_issue)
     || (owner.program_child === '#E' && owner.feature_issue !== '#197')
-    || (owner.program_child === '#D' && owner.feature_issue === '#197')) {
+    || (owner.program_child === '#C' && owner.feature_issue !== '#215')
+    || (owner.program_child === '#D' && (owner.feature_issue === '#197' || owner.feature_issue === '#215'))) {
     throw new DriveError('invalid-catalog', `scenario ${id} has an invalid owner`)
   }
   if (typeof row.folder_kind !== 'string' || !FOLDER_KINDS.includes(row.folder_kind as FolderKind)) {
@@ -171,7 +177,7 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
   return {
     id,
     owner: {
-      program_child: owner.program_child as '#D' | '#E',
+      program_child: owner.program_child as '#C' | '#D' | '#E',
       feature_issue: owner.feature_issue,
     },
     preconditions: stringList(row.preconditions, `scenario ${id} preconditions`, false),
@@ -601,6 +607,12 @@ function artifactName(runId: string, scenarioId: string, stream: 'stdout' | 'std
   return `${safeRun}-${safeScenario}.${stream}.txt`
 }
 
+function diagnosticArtifactName(runId: string, scenarioId: string) {
+  const safeRun = runId.replaceAll(/[^A-Za-z0-9._-]/gu, '-')
+  const safeScenario = scenarioId.replaceAll(/[^A-Za-z0-9._-]/gu, '-')
+  return `${safeRun}-${safeScenario}.diagnostic.json`
+}
+
 function writeArtifact(directory: string, name: string, value: string) {
   const path = join(directory, name)
   if (!within(directory, path)) throw new DriveError('unsafe-output', 'artifact path escaped its root')
@@ -727,13 +739,71 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     doctor: doctorEvidence,
   })
 
+  const executableIdentityError = () => {
+    try {
+      if (sameFileIdentity(dshIdentity, fileIdentity(dshBin))
+        && sameFileIdentity(runtimeKitIdentity, fileIdentity(runtimeKitBin))) return undefined
+      return {
+        code: 'executable-identity-changed',
+        message: 'the DSH or runtime-kit executable identity changed during the run',
+      }
+    } catch (error) {
+      return {
+        code: 'executable-identity-changed',
+        message: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  const diagnosticEvidence = (
+    scenarioId: string,
+    observation: Parameters<typeof collectDiagnosticBundle>[0]['observation'],
+    options: {
+      skipDsh?: boolean
+      skipCommands?: boolean
+      sessionWindow?: { started_at_ms: number, finished_at_ms: number }
+    } = {},
+  ) => {
+    const bundle = collectDiagnosticBundle({
+      profile: input.profile,
+      dshHome,
+      workdir,
+      runtimeKitEntry: runtimeKitBin,
+      dshBin,
+      observation,
+      ...options,
+    })
+    const artifact = writeArtifact(
+        artifactDir,
+        diagnosticArtifactName(runId, scenarioId),
+        `${JSON.stringify(bundle, undefined, 2)}\n`,
+      )
+    return {
+      identity: { name: basename(artifact.path), sha256: artifact.sha256, bytes: artifact.bytes },
+      outcome: bundle.session_outcome,
+    }
+  }
+
   const emitSharedFailure = (
     stage: string,
     error: { code: string, message: string },
     captured?: CapturedCommand,
   ) => {
+    const identityError = executableIdentityError()
+    const effectiveError = identityError ?? error
     for (const selectedScenario of selected) {
-      const row = preconditionRow(normalized, selectedScenario, runId, stage, error, captured)
+      const diagnostic = diagnosticEvidence(selectedScenario.id, {
+        exit_code: captured?.exit_code,
+        error_code: effectiveError.code,
+        ...(stage === 'profile-doctor'
+          ? { doctor_status: 'needs-attention', doctor_code: effectiveError.code }
+          : { error_component: identityError === undefined ? 'operations' as const : 'session' as const }),
+      }, { skipDsh: true, skipCommands: identityError !== undefined })
+      const row = {
+        ...preconditionRow(normalized, selectedScenario, runId, stage, effectiveError, captured),
+        diagnostic_bundle: diagnostic.identity,
+        session_outcome: diagnostic.outcome,
+      }
       appendRow(outputPath, row)
       results.push(row)
     }
@@ -833,21 +903,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         ...transcriptScan.forbiddenOutcomes,
       ])].sort()
       const markerSeen = executed.stdout.includes(selectedScenario.success_marker)
-      let identityError: { code: string, message: string } | undefined
-      try {
-        if (!sameFileIdentity(dshIdentity, fileIdentity(dshBin))
-          || !sameFileIdentity(runtimeKitIdentity, fileIdentity(runtimeKitBin))) {
-          identityError = {
-            code: 'executable-identity-changed',
-            message: 'the DSH or runtime-kit executable identity changed during the run',
-          }
-        }
-      } catch (error) {
-        identityError = {
-          code: 'executable-identity-changed',
-          message: error instanceof Error ? error.message : String(error),
-        }
-      }
+      const identityError = executableIdentityError()
       const status = executed.exit_code === 0 && executed.signal === null && markerSeen
         && missingReminders.length === 0 && forbidden.length === 0
         && captureError === undefined && transcriptScan.error === undefined
@@ -855,6 +911,23 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       const stdout = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stdout'), executed.stdout)
       const stderr = writeArtifact(artifactDir, artifactName(runId, selectedScenario.id, 'stderr'), executed.stderr)
       const finishedAt = new Date()
+      const executionCode = executed.exit_code !== 0
+        && /MISSING_CREDENTIAL|no API key for provider|provider[^\n]*(?:unavailable|failed|error)|(?:unavailable|failed)[^\n]*provider/iu.test(commandOutput)
+        ? 'provider-unavailable'
+        : executed.error !== undefined || executed.exit_code !== 0 || executed.signal !== null
+          ? 'scenario-execution-failed'
+          : 'scenario-outcome-mismatch'
+      const diagnostic = diagnosticEvidence(selectedScenario.id, {
+        exit_code: executed.exit_code,
+        error_code: identityError?.code ?? (executionCode === 'provider-unavailable' ? executionCode : undefined),
+        ...(identityError === undefined ? {} : { error_component: 'session' as const }),
+        policy_decisions: transcriptScan.policyDecisions.actions.map(action => ({
+          action,
+        })),
+      }, {
+        skipCommands: identityError !== undefined,
+        sessionWindow: { started_at_ms: startedAt.getTime(), finished_at_ms: finishedAt.getTime() },
+      })
       const row = {
         schema_version: RESULT_SCHEMA,
         run_id: runId,
@@ -894,11 +967,11 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
             external_harness_verification_required: true,
           },
         },
+        diagnostic_bundle: diagnostic.identity,
+        session_outcome: diagnostic.outcome,
         ...(status === 'pass' ? {} : {
           error: identityError ?? transcriptScan.error ?? captureError ?? {
-            code: executed.error !== undefined || executed.exit_code !== 0 || executed.signal !== null
-              ? 'scenario-execution-failed'
-              : 'scenario-outcome-mismatch',
+            code: executionCode,
             message: executed.error
               ?? (executed.exit_code !== 0 || executed.signal !== null
                 ? 'DSH did not exit successfully'
@@ -916,6 +989,52 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     fail: results.filter(row => row.status === 'fail').length,
     precondition_unmet: results.filter(row => row.status === 'precondition-unmet').length,
   }
+  let reportIssueDraft = null
+  if (input.reportIssuePath !== undefined && counts.pass !== results.length) {
+    const path = resultPath(input.reportIssuePath)
+    if (existsSync(path)) throw new DriveError('unsafe-output', 'report issue draft already exists')
+    const failures = results.filter(row => row.status !== 'pass')
+    const observations = failures.map(row => {
+      const outcome = record(row.session_outcome)
+      const diagnostic = record(row.diagnostic_bundle)
+      return `- \`${String(row.scenario_id)}\`: \`${String(outcome?.code ?? 'unknown')}\` in \`${String(outcome?.component ?? 'session')}\`; receipt \`${String(outcome?.receipt ?? 'unavailable')}\`; bundle \`${String(diagnostic?.name ?? 'unavailable')}\` SHA-256 \`${String(diagnostic?.sha256 ?? 'unavailable')}\`; next: ${String(outcome?.next_action ?? 'inspect the diagnostic bundle')}`
+    })
+    const body = sanitizeDiagnosticValue([
+      '<!-- dsh-runtime-kit.heuristic-issue-draft.v1 -->',
+      '# Acceptance harness diagnostic follow-up',
+      '',
+      'Suggested label: `workflow::heuristic-records`',
+      '',
+      '## Observed',
+      '',
+      ...observations,
+      '',
+      '## Expected',
+      '',
+      'The harness should complete the selected scenario or expose one typed, actionable failure without human diagnosis hints.',
+      '',
+      '## Bounded impact',
+      '',
+      `Affected scenarios: ${failures.map(row => `\`${String(row.scenario_id)}\``).join(', ')}. No broader impact is asserted.`,
+      '',
+      '## Reproduction',
+      '',
+      `Run acceptance-drive with run id \`${runId}\` and the same scenario ids, then inspect each referenced diagnostic bundle digest.`,
+      '',
+      '## Current workaround',
+      '',
+      'Follow the session outcome next action and rerun the unchanged scenario. Do not weaken policy or edit retained evidence.',
+      '',
+      '## Actionability',
+      '',
+      'This is a draft only. A human must verify scope and submit it if the failure is reproducible.',
+      '',
+    ].join('\n')) as string
+    writeFileSync(path, body, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    chmodSync(path, 0o600)
+    const identity = digestFile(path)
+    reportIssueDraft = { name: basename(identity.path), sha256: identity.sha256, bytes: identity.bytes }
+  }
   const summary = {
     schema_version: SUMMARY_SCHEMA,
     run_id: runId,
@@ -930,6 +1049,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     output: outputPath,
     scenario_ids: selected.map(row => row.id),
     counts,
+    report_issue_draft: reportIssueDraft,
   }
   appendRow(outputPath, summary)
   return summary
@@ -951,6 +1071,7 @@ function usage() {
     '  --runtime-kit-bin <path>        default: this dsh-runtime-kit executable',
     '  --package <spec-or-path>        run setup preview/apply first; local paths MUST be built before use',
     '  --run-id <id>                   stable row correlation id',
+    '  --report-issue <absolute path>  draft a heuristic issue body for failures; never submits it',
     '  --timeout-ms <milliseconds>     per command, 100..1800000',
     '',
     'npm pack does not build this package and install-time lifecycle hooks are refused.',
@@ -976,6 +1097,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
         'runtime-kit-bin': { type: 'string' },
         package: { type: 'string' },
         'run-id': { type: 'string' },
+        'report-issue': { type: 'string' },
         'timeout-ms': { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
@@ -1007,6 +1129,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
       timeoutMs,
       ...(parsed.values['run-id'] === undefined ? {} : { runId: parsed.values['run-id'] }),
       ...(parsed.values.package === undefined ? {} : { packageSpec: parsed.values.package }),
+      ...(parsed.values['report-issue'] === undefined ? {} : { reportIssuePath: parsed.values['report-issue'] }),
     })
     process.stdout.write(`${JSON.stringify(summary)}\n`)
     return summary.status === 'pass' ? 0 : 1

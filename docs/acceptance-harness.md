@@ -158,6 +158,43 @@ not add a human explanation and retry. A failure that an external harness
 cannot diagnose from those surfaces is a reporting defect for the diagnostics
 child of the program, not an invitation to fix it during baseline capture.
 
+## Diagnose a headless failure
+
+After the failing DSH invocation, use the same scratch environment and profile:
+
+```sh
+/absolute/dsh-runtime-kit diagnose --profile headless --format json \
+  --bundle /absolute/owner-only/results/diagnostic-bundle
+```
+
+The JSON is `dsh-runtime-kit.diagnostic-bundle.v1`. Its
+`session_outcome` is `dsh-runtime-kit.session-outcome.v1` and names the stable
+failure code, owning component, portable receipt reference, and next action.
+Read that record first. Then inspect only the referenced section: `doctor` and
+`native_runtime_health`, `policy.rules`/`policy.decisions`,
+`operation_receipts`, or the bounded `session.typed_errors` and
+`session.finish_line` projection. Missing owner evidence is explicitly
+`unavailable`; absence never means success.
+
+The composed profile is a key/type tree rather than raw configuration values.
+Executables are represented by names, hashes, byte counts, and executable
+roles. Policy decisions and typed session events are bounded tails. The
+shareable JSON replaces credentials and machine-local absolute paths; the
+bundle writes `diagnostic.json` and `session-outcome.json` with mode `0600` and
+returns their bundle-relative names and hashes. Never attach the original
+session transcript or companion configuration to a provider issue.
+
+For a failed driver run, add a deterministic local draft without submitting:
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive ... \
+  --report-issue /absolute/owner-only/results/heuristic-issue.md
+```
+
+The draft follows `docs/policies/heuristic-error-inbox.md` and merely suggests
+`workflow::heuristic-records`. A human or explicitly authorized delivery flow
+must review and submit it. The driver contains no provider mutation step.
+
 The runtime-health IDs deliberately use two invocations with different run
 IDs. First stage the unhealthy companion and retain the resulting
 `profile-doctor` / `precondition-unmet` row. Repair the companion outside the
@@ -208,10 +245,11 @@ accepting a scenario, Codex or Claude must inspect the named file, git, receipt,
 or provider state and record that observation in the child issue. A marker-only
 row never promotes a candidate by itself.
 
-Policy decisions are projected only from redacted, model-visible transcript
-markers. When the installed generation exposes no such structured marker, the
-row says `policy_decisions.source: "unavailable"`; it never invents an allow.
-Universal structured failure diagnosis remains a later program deliverable.
+Legacy `observed.policy_decisions` remains the additive-compatible transcript
+projection. The row now also points to a redacted diagnostic bundle whose
+policy section reads the activated agent-hook inventory and bounded trace. When
+an installed generation exposes neither source, it says `unavailable`; it never
+invents an allow.
 Corrupt, truncated, oversized, over-deep, or otherwise unscannable evidence
 fails the scenario with a typed capture/scan code instead of silently becoming
 an empty transcript.

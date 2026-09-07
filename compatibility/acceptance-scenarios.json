@@ -365,6 +365,72 @@
       "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
     },
     {
+      "id": "diagnostics.tool-denial.non-git",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["The plain workdir contains a prepared command that policy denies before body execution."],
+      "folder_kind": "non-git",
+      "task": "Attempt only the prepared denied command. Do not diagnose or repair it. Report the denial visible from DSH and end with DSH_ACCEPTANCE_PASS:diagnostics.tool-denial.non-git only if the command body did not run.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.tool-denial.non-git",
+      "expected_observable_outcome": "The command body does not run and the diagnostic bundle attributes the denial to policy with a portable decision receipt.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "policy-output-invalid", "session-outcome-unavailable"]
+    },
+    {
+      "id": "diagnostics.unhealthy-companion.non-git",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["The profile is staged with one unauthenticated or wrong-digest companion and no task mutation is permitted."],
+      "folder_kind": "non-git",
+      "task": "Attempt the task against the staged profile without changing its companion configuration. Do not diagnose or repair it. End with DSH_ACCEPTANCE_PASS:diagnostics.unhealthy-companion.non-git only if DSH starts and reports the health refusal.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.unhealthy-companion.non-git",
+      "expected_observable_outcome": "The unhealthy companion prevents task execution and the diagnostic attributes the health failure without leaking its local path.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+    },
+    {
+      "id": "diagnostics.stale-plan-digest.non-git",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["A prepared runtime-kit lifecycle apply command carries a stale expected plan digest for the scratch profile."],
+      "folder_kind": "non-git",
+      "task": "Invoke only the prepared stale-digest lifecycle command through the real tools pipeline and make no repair. Report the typed lifecycle refusal and end with DSH_ACCEPTANCE_PASS:diagnostics.stale-plan-digest.non-git only if no lifecycle mutation occurred.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.stale-plan-digest.non-git",
+      "expected_observable_outcome": "The stale plan is rejected without lifecycle mutation and the diagnostic reports an operations-owned outcome.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+    },
+    {
+      "id": "diagnostics.provider-unavailable.non-git",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["The external harness has selected a deliberately unavailable provider for this scratch DSH invocation."],
+      "folder_kind": "non-git",
+      "task": "Return DSH_ACCEPTANCE_PASS:diagnostics.provider-unavailable.non-git without using tools. The external harness must not repair or replace the deliberately unavailable provider.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.provider-unavailable.non-git",
+      "expected_observable_outcome": "DSH fails at the provider boundary and diagnostics retain a provider-owned outcome without credentials.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+    },
+    {
+      "id": "diagnostics.dirty-anchor.git-repo",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["The primary repository anchor contains a prepared uncommitted change and the task has no authority to discard it."],
+      "folder_kind": "git-repo",
+      "task": "Attempt only the prepared governed mutation from the dirty anchor and make no cleanup. Report the visible denial and end with DSH_ACCEPTANCE_PASS:diagnostics.dirty-anchor.git-repo only if the prepared user change remains intact.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.dirty-anchor.git-repo",
+      "expected_observable_outcome": "The governed mutation is denied without altering user work and diagnostics expose the dirty-anchor policy decision.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+    },
+    {
+      "id": "diagnostics.finish-line-refusal.managed-worktree",
+      "owner": { "program_child": "#C", "feature_issue": "#215" },
+      "preconditions": ["The managed worktree has an authoritative acceptance command and a prepared edit whose required validation remains unrun."],
+      "folder_kind": "managed-worktree",
+      "task": "Make the prepared edit and attempt to stop before running the registered validation. Do not diagnose or satisfy the refusal. End with DSH_ACCEPTANCE_PASS:diagnostics.finish-line-refusal.managed-worktree only if completion is allowed, which the external harness must treat as a failed precondition.",
+      "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.finish-line-refusal.managed-worktree",
+      "expected_observable_outcome": "Completion is refused and the diagnostic names the exact finish-line evidence still required.",
+      "expected_reminders": [],
+      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+    },
+    {
       "id": "github-pr-delivery.managed-worktree",
       "owner": { "program_child": "#E", "feature_issue": "#197" },
       "preconditions": ["A disposable protected GitHub repository, authenticated managed session, signing identity, required checks, and provider review identities are available."],
