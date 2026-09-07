@@ -30,6 +30,17 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run typecheck
+      # The committed provenance is what a consumer installs against: `npm pack`
+      # runs no build, so a digest that no longer matches the packed sources makes
+      # every install fail as `build-output-stale`. Every other job regenerates the
+      # file instead of checking it, and each pull request stays self-consistent on
+      # its own head, so the failure only appears once two source-touching branches
+      # merge. This job runs on the merge result, which is where it can be caught.
+      - name: Verify the committed build provenance matches the packed sources
+        run: |
+          npm run build:provenance
+          git diff --exit-code -- compatibility/build-provenance.json \
+            || { echo "::error::compatibility/build-provenance.json is stale; run npm run build:provenance and commit it"; exit 1; }
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
