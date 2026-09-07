@@ -14,11 +14,27 @@ import {
 
 const ROOT = resolve(import.meta.dirname, '..')
 const CATALOG = join(ROOT, 'compatibility', 'acceptance-scenarios.json')
+const PACK = join(ROOT, 'compatibility', 'acceptance-scenario-pack.json')
 
 function executable(path: string, source: string) {
   writeFileSync(path, `#!/usr/bin/env node\n${source}`, { mode: 0o700 })
   chmodSync(path, 0o700)
   return path
+}
+
+function fixtureProvider(path: string) {
+  return executable(path, `
+const fs = await import('node:fs')
+const args = process.argv.slice(2)
+const value = name => args[args.indexOf(name) + 1]
+const stage = value('--stage')
+if (stage === 'recover') fs.writeFileSync('.fixture-recovered', 'ok\\n')
+process.stdout.write(JSON.stringify({
+  schema_version:'dsh-runtime-kit.acceptance-fixture-result.v1',ok:true,
+  data:{status:'pass',stage,phase:value('--phase'),family:value('--family'),scenario_id:value('--scenario'),
+    evidence:[{kind:'fixture-receipt',reference:'fixture-'+stage+'.json',sha256:'${'a'.repeat(64)}'}]},
+})+'\\n')
+`)
 }
 
 function fixtureCatalog(
@@ -116,6 +132,10 @@ test('dsh-runtime-kit routes acceptance-drive and prints its CLI contract', () =
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /^Usage: dsh-runtime-kit acceptance-drive /u)
   assert.match(result.stdout, /npm pack does not build this package/u)
+  assert.match(result.stdout, /--phase <success\|deliberate-failure>/u)
+  assert.match(result.stdout, /--fixture-bin <absolute path>/u)
+  assert.match(result.stdout, /--attest <absolute JSON path>/u)
+  assert.match(result.stdout, /--summarize-pack/u)
 })
 
 test('scripted provider emits result and summary rows and appends on restart', async () => {
@@ -169,6 +189,143 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
   assert.deepEqual(written[0].observed.policy_decisions.rule_ids, ['dsh.skill-usage-reminder'])
   assert.equal(existsSync(written[0].observed.stdout.path), true)
   assert.equal(existsSync(written[0].observed.stderr.path), true)
+})
+
+test('deliberate-failure phase sends the unchanged task and requires a typed failed outcome', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-pack-phase-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== 'Load the available prerequisite, create prerequisite.txt with the required marker, and read it back. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git after confirming the prerequisite ran once and no repository was required.') process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'runtime-root-drift'}})}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stderr.write('The unchanged task stopped at the typed runtime boundary.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'pack-failure-phase',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+  assert.equal(summary.status, 'pass')
+  assert.deepEqual(summary.scenario_pack.case_ids, [
+    'automatic-prerequisite.non-git.deliberate-failure',
+  ])
+  const [result] = rows(output)
+  assert.equal(result.status, 'pass')
+  assert.equal(result.expected.success_marker, 'DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git')
+  assert.equal(result.observed.success_marker_seen, false)
+  assert.equal(result.session_outcome.status, 'failed')
+  assert.equal(result.session_outcome.code, 'runtime-root-drift')
+  assert.match(result.scenario_pack.isolation_key, /^[a-f0-9]{64}$/u)
+  assert.equal(result.scenario_pack.family, 'automatic-prerequisite')
+  assert.equal(result.scenario_pack.phase, 'deliberate-failure')
+})
+
+test('deliberate-failure clean retry applies the complete success gate', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-pack-retry-gate-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git\\n')
+  process.stderr.write('policy-unavailable\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'runtime-root-drift'}})}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stderr.write('The unchanged task stopped at the typed runtime boundary.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'pack-retry-gate',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+  assert.equal(summary.status, 'fail')
+  const [result] = rows(output)
+  assert.equal(result.status, 'fail')
+  assert.deepEqual(result.observed.fixture.clean_retry.forbidden_outcomes_seen, ['policy-unavailable'])
+})
+
+test('deliberate-failure rejects marker-only and ordinary-success output', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-pack-false-positive-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  for (const [name, outputText] of [
+    ['diagnostic-only', 'DSH_ACCEPTANCE_DIAGNOSED:automatic-prerequisite.non-git\\n'],
+    ['ordinary-success', 'DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git\\n'],
+    ['both', 'DSH_ACCEPTANCE_DIAGNOSED:automatic-prerequisite.non-git\\nDSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git\\n'],
+  ]) {
+    const output = join(root, `${name}.jsonl`)
+    const dsh = executable(join(root, `${name}.mjs`), `process.stdout.write(${JSON.stringify(outputText)})`)
+    const summary = runAcceptanceDrive({
+      profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+      phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+      workdir, outputPath: output, artifactDir: join(root, `${name}-artifacts`), dshBin: dsh,
+      runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: `pack-${name}`,
+      fixtureBin: fixtureProvider(join(root, `${name}-fixture.mjs`)),
+    })
+    assert.equal(summary.status, 'fail')
+    assert.equal(rows(output)[0].status, 'fail')
+  }
+})
+
+test('acceptance-drive retrospective modes reject run-only options', () => {
+  const command = join(ROOT, 'dist', 'bin', 'dsh-runtime-kit.js')
+  for (const args of [
+    ['--output', '/tmp/results.jsonl', '--attest', '/tmp/a.json', '--phase', 'success'],
+    ['--output', '/tmp/results.jsonl', '--summarize-pack', '--scenario', 'workspace-identity.non-git'],
+    ['--profile', 'headless', '--scenario-pack', PACK, '--scenario', 'workspace-identity.non-git', '--workdir', '/tmp', '--output', '/tmp/results.jsonl', '--dsh-home', '/tmp', '--dsh-bin', '/bin/true'],
+  ]) {
+    const result = spawnSync(process.execPath, [command, 'acceptance-drive', ...args], { cwd: ROOT, encoding: 'utf8' })
+    assert.equal(result.status, 64)
+    assert.equal(JSON.parse(result.stdout).error.code, 'invalid-mode')
+  }
 })
 
 test('driver does not attach an older same-directory failure to a new scripted pass', async () => {
@@ -525,6 +682,56 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
   assert.equal(existsSync(result.run_context.package_setup.preview.stdout.path), true)
   assert.equal(existsSync(result.run_context.package_setup.apply.stdout.path), true)
   assert.deepEqual(summary.run_context, result.run_context)
+})
+
+test('a failed fixture start still runs and records best-effort cleanup', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-fixture-cleanup-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dshMarker = join(root, 'dsh-ran')
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs'); fs.writeFileSync(${JSON.stringify(dshMarker)}, 'ran')
+`)
+  const partial = join(workdir, '.partial-fixture')
+  const fixture = executable(join(root, 'fixture.mjs'), `
+const fs = await import('node:fs')
+const args = process.argv.slice(2)
+const value = name => args[args.indexOf(name) + 1]
+const stage = value('--stage')
+if (stage === 'induce') {
+  fs.writeFileSync(${JSON.stringify(partial)}, 'partial')
+  process.stdout.write('{"ok":false}\\n')
+  process.exit(1)
+}
+fs.rmSync(${JSON.stringify(partial)}, {force:true})
+process.stdout.write(JSON.stringify({
+  schema_version:'dsh-runtime-kit.acceptance-fixture-result.v1',ok:true,
+  data:{status:'pass',stage,phase:value('--phase'),family:value('--family'),scenario_id:value('--scenario'),
+    evidence:[{kind:'fixture-cleanup',reference:'cleanup.json',sha256:'${'b'.repeat(64)}'}]},
+})+'\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, fixtureBin: fixture, dshHome, timeoutMs: 10_000,
+    runId: 'fixture-start-cleanup',
+  })
+  assert.equal(summary.status, 'fail')
+  const [result] = rows(output)
+  assert.equal(result.status, 'precondition-unmet')
+  assert.equal(result.error.code, 'fixture-stage-failed')
+  assert.equal(result.fixture_cleanup.status, 'pass')
+  assert.equal(result.fixture_cleanup.receipt.stage, 'cleanup')
+  assert.equal(existsSync(partial), false)
+  assert.equal(existsSync(dshMarker), false)
 })
 
 test('report-issue writes a bounded draft for failures without invoking a provider command', async () => {
