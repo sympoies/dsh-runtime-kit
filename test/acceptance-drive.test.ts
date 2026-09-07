@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
+import { zstdCompressSync } from 'node:zlib'
 
 import {
   loadAcceptanceCatalog,
@@ -50,8 +51,8 @@ function rows(path: string) {
 test('catalog expands every planned owner into stable folder-kind scenarios', () => {
   const catalog = loadAcceptanceCatalog(CATALOG)
   assert.equal(catalog.schema_version, 'dsh-runtime-kit.acceptance-scenarios.v1')
-  assert.equal(catalog.scenarios.length, 34)
-  assert.equal(new Set(catalog.scenarios.map(row => row.id)).size, 34)
+  assert.equal(catalog.scenarios.length, 40)
+  assert.equal(new Set(catalog.scenarios.map(row => row.id)).size, 40)
   assert.deepEqual(
     catalog.scenarios.map(row => [row.id, row.owner.program_child, row.owner.feature_issue, row.folder_kind]),
     [
@@ -88,6 +89,12 @@ test('catalog expands every planned owner into stable folder-kind scenarios', ()
       ['retired-surfaces.git-repo', '#D', '#65', 'git-repo'],
       ['retired-surfaces.non-git', '#D', '#65', 'non-git'],
       ['retired-surfaces.managed-worktree', '#D', '#65', 'managed-worktree'],
+      ['diagnostics.tool-denial.non-git', '#C', '#215', 'non-git'],
+      ['diagnostics.unhealthy-companion.non-git', '#C', '#215', 'non-git'],
+      ['diagnostics.stale-plan-digest.non-git', '#C', '#215', 'non-git'],
+      ['diagnostics.provider-unavailable.non-git', '#C', '#215', 'non-git'],
+      ['diagnostics.dirty-anchor.git-repo', '#C', '#215', 'git-repo'],
+      ['diagnostics.finish-line-refusal.managed-worktree', '#C', '#215', 'managed-worktree'],
       ['github-pr-delivery.managed-worktree', '#E', '#197', 'managed-worktree'],
     ],
   )
@@ -164,6 +171,45 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
   assert.equal(existsSync(written[0].observed.stderr.path), true)
 })
 
+test('driver does not attach an older same-directory failure to a new scripted pass', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-session-window-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const sessions = join(dshHome, 'sessions', 'fixture')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(workdir)
+  mkdirSync(sessions, { recursive: true })
+  fixtureCatalog(catalog)
+  const staleTranscript = [
+    { type: 'session', cwd: workdir, createdAt: Date.now() - 60_000 },
+    { type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'MISSING_CREDENTIAL' } } } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  const stalePath = join(sessions, 'stale.jsonl.zstd')
+  writeFileSync(stalePath, zstdCompressSync(Buffer.from(staleTranscript)))
+  const old = new Date(Date.now() - 60_000)
+  utimesSync(stalePath, old, old)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+const args = process.argv.slice(2)
+if (args[0] !== 'doctor') process.exit(91)
+process.stdout.write(JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:true,data:{schema_version:'dsh-runtime-kit.doctor.v1',status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'fresh-pass',
+  })
+  assert.equal(summary.status, 'pass')
+  const [result] = rows(output)
+  assert.equal(result.status, 'pass')
+  assert.equal(result.session_outcome.status, 'completed')
+  assert.equal(result.session_outcome.code, 'completed')
+})
+
 test('unmet folder precondition emits a typed row without spawning DSH', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-precondition-'))
   const workdir = join(root, 'plain')
@@ -227,9 +273,53 @@ const fs = await import('node:fs'); fs.writeFileSync(${JSON.stringify(marker)}, 
   assert.equal(result.status, 'precondition-unmet')
   assert.equal(result.stage, 'profile-setup')
   assert.equal(result.error.code, 'native-dsh-verification-failed')
+  assert.match(result.diagnostic_bundle.name, /\.diagnostic\.json$/u)
+  assert.equal(existsSync(join(root, 'artifacts', result.diagnostic_bundle.name)), true)
+  assert.equal(result.session_outcome.category, 'operations-failure')
+  assert.equal(result.session_outcome.code, 'native-dsh-verification-failed')
+  assert.equal(result.session_outcome.component, 'operations')
   assert.equal(existsSync(result.observed.stdout.path), true)
   assert.equal(existsSync(result.observed.stderr.path), true)
   assert.equal(existsSync(marker), false)
+})
+
+test('identity drift prevents every post-task diagnostic command', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-identity-drift-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  const doctorCount = join(root, 'doctor-count')
+  const replacementMarker = join(root, 'replacement-ran')
+  const dshPath = join(root, 'dsh.mjs')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  fixtureCatalog(catalog)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+const fs = await import('node:fs')
+const count = fs.existsSync(${JSON.stringify(doctorCount)}) ? Number(fs.readFileSync(${JSON.stringify(doctorCount)}, 'utf8')) : 0
+fs.writeFileSync(${JSON.stringify(doctorCount)}, String(count + 1))
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const replacement = `#!/usr/bin/env node\nconst fs = await import('node:fs'); fs.writeFileSync(${JSON.stringify(replacementMarker)}, 'ran')\n`
+  const dsh = executable(dshPath, `
+const fs = await import('node:fs')
+process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
+fs.writeFileSync(${JSON.stringify(dshPath)}, ${JSON.stringify(replacement)}, {mode:0o700})
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'identity-drift',
+  })
+  assert.equal(summary.status, 'fail')
+  const [result] = rows(output)
+  assert.equal(result.error.code, 'executable-identity-changed')
+  assert.equal(result.session_outcome.status, 'failed')
+  assert.equal(result.session_outcome.code, 'executable-identity-changed')
+  assert.equal(readFileSync(doctorCount, 'utf8'), '1')
+  assert.equal(existsSync(replacementMarker), false)
 })
 
 test('an unsafe result destination is rejected before DSH starts', async () => {
@@ -281,7 +371,7 @@ const zlib = await import('node:zlib')
 const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
 fs.mkdirSync(sessions, {recursive:true})
 const first = zlib.zstdCompressSync(Buffer.from(JSON.stringify({type:'user/message',data:{content:'prompt-only-reminder'}})+'\\n'))
-const second = zlib.zstdCompressSync(Buffer.from(JSON.stringify({type:'tool/result',data:{message:'later-frame-reminder decision.context dsh.later-frame'}})+'\\n'))
+const second = zlib.zstdCompressSync(Buffer.from(JSON.stringify({type:'tool/result',data:{message:'later-frame-reminder decision.allow dsh.a-rule decision.block dsh.z-rule'}})+'\\n'))
 fs.writeFileSync(path.join(sessions, 'multi.jsonl.zstd'), Buffer.concat([first, second]))
 process.stderr.write('forbidden-output\\n')
 process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
@@ -299,7 +389,9 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
   assert.equal(result.observed.success_marker_seen, true)
   assert.deepEqual(result.observed.missing_reminders, ['prompt-only-reminder'])
   assert.deepEqual(result.observed.forbidden_outcomes_seen, ['forbidden-output'])
-  assert.deepEqual(result.observed.policy_decisions.rule_ids, ['dsh.later-frame'])
+  assert.deepEqual(result.observed.policy_decisions.rule_ids, ['dsh.a-rule', 'dsh.z-rule'])
+  assert.equal(result.session_outcome.category, 'tool-denial')
+  assert.equal(result.session_outcome.code, 'policy-denied')
 })
 
 test('an unscannable changed transcript fails closed', async () => {
@@ -433,4 +525,59 @@ process.stdout.write('DSH_ACCEPTANCE_PASS:scripted-provider.non-git\\n')
   assert.equal(existsSync(result.run_context.package_setup.preview.stdout.path), true)
   assert.equal(existsSync(result.run_context.package_setup.apply.stdout.path), true)
   assert.deepEqual(summary.run_context, result.run_context)
+})
+
+test('report-issue writes a bounded draft for failures without invoking a provider command', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-report-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  const draft = join(root, 'heuristic-issue.md')
+  const providerMarker = join(root, 'provider-was-called')
+  const fakeBin = join(root, 'bin')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  mkdirSync(fakeBin)
+  fixtureCatalog(catalog)
+  executable(join(fakeBin, 'forge-cli'), `
+const fs = await import('node:fs'); fs.writeFileSync(${JSON.stringify(providerMarker)}, 'called')
+process.exit(99)
+`)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+process.stderr.write('provider unavailable\\n')
+process.exit(1)
+`)
+
+  const previousPath = process.env.PATH
+  process.env.PATH = `${fakeBin}:${previousPath ?? ''}`
+  try {
+    const summary = runAcceptanceDrive({
+      profile: 'headless', catalogPath: catalog, scenarioIds: ['scripted-provider.non-git'],
+      workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+      runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'draft-only',
+      reportIssuePath: draft,
+    })
+    assert.equal(summary.status, 'fail')
+    assert.equal(existsSync(providerMarker), false)
+    const body = readFileSync(draft, 'utf8')
+    assert.match(body, /workflow::heuristic-records/u)
+    assert.match(body, /## Observed/u)
+    assert.match(body, /## Expected/u)
+    assert.match(body, /## Bounded impact/u)
+    assert.match(body, /## Reproduction/u)
+    assert.match(body, /## Current workaround/u)
+    assert.doesNotMatch(body, new RegExp(root, 'u'))
+    const [result, writtenSummary] = rows(output)
+    assert.equal(result.session_outcome.schema_version, 'dsh-runtime-kit.session-outcome.v1')
+    assert.equal(result.session_outcome.category, 'provider-failure')
+    assert.match(body, new RegExp(result.diagnostic_bundle.name, 'u'))
+    assert.match(body, new RegExp(result.diagnostic_bundle.sha256, 'u'))
+    assert.equal(writtenSummary.report_issue_draft.sha256.length, 64)
+  } finally {
+    process.env.PATH = previousPath
+  }
 })

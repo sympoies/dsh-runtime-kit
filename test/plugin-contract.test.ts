@@ -2416,7 +2416,7 @@ test('policy ingress v2 binds the exact DSH session position and agent-docs root
     '--config', '/runtime/agent-hook/config.toml',
     '--policy', '/runtime/agent-hook/dsh-policy.toml',
     '--state-dir', '/runtime/agent-hook/state',
-    'dispatch', '--product', 'dsh', '--format', 'json',
+    'dispatch', '--product', 'dsh', '--format', 'json', '--trace',
   ])
 })
 

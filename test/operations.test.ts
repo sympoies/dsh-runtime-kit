@@ -2118,6 +2118,8 @@ test('a drifted apply cannot claim an unowned runtime root', () => {
     ])
     assert.equal(rejected.status, 65)
     assert.equal(rejected.value.error.code, 'plan-drift')
+    assert.equal(rejected.value.error.details.expected_plan_digest, '0'.repeat(64))
+    assert.equal(rejected.value.error.details.observed_plan_digest, preview.value.data.plan_digest)
     assert.equal(existsSync(join(first.runtimeRoot, '.dsh-runtime-kit-owner.json')), false)
 
     rightful.runtimeRoot = first.runtimeRoot
