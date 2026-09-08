@@ -260,6 +260,23 @@ function brokerArgvIsTrusted(argv: readonly string[], agentSessionCli: string) {
   return false
 }
 
+/**
+ * The released external-launch v1 producer does not put the activity helper
+ * in `worker_env`; it names that already-trusted executable as broker argv[0].
+ * Accept the absent legacy field, but fail closed if an additive producer (or
+ * a hostile envelope) supplies a different filesystem identity.
+ */
+function optionalWorkerActivityHelperIsTrusted(workerEnv: Record<string, any>, agentSessionCli: string) {
+  const declared = workerEnv.AGENT_SESSION_BIN
+  if (declared === undefined) return true
+  if (typeof declared !== 'string' || declared.length === 0) return false
+  try {
+    return realpathSync(declared) === realpathSync(agentSessionCli)
+  } catch {
+    return false
+  }
+}
+
 function validExternalLaunch(externalLaunch: Record<string, any>, agentSessionCli: string) {
   return externalLaunch !== null
     && typeof externalLaunch === 'object'
@@ -271,6 +288,7 @@ function validExternalLaunch(externalLaunch: Record<string, any>, agentSessionCl
     && bootstrapKeyFromPrompt(externalLaunch.prompt) !== undefined
     && externalLaunch.worker_env !== null
     && typeof externalLaunch.worker_env === 'object'
+    && optionalWorkerActivityHelperIsTrusted(externalLaunch.worker_env, agentSessionCli)
     && typeof externalLaunch.liveness_file === 'string'
     && isAbsolute(externalLaunch.liveness_file)
     // The sidecar is published by renaming over this path, so it must be the
@@ -1333,6 +1351,13 @@ export function applyMainAgentMode(ctx: Context, config: {
           throw laneError('main-agent-external-launch-invalid')
         }
         const externalLaunch = data.external_launch
+        // Complete the private principal with the exact helper independently
+        // authenticated above. Never inherit or trust an ambient/model-owned
+        // AGENT_SESSION_BIN: nils-cli uses this edge for DSH activity events.
+        const workerEnvironment = Object.freeze({
+          ...externalLaunch.worker_env,
+          AGENT_SESSION_BIN: trustedAgentSessionCli,
+        })
         const assignmentId = requireNonEmptyString(
           data.assignment?.assignment_id,
           'main-agent-assignment-id-invalid',
@@ -1445,7 +1470,7 @@ export function applyMainAgentMode(ctx: Context, config: {
               currentTurn: { startedAt: nowEpoch() },
               lastTurn: undefined,
             },
-            workerEnv: Object.freeze({ ...externalLaunch.worker_env }),
+            workerEnv: workerEnvironment,
             bootstrapKey: ((bootstrapKeyFromPrompt(externalLaunch.prompt)) as string),
             brokerStopArgv: Object.freeze([...externalLaunch.broker_stop_argv]),
             sidecarChain: Promise.resolve(),

@@ -63,10 +63,14 @@ Mode simply never activates and the rest of the bundle is unaffected.
   exact persisted `cwd`, and acquire a fresh lease reference; unavailable,
   forged, copied, or mismatched bindings fail closed. Ordinary subagents omit
   the host workspace selection and keep their existing parent-cwd inheritance.
-- **Worker identity bridge**: the exact `AGENT_SESSION_*` environment from the
-  CLI's `main-agent.external-launch.v1` payload is bound in memory to that
-  lane's DSH child and descendants. Policy, selective context, and finish-line
-  nils subprocesses receive the authenticated worker session id and environment;
+- **Worker identity bridge**: the five session, state, runtime, capability and
+  checkpoint fields from the CLI's `main-agent.external-launch.v1` payload are
+  bound in memory to that lane's DSH child and descendants. Runtime-kit adds
+  `AGENT_SESSION_BIN` from the exact activity helper it independently
+  authenticated against the launch's broker argv; an optional producer field
+  is accepted only when it resolves to that same filesystem identity. Policy,
+  selective context, and finish-line nils subprocesses receive the completed
+  authenticated worker session environment;
   unmanaged DSH sessions retain the scrubbed, ownerless boundary. Policy keeps
   the owner id in its ingress subject and transports the original DSH session
   separately on the private agent-hook subprocess edge, so provider activity
