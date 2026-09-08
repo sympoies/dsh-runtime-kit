@@ -1343,6 +1343,11 @@ test('lane bootstrap is a native authenticated tool instead of an unauthenticate
   const principal = managedSessionBridge.resolve(launched.child_session_id)
   assert.equal(principal.sessionId, 'worker-one')
   assert.equal(principal.environment.AGENT_SESSION_ID, 'worker-one')
+  assert.equal(
+    principal.environment.AGENT_SESSION_BIN,
+    AGENT_SESSION_CLI,
+    'lane activity uses the independently authenticated agent-session helper',
+  )
   assert.equal(managedSessionBridge.resolve('foreign-child'), undefined)
   const result = await bootstrap.execute(
     { idempotency_key: bootstrapKey },
@@ -1730,6 +1735,19 @@ test('the external-launch envelope must name a contained sidecar, the coordinati
       `refuses a worker_env value containing ${JSON.stringify(hostileValue)}`,
     )
   }
+
+  const hostileHelper = workerStartEnvelope(livenessFile)
+  hostileHelper.data.external_launch.worker_env.AGENT_SESSION_BIN = realpathSync('/bin/false')
+  const helperHarness = createContext({ envelope: hostileHelper })
+  applyBoundMainAgentMode(helperHarness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+  await assert.rejects(
+    helperHarness.registeredTools.get('main_agent_worker_launch').execute(
+      { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
+      controllerExec(),
+    ),
+    /main-agent-external-launch-invalid/,
+    'refuses an envelope-selected activity helper',
+  )
 })
 
 test('the external-launch envelope accepts the canonical target of the configured coordination symlink', async (t) => {
@@ -1744,14 +1762,23 @@ test('the external-launch envelope accepts the canonical target of the configure
   const envelope = workerStartEnvelope(livenessFile)
   envelope.data.external_launch.broker_heartbeat_argv[0] = trustedTarget
   envelope.data.external_launch.broker_stop_argv[0] = trustedTarget
+  envelope.data.external_launch.worker_env.AGENT_SESSION_BIN = trustedTarget
   const harness = createContext({ envelope })
-  applyBoundMainAgentMode(harness.ctx, { mainAgentCli: join(bin, 'main-agent') })
+  const managedSessionBridge = applyBoundMainAgentMode(
+    harness.ctx,
+    { mainAgentCli: join(bin, 'main-agent') },
+  )
 
   const launched = await harness.registeredTools.get('main_agent_worker_launch').execute(
     { assignment_file: '/private/assignment.json', idempotency_key: 'key-1' },
     controllerExec(),
   )
   assert.equal(launched.disposition, 'launched')
+  assert.equal(
+    managedSessionBridge.resolve(launched.child_session_id).environment.AGENT_SESSION_BIN,
+    join(bin, 'agent-session'),
+    'the bridge retains the independently selected helper path',
+  )
 })
 
 test('the lane deny set is monotonic and lane management refuses non-controller callers', async (t) => {
