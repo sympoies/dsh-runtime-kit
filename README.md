@@ -71,7 +71,7 @@ tools, sandbox, approvals, skills, and subagents.
 | DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.3` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.8` |
 
 The package deliberately supports a rolling window of exactly three reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;
