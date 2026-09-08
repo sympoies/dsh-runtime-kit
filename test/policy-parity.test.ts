@@ -276,7 +276,7 @@ test('the packaged policy declares the accepted enforcement tiers: Tier B seams 
 test('the released agent-hook inventory agrees with the packaged tier declarations when a companion is available', async (t) => {
   const agentHook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? process.env.AGENT_HOOK_BIN
   if (agentHook === undefined) {
-    t.skip('set AGENT_HOOK_BIN to the released agent-hook; CI runs this against nils-cli 1.28.3')
+    t.skip('set AGENT_HOOK_BIN to the released agent-hook; CI runs this against nils-cli 1.28.8')
     return
   }
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
