@@ -17,6 +17,16 @@ const ROOT = resolve(import.meta.dirname, '..')
 const CATALOG = join(ROOT, 'compatibility', 'acceptance-scenarios.json')
 const PACK = join(ROOT, 'compatibility', 'acceptance-scenario-pack.json')
 
+function taskMetadata(scenarioId: string, phase: 'success' | 'deliberate-failure') {
+  const catalog = loadAcceptanceCatalog(CATALOG)
+  const scenario = catalog.scenarios.find(row => row.id === scenarioId)!
+  const task = phase === 'success' ? scenario.task : scenario.deliberate_failure_task!
+  return {
+    task_sha256: createHash('sha256').update(task).digest('hex'),
+    ...(phase === 'success' ? {} : { success_marker: scenario.deliberate_failure_success_marker }),
+  }
+}
+
 function fixtureStage(
   stage: 'prepare' | 'induce' | 'recover' | 'cleanup',
   phase: 'success' | 'deliberate-failure',
@@ -63,7 +73,7 @@ test('canonical scenario pack accounts for every #D row exactly once', () => {
     .sort()
   const actual = pack.families.flatMap(family => family.scenario_ids).sort()
 
-  assert.equal(pack.schema_version, 'dsh-runtime-kit.acceptance-scenario-pack.v1')
+  assert.equal(pack.schema_version, 'dsh-runtime-kit.acceptance-scenario-pack.v2')
   assert.equal(pack.program_child, '#D')
   assert.equal(pack.profile_isolation, 'capability-family')
   assert.equal(expected.length, 33)
@@ -80,6 +90,16 @@ test('canonical scenario pack accounts for every #D row exactly once', () => {
     ])
     assert.ok(family.deliberate_failure.recovery.length > 0)
     assert.ok(family.deliberate_failure.recovery_observation.length > 0)
+    assert.equal(family.task_bindings.length, family.scenario_ids.length)
+    for (const binding of family.task_bindings) {
+      const scenario = catalog.scenarios.find(row => row.id === binding.scenario_id)!
+      assert.equal(binding.success_task_sha256, createHash('sha256').update(scenario.task).digest('hex'))
+      assert.equal(
+        binding.deliberate_failure_task_sha256,
+        createHash('sha256').update(scenario.deliberate_failure_task!).digest('hex'),
+      )
+      assert.equal(binding.deliberate_failure_success_marker, scenario.deliberate_failure_success_marker)
+    }
   }
 })
 
@@ -93,11 +113,12 @@ test('external harness attestation is append-only, portable, and phase-bound', a
     scenario_id: 'automatic-prerequisite.non-git',
     status: 'pass',
     scenario_pack: {
-      schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v1',
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
       phase: 'success',
       family: 'automatic-prerequisite',
       case_id: 'automatic-prerequisite.non-git.success',
       isolation_key: '0'.repeat(64),
+      ...taskMetadata('automatic-prerequisite.non-git', 'success'),
     },
     observed: fixtureObserved('success', 'automatic-prerequisite', 'automatic-prerequisite.non-git'),
   })}\n`)
@@ -138,11 +159,12 @@ test('deliberate-failure attestation requires diagnosis and recovery evidence', 
     scenario_id: 'runtime-health.non-git',
     status: 'pass',
     scenario_pack: {
-      schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v1',
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
       phase: 'deliberate-failure',
       family: 'runtime-health',
       case_id: 'runtime-health.non-git.deliberate-failure',
       isolation_key: '1'.repeat(64),
+      ...taskMetadata('runtime-health.non-git', 'deliberate-failure'),
     },
     diagnostic_bundle: { name: 'runtime-health.non-git.diagnostic.json', sha256: '2'.repeat(64), bytes: 128 },
     session_outcome: {
@@ -232,6 +254,13 @@ test('pack summary requires distinct successful result and attestation pairs for
             family: family.id,
             case_id: caseId,
             isolation_key: isolationKey,
+            task_sha256: phase === 'success'
+              ? family.task_bindings.find(row => row.scenario_id === scenarioId)!.success_task_sha256
+              : family.task_bindings.find(row => row.scenario_id === scenarioId)!.deliberate_failure_task_sha256,
+            ...(phase === 'success' ? {} : {
+              success_marker: family.task_bindings.find(row => row.scenario_id === scenarioId)!
+                .deliberate_failure_success_marker,
+            }),
           },
           observed: fixtureObserved(phase, family.id, scenarioId),
           ...(phase === 'success' ? {} : {
@@ -312,6 +341,23 @@ test('pack summary requires distinct successful result and attestation pairs for
     const result = invalidRows.find(row => row.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1'
       && row.scenario_pack.phase === 'deliberate-failure')
     mutate(result.observed.fixture.clean_retry)
+    const invalidOutput = join(root, `${name.replaceAll(' ', '-')}.jsonl`)
+    writeFileSync(invalidOutput, `${invalidRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+    const invalid = summarizeAcceptanceScenarioPack({ outputPath: invalidOutput, pack })
+    assert.equal(invalid.status, 'fail', name)
+    assert.equal(invalid.counts.missing_results, 1, name)
+  }
+
+  for (const [name, mutate] of [
+    ['wrong task digest', (packRow: Record<string, unknown>) => { packRow.task_sha256 = '0'.repeat(64) }],
+    ['wrong recovery marker', (packRow: Record<string, unknown>) => {
+      packRow.success_marker = 'DSH_ACCEPTANCE_RECOVERED:wrong'
+    }],
+  ] as Array<[string, (packRow: Record<string, unknown>) => void]>) {
+    const invalidRows = structuredClone(validRows)
+    const result = invalidRows.find(row => row.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1'
+      && row.scenario_pack.phase === 'deliberate-failure')
+    mutate(result.scenario_pack)
     const invalidOutput = join(root, `${name.replaceAll(' ', '-')}.jsonl`)
     writeFileSync(invalidOutput, `${invalidRows.map(row => JSON.stringify(row)).join('\n')}\n`)
     const invalid = summarizeAcceptanceScenarioPack({ outputPath: invalidOutput, pack })

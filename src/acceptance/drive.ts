@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   accessSync,
@@ -21,6 +21,7 @@ import { parseArgs } from 'node:util'
 import { packageAsset } from '../package-root.js'
 import {
   collectDiagnosticBundle,
+  runtimeHealthCodeFromCommandOutput,
   sanitizeDiagnosticValue,
 } from '../diagnostics/index.js'
 import {
@@ -32,7 +33,7 @@ import {
   type AcceptanceScenarioPackPhase,
 } from './scenario-pack.js'
 
-const CATALOG_SCHEMA = 'dsh-runtime-kit.acceptance-scenarios.v1'
+const CATALOG_SCHEMA = 'dsh-runtime-kit.acceptance-scenarios.v2'
 const RESULT_SCHEMA = 'dsh-runtime-kit.acceptance-drive-result.v1'
 const SUMMARY_SCHEMA = 'dsh-runtime-kit.acceptance-drive-summary.v1'
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u
@@ -59,6 +60,8 @@ export type AcceptanceScenario = {
   folder_kind: FolderKind
   task: string
   success_marker: string
+  deliberate_failure_task: string | null
+  deliberate_failure_success_marker: string | null
   expected_observable_outcome: string
   expected_reminders: string[]
   forbidden_outcomes: string[]
@@ -74,6 +77,7 @@ export type AcceptanceDriveInput = {
   catalogPath: string
   scenarioIds: string[]
   workdir: string
+  retryWorkdir?: string
   outputPath: string
   artifactDir: string
   dshBin: string
@@ -159,6 +163,7 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
   const row = record(value)
   const keys = [
     'id', 'owner', 'preconditions', 'folder_kind', 'task', 'success_marker',
+    'deliberate_failure_task', 'deliberate_failure_success_marker',
     'expected_observable_outcome', 'expected_reminders', 'forbidden_outcomes',
   ]
   if (row === undefined || !exactKeys(row, keys)) {
@@ -185,6 +190,28 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
   if (!task.includes(successMarker)) {
     throw new DriveError('invalid-catalog', `scenario ${id} task must name its success_marker`)
   }
+  let deliberateFailureTask: string | null = null
+  let deliberateFailureSuccessMarker: string | null = null
+  if (owner.program_child === '#D') {
+    deliberateFailureTask = boundedString(
+      row.deliberate_failure_task,
+      `scenario ${id} deliberate_failure_task`,
+    )
+    deliberateFailureSuccessMarker = boundedString(
+      row.deliberate_failure_success_marker,
+      `scenario ${id} deliberate_failure_success_marker`,
+      256,
+    )
+    if (deliberateFailureSuccessMarker !== `DSH_ACCEPTANCE_RECOVERED:${id}`
+      || !deliberateFailureTask.includes(deliberateFailureSuccessMarker)) {
+      throw new DriveError(
+        'invalid-catalog',
+        `scenario ${id} deliberate-failure task must name its canonical recovery marker`,
+      )
+    }
+  } else if (row.deliberate_failure_task !== null || row.deliberate_failure_success_marker !== null) {
+    throw new DriveError('invalid-catalog', `scenario ${id} must not declare a #D deliberate-failure task`)
+  }
   return {
     id,
     owner: {
@@ -195,6 +222,8 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
     folder_kind: row.folder_kind as FolderKind,
     task,
     success_marker: successMarker,
+    deliberate_failure_task: deliberateFailureTask,
+    deliberate_failure_success_marker: deliberateFailureSuccessMarker,
     expected_observable_outcome: boundedString(
       row.expected_observable_outcome,
       `scenario ${id} expected_observable_outcome`,
@@ -326,6 +355,7 @@ function command(
 
 function fixtureCommand(input: {
   executablePath: string
+  expectedIdentity: FileIdentity
   stage: 'prepare' | 'induce' | 'recover' | 'cleanup'
   phase: AcceptanceScenarioPackPhase
   family: string
@@ -335,14 +365,39 @@ function fixtureCommand(input: {
   dshHome: string
   timeoutMs: number
 }) {
-  const captured = command(input.executablePath, [
+  const args = [
     '--schema', 'dsh-runtime-kit.acceptance-fixture-provider.v1',
     '--stage', input.stage,
     '--phase', input.phase,
     '--family', input.family,
     '--scenario', input.scenarioId,
     '--profile', input.profile,
-  ], input.workdir, input.dshHome, input.timeoutMs)
+  ]
+  let identityMatches = false
+  try {
+    identityMatches = sameFileIdentity(input.expectedIdentity, fileIdentity(input.executablePath))
+  } catch {
+    identityMatches = false
+  }
+  if (!identityMatches) {
+    return {
+      ok: false as const,
+      captured: {
+        argv: [input.executablePath, ...args],
+        cwd: input.workdir,
+        exit_code: null,
+        signal: null,
+        stdout: '',
+        stderr: '',
+        error: 'fixture executable identity changed before transition',
+      } satisfies CapturedCommand,
+      error: {
+        code: 'executable-identity-changed',
+        message: `fixture provider identity changed before ${input.stage} for ${input.scenarioId}`,
+      },
+    }
+  }
+  const captured = command(input.executablePath, args, input.workdir, input.dshHome, input.timeoutMs)
   const envelope = parsedEnvelope(captured.stdout)
   const data = record(envelope?.data)
   const references = Array.isArray(data?.evidence) ? data.evidence.map(record) : []
@@ -365,6 +420,35 @@ function fixtureCommand(input: {
       message: `fixture provider did not prove ${input.stage} for ${input.scenarioId}`,
     },
   }
+}
+
+function fixtureLeaseHolder(input: {
+  executablePath: string
+  expectedIdentity: FileIdentity
+  stage: 'prepare' | 'induce'
+  phase: AcceptanceScenarioPackPhase
+  family: string
+  scenarioId: string
+  profile: string
+  workdir: string
+  dshHome: string
+}) {
+  if (!sameFileIdentity(input.expectedIdentity, fileIdentity(input.executablePath))) {
+    throw new DriveError('executable-identity-changed', 'fixture provider identity changed before lease hold')
+  }
+  return spawn(input.executablePath, [
+    '--schema', 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    '--stage', input.stage,
+    '--phase', input.phase,
+    '--family', input.family,
+    '--scenario', input.scenarioId,
+    '--profile', input.profile,
+    '--hold-workspace-lease',
+  ], {
+    cwd: input.workdir,
+    env: { ...process.env, DSH_HOME: input.dshHome },
+    stdio: 'ignore',
+  })
 }
 
 function parsedEnvelope(output: string): Record<string, unknown> | undefined {
@@ -580,6 +664,36 @@ function observedTranscriptRecord(value: unknown) {
   )
 }
 
+function transcriptDecisionSurface(value: unknown, runtimeContextCallIds: Set<string>) {
+  const row = record(value)
+  if (row?.type !== 'tool/result') return JSON.stringify(value)
+  const data = record(row.data)
+  const message = record(data?.message)
+  const source = record(message?.source)
+  if (source?.kind === 'tool' && typeof source.callId === 'string'
+    && runtimeContextCallIds.has(source.callId)) {
+    const content = Array.isArray(message?.content) ? message.content : []
+    const failed = content.some(item => record(item)?.isError === true)
+    return failed ? '{}' : JSON.stringify({ runtime_context: content })
+  }
+  if (Array.isArray(data?.content)) {
+    const errors = data.content.filter(item => {
+      const result = record(item)
+      return result?.type === 'tool-result' && result.isError === true
+    })
+    const directErrors = [row.error, data?.error].filter(item => item !== undefined)
+    return JSON.stringify({ errors, direct_errors: directErrors })
+  }
+  const content = Array.isArray(message?.content) ? message.content : []
+  const errors = content.filter(item => {
+    const result = record(item)
+    return result?.type === 'tool-result' && result.isError === true
+  })
+  const directErrors = [row.error, data?.error, message?.error]
+    .filter(item => item !== undefined)
+  return JSON.stringify({ errors, direct_errors: directErrors })
+}
+
 function scanTranscripts(
   transcripts: string[],
   expectedReminders: string[],
@@ -592,6 +706,7 @@ function scanTranscripts(
   const digests: ReturnType<typeof digestFile>[] = []
   let compressedBytes = 0
   let decompressedBytes = 0
+  const runtimeContextCallIds = new Set<string>()
   for (const path of transcripts) {
     try {
       const metadata = safeRegularFile(path, 'session transcript')
@@ -610,13 +725,21 @@ function scanTranscripts(
         } catch {
           throw new DriveError('transcript-invalid', 'session transcript contains invalid JSONL')
         }
+        const row = record(value)
+        const data = record(row?.data)
+        if (row?.type === 'tool/call' && data?.name === 'runtime_context'
+          && typeof data.callId === 'string') {
+          runtimeContextCallIds.add(data.callId)
+          continue
+        }
         if (!observedTranscriptRecord(value)) continue
-        for (const marker of expectedReminders) if (line.includes(marker)) reminders.add(marker)
-        for (const marker of forbiddenOutcomes) if (line.includes(marker)) forbidden.add(marker)
-        for (const match of line.matchAll(/\bdecision\.(allow|block|context|warn|transform)\b/gu)) {
+        const decisionSurface = transcriptDecisionSurface(value, runtimeContextCallIds)
+        for (const marker of expectedReminders) if (decisionSurface.includes(marker)) reminders.add(marker)
+        for (const marker of forbiddenOutcomes) if (decisionSurface.includes(marker)) forbidden.add(marker)
+        for (const match of decisionSurface.matchAll(/\bdecision\.(allow|block|context|warn|transform)\b/gu)) {
           actions.add(match[1]!)
         }
-        for (const match of line.matchAll(/\bdsh\.[a-z0-9][a-z0-9-]{0,63}\b/gu)) {
+        for (const match of decisionSurface.matchAll(/\bdsh\.[a-z0-9][a-z0-9-]{0,63}\b/gu)) {
           ruleIds.add(match[0])
         }
       }
@@ -755,6 +878,9 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   const runId = input.runId ?? `acceptance-drive-${randomUUID()}`
   if (!SCENARIO_ID_PATTERN.test(runId)) throw new DriveError('invalid-run-id', 'run id is invalid')
   const workdir = assertAbsoluteDirectory(input.workdir, 'workdir')
+  const retryWorkdir = input.retryWorkdir === undefined
+    ? undefined
+    : assertAbsoluteDirectory(input.retryWorkdir, 'retry workdir')
   const dshHome = assertAbsoluteDirectory(input.dshHome, 'DSH home')
   const outputPath = resultPath(input.outputPath)
   const artifactDir = ensureAbsoluteDirectory(input.artifactDir, 'artifact directory')
@@ -785,10 +911,29 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   if (scenarioPack !== undefined && selected.some(item => item.owner.program_child !== '#D')) {
     throw new DriveError('invalid-phase', 'scenario-pack phases apply only to #D scenarios')
   }
-  if (scenarioPack !== undefined && input.fixtureBin === undefined) {
-    throw new DriveError('missing-fixture-provider', '--fixture-bin is required for scenario-pack phases')
+  const needsDistinctRetry = input.phase === 'deliberate-failure'
+    && selected.some(item => item.folder_kind !== 'non-git')
+  if (retryWorkdir !== undefined && input.phase !== 'deliberate-failure') {
+    throw new DriveError('invalid-retry-workdir', 'retry workdir requires the deliberate-failure phase')
   }
-  const fixtureBin = scenarioPack === undefined ? undefined : executable(input.fixtureBin!, 'fixture provider')
+  if (needsDistinctRetry && retryWorkdir === undefined) {
+    throw new DriveError(
+      'missing-retry-workdir',
+      'Git deliberate-failure scenarios require a distinct clean retry workdir',
+    )
+  }
+  if (needsDistinctRetry && retryWorkdir === workdir) {
+    throw new DriveError('invalid-retry-workdir', 'Git clean retry workdir must be physically distinct')
+  }
+  if (!needsDistinctRetry && retryWorkdir !== undefined) {
+    throw new DriveError('invalid-retry-workdir', 'retry workdir is supported only for Git deliberate-failure scenarios')
+  }
+  const fixtureCandidate = scenarioPack === undefined
+    ? undefined
+    : input.fixtureBin ?? packageAsset('dist', 'bin', 'dsh-runtime-kit-acceptance-fixture.js')
+  const fixtureBin = fixtureCandidate === undefined
+    ? undefined
+    : executable(fixtureCandidate, 'fixture provider')
   const fixtureIdentity = fixtureBin === undefined ? undefined : fileIdentity(fixtureBin)
   const isolationKey = createHash('sha256')
     .update(JSON.stringify({ profile: input.profile, dsh_home: dshHome }))
@@ -796,7 +941,17 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
   const packMetadata = (scenarioValue: AcceptanceScenario) => scenarioPack === undefined
     ? undefined
     : scenarioPackCase(scenarioPack, scenarioValue.id, input.phase!, isolationKey)
-  const normalized = { ...input, timeoutMs, workdir, dshHome, outputPath, artifactDir, dshBin, runtimeKitBin }
+  const normalized = {
+    ...input,
+    timeoutMs,
+    workdir,
+    ...(retryWorkdir === undefined ? {} : { retryWorkdir }),
+    dshHome,
+    outputPath,
+    artifactDir,
+    dshBin,
+    runtimeKitBin,
+  }
   const results: Array<Record<string, unknown>> = []
   let setupEvidence: Record<string, unknown> | null = null
   let doctorEvidence: Record<string, unknown> | null = null
@@ -836,6 +991,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
 
   const taskEvidence = (
     scenarioValue: AcceptanceScenario,
+    successMarker: string,
     captured: CapturedCommand,
     evidenceBefore: ReturnType<typeof snapshotEvidence>,
   ) => {
@@ -857,17 +1013,32 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       scenarioValue.expected_reminders,
       scenarioValue.forbidden_outcomes.filter(marker => marker !== 'silent-stop'),
     )
-    const commandOutput = captured.stdout + '\n' + captured.stderr
+    const structuredStderr = captured.stderr.split('\n').flatMap(line => {
+      if (line.length === 0) return []
+      try {
+        const value = JSON.parse(line)
+        const row = record(value)
+        return row !== undefined && (
+          typeof row.schema_version === 'string'
+          || typeof row.code === 'string'
+          || record(row.error) !== undefined
+          || record(row.outcome) !== undefined
+        ) ? [JSON.stringify(value)] : []
+      } catch {
+        return []
+      }
+    }).join('\n')
+    const commandOutput = `${captured.stdout}\n${structuredStderr}`
     const missingReminders = transcriptScan.missingReminders
     const forbidden = [...new Set([
       ...scenarioValue.forbidden_outcomes.filter(marker => (
         marker === 'silent-stop'
-          ? commandOutput.trim().length === 0
+          ? captured.stdout.trim().length === 0 && captured.stderr.trim().length === 0
           : commandOutput.includes(marker)
       )),
       ...transcriptScan.forbiddenOutcomes,
     ])].sort()
-    const markerSeen = captured.stdout.includes(scenarioValue.success_marker)
+    const markerSeen = captured.stdout.split(/\r?\n/u).some(line => line.trim() === successMarker)
     const identityError = executableIdentityError()
     return {
       captureError,
@@ -984,6 +1155,21 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         results.push(row)
         continue
       }
+      if (retryWorkdir !== undefined) {
+        const retryFolderKind = observedFolderKind(retryWorkdir)
+        if (selectedScenario.folder_kind !== retryFolderKind) {
+          const row = {
+            ...preconditionRow(normalized, selectedScenario, runId, 'scenario-precondition', {
+              code: 'retry-folder-kind-mismatch',
+              message: `scenario requires ${selectedScenario.folder_kind}; retry workdir is ${retryFolderKind}`,
+            }),
+            ...(packMetadata(selectedScenario) === undefined ? {} : { scenario_pack: packMetadata(selectedScenario) }),
+          }
+          appendRow(outputPath, row)
+          results.push(row)
+          continue
+        }
+      }
       const startedAt = new Date()
       let before
       try {
@@ -1007,6 +1193,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       const fixtureStartStage = input.phase === 'deliberate-failure' ? 'induce' as const : 'prepare' as const
       const fixtureStart = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
         executablePath: fixtureBin,
+        expectedIdentity: fixtureIdentity!,
         stage: fixtureStartStage,
         phase: input.phase!,
         family: packRow.family,
@@ -1019,6 +1206,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       if (fixtureStart !== undefined && !fixtureStart.ok) {
         const fixtureCleanup = fixtureCommand({
           executablePath: fixtureBin!,
+          expectedIdentity: fixtureIdentity!,
           stage: 'cleanup',
           phase: input.phase!,
           family: packRow!.family,
@@ -1052,16 +1240,38 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         results.push(row)
         continue
       }
-      const task = selectedScenario.task
-      const expectedMarker = selectedScenario.success_marker
-      const executed = command(
-        dshBin,
-        ['--profile', input.profile, task],
+      const task = input.phase === 'deliberate-failure'
+        ? selectedScenario.deliberate_failure_task!
+        : selectedScenario.task
+      const expectedMarker = input.phase === 'deliberate-failure'
+        ? selectedScenario.deliberate_failure_success_marker!
+        : selectedScenario.success_marker
+      const holdWorkspaceLease = packRow?.family === 'workspace-identity'
+        && (input.phase === 'deliberate-failure' || selectedScenario.id !== 'workspace-identity.non-git')
+      const leaseHolder = holdWorkspaceLease ? fixtureLeaseHolder({
+        executablePath: fixtureBin!,
+        expectedIdentity: fixtureIdentity!,
+        stage: fixtureStartStage,
+        phase: input.phase!,
+        family: packRow!.family,
+        scenarioId: selectedScenario.id,
+        profile: input.profile,
         workdir,
         dshHome,
-        timeoutMs,
-      )
-      const evidence = taskEvidence(selectedScenario, executed, before)
+      }) : undefined
+      let executed: CapturedCommand
+      try {
+        executed = command(
+          dshBin,
+          ['--profile', input.profile, task],
+          workdir,
+          dshHome,
+          timeoutMs,
+        )
+      } finally {
+        leaseHolder?.kill('SIGTERM')
+      }
+      const evidence = taskEvidence(selectedScenario, expectedMarker, executed, before)
       const commandOutput = executed.stdout + '\n' + executed.stderr
       const {
         captureError, transcripts, receipts, transcriptScan, missingReminders, forbidden, markerSeen, identityError,
@@ -1075,10 +1285,16 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         : executed.error !== undefined || executed.exit_code !== 0 || executed.signal !== null
           ? 'scenario-execution-failed'
           : 'scenario-outcome-mismatch'
+      const runtimeHealthCode = runtimeHealthCodeFromCommandOutput(commandOutput)
       const diagnostic = diagnosticEvidence(selectedScenario.id, {
         exit_code: executed.exit_code,
-        error_code: identityError?.code ?? (executionCode === 'provider-unavailable' ? executionCode : undefined),
-        ...(identityError === undefined ? {} : { error_component: 'session' as const }),
+        error_code: identityError?.code ?? runtimeHealthCode
+          ?? (executionCode === 'provider-unavailable' ? executionCode : undefined),
+        ...(identityError !== undefined
+          ? { error_component: 'session' as const }
+          : runtimeHealthCode !== undefined
+            ? { error_component: 'runtime-health' as const, error_receipt: 'command.stderr' }
+            : {}),
         policy_decisions: transcriptScan.policyDecisions.actions.map(action => ({
           action,
         })),
@@ -1087,11 +1303,15 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         sessionWindow: { started_at_ms: startedAt.getTime(), finished_at_ms: taskFinishedAt.getTime() },
       })
       const commonEvidencePass = evidence.pass
+      const inducedFailureEvidencePass = forbidden.length === 0
+        && captureError === undefined && transcriptScan.error === undefined
+        && identityError === undefined
       const expectedFailureObserved = input.phase === 'deliberate-failure'
         && diagnostic.outcome.status === 'failed' && !markerSeen
       const fixtureRecovery = fixtureBin === undefined || packRow === undefined
         || input.phase !== 'deliberate-failure' || !expectedFailureObserved ? undefined : fixtureCommand({
           executablePath: fixtureBin,
+          expectedIdentity: fixtureIdentity!,
           stage: 'recover',
           phase: input.phase,
           family: packRow.family,
@@ -1101,11 +1321,42 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           dshHome,
           timeoutMs,
         })
+      const cleanRetryWorkdir = retryWorkdir ?? workdir
+      const fixtureRetryInduce = fixtureRecovery?.ok !== true || retryWorkdir === undefined
+        ? undefined
+        : fixtureCommand({
+            executablePath: fixtureBin!,
+            expectedIdentity: fixtureIdentity!,
+            stage: 'induce',
+            phase: 'deliberate-failure',
+            family: packRow!.family,
+            scenarioId: selectedScenario.id,
+            profile: input.profile,
+            workdir: cleanRetryWorkdir,
+            dshHome,
+            timeoutMs,
+          })
+      const fixtureRetryRecovery = fixtureRetryInduce?.ok !== true
+        ? undefined
+        : fixtureCommand({
+            executablePath: fixtureBin!,
+            expectedIdentity: fixtureIdentity!,
+            stage: 'recover',
+            phase: 'deliberate-failure',
+            family: packRow!.family,
+            scenarioId: selectedScenario.id,
+            profile: input.profile,
+            workdir: cleanRetryWorkdir,
+            dshHome,
+            timeoutMs,
+          })
+      const cleanRetryFixtureReady = fixtureRecovery?.ok === true
+        && (retryWorkdir === undefined || fixtureRetryRecovery?.ok === true)
       let recoveryBefore: ReturnType<typeof snapshotEvidence> | undefined
       let recoveryCaptureError: { code: string, message: string } | undefined
-      if (fixtureRecovery?.ok === true) {
+      if (cleanRetryFixtureReady) {
         try {
-          recoveryBefore = snapshotEvidence(workdir, dshHome)
+          recoveryBefore = snapshotEvidence(cleanRetryWorkdir, dshHome)
         } catch (error) {
           const normalizedError = error instanceof DriveError
             ? error
@@ -1113,19 +1364,23 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           recoveryCaptureError = { code: normalizedError.code, message: normalizedError.message }
         }
       }
-      const recoveryExecuted = fixtureRecovery?.ok === true && recoveryBefore !== undefined
-        ? command(dshBin, ['--profile', input.profile, task], workdir, dshHome, timeoutMs)
+      const recoveryExecuted = cleanRetryFixtureReady && recoveryBefore !== undefined
+        ? command(dshBin, ['--profile', input.profile, task], cleanRetryWorkdir, dshHome, timeoutMs)
         : undefined
       const recoveryEvidence = recoveryExecuted === undefined || recoveryBefore === undefined
         ? undefined
-        : taskEvidence(selectedScenario, recoveryExecuted, recoveryBefore)
+        : taskEvidence(selectedScenario, expectedMarker, recoveryExecuted, recoveryBefore)
+      const recoveryTaskByteIdentical = recoveryExecuted === undefined
+        ? false
+        : JSON.stringify(recoveryExecuted.argv) === JSON.stringify(executed.argv)
       const recoveryPass = input.phase !== 'deliberate-failure' || (
         fixtureRecovery?.ok === true && recoveryExecuted?.exit_code === 0
         && recoveryExecuted.signal === null && recoveryEvidence?.markerSeen === true
-        && recoveryEvidence.pass
+        && recoveryEvidence.pass && recoveryTaskByteIdentical
       )
       const fixtureCleanup = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
         executablePath: fixtureBin,
+        expectedIdentity: fixtureIdentity!,
         stage: 'cleanup',
         phase: input.phase!,
         family: packRow.family,
@@ -1135,10 +1390,27 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         dshHome,
         timeoutMs,
       })
-      const fixturePass = fixtureCleanup?.ok !== false && recoveryPass
-      const status = commonEvidencePass && fixturePass && (input.phase === 'deliberate-failure'
-        ? expectedFailureObserved
-        : executed.exit_code === 0 && executed.signal === null && markerSeen)
+      const fixtureRetryCleanup = fixtureBin === undefined || packRow === undefined
+        || retryWorkdir === undefined ? undefined : fixtureCommand({
+          executablePath: fixtureBin,
+          expectedIdentity: fixtureIdentity!,
+          stage: 'cleanup',
+          phase: input.phase!,
+          family: packRow.family,
+          scenarioId: selectedScenario.id,
+          profile: input.profile,
+          workdir: cleanRetryWorkdir,
+          dshHome,
+          timeoutMs,
+        })
+      const fixturePass = fixtureCleanup?.ok !== false
+        && fixtureRetryCleanup?.ok !== false
+        && fixtureRetryInduce?.ok !== false
+        && fixtureRetryRecovery?.ok !== false
+        && recoveryPass
+      const status = fixturePass && (input.phase === 'deliberate-failure'
+        ? inducedFailureEvidencePass && expectedFailureObserved
+        : commonEvidencePass && executed.exit_code === 0 && executed.signal === null && markerSeen)
         ? 'pass' : 'fail'
       const finishedAt = new Date()
       const row = {
@@ -1187,7 +1459,28 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
                 clean_retry: {
                   status: recoveryPass ? 'pass' : 'fail',
                   success_gate_passed: recoveryEvidence?.pass === true,
+                  task_byte_identical: recoveryTaskByteIdentical,
+                  workdir: cleanRetryWorkdir,
+                  ...(fixtureRetryInduce === undefined ? {} : {
+                    fixture_induce: fixtureRetryInduce.ok ? {
+                      receipt: fixtureRetryInduce.data,
+                      command: commandEvidence('fixture-retry-induce', fixtureRetryInduce.captured),
+                    } : {
+                      error: fixtureRetryInduce.error,
+                      command: commandEvidence('fixture-retry-induce', fixtureRetryInduce.captured),
+                    },
+                  }),
+                  ...(fixtureRetryRecovery === undefined ? {} : {
+                    fixture_recovery: fixtureRetryRecovery.ok ? {
+                      receipt: fixtureRetryRecovery.data,
+                      command: commandEvidence('fixture-retry-recover', fixtureRetryRecovery.captured),
+                    } : {
+                      error: fixtureRetryRecovery.error,
+                      command: commandEvidence('fixture-retry-recover', fixtureRetryRecovery.captured),
+                    },
+                  }),
                   ...(recoveryExecuted === undefined ? {} : {
+                    command: { argv: recoveryExecuted.argv, cwd: recoveryExecuted.cwd },
                     exit_code: recoveryExecuted.exit_code,
                     signal: recoveryExecuted.signal,
                     success_marker_seen: recoveryEvidence?.markerSeen === true,
@@ -1216,6 +1509,15 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
                 cleanup: {
                   receipt: fixtureCleanup.data,
                   command: commandEvidence('fixture-cleanup', fixtureCleanup.captured),
+                },
+              }),
+              ...(fixtureRetryCleanup === undefined ? {} : {
+                retry_cleanup: fixtureRetryCleanup.ok ? {
+                  receipt: fixtureRetryCleanup.data,
+                  command: commandEvidence('fixture-retry-cleanup', fixtureRetryCleanup.captured),
+                } : {
+                  error: fixtureRetryCleanup.error,
+                  command: commandEvidence('fixture-retry-cleanup', fixtureRetryCleanup.captured),
                 },
               }),
             },
@@ -1347,7 +1649,8 @@ function usage() {
     '  --catalog <path>                default: packaged compatibility/acceptance-scenarios.json',
     '  --scenario-pack <path>          default: packaged compatibility/acceptance-scenario-pack.json',
     '  --phase <success|deliberate-failure>  run one #D scenario-pack half',
-    '  --fixture-bin <absolute path>  authenticated fixture provider required with --phase',
+    '  --retry-workdir <absolute path> distinct clean checkout required by Git deliberate-failure rows',
+    '  --fixture-bin <absolute path>  authenticated provider override; default: packaged sibling fixture bin',
     '  --artifact-dir <absolute path>  default: <output>.artifacts',
     '  --runtime-kit-bin <path>        default: this dsh-runtime-kit executable',
     '  --package <spec-or-path>        run setup preview/apply first; local paths MUST be built before use',
@@ -1372,6 +1675,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
         profile: { type: 'string' },
         scenario: { type: 'string', multiple: true },
         workdir: { type: 'string' },
+        'retry-workdir': { type: 'string' },
         output: { type: 'string' },
         'dsh-home': { type: 'string' },
         'dsh-bin': { type: 'string' },
@@ -1436,6 +1740,9 @@ export function main(argv: string[] = process.argv.slice(2)) {
     if (parsed.values['fixture-bin'] !== undefined && parsed.values.phase === undefined) {
       throw new DriveError('invalid-mode', '--fixture-bin requires --phase')
     }
+    if (parsed.values['retry-workdir'] !== undefined && parsed.values.phase === undefined) {
+      throw new DriveError('invalid-mode', '--retry-workdir requires --phase')
+    }
     const required = ['profile', 'workdir', 'output', 'dsh-home', 'dsh-bin'] as const
     for (const name of required) {
       if (parsed.values[name] === undefined) throw new DriveError('missing-argument', `--${name} is required`)
@@ -1450,6 +1757,9 @@ export function main(argv: string[] = process.argv.slice(2)) {
       profile: parsed.values.profile!,
       scenarioIds: parsed.values.scenario ?? [],
       workdir: parsed.values.workdir!,
+      ...(parsed.values['retry-workdir'] === undefined
+        ? {}
+        : { retryWorkdir: parsed.values['retry-workdir'] }),
       outputPath: output,
       artifactDir,
       dshHome: parsed.values['dsh-home']!,

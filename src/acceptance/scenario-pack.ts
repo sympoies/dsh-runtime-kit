@@ -1,9 +1,10 @@
 import { appendFileSync, chmodSync, existsSync, lstatSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, isAbsolute, resolve } from 'node:path'
 
 import { packageAsset } from '../package-root.js'
 
-export const ACCEPTANCE_SCENARIO_PACK_SCHEMA = 'dsh-runtime-kit.acceptance-scenario-pack.v1'
+export const ACCEPTANCE_SCENARIO_PACK_SCHEMA = 'dsh-runtime-kit.acceptance-scenario-pack.v2'
 export const ACCEPTANCE_HARNESS_ATTESTATION_SCHEMA = 'dsh-runtime-kit.acceptance-harness-attestation.v1'
 export const ACCEPTANCE_DRIVE_PACK_SUMMARY_SCHEMA = 'dsh-runtime-kit.acceptance-drive-pack-summary.v1'
 
@@ -13,6 +14,7 @@ export type AcceptanceScenarioPackFamily = {
   id: string
   feature_issue: string
   scenario_ids: string[]
+  task_bindings: AcceptanceScenarioTaskBinding[]
   success_observation: string
   deliberate_failure: {
     induction: string
@@ -21,6 +23,13 @@ export type AcceptanceScenarioPackFamily = {
     recovery: string
     recovery_observation: string
   }
+}
+
+export type AcceptanceScenarioTaskBinding = {
+  scenario_id: string
+  success_task_sha256: string
+  deliberate_failure_task_sha256: string
+  deliberate_failure_success_marker: string
 }
 
 export type AcceptanceScenarioPack = {
@@ -34,6 +43,9 @@ type Catalog = {
   scenarios: Array<{
     id: string
     owner: { program_child: string, feature_issue: string }
+    task: string
+    deliberate_failure_task: string | null
+    deliberate_failure_success_marker: string | null
   }>
 }
 
@@ -110,7 +122,7 @@ function ownedOutput(path: string) {
 function family(value: unknown, index: number): AcceptanceScenarioPackFamily {
   const row = record(value)
   if (row === undefined || !exactKeys(row, [
-    'id', 'feature_issue', 'scenario_ids', 'success_observation', 'deliberate_failure',
+    'id', 'feature_issue', 'scenario_ids', 'task_bindings', 'success_observation', 'deliberate_failure',
   ])) {
     throw new ScenarioPackError('invalid-scenario-pack', `family ${index} has missing or unknown keys`)
   }
@@ -126,6 +138,49 @@ function family(value: unknown, index: number): AcceptanceScenarioPackFamily {
   if (new Set(scenarioIds).size !== scenarioIds.length
     || scenarioIds.some(item => !/^[a-z0-9][a-z0-9.-]{0,95}$/u.test(item))) {
     throw new ScenarioPackError('invalid-scenario-pack', `family ${id} scenario ids are invalid or duplicated`)
+  }
+  if (!Array.isArray(row.task_bindings) || row.task_bindings.length !== scenarioIds.length) {
+    throw new ScenarioPackError('invalid-scenario-pack', `family ${id} task bindings are incomplete`)
+  }
+  const taskBindings = row.task_bindings.map((value, bindingIndex) => {
+    const binding = record(value)
+    if (binding === undefined || !exactKeys(binding, [
+      'scenario_id', 'success_task_sha256', 'deliberate_failure_task_sha256',
+      'deliberate_failure_success_marker',
+    ])) {
+      throw new ScenarioPackError('invalid-scenario-pack', `family ${id} task binding ${bindingIndex} is invalid`)
+    }
+    const scenarioId = boundedString(binding.scenario_id, `family ${id} task binding scenario`, 96)
+    const successTaskSha256 = boundedString(
+      binding.success_task_sha256,
+      `family ${id} success task digest`,
+      64,
+    )
+    const deliberateFailureTaskSha256 = boundedString(
+      binding.deliberate_failure_task_sha256,
+      `family ${id} deliberate-failure task digest`,
+      64,
+    )
+    const marker = boundedString(
+      binding.deliberate_failure_success_marker,
+      `family ${id} deliberate-failure recovery marker`,
+      256,
+    )
+    if (!/^[a-f0-9]{64}$/u.test(successTaskSha256)
+      || !/^[a-f0-9]{64}$/u.test(deliberateFailureTaskSha256)
+      || marker !== `DSH_ACCEPTANCE_RECOVERED:${scenarioId}`) {
+      throw new ScenarioPackError('invalid-scenario-pack', `family ${id} task binding ${scenarioId} is invalid`)
+    }
+    return {
+      scenario_id: scenarioId,
+      success_task_sha256: successTaskSha256,
+      deliberate_failure_task_sha256: deliberateFailureTaskSha256,
+      deliberate_failure_success_marker: marker,
+    }
+  })
+  if (new Set(taskBindings.map(item => item.scenario_id)).size !== taskBindings.length
+    || [...taskBindings.map(item => item.scenario_id)].sort().join(',') !== [...scenarioIds].sort().join(',')) {
+    throw new ScenarioPackError('invalid-scenario-pack', `family ${id} task bindings do not match scenario ownership`)
   }
   const failure = record(row.deliberate_failure)
   if (failure === undefined || !exactKeys(failure, [
@@ -144,6 +199,7 @@ function family(value: unknown, index: number): AcceptanceScenarioPackFamily {
     id,
     feature_issue: featureIssue,
     scenario_ids: scenarioIds,
+    task_bindings: taskBindings,
     success_observation: boundedString(row.success_observation, `family ${id} success observation`, 4096),
     deliberate_failure: {
       induction: boundedString(failure.induction, `family ${id} failure induction`, 4096),
@@ -201,6 +257,20 @@ export function loadAcceptanceScenarioPack(
       if (entry.scenario_ids.some(id => byId.get(id)?.owner.feature_issue !== entry.feature_issue)) {
         throw new ScenarioPackError('scenario-pack-owner-mismatch', `family ${entry.id} does not match catalog ownership`)
       }
+      for (const binding of entry.task_bindings) {
+        const scenario = byId.get(binding.scenario_id)
+        if (scenario === undefined || scenario.deliberate_failure_task === null
+          || scenario.deliberate_failure_success_marker === null
+          || binding.success_task_sha256 !== createHash('sha256').update(scenario.task).digest('hex')
+          || binding.deliberate_failure_task_sha256 !== createHash('sha256')
+            .update(scenario.deliberate_failure_task).digest('hex')
+          || binding.deliberate_failure_success_marker !== scenario.deliberate_failure_success_marker) {
+          throw new ScenarioPackError(
+            'scenario-pack-task-mismatch',
+            `family ${entry.id} task binding does not match catalog scenario ${binding.scenario_id}`,
+          )
+        }
+      }
     }
   }
   return {
@@ -221,6 +291,10 @@ export function scenarioPackCase(
   if (matching === undefined) {
     throw new ScenarioPackError('scenario-pack-unknown-scenario', `scenario pack has no row for ${scenarioId}`)
   }
+  const taskBinding = matching.task_bindings.find(item => item.scenario_id === scenarioId)
+  if (taskBinding === undefined) {
+    throw new ScenarioPackError('scenario-pack-task-mismatch', `scenario pack has no task binding for ${scenarioId}`)
+  }
   return {
     schema_version: pack.schema_version,
     phase,
@@ -231,6 +305,12 @@ export function scenarioPackCase(
     expected_observation: phase === 'success'
       ? matching.success_observation
       : matching.deliberate_failure.recovery_observation,
+    task_sha256: phase === 'success'
+      ? taskBinding.success_task_sha256
+      : taskBinding.deliberate_failure_task_sha256,
+    ...(phase === 'success' ? {} : {
+      success_marker: taskBinding.deliberate_failure_success_marker,
+    }),
     ...(phase === 'success' ? {} : {
       induction: matching.deliberate_failure.induction,
       required_diagnosis_fields: matching.deliberate_failure.required_diagnosis_fields,
@@ -366,6 +446,27 @@ function fixtureChainMatches(result: JsonRecord, phase: AcceptanceScenarioPackPh
     && cleanRetryMatches(fixture?.clean_retry)
 }
 
+function resultTaskBindingMatches(
+  value: unknown,
+  expected: {
+    scenarioId: string
+    phase: AcceptanceScenarioPackPhase
+    taskSha256?: string
+    successMarker?: string
+  },
+) {
+  const pack = record(value)
+  if (pack?.schema_version !== ACCEPTANCE_SCENARIO_PACK_SCHEMA
+    || pack.phase !== expected.phase
+    || pack.case_id !== `${expected.scenarioId}.${expected.phase}`
+    || typeof pack.task_sha256 !== 'string'
+    || !/^[a-f0-9]{64}$/u.test(pack.task_sha256)
+    || (expected.taskSha256 !== undefined && pack.task_sha256 !== expected.taskSha256)) return false
+  if (expected.phase === 'success') return pack.success_marker === undefined
+  const marker = expected.successMarker ?? `DSH_ACCEPTANCE_RECOVERED:${expected.scenarioId}`
+  return pack.success_marker === marker
+}
+
 export function appendAcceptanceAttestation(input: { outputPath: string, attestationPath: string }) {
   const outputPath = ownedOutput(input.outputPath)
   if (!existsSync(outputPath)) {
@@ -397,6 +498,12 @@ export function appendAcceptanceAttestation(input: { outputPath: string, attesta
     throw new ScenarioPackError('attestation-result-mismatch', 'attestation requires one matching passing result row')
   }
   const resultPack = record(result.scenario_pack)
+  if (!resultTaskBindingMatches(resultPack, { scenarioId, phase })) {
+    throw new ScenarioPackError(
+      'attestation-task-mismatch',
+      'attestation requires a result bound to the committed phase-specific task',
+    )
+  }
   if (!fixtureChainMatches(result, phase, String(resultPack?.family), scenarioId)) {
     throw new ScenarioPackError('attestation-fixture-mismatch', 'attestation requires the complete fixture stage chain')
   }
@@ -451,17 +558,36 @@ export function summarizeAcceptanceScenarioPack(input: {
     [`${scenarioId}.success`, item.id] as const,
     [`${scenarioId}.deliberate-failure`, item.id] as const,
   ])))
+  const expectedTaskByCase = new Map<string, { taskSha256: string, successMarker?: string }>()
+  for (const item of input.pack.families) {
+    for (const binding of item.task_bindings) {
+      expectedTaskByCase.set(`${binding.scenario_id}.success`, {
+        taskSha256: binding.success_task_sha256,
+      })
+      expectedTaskByCase.set(`${binding.scenario_id}.deliberate-failure`, {
+        taskSha256: binding.deliberate_failure_task_sha256,
+        successMarker: binding.deliberate_failure_success_marker,
+      })
+    }
+  }
   const resultRows = rows.filter(item => item.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1')
   const attestations = rows.filter(item => item.schema_version === ACCEPTANCE_HARNESS_ATTESTATION_SCHEMA)
   const validResults = resultRows.filter(item => {
     const pack = record(item.scenario_pack)
     const caseId = typeof pack?.case_id === 'string' ? pack.case_id : ''
     const expectedFamily = expectedFamilyByCase.get(caseId)
+    const expectedTask = expectedTaskByCase.get(caseId)
     if (item.status !== 'pass' || typeof item.run_id !== 'string' || typeof item.scenario_id !== 'string'
-      || expectedFamily === undefined || pack?.family !== expectedFamily
+      || expectedFamily === undefined || expectedTask === undefined || pack?.family !== expectedFamily
       || (pack.phase !== 'success' && pack.phase !== 'deliberate-failure')
       || caseId !== `${item.scenario_id}.${pack.phase}`
       || typeof pack.isolation_key !== 'string' || !/^[a-f0-9]{64}$/u.test(pack.isolation_key)) return false
+    if (!resultTaskBindingMatches(pack, {
+      scenarioId: item.scenario_id,
+      phase: pack.phase,
+      taskSha256: expectedTask.taskSha256,
+      successMarker: expectedTask.successMarker,
+    })) return false
     if (!fixtureChainMatches(item, pack.phase, expectedFamily, item.scenario_id)) return false
     if (pack.phase === 'deliberate-failure') {
       const outcome = record(item.session_outcome)

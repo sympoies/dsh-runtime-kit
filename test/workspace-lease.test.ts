@@ -407,6 +407,10 @@ test('a foreign live owner denies only its own repository target', async () => {
   )
   assert.equal(denied.isError, true)
   assert.equal(denied.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
+  assert.equal(
+    denied.error.message,
+    'WORKSPACE_FOREIGN_ACTIVE: another live session owns this workspace; the tool body did not run',
+  )
 
   const allowed = await runTool(
     ctx,

@@ -1,0 +1,89 @@
+{
+  "schema_version": "dsh-runtime-kit.acceptance-fixtures.v1",
+  "families": [
+    {
+      "id": "workspace-identity",
+      "scenario_ids": ["workspace-identity.git-repo", "workspace-identity.non-git", "workspace-identity.managed-worktree"],
+      "fixture_files": ["leased.txt", "sibling.txt", "workspace-request.json"],
+      "failure_kind": "workspace-lease-conflict",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "governed-commit",
+      "scenario_ids": ["governed-commit.git-repo", "governed-commit.managed-worktree"],
+      "fixture_files": ["governed-target.txt", "governed-request.json"],
+      "failure_kind": "governed-precondition",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "automatic-prerequisite",
+      "scenario_ids": ["automatic-prerequisite.git-repo", "automatic-prerequisite.non-git", "automatic-prerequisite.managed-worktree"],
+      "fixture_files": ["fixture-source.mjs", "fixture-source.test.mjs", "prerequisite-marker.txt"],
+      "failure_kind": "prerequisite-digest-mismatch",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "runtime-health",
+      "scenario_ids": ["runtime-health.git-repo", "runtime-health.non-git", "runtime-health.managed-worktree"],
+      "fixture_files": ["health-target.txt"],
+      "failure_kind": "companion-identity-mismatch",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "authoritative-acceptance",
+      "scenario_ids": ["authoritative-acceptance.git-repo", "authoritative-acceptance.non-git", "authoritative-acceptance.managed-worktree"],
+      "fixture_files": ["acceptance-target.txt", "acceptance-validation.mjs", "acceptance-request.json"],
+      "failure_kind": "unmet-validation",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "managed-subagent-workspace",
+      "scenario_ids": ["managed-subagent-workspace.git-repo", "managed-subagent-workspace.managed-worktree"],
+      "fixture_files": ["subagent-target.txt", "subagent-request.json", "main-agent-objective.json", "main-agent-assignment.json"],
+      "failure_kind": "workspace-issuance-conflict",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "data-policy",
+      "scenario_ids": ["data-policy.git-repo", "data-policy.non-git", "data-policy.managed-worktree"],
+      "fixture_files": ["ordinary.txt", ".dsh-acceptance/protected/target.txt", "data-destination.txt"],
+      "failure_kind": "protected-root-destination",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "restricted-role",
+      "scenario_ids": ["restricted-role.git-repo", "restricted-role.non-git", "restricted-role.managed-worktree"],
+      "fixture_files": ["review.txt", "review-target.txt", "review-instruction.txt"],
+      "failure_kind": "restricted-write-attempt",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "session-artifact",
+      "scenario_ids": ["session-artifact.git-repo", "session-artifact.non-git", "session-artifact.managed-worktree"],
+      "fixture_files": ["validation-output.txt", "artifact-request.json"],
+      "failure_kind": "artifact-id-mismatch",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "profile-lifecycle",
+      "scenario_ids": ["profile-lifecycle.git-repo", "profile-lifecycle.non-git", "profile-lifecycle.managed-worktree"],
+      "fixture_files": ["lifecycle-inputs.json", "lifecycle-probe.mjs", "lifecycle-failing-dsh.mjs"],
+      "failure_kind": "lifecycle-interruption",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "deploy-dispatcher",
+      "scenario_ids": ["deploy-dispatcher.git-repo", "deploy-dispatcher.managed-worktree"],
+      "fixture_files": ["deploy-inputs.json", "deploy-probe.mjs", ".agents/scripts/deploy.sh"],
+      "failure_kind": "dispatcher-unavailable",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    },
+    {
+      "id": "retired-surfaces",
+      "scenario_ids": ["retired-surfaces.git-repo", "retired-surfaces.non-git", "retired-surfaces.managed-worktree"],
+      "fixture_files": ["retired-surfaces.json", "retired-probe.json", "retired-probe.mjs"],
+      "failure_kind": "retired-surface-staged",
+      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
+    }
+  ]
+}

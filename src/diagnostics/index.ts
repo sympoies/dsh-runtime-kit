@@ -41,6 +41,31 @@ const MAX_DIAGNOSTIC_DEPTH = 32
 const SECRET_KEY = /(?:api[_-]?key|authorization|cookie|credential|password|secret|token)/iu
 const ABSOLUTE_PATH = /(^|[\s"'(=])(?:[A-Za-z]:[\\/]|\/)[^\s"'`<>|]*/gmu
 const SECRET_VALUE = /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{20,})\b|\bBearer\s+[^\s,;]+/giu
+const RUNTIME_HEALTH_COMMAND_CODES = new Set([
+  'DSH_RUNTIME_HEALTH_AGENT_HOOK_INVALID',
+  'DSH_RUNTIME_HEALTH_AGENT_HOOK_UNAVAILABLE',
+  'DSH_RUNTIME_HEALTH_CAPABILITY_UNKNOWN',
+  'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_CHANGED',
+  'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+  'DSH_RUNTIME_HEALTH_COMPANION_OUTPUT_INVALID',
+  'DSH_RUNTIME_HEALTH_COMPANION_QUIESCENCE_UNKNOWN',
+  'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE',
+  'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID',
+  'DSH_RUNTIME_HEALTH_DISPOSED',
+  'DSH_RUNTIME_HEALTH_DSH_IDENTITY_INVALID',
+  'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_INVALID',
+  'DSH_RUNTIME_HEALTH_EXECUTION_BINDING_UNSUPPORTED',
+  'DSH_RUNTIME_HEALTH_EXECUTION_SNAPSHOT_CLOSING',
+  'DSH_RUNTIME_HEALTH_PROBE_FAILED',
+  'DSH_RUNTIME_HEALTH_PROBE_TIMEOUT',
+  'DSH_RUNTIME_HEALTH_PROBING',
+  'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID',
+  'DSH_RUNTIME_HEALTH_PROJECT_INVALID',
+  'DSH_RUNTIME_HEALTH_PROJECT_UNAVAILABLE',
+  'DSH_RUNTIME_HEALTH_PROVIDER_REMOVED',
+  'DSH_RUNTIME_HEALTH_SCOPE_UNAVAILABLE',
+  'DSH_RUNTIME_HEALTH_UNPROBED',
+])
 
 type JsonRecord = Record<string, unknown>
 
@@ -66,7 +91,7 @@ export type OutcomeObservation = {
   exit_code?: number | null
   error_code?: string
   error_receipt?: string
-  error_component?: 'operations' | 'provider' | 'session'
+  error_component?: 'operations' | 'provider' | 'runtime-health' | 'session'
   policy_code?: string
   doctor_status?: string
   doctor_code?: string
@@ -124,6 +149,17 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Repair the unhealthy companion or activation reported by doctor, then rerun doctor before retrying the task.',
     }
   }
+  if (observation.error_code === 'WORKSPACE_FOREIGN_ACTIVE') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'policy',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Wait for or release the authenticated owning session, then retry the unchanged task in the same workspace.',
+    }
+  }
   if (observation.finish_line !== undefined) {
     return {
       schema_version: SESSION_OUTCOME_SCHEMA,
@@ -157,6 +193,18 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
     }
   }
   const explicitCode = logicalCode(observation.error_code, observation.exit_code === 0 ? 'completed' : 'session-failed')
+  if (observation.error_component === 'runtime-health'
+    && RUNTIME_HEALTH_COMMAND_CODES.has(explicitCode)) {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'health-failure',
+      code: explicitCode,
+      component: 'runtime-health',
+      receipt: observation.error_receipt ?? 'command.stderr',
+      next_action: 'Restore the authenticated runtime companion or activation input, rerun doctor, then retry the unchanged task.',
+    }
+  }
   if (observation.policy_code !== undefined) {
     const exactPolicyOutcome = policyOutcome()
     if (exactPolicyOutcome !== undefined) return exactPolicyOutcome
@@ -233,6 +281,15 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
     receipt: 'session.latest',
     next_action: 'Inspect the bounded typed errors and command exit in this diagnostic bundle before retrying.',
   }
+}
+
+export function runtimeHealthCodeFromCommandOutput(output: string) {
+  if (typeof output !== 'string' || output.length === 0 || output.length > 2 * MAX_TEXT_BYTES) return undefined
+  const matches = [...output.matchAll(/(?:^|\n)HealthProbeFailure:\s*(DSH_RUNTIME_HEALTH_[A-Z0-9_]+)(?:\r?\n|$)/gu)]
+    .map(match => match[1]!)
+    .filter(code => RUNTIME_HEALTH_COMMAND_CODES.has(code))
+  const unique = [...new Set(matches)]
+  return unique.length === 1 ? unique[0] : undefined
 }
 
 function sanitizedString(value: string) {

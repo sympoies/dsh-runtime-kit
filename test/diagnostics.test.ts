@@ -9,6 +9,7 @@ import test from 'node:test'
 
 import {
   classifySessionOutcome,
+  runtimeHealthCodeFromCommandOutput,
   sanitizeDiagnosticValue,
   writeDiagnosticBundle,
 } from '../dist/src/diagnostics/index.js'
@@ -70,6 +71,15 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
   assert.equal(finishLineWinsOverFollowupDenial.category, 'finish-line-stop')
   assert.equal(finishLineWinsOverFollowupDenial.code, 'validation-missing')
 
+  const workspaceDenialWinsOverFollowupFinishLine = classifySessionOutcome({
+    error_code: 'WORKSPACE_FOREIGN_ACTIVE',
+    error_receipt: 'session.typed_errors[3]',
+    finish_line: { code: 'validation-missing' },
+  })
+  assert.equal(workspaceDenialWinsOverFollowupFinishLine.category, 'tool-denial')
+  assert.equal(workspaceDenialWinsOverFollowupFinishLine.code, 'WORKSPACE_FOREIGN_ACTIVE')
+  assert.equal(workspaceDenialWinsOverFollowupFinishLine.receipt, 'session.typed_errors[3]')
+
   const operationsWinsOverHistoricalDenial = classifySessionOutcome({
     error_code: 'plan-drift',
     policy_decisions: [{ action: 'block', rule_ids: ['dsh.unrelated-earlier-rule'] }],
@@ -87,6 +97,29 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
   const unrelatedWorkspaceError = classifySessionOutcome({ error_code: 'LSP_WORKSPACE_REQUIRED' })
   assert.equal(unrelatedWorkspaceError.category, 'unknown')
   assert.equal(unrelatedWorkspaceError.component, 'session')
+})
+
+test('pre-model runtime-health failure keeps its allowlisted typed code', () => {
+  const stderr = [
+    'Error: dsh: plugin tree failed to load: DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+    'HealthProbeFailure: DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+    "  code: 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'",
+  ].join('\n')
+  assert.equal(
+    runtimeHealthCodeFromCommandOutput(stderr),
+    'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID',
+  )
+  assert.equal(runtimeHealthCodeFromCommandOutput(
+    'HealthProbeFailure: DSH_RUNTIME_HEALTH_NOT_A_REAL_CODE',
+  ), undefined)
+  const outcome = classifySessionOutcome({
+    exit_code: 1,
+    error_code: runtimeHealthCodeFromCommandOutput(stderr),
+    error_component: 'runtime-health',
+  })
+  assert.equal(outcome.category, 'health-failure')
+  assert.equal(outcome.component, 'runtime-health')
+  assert.equal(outcome.code, 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
 })
 
 test('diagnostic sanitization strips credentials and machine absolute paths recursively', () => {
