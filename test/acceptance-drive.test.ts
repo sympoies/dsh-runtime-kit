@@ -138,6 +138,10 @@ test('acceptance-harness is a Codex and Claude project intent', () => {
   assert.match(catalog, /product = \["codex", "claude"\]/u)
   assert.match(runbook, /DSH_PERMISSION_MODE=danger-full-access/u)
   assert.match(runbook, /disposable\s+scratch repositories/u)
+  assert.match(runbook, /outer OS sandbox/u)
+  assert.match(runbook, /--ro-bind \/ \/[\s\S]*--bind <family-root> <family-root>/u)
+  assert.match(runbook, /precondition-unmet/u)
+  assert.doesNotMatch(runbook, /set `DSH_PERMISSION_MODE=danger-full-access` in the\s+owner-only DSH wrapper before boot/u)
 })
 
 test('DSH project guidance names the governed commit surface and keeps direct default delivery refused', () => {

@@ -203,13 +203,46 @@ changes can affect repository policy or attestation.
 
 Git-writing tasks need the DSH process to update Git metadata. A linked managed
 worktree keeps that metadata outside the worktree directory, so the default
-`workspace-write` sandbox cannot create its index lock. For these disposable
-scratch repositories only, set `DSH_PERMISSION_MODE=danger-full-access` in the
-owner-only DSH wrapper before boot. The headless profile has no interactive
-approval answerer; leaving `workspace-write` active makes a legitimate
-`git add` fail closed instead of testing the governed commit boundary. Keep the
-workdir disposable and let agent-hook, the checkout lease, and the governed
-commit tool continue to enforce repository authority.
+`workspace-write` sandbox cannot create its index lock. Do not solve that by
+giving an uncontained DSH process standing host access. Put the primary
+repository (including its `.git` directory), every linked worktree, `DSH_HOME`,
+the runtime root, and result artifacts beneath one canonical owner-only
+`<family-root>`; these remain disposable scratch repositories. Then run the
+Git-writing DSH process inside an outer OS sandbox
+that makes the host read-only and grants writes only to that family root. The
+inner DSH process may use `DSH_PERMISSION_MODE=danger-full-access` only inside
+this second containment boundary; agent-hook, the checkout lease, and the
+governed commit tool still enforce repository authority.
+
+On the authoritative Linux runner, the owner-only DSH wrapper uses the
+following `bwrap` shape. Replace every placeholder with a canonical absolute
+path, keep the environment allowlist explicit, and pass the DSH arguments
+through unchanged:
+
+```sh
+exec /usr/bin/bwrap \
+  --die-with-parent --new-session \
+  --ro-bind / / \
+  --bind <family-root> <family-root> \
+  --tmpfs /tmp --dev /dev --proc /proc \
+  --chdir <scenario-workdir> \
+  --clearenv \
+  --setenv HOME <family-root>/home \
+  --setenv PATH <node-24-toolchain>:/usr/bin:/bin \
+  --setenv DSH_HOME <family-root>/dsh-home \
+  --setenv DSH_RUNTIME_KIT_RUNTIME_ROOT <family-root>/runtime \
+  --setenv DSH_PERMISSION_MODE danger-full-access \
+  -- <absolute-node-24> <absolute-dsh-cli> "$@"
+```
+
+Add only the other fixed-input variables required by the selected profile and
+provider. Validate before boot that `<scenario-workdir>` and every writable
+profile, repository, worktree, Git common directory, runtime, and result path
+remain beneath `<family-root>`. If `bwrap` or an equivalent independently
+enforced write boundary is unavailable, record the Git-writing row as
+`precondition-unmet`; do not fall back to uncontained `danger-full-access`.
+Non-Git rows and Git rows that do not need out-of-worktree metadata remain in
+ordinary `workspace-write` mode.
 
 For Git rows, allocate all three physical checkouts before starting. The
 success invocation receives the success checkout. The deliberate-failure
