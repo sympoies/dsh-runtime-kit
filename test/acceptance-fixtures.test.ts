@@ -956,3 +956,130 @@ test('fixture staging rejects descendant symlinks before creating outside direct
   }), /fixture parent is unsafe/u)
   assert.equal(existsSync(join(external, 'scripts')), false)
 })
+
+function seededCheckout(root: string) {
+  mkdirSync(root, { recursive: true, mode: 0o700 })
+  git(root, ['init', '--initial-branch', 'main'])
+  writeFileSync(join(root, 'seed.txt'), 'seed\n', { mode: 0o600 })
+  git(root, ['add', '--', 'seed.txt'])
+  git(root, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'acceptance fixture seed'])
+  return root
+}
+
+function porcelain(checkout: string) {
+  return git(checkout, ['status', '--porcelain=v1', '--untracked-files=all'])
+}
+
+test('fixture staging leaves a git-backed scenario checkout clean', { concurrency: false }, async () => {
+  const manifest = loadAcceptanceFixtureManifest()
+  const names = [
+    'DSH_RUNTIME_KIT_AGENT_HOOK_BIN',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_POLICY',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR',
+  ]
+  const prior = new Map(names.map(name => [name, process.env[name]]))
+  try {
+    for (const family of manifest.families) {
+      if (family.id === 'managed-subagent-workspace') continue
+      const scenarioId = family.scenario_ids.find(id => id.endsWith('.git-repo'))
+      if (scenarioId === undefined) continue
+      const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-clean-${family.id}-`))
+      const workdir = seededCheckout(join(root, 'workdir'))
+      const dshHome = join(root, 'dsh-home')
+      const companions = join(dshHome, 'companions')
+      const hookState = join(dshHome, 'hook-state')
+      for (const directory of [dshHome, companions, hookState]) mkdirSync(directory, { mode: 0o700 })
+      const hook = join(companions, 'agent-hook')
+      writeFileSync(hook, `#!${process.execPath}
+let input = ''
+for await (const chunk of process.stdin) input += chunk
+const request = JSON.parse(input)
+const action = process.argv.at(-3)
+process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
+  schema_version: 'agent-hook.workspace-lease.release-result.v2', status: 'released'
+} : action === 'renew' ? {
+  schema_version: 'agent-hook.workspace-lease.renew-result.v2', kind: 'renewed', renew_after_ms: 10000
+} : {
+  schema_version: 'agent-hook.workspace-lease.bind-result.v2',
+  binding_id: 'fixture-binding', workspace_id: 'fixture-workspace', generation: 'fixture-generation',
+  session_id: request.session_id
+} }) + '\\n')
+`, { mode: 0o700 })
+      const hookConfig = join(companions, 'config.toml')
+      const hookPolicy = join(companions, 'policy.toml')
+      writeFileSync(hookConfig, 'fixture = true\n', { mode: 0o600 })
+      writeFileSync(hookPolicy, 'fixture = true\n', { mode: 0o600 })
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN = hook
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG = hookConfig
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY = hookPolicy
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR = hookState
+      const input = {
+        schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+        phase: 'success' as const,
+        family: family.id,
+        scenarioId,
+        profile: `headless-clean-${family.id}`,
+        workdir,
+        dshHome,
+      }
+      assert.equal(porcelain(workdir), '', `${family.id}: seeded checkout must start clean`)
+      const prepared = runAcceptanceFixture({ ...input, stage: 'prepare' })
+      assert.equal(prepared.data.status, 'pass', family.id)
+      assert.equal(
+        porcelain(workdir),
+        '',
+        `${family.id}: fixture staging must not dirty the scenario checkout`,
+      )
+      runAcceptanceFixture({ ...input, stage: 'cleanup' })
+      assert.equal(porcelain(workdir), '', `${family.id}: cleanup must leave the checkout clean`)
+      assert.equal(
+        readFileSync(join(workdir, 'seed.txt'), 'utf8'),
+        'seed\n',
+        `${family.id}: cleanup must preserve caller-owned tracked content`,
+      )
+    }
+  } finally {
+    for (const name of names) {
+      const value = prior.get(name)
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('fixture exclude registration preserves caller exclude content and reverses fully', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-exclude-'))
+  const workdir = seededCheckout(join(root, 'workdir'))
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(dshHome, { mode: 0o700 })
+  const excludeFile = join(workdir, '.git', 'info', 'exclude')
+  mkdirSync(join(workdir, '.git', 'info'), { recursive: true, mode: 0o700 })
+  writeFileSync(excludeFile, '# caller owned\ncaller-pattern\n', { mode: 0o600 })
+  const input = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    phase: 'success' as const,
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-exclude',
+    workdir,
+    dshHome,
+  }
+  runAcceptanceFixture({ ...input, stage: 'prepare' })
+  const staged = readFileSync(excludeFile, 'utf8')
+  assert.match(staged, /^# caller owned\ncaller-pattern\n/u, 'caller exclude content must be preserved')
+  assert.match(staged, /\/fixture-validation\.mjs/u, 'fixture paths must be excluded while staged')
+  assert.equal(porcelain(workdir), '')
+
+  runAcceptanceFixture({ ...input, stage: 'cleanup' })
+  const cleaned = readFileSync(excludeFile, 'utf8')
+  assert.match(cleaned, /^# caller owned\ncaller-pattern\n/u)
+  assert.doesNotMatch(cleaned, /fixture-validation\.mjs/u, 'cleanup must drop cleanup-owned exclude patterns')
+  // Retained attestation files are declared scenario state, so they stay excluded to keep
+  // the checkout clean; only they may remain in the block after cleanup.
+  assert.deepEqual(
+    cleaned.split('\n').slice(3, -2),
+    ['/.agents/scripts/deploy.sh', '/deploy-inputs.json', '/deploy-probe.mjs'],
+  )
+  assert.equal(porcelain(workdir), '', 'cleanup must leave the checkout clean')
+})

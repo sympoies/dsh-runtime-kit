@@ -1226,3 +1226,36 @@ process.exit(1)
     process.env.PATH = previousPath
   }
 })
+
+test('success marker is recognised as a line token and not as a substring of another marker', async () => {
+  const scenario = 'scripted-provider.non-git'
+  const marker = `DSH_ACCEPTANCE_PASS:${scenario}`
+  for (const [trailer, expected] of [[' immediately', true], ['-success', false]] as const) {
+    const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-marker-'))
+    const workdir = join(root, 'plain')
+    const dshHome = join(root, 'dsh-home')
+    const output = join(root, 'results.jsonl')
+    const catalog = join(root, 'catalog.json')
+    mkdirSync(workdir)
+    mkdirSync(dshHome)
+    fixtureCatalog(catalog, 'non-git')
+    const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+    const dsh = executable(join(root, 'dsh.mjs'), `
+process.stdout.write(${JSON.stringify(`${marker}${trailer}\n`)})
+`)
+    const summary = runAcceptanceDrive({
+      profile: 'headless', catalogPath: catalog, scenarioIds: [scenario],
+      workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+      runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: `marker-${expected}`,
+    })
+    const [result] = rows(output)
+    assert.equal(
+      result.observed.success_marker_seen,
+      expected,
+      `trailer ${JSON.stringify(trailer)} must ${expected ? 'satisfy' : 'not satisfy'} the marker`,
+    )
+    assert.equal(summary.status, expected ? 'pass' : 'fail')
+  }
+})

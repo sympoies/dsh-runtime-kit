@@ -1058,7 +1058,17 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       )),
       ...transcriptScan.forbiddenOutcomes,
     ])].sort()
-    const markerSeen = captured.stdout.split(/\r?\n/u).some(line => line.trim() === successMarker)
+    // The marker is a protocol token proving the session reached its declared end, not the
+    // acceptance gate itself — independent state attestation is. Requiring the whole trimmed
+    // line to equal it rejects a correct marker that carries trailing prose, so the marker
+    // only has to lead its line, followed by a whitespace boundary. Prose that merely
+    // mentions or negates the marker keeps failing, because that puts words in front of it,
+    // and a marker fused into a longer token still does not match.
+    const markerSeen = captured.stdout.split(/\r?\n/u).some(line => {
+      const trimmed = line.trim()
+      return trimmed === successMarker
+        || (trimmed.startsWith(successMarker) && /^\s/u.test(trimmed.slice(successMarker.length)))
+    })
     const identityError = executableIdentityError()
     return {
       captureError,

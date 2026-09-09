@@ -4456,6 +4456,13 @@ export function main(argv: string[] = process.argv.slice(2)) {
           agentHookStateDir: activeEnvironment.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR,
         })
       } catch (error) {
+        // The activation manifest is the authoritative source for this bundle's agent-hook
+        // isolation surfaces, so the ambient fallback only ever succeeds before a profile is
+        // activated. When an activation is present but unreadable, that is the real finding:
+        // reporting a missing ambient config path names the wrong owner and hides the cause.
+        if (activationInput.error !== undefined) {
+          throw new OperationsError('activation-invalid', activationInput.error)
+        }
         throw new OperationsError(
           'agent-hook-isolation-invalid',
           error instanceof Error ? error.message : 'agent-hook isolation is invalid',

@@ -461,7 +461,14 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       ledgerSet.steeringCount = 0
     }
     if (ledgerSet.steeringCount >= maxSameTurnSteers) {
-      throw new Error('dsh-runtime-kit: finish-line same-turn steering limit reached')
+      // A turn the finish line cannot release and the model cannot satisfy ends here. The
+      // condition is terminal and diagnosable, so it carries its own code: an untyped throw
+      // reaches the session as UNKNOWN and tells a harness nothing about which boundary
+      // stopped it.
+      throw new HarnessError(
+        'dsh-runtime-kit: finish-line same-turn steering limit reached',
+        'DSH_RUNTIME_KIT_FINISH_LINE_STEERING_EXHAUSTED',
+      )
     }
     ledgerSet.steeringCount += 1
     agent.steer(options.createSteeringMessage(boundedUtf8(text, MAX_STEERING_TEXT_BYTES)))

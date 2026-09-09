@@ -1865,6 +1865,90 @@ function recoverFailure(family: AcceptanceFixtureFamily, input: AcceptanceFixtur
   state.status = 'recovered'
 }
 
+const EXCLUDE_BEGIN = '# >>> dsh-runtime-kit acceptance fixture'
+const EXCLUDE_END = '# <<< dsh-runtime-kit acceptance fixture'
+
+// A scenario checkout must stay clean while fixture scaffolding is staged, otherwise the
+// caller's own checkout-lease guard correctly refuses every command in the workdir before
+// the capability under test ever runs. Only fixture-owned paths are excluded; genuine
+// session mutations still dirty the checkout as their scenarios require.
+function checkoutExcludeFile(checkout: string) {
+  const result = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: checkout,
+    encoding: 'utf8',
+    timeout: 10_000,
+    maxBuffer: 256 * 1024,
+    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+  })
+  if (result.status !== 0 || result.signal !== null || result.error !== undefined) return undefined
+  const value = result.stdout.trim()
+  if (value === '') return undefined
+  return isAbsolute(value) ? value : resolve(checkout, value)
+}
+
+function excludePattern(relativePath: string) {
+  if (relativePath === '' || /[\r\n\\[\]*?!#]/u.test(relativePath)) {
+    throw new FixtureError('unsafe-fixture-path', `fixture path is not representable as an exclude pattern: ${relativePath}`)
+  }
+  return `/${relativePath}`
+}
+
+function writeExcludeBlock(excludeFile: string, patterns: string[]) {
+  const existing = existsSync(excludeFile) ? readFileSync(excludeFile, 'utf8') : ''
+  const lines = existing === '' ? [] : existing.split('\n')
+  const begin = lines.indexOf(EXCLUDE_BEGIN)
+  const end = lines.indexOf(EXCLUDE_END)
+  const retained = begin >= 0 && end > begin
+    ? [...lines.slice(0, begin), ...lines.slice(end + 1)]
+    : lines
+  while (retained.length > 0 && retained.at(-1) === '') retained.pop()
+  const block = patterns.length === 0 ? [] : [EXCLUDE_BEGIN, ...patterns, EXCLUDE_END]
+  const next = [...retained, ...block]
+  if (next.length === 0) {
+    if (existsSync(excludeFile)) rmSync(excludeFile)
+    return
+  }
+  mkdirSync(dirname(excludeFile), { recursive: true, mode: 0o700 })
+  writeFileSync(excludeFile, `${next.join('\n')}\n`, { mode: 0o600 })
+}
+
+function syncCheckoutExcludes(checkout: string, relativePaths: string[]) {
+  const excludeFile = checkoutExcludeFile(checkout)
+  if (excludeFile === undefined) return
+  writeExcludeBlock(excludeFile, relativePaths.map(excludePattern).sort())
+}
+
+function syncFixtureExcludes(input: AcceptanceFixtureInput, state: FixtureState) {
+  // A fixture-created temporary lease repository is digest-pinned so its own reversal can
+  // prove nothing changed; it is scaffolding rather than a caller checkout and must never
+  // receive an exclude block.
+  const snapshot = state.external_snapshot
+  if (snapshot !== null && snapshot.kind === 'workspace-lease'
+    && snapshot.temporary_git_dir_sha256 !== null) {
+    return
+  }
+  // Linked worktrees share one info/exclude in the common git directory, so patterns are
+  // merged per exclude file instead of written once per checkout.
+  const pending = new Map<string, string[]>()
+  const collect = (checkout: string, relativePaths: string[]) => {
+    const excludeFile = checkoutExcludeFile(checkout)
+    if (excludeFile === undefined) return
+    const patterns = pending.get(excludeFile) ?? []
+    patterns.push(...relativePaths.map(excludePattern))
+    pending.set(excludeFile, patterns)
+  }
+  // Retained attestation files stay excluded after cleanup because they are declared
+  // scenario state; the block empties only once no fixture-owned path remains.
+  collect(input.workdir, state.owned_files.map(row => row.path))
+  const child = state.managed_child
+  if (child !== null && existsSync(child.worktree)) {
+    collect(child.worktree, child.owned_files.map(row => row.path))
+  }
+  for (const [excludeFile, patterns] of pending) {
+    writeExcludeBlock(excludeFile, [...new Set(patterns)].sort())
+  }
+}
+
 function cleanupFixture(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput, state: FixtureState) {
   recoverFailure(family, input, state)
   for (const row of [...state.owned_files].reverse()) {
@@ -2006,6 +2090,7 @@ export function runAcceptanceFixture(input: AcceptanceFixtureInput): AcceptanceF
   if (input.stage === 'induce') induceFailure(family, normalized, state)
   if (input.stage === 'recover') recoverFailure(family, normalized, state)
   if (input.stage === 'cleanup') cleanupFixture(family, normalized, state)
+  syncFixtureExcludes(normalized, state)
   const evidence = receipt(stateRoot, state, normalized, family)
   atomicJson(statePath, state)
   return {

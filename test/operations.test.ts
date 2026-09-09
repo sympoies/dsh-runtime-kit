@@ -4595,3 +4595,37 @@ test('doctor fails the profile when agent-hook inventory is unavailable or incom
     subject.cleanup()
   }
 })
+
+test('doctor reports an invalid activation instead of blaming the ambient agent-hook config', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const activation = JSON.parse(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'))
+    const activePolicy = join(subject.runtimeRoot, activation.agent_hook.policy)
+    writeFileSync(activePolicy, `${readFileSync(activePolicy, 'utf8')}# tampered\n`)
+
+    // The acceptance driver relies on the activation manifest to supply the agent-hook
+    // isolation surfaces, so the ambient environment carries none of them.
+    const cleared = {
+      DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: '',
+      DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: '',
+      DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: '',
+    }
+    const diagnosed = run(subject, ['doctor', '--profile', 'work'], cleared)
+
+    assert.notEqual(
+      diagnosed.value?.error?.code,
+      'agent-hook-isolation-invalid',
+      'an unreadable activation must not be reported as an ambient agent-hook config problem',
+    )
+    assert.doesNotMatch(
+      `${diagnosed.stdout}${diagnosed.stderr}`,
+      /agentHookConfig is required/u,
+      'the reported cause must name the activation, not a required absolute path',
+    )
+    const reported = diagnosed.value?.data?.activation?.error ?? diagnosed.value?.error?.message ?? ''
+    assert.match(reported, /activation|digest|policy/u, `unexpected report: ${diagnosed.stdout}`)
+  } finally {
+    subject.cleanup()
+  }
+})
