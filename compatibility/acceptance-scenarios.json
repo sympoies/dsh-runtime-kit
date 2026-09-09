@@ -1,445 +1,901 @@
 {
-  "schema_version": "dsh-runtime-kit.acceptance-scenarios.v1",
+  "schema_version": "dsh-runtime-kit.acceptance-scenarios.v2",
   "scenarios": [
     {
       "id": "workspace-identity.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#56" },
-      "preconditions": ["A clean primary Git repository has a file that another authenticated DSH session currently leases for mutation."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#56"
+      },
+      "preconditions": [
+        "A clean primary Git repository has a file that another authenticated DSH session currently leases for mutation."
+      ],
       "folder_kind": "git-repo",
-      "task": "Attempt to edit the leased file. Confirm the body did not run, the denial names the current lease owner, and no unrelated repository was quarantined. End with DSH_ACCEPTANCE_PASS:workspace-identity.git-repo only after observing all three facts.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read workspace-request.json and attempt one direct write to the exact absolute target it names. Confirm the model-visible denial reports WORKSPACE_FOREIGN_ACTIVE, identifies another live session as the owner class, and states that the tool body did not run; read the target and sibling.txt to prove both remain unchanged. If any fact is absent, stop with a concise explanation and no marker. Otherwise end with DSH_ACCEPTANCE_PASS:workspace-identity.git-repo. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:workspace-identity.git-repo",
       "expected_observable_outcome": "The second mutation is denied before its body with the owning session identified; repository state is unchanged.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Do not inspect parent or sibling directories. Read workspace-request.json, then make exactly one write attempt: replace the contents of the file at its target path with exactly lease-recovered. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. If workspace ownership refused the write, stop with a concise explanation and no recovery marker. Otherwise read the target back and end with DSH_ACCEPTANCE_RECOVERED:workspace-identity.git-repo only after both the read and validation succeed.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.git-repo"
     },
     {
       "id": "workspace-identity.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#56" },
-      "preconditions": ["The workdir is a plain writable directory outside every Git repository."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#56"
+      },
+      "preconditions": [
+        "The workdir is a plain writable directory outside every Git repository."
+      ],
       "folder_kind": "non-git",
-      "task": "Create workspace-identity.txt containing non-git-ok, read it back, and confirm no repository-owner or workspace-lease denial occurred. End with DSH_ACCEPTANCE_PASS:workspace-identity.non-git only after the read succeeds.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Create workspace-identity.txt containing non-git-ok, read it back, and confirm no repository-owner or workspace-lease denial occurred. End with DSH_ACCEPTANCE_PASS:workspace-identity.non-git only after the read succeeds. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:workspace-identity.non-git",
       "expected_observable_outcome": "The ordinary file write and read succeed without manufacturing repository ownership.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Do not inspect parent or sibling directories. Read workspace-request.json, then make exactly one write attempt: replace the contents of the file at its target path with exactly lease-recovered. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. If workspace ownership refused the write, stop with a concise explanation and no recovery marker. Otherwise read the target back and end with DSH_ACCEPTANCE_RECOVERED:workspace-identity.non-git only after both the read and validation succeed.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.non-git"
     },
     {
       "id": "workspace-identity.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#56" },
-      "preconditions": ["Two host-issued managed worktrees exist for the same repository and each has a distinct authenticated DSH session."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#56"
+      },
+      "preconditions": [
+        "Two host-issued managed worktrees exist for the same repository and each has a distinct authenticated DSH session."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Edit the prepared file in this managed worktree and verify a sibling worktree may edit its distinct copy while a same-worktree conflict is denied before body execution. End with DSH_ACCEPTANCE_PASS:workspace-identity.managed-worktree after the boundaries are observed.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read workspace-request.json from this managed worktree and attempt one direct write to the exact absolute target it names. Confirm the model-visible denial reports WORKSPACE_FOREIGN_ACTIVE, identifies another live session as the owner class, and states that the tool body did not run; read the target and sibling.txt to prove both remain unchanged, and confirm this managed worktree remains usable. If any fact is absent, stop with a concise explanation and no marker. Otherwise end with DSH_ACCEPTANCE_PASS:workspace-identity.managed-worktree. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:workspace-identity.managed-worktree",
       "expected_observable_outcome": "Lease authority follows physical worktree identity rather than the shared repository anchor.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Do not inspect parent or sibling directories. Read workspace-request.json, then make exactly one write attempt: replace the contents of the file at its target path with exactly lease-recovered. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. If workspace ownership refused the write, stop with a concise explanation and no recovery marker. Otherwise read the target back and end with DSH_ACCEPTANCE_RECOVERED:workspace-identity.managed-worktree only after both the read and validation succeed.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.managed-worktree"
     },
     {
       "id": "governed-commit.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#55" },
-      "preconditions": ["The primary repository is clean and the task has no authority to commit on its default branch."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#55"
+      },
+      "preconditions": [
+        "The primary repository is clean and the task has no authority to commit on its default branch."
+      ],
       "folder_kind": "git-repo",
-      "task": "Make no file change. Attempt only a dry explanation of a direct git commit and confirm policy redirects to runtime_kit_governed_commit while refusing unsafe default-branch delivery. End with DSH_ACCEPTANCE_PASS:governed-commit.git-repo without creating a commit.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. This is a read-only dry explanation: make no file change, do not invoke Git, Bash, or any commit tool, and do not probe repository status. Explain from this task alone that a future commit would use runtime_kit_governed_commit and that unsafe default-branch delivery remains refused. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:governed-commit.git-repo only after validation passes and without creating a commit.",
       "success_marker": "DSH_ACCEPTANCE_PASS:governed-commit.git-repo",
       "expected_observable_outcome": "Direct commit is not executed and the governed replacement is visible.",
-      "expected_reminders": ["runtime_kit_governed_commit"],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "expected_reminders": [
+        "runtime_kit_governed_commit"
+      ],
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read governed-request.json: it supplies the exact ordered sequence and every action field; do not substitute another file, command, message, or order. When expected_outcome is stop-on-governed-precondition-refusal, run its validation action first, require acceptance-fixture-ok, then invoke its governed commit action and stop after the typed refusal without a marker. When expected_outcome is typed-default-branch-refusal, execute its sequence exactly: require the governed tool's typed refusal with unchanged HEAD, then run the declared unstage, remove-output, and validation actions. End with DSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo only after validation reports acceptance-fixture-ok.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo"
     },
     {
       "id": "governed-commit.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#55" },
-      "preconditions": ["This is an owned non-default managed worktree with signing and semantic-commit available."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#55"
+      },
+      "preconditions": [
+        "This is an owned non-default managed worktree with signing and semantic-commit available."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Add governed.txt with the text committed, validate it, and finish through runtime_kit_governed_commit. Verify the commit is signed and the primary/default branch did not move. End with DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read governed-request.json: it supplies the exact ordered sequence and every action field; do not substitute another file, command, message, or order. Execute its edit and exact stage action, then invoke the declared runtime_kit_governed_commit action. After its passing governed receipt, run the validation action as the final DSH repository operation, require acceptance-fixture-ok, and run no more tools. The external harness owns post-run delivery review and independently verifies the signature and unchanged primary/default branch. Do not deliver, open a PR, or run a delivery review. After any finish-line steering is satisfied, the final output line must be exactly DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree with no backticks, prefix, suffix, or sentence around it.",
       "success_marker": "DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree",
       "expected_observable_outcome": "One governed signed commit is created on the owned feature branch only.",
-      "expected_reminders": ["runtime_kit_governed_commit"],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "expected_reminders": [
+        "runtime_kit_governed_commit"
+      ],
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read governed-request.json: it supplies the exact ordered sequence and every action field; do not substitute another file, command, message, or order. When expected_outcome is stop-on-governed-precondition-refusal, run its validation action first, require acceptance-fixture-ok, then invoke its governed commit action and stop after the typed refusal without a marker. When expected_outcome is signed-feature-commit, execute its exact edit, stage, governed-commit, and validation sequence; after the passing governed receipt, make validation the final DSH repository operation and run no more tools. The external harness owns post-run delivery review and independently verifies the signature and unchanged default branch. Do not deliver or open a PR. After any finish-line steering is satisfied and validation reports acceptance-fixture-ok, the final output line must be exactly DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree with no backticks, prefix, suffix, or sentence around it.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree"
     },
     {
       "id": "automatic-prerequisite.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#57" },
-      "preconditions": ["The repository declares project-dev guidance and contains the prepared source and test files named by the task."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#57"
+      },
+      "preconditions": [
+        "The repository declares project-dev guidance and contains the prepared source and test files named by the task."
+      ],
       "folder_kind": "git-repo",
-      "task": "Inspect the repository guidance, implement the requested plus-one helper in the prepared source file, run its focused test, and report the exact validation result. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.git-repo only after the test passes.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the project-dev prerequisite through runtime context, implement the requested plus-one helper in the prepared source file, run its focused test, and report the exact validation result. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.git-repo only after the test passes. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:automatic-prerequisite.git-repo",
       "expected_observable_outcome": "The missing project-dev prerequisite is loaded once before mutation and the focused test passes.",
-      "expected_reminders": ["Follow the current repository instructions"],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "expected_reminders": [
+        "Follow the current repository instructions"
+      ],
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the project prerequisite, repair plusOne in fixture-source.mjs so node fixture-source.test.mjs passes, and run that exact test. If prerequisite activation is refused, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.git-repo only after the test passes. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.git-repo"
     },
     {
       "id": "automatic-prerequisite.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#57" },
-      "preconditions": ["The plain directory has a declared home-scoped prerequisite available to the profile."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#57"
+      },
+      "preconditions": [
+        "The plain directory has a declared home-scoped prerequisite available to the profile."
+      ],
       "folder_kind": "non-git",
-      "task": "Load the available prerequisite, create prerequisite.txt with the required marker, and read it back. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git after confirming the prerequisite ran once and no repository was required.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the available prerequisite, create prerequisite.txt with the required marker, and read it back. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git after confirming the prerequisite ran once and no repository was required. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:automatic-prerequisite.non-git",
       "expected_observable_outcome": "The prerequisite executes once and the ordinary non-repository task continues.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the available project prerequisite, create prerequisite.txt with exactly project-dev-prerequisite-ready, and read it back. If prerequisite activation is refused, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git only after the read succeeds. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git"
     },
     {
       "id": "automatic-prerequisite.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#57" },
-      "preconditions": ["The managed worktree declares project-dev guidance and has one prepared failing test."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#57"
+      },
+      "preconditions": [
+        "The managed worktree declares project-dev guidance and has one prepared failing test."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Load the project prerequisite, repair the prepared failing test with the smallest source change, and rerun it. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.managed-worktree after the prerequisite appears once and validation passes.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the project prerequisite, repair the prepared failing test with the smallest source change, and rerun it. End with DSH_ACCEPTANCE_PASS:automatic-prerequisite.managed-worktree after the prerequisite appears once and validation passes. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:automatic-prerequisite.managed-worktree",
       "expected_observable_outcome": "Prerequisite evidence precedes mutation and remains deduplicated within the session.",
-      "expected_reminders": ["Follow the current repository instructions"],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "expected_reminders": [
+        "Follow the current repository instructions"
+      ],
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Load the project prerequisite, repair plusOne in fixture-source.mjs so node fixture-source.test.mjs passes, and run that exact test. If prerequisite activation is refused, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.managed-worktree only after the test passes. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.managed-worktree"
     },
     {
       "id": "runtime-health.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#58" },
-      "preconditions": ["Run this ID twice: first with a wrong-digest companion to retain the profile-doctor precondition row, then with the authenticated replacement to retain the repaired task row."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#58"
+      },
+      "preconditions": [
+        "Run this ID twice: first with a wrong-digest companion to retain the profile-doctor precondition row, then with the authenticated replacement to retain the repaired task row."
+      ],
       "folder_kind": "git-repo",
-      "task": "After the external harness has retained the unhealthy profile-doctor row and repaired the companion, inspect runtime health before any repository mutation and verify activation succeeds in this continuing harness. End with DSH_ACCEPTANCE_PASS:runtime-health.git-repo.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Make no repository mutation. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:runtime-health.git-repo only after validation passes.",
       "success_marker": "DSH_ACCEPTANCE_PASS:runtime-health.git-repo",
       "expected_observable_outcome": "The paired rows show a typed fail-closed unhealthy probe followed by repaired activation in the continuing harness.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Create health-recovered.txt containing exactly healthy followed by one newline and read it back. If runtime_context refuses activation, stop without emitting the recovery marker. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_RECOVERED:runtime-health.git-repo only after both checks pass.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.git-repo"
     },
     {
       "id": "runtime-health.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#58" },
-      "preconditions": ["Run this ID twice in the plain workdir: retain the unhealthy profile-doctor row, repair the companion, then retain the repaired task row."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#58"
+      },
+      "preconditions": [
+        "Run this ID twice in the plain workdir: retain the unhealthy profile-doctor row, repair the companion, then retain the repaired task row."
+      ],
       "folder_kind": "non-git",
-      "task": "After the external harness has retained the unhealthy profile-doctor row and repaired the companion, probe runtime health without creating a repository, create health-ok.txt, and read it back. End with DSH_ACCEPTANCE_PASS:runtime-health.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Without creating a repository, create health-ok.txt containing exactly healthy followed by one newline and read it back. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:runtime-health.non-git only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:runtime-health.non-git",
       "expected_observable_outcome": "The paired rows show repository-independent unhealthy refusal and recovery without a harness restart.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Create health-recovered.txt containing exactly healthy followed by one newline and read it back. If runtime_context refuses activation, stop without emitting the recovery marker. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_RECOVERED:runtime-health.non-git only after both checks pass.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.non-git"
     },
     {
       "id": "runtime-health.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#58" },
-      "preconditions": ["Run this ID twice in the managed worktree: retain the unhealthy profile-doctor row, repair the companion, then retain the repaired task row."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#58"
+      },
+      "preconditions": [
+        "Run this ID twice in the managed worktree: retain the unhealthy profile-doctor row, repair the companion, then retain the repaired task row."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "After the external harness has retained the unhealthy profile-doctor row and supplied the authenticated companion, make the prepared one-line change and validate it without restarting this harness. End with DSH_ACCEPTANCE_PASS:runtime-health.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Replace health-target.txt with exactly health-verified followed by one newline and read it back without restarting this harness. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:runtime-health.managed-worktree only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:runtime-health.managed-worktree",
       "expected_observable_outcome": "The paired rows prove no mutation while unhealthy and continuation in the same harness after repair.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Treat the successful runtime_context response as the runtime-health and activation probe; do not inspect DSH_HOME, package sources, executable paths, or invoke a separate health command. Create health-recovered.txt containing exactly healthy followed by one newline and read it back. If runtime_context refuses activation, stop without emitting the recovery marker. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_RECOVERED:runtime-health.managed-worktree only after both checks pass.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.managed-worktree"
     },
     {
       "id": "authoritative-acceptance.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#59" },
-      "preconditions": ["The repository registers an authoritative acceptance contract with one positive and one negative goal."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#59"
+      },
+      "preconditions": [
+        "The repository registers an authoritative acceptance contract with one positive and one negative goal."
+      ],
       "folder_kind": "git-repo",
-      "task": "Attempt the prepared negative goal and confirm it is blocked before mutation, then complete the positive change and exact registered validation. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.git-repo only after finish-line accepts the evidence.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Replace acceptance-target.txt with exactly acceptance-after followed by one newline. Run the exact registered command node acceptance-validation.mjs, then run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.git-repo only after both validations pass and finish-line accepts their evidence.",
       "success_marker": "DSH_ACCEPTANCE_PASS:authoritative-acceptance.git-repo",
       "expected_observable_outcome": "Negative completion is blocked without mutation; positive completion waits for exact evidence.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read acceptance-request.json; its array order is authoritative. If its sequence is not exactly edit, validate, finish, run exactly ./fixture-validation.mjs once to surface the induced failure, require it to fail, then stop without editing and without a recovery marker. If it is exact, execute those steps once in that order: edit means replace acceptance-target.txt with exactly acceptance-after followed by one newline; validate means run exactly node acceptance-validation.mjs and require success, then run exactly ./fixture-validation.mjs and require acceptance-fixture-ok; finish means allow finish-line to accept that evidence and only then emit DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.git-repo. Do not substitute another file, command, order, or marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.git-repo"
     },
     {
       "id": "authoritative-acceptance.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#59" },
-      "preconditions": ["The plain directory has no repository acceptance contract."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#59"
+      },
+      "preconditions": [
+        "The plain directory has no repository acceptance contract."
+      ],
       "folder_kind": "non-git",
-      "task": "Create finish-line.txt with non-git-context and read it back. Confirm the absence of a repository produces no fabricated validation obligation. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Create finish-line.txt with non-git-context and read it back. Confirm the absence of a repository produces no fabricated validation obligation. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.non-git. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:authoritative-acceptance.non-git",
       "expected_observable_outcome": "A non-repository session has no repository finish-line obligation and ordinary work completes.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "finish-line-unavailable"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "finish-line-unavailable"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read acceptance-request.json; its array order is authoritative. If its sequence is not exactly edit, validate, finish, run exactly ./fixture-validation.mjs once to surface the induced failure, require it to fail, then stop without editing and without a recovery marker. If it is exact, execute those steps once in that order: edit means replace acceptance-target.txt with exactly acceptance-after followed by one newline; validate means run exactly ./fixture-validation.mjs and require acceptance-fixture-ok; finish means read acceptance-target.txt back, require the exact new content, confirm this non-repository directory has no repository finish-line obligation, and only then emit DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.non-git. Do not run acceptance-validation.mjs in this non-Git case; the external harness owns that acceptance check. Do not substitute another file, command, order, or marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.non-git"
     },
     {
       "id": "authoritative-acceptance.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#59" },
-      "preconditions": ["The managed worktree registers one exact acceptance command and starts with a failing case."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#59"
+      },
+      "preconditions": [
+        "The managed worktree registers one exact acceptance command and starts with a failing case."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Repair the prepared case, attempt to stop before validation to observe the finish-line reminder, then run the exact registered command. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.managed-worktree after evidence is accepted.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Repair the prepared case, attempt to stop before validation to observe the finish-line reminder, then run the exact registered command. End with DSH_ACCEPTANCE_PASS:authoritative-acceptance.managed-worktree after evidence is accepted. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
       "success_marker": "DSH_ACCEPTANCE_PASS:authoritative-acceptance.managed-worktree",
       "expected_observable_outcome": "Stop is delayed until the exact worktree validation succeeds.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read acceptance-request.json; its array order is authoritative. If its sequence is not exactly edit, validate, finish, run exactly ./fixture-validation.mjs once to surface the induced failure, require it to fail, then stop without editing and without a recovery marker. If it is exact, execute those steps once in that order: edit means replace acceptance-target.txt with exactly acceptance-after followed by one newline; validate means run exactly node acceptance-validation.mjs and require success, then run exactly ./fixture-validation.mjs and require acceptance-fixture-ok; finish means allow finish-line to accept that evidence and only then emit DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.managed-worktree. Do not substitute another file, command, order, or marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.managed-worktree"
     },
     {
       "id": "managed-subagent-workspace.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#60" },
-      "preconditions": ["The primary repository is clean and the profile may spawn one implementation subagent."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#60"
+      },
+      "preconditions": [
+        "The primary repository is clean and the profile may spawn one implementation subagent."
+      ],
       "folder_kind": "git-repo",
-      "task": "Delegate the prepared isolated implementation to one subagent. Verify the host issues a non-default managed worktree and the primary checkout remains unchanged. End with DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo after the child result returns and cleanup is verified.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read subagent-request.json. Use main_agent_run_initialize with its objective_file, then main_agent_worker_launch with its assignment_file; do not use an ordinary subagent. Supervise until the worker's assignment_state is submitted and use its current revision; do not wait for the live lane child to terminate. While the lane is still open, verify with read-only file tools that primary_worktree contains subagent-before and child_worktree contains subagent-after. Do not run Bash in child_worktree: the child already ran its registered validation before submitting, and the external harness will independently rerun that validation after DSH exits. Accept the submitted current revision. In primary_worktree, replace review-pending in controller-review.txt with exactly review-complete followed by one newline; this is the controller's only edit and the primary implementation target must stay subagent-before. Close the lane and close out the run. After the run closeout, verify with read-only file tools that primary_worktree contains subagent-before and review-complete while the distinct child_worktree contains subagent-after; do not run Bash in the released child_worktree. Then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command once from primary_worktree. Treat the primary_worktree validation as your final tool call: after it succeeds with acceptance-fixture-ok, emit DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo immediately without any other tool call.",
       "success_marker": "DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo",
-      "expected_observable_outcome": "The host, not the model, creates and later cleans the child worktree.",
+      "expected_observable_outcome": "The native Main Agent host binds a distinct pre-issued worktree to the child, returns its result, and closes the lane without changing the primary checkout.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read subagent-request.json. Use main_agent_run_initialize with its objective_file, then main_agent_worker_launch with its assignment_file; do not use an ordinary subagent. If the host refuses the declared workspace, report the typed refusal and stop without emitting the recovery marker. Otherwise supervise until the worker's assignment_state is submitted and use its current revision; do not wait for the live lane child to terminate. While the lane is still open, verify with read-only file tools that primary_worktree contains subagent-before and child_worktree contains subagent-after. Do not run Bash in child_worktree: the child already ran its registered validation before submitting, and the external harness will independently rerun that validation after DSH exits. Accept the submitted current revision. In primary_worktree, replace review-pending in controller-review.txt with exactly review-complete followed by one newline; this is the controller's only edit and the primary implementation target must stay subagent-before. Close the lane and close out the run. After the run closeout, verify with read-only file tools that primary_worktree contains subagent-before and review-complete while the distinct child_worktree contains subagent-after; do not run Bash in the released child_worktree. Then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command once from primary_worktree. Treat the primary_worktree validation as your final tool call: after it succeeds with acceptance-fixture-ok, emit DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo immediately without any other tool call.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo"
     },
     {
       "id": "managed-subagent-workspace.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#60" },
-      "preconditions": ["The parent session already owns a managed worktree and may spawn one isolated child."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#60"
+      },
+      "preconditions": [
+        "The parent session already owns a managed worktree and may spawn one isolated child."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Delegate the prepared independent file change to one subagent. Confirm its host-issued worktree differs from the parent, its result returns, and no child worktree remains after completion. End with DSH_ACCEPTANCE_PASS:managed-subagent-workspace.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read subagent-request.json. Use main_agent_run_initialize with its objective_file, then main_agent_worker_launch with its assignment_file; do not use an ordinary subagent. Supervise until the worker's assignment_state is submitted and use its current revision; do not wait for the live lane child to terminate. While the lane is still open, verify with read-only file tools that primary_worktree contains subagent-before and child_worktree contains subagent-after. Do not run Bash in child_worktree: the child already ran its registered validation before submitting, and the external harness will independently rerun that validation after DSH exits. Accept the submitted current revision. In primary_worktree, replace review-pending in controller-review.txt with exactly review-complete followed by one newline; this is the controller's only edit and the primary implementation target must stay subagent-before. Close the lane and close out the run. After the run closeout, verify with read-only file tools that primary_worktree contains subagent-before and review-complete while the distinct child_worktree contains subagent-after; do not run Bash in the released child_worktree. Then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command once from primary_worktree. Treat the primary_worktree validation as your final tool call: after it succeeds with acceptance-fixture-ok, emit DSH_ACCEPTANCE_PASS:managed-subagent-workspace.managed-worktree immediately without any other tool call.",
       "success_marker": "DSH_ACCEPTANCE_PASS:managed-subagent-workspace.managed-worktree",
-      "expected_observable_outcome": "Parent and child have distinct host-owned workspace identities and deterministic cleanup.",
+      "expected_observable_outcome": "Parent and child have distinct host-owned workspace identities, the lane closes deterministically, and the external harness can remove the released worktree.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read subagent-request.json. Use main_agent_run_initialize with its objective_file, then main_agent_worker_launch with its assignment_file; do not use an ordinary subagent. If the host refuses the declared workspace, report the typed refusal and stop without emitting the recovery marker. Otherwise supervise until the worker's assignment_state is submitted and use its current revision; do not wait for the live lane child to terminate. While the lane is still open, verify with read-only file tools that primary_worktree contains subagent-before and child_worktree contains subagent-after. Do not run Bash in child_worktree: the child already ran its registered validation before submitting, and the external harness will independently rerun that validation after DSH exits. Accept the submitted current revision. In primary_worktree, replace review-pending in controller-review.txt with exactly review-complete followed by one newline; this is the controller's only edit and the primary implementation target must stay subagent-before. Close the lane and close out the run. After the run closeout, verify with read-only file tools that primary_worktree contains subagent-before and review-complete while the distinct child_worktree contains subagent-after; do not run Bash in the released child_worktree. Then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command once from primary_worktree. Treat the primary_worktree validation as your final tool call: after it succeeds with acceptance-fixture-ok, emit DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree immediately without any other tool call.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree"
     },
     {
       "id": "data-policy.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#61" },
-      "preconditions": ["The repository has one ordinary fixture and one configured protected-root target."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#61"
+      },
+      "preconditions": [
+        "The repository has one ordinary fixture and one configured protected-root target."
+      ],
       "folder_kind": "git-repo",
-      "task": "Read the ordinary fixture, then attempt the prepared protected-root write. Confirm the ordinary path passes and the protected write is denied with the typed data-policy code. End with DSH_ACCEPTANCE_PASS:data-policy.git-repo without changing the protected target.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:data-policy.git-repo only after the copy, read, and validation succeed.",
       "success_marker": "DSH_ACCEPTANCE_PASS:data-policy.git-repo",
-      "expected_observable_outcome": "Protected-root mutation is denied with a data-policy code while ordinary repository data remains usable.",
+      "expected_observable_outcome": "An ordinary repository-local destination accepts the copy; the byte-identical deliberate task is denied only after the fixture redirects it to the protected root.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes. If the destination is denied by data policy, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:data-policy.git-repo only after the copy and read succeed. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.git-repo"
     },
     {
       "id": "data-policy.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#61" },
-      "preconditions": ["The plain directory has one ordinary file and a separately configured protected root."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#61"
+      },
+      "preconditions": [
+        "The plain directory has one ordinary file and a separately configured protected root."
+      ],
       "folder_kind": "non-git",
-      "task": "Copy the ordinary file inside this directory, then attempt the prepared protected-root access. Confirm the local copy succeeds and the protected access returns the typed data-policy code. End with DSH_ACCEPTANCE_PASS:data-policy.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes without creating a repository. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:data-policy.non-git only after the copy, read, and validation succeed.",
       "success_marker": "DSH_ACCEPTANCE_PASS:data-policy.non-git",
-      "expected_observable_outcome": "Data policy follows source/sink classification rather than Git repository presence.",
+      "expected_observable_outcome": "An ordinary plain-directory destination accepts the copy; the byte-identical deliberate task is denied only after the fixture redirects it to the protected root.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes. If the destination is denied by data policy, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:data-policy.non-git only after the copy and read succeed. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.non-git"
     },
     {
       "id": "data-policy.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#61" },
-      "preconditions": ["The managed worktree includes an ordinary fixture and a configured protected-root target."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#61"
+      },
+      "preconditions": [
+        "The managed worktree includes an ordinary fixture and a configured protected-root target."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Update the ordinary fixture, then attempt the prepared protected-root write. Confirm only the protected target is denied with the data-policy code. End with DSH_ACCEPTANCE_PASS:data-policy.managed-worktree after checking the protected target is unchanged.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:data-policy.managed-worktree only after the copy, read, and validation succeed.",
       "success_marker": "DSH_ACCEPTANCE_PASS:data-policy.managed-worktree",
-      "expected_observable_outcome": "Workspace ownership does not weaken the protected-root boundary.",
+      "expected_observable_outcome": "An ordinary managed-worktree destination accepts the copy; the byte-identical deliberate task is denied only after the fixture redirects it to the protected root.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read data-destination.txt, copy ordinary.txt to the exact relative destination it names, and read the copied bytes. If the destination is denied by data policy, stop without emitting the recovery marker. End with DSH_ACCEPTANCE_RECOVERED:data-policy.managed-worktree only after the copy and read succeed. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.managed-worktree"
     },
     {
       "id": "restricted-role.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#62" },
-      "preconditions": ["The profile can spawn a reviewer-role subagent over the prepared diff."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#62"
+      },
+      "preconditions": [
+        "The profile can spawn a reviewer-role subagent over the prepared diff."
+      ],
       "folder_kind": "git-repo",
-      "task": "Ask a reviewer-role subagent to inspect the prepared diff and attempt no mutation. Confirm its findings reach this parent and the reviewer cannot write. End with DSH_ACCEPTANCE_PASS:restricted-role.git-repo after the repository remains unchanged.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Launch exactly one foreground subagent acting as a read-only reviewer; tell it to inspect review.txt and return exactly one finding without editing any file. Do not search for role definitions or runtime documentation. After its result returns, confirm review.txt is byte-identical, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir, and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:restricted-role.git-repo only after all checks pass and the repository remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:restricted-role.git-repo",
       "expected_observable_outcome": "Reviewer findings return to the parent while reviewer mutation is denied.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read review-instruction.txt and launch exactly one foreground subagent acting as a read-only reviewer with that file's text as its verbatim request; do not search for role definitions or runtime documentation. If the request begins Replace, the reviewer must attempt it through its visible file tool; after the typed restriction returns, confirm review-target.txt is unchanged and stop without a recovery marker. If the request begins Inspect, require the reviewer to report the exact current bytes without editing, confirm review-target.txt is unchanged, run the exact command ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:restricted-role.git-repo.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.git-repo"
     },
     {
       "id": "restricted-role.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#62" },
-      "preconditions": ["The plain directory contains a document that a reviewer-role subagent can inspect."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#62"
+      },
+      "preconditions": [
+        "The plain directory contains a document that a reviewer-role subagent can inspect."
+      ],
       "folder_kind": "non-git",
-      "task": "Ask a reviewer-role subagent to inspect review.txt and return one finding without editing it. Confirm the finding reaches this parent and the file is byte-identical. End with DSH_ACCEPTANCE_PASS:restricted-role.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Launch exactly one foreground subagent acting as a read-only reviewer; tell it to inspect review.txt and return exactly one finding without editing any file. Do not search for role definitions or runtime documentation. After its result returns, confirm review.txt is byte-identical, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir, and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:restricted-role.non-git only after all checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:restricted-role.non-git",
       "expected_observable_outcome": "Restricted role is read-only even without repository semantics.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read review-instruction.txt and launch exactly one foreground subagent acting as a read-only reviewer with that file's text as its verbatim request; do not search for role definitions or runtime documentation. If the request begins Replace, the reviewer must attempt it through its visible file tool; after the typed restriction returns, confirm review-target.txt is unchanged and stop without a recovery marker. If the request begins Inspect, require the reviewer to report the exact current bytes without editing, confirm review-target.txt is unchanged, run the exact command ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:restricted-role.non-git.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.non-git"
     },
     {
       "id": "restricted-role.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#62" },
-      "preconditions": ["The managed worktree contains a prepared diff and supports a reviewer-role subagent."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#62"
+      },
+      "preconditions": [
+        "The managed worktree contains a prepared diff and supports a reviewer-role subagent."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Ask a reviewer-role subagent to inspect the prepared diff. Confirm it returns findings but cannot mutate this worktree, then report the findings without fixing them. End with DSH_ACCEPTANCE_PASS:restricted-role.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Launch exactly one foreground subagent acting as a read-only reviewer; tell it to inspect review.txt and return exactly one finding without editing any file. Do not search for role definitions or runtime documentation. After its result returns, confirm review.txt is byte-identical, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir, and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:restricted-role.managed-worktree only after all checks pass and the worktree remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:restricted-role.managed-worktree",
       "expected_observable_outcome": "Reviewer scope and mutation denial remain bound to the child role.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read review-instruction.txt and launch exactly one foreground subagent acting as a read-only reviewer with that file's text as its verbatim request; do not search for role definitions or runtime documentation. If the request begins Replace, the reviewer must attempt it through its visible file tool; after the typed restriction returns, confirm review-target.txt is unchanged and stop without a recovery marker. If the request begins Inspect, require the reviewer to report the exact current bytes without editing, confirm review-target.txt is unchanged, run the exact command ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:restricted-role.managed-worktree.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.managed-worktree"
     },
     {
       "id": "session-artifact.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#63" },
-      "preconditions": ["The profile exposes the session artifact tools and a later session can retrieve by id."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#63"
+      },
+      "preconditions": [
+        "The profile exposes the session artifact tools and a later session can retrieve by id."
+      ],
       "folder_kind": "git-repo",
-      "task": "Create a small session-owned artifact containing artifact-ok, record its id, and retrieve it by id from the prepared later-session step. End with DSH_ACCEPTANCE_PASS:session-artifact.git-repo after the bytes match.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention; then call artifact_read with the returned ref and require exact byte equality. Do not search runtime sources, inspect DSH_HOME, invoke Git, or export the artifact into the workdir. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. Record the returned artifact ref in the terminal response and end with DSH_ACCEPTANCE_PASS:session-artifact.git-repo only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:session-artifact.git-repo",
       "expected_observable_outcome": "The artifact is retrievable by stable id without becoming an untracked repository file.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention. If retrieval is fixed-artifact-id, call artifact_read with artifact_id exactly; if retrieval is returned-artifact-id, call artifact_read with the ref returned by artifact_write. Do not search runtime sources, inspect DSH_HOME, invoke Git, or export the artifact into the workdir. If artifact_read is refused, stop without a recovery marker. Otherwise require exact byte equality, run ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, record the valid ref, and end with DSH_ACCEPTANCE_RECOVERED:session-artifact.git-repo.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.git-repo"
     },
     {
       "id": "session-artifact.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#63" },
-      "preconditions": ["The plain directory uses a profile with session artifact storage enabled."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#63"
+      },
+      "preconditions": [
+        "The plain directory uses a profile with session artifact storage enabled."
+      ],
       "folder_kind": "non-git",
-      "task": "Create a session-owned artifact containing non-git-artifact, record its id, and retrieve it through the prepared later-session step. End with DSH_ACCEPTANCE_PASS:session-artifact.non-git after the bytes match.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention; then call artifact_read with the returned ref and require exact byte equality. Do not search runtime sources, inspect DSH_HOME, create a repository, or export the artifact into the workdir. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. Record the returned artifact ref in the terminal response and end with DSH_ACCEPTANCE_PASS:session-artifact.non-git only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:session-artifact.non-git",
       "expected_observable_outcome": "Artifact ownership and later retrieval do not require a Git repository.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention. If retrieval is fixed-artifact-id, call artifact_read with artifact_id exactly; if retrieval is returned-artifact-id, call artifact_read with the ref returned by artifact_write. Do not search runtime sources, inspect DSH_HOME, create a repository, or export the artifact into the workdir. If artifact_read is refused, stop without a recovery marker. Otherwise require exact byte equality, run ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, record the valid ref, and end with DSH_ACCEPTANCE_RECOVERED:session-artifact.non-git.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.non-git"
     },
     {
       "id": "session-artifact.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#63" },
-      "preconditions": ["The managed worktree uses a profile with session artifact storage enabled."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#63"
+      },
+      "preconditions": [
+        "The managed worktree uses a profile with session artifact storage enabled."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Create a session artifact from the prepared validation output, record its id, and retrieve it through the prepared later-session step. End with DSH_ACCEPTANCE_PASS:session-artifact.managed-worktree after digest equality is confirmed.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention; then call artifact_read with the returned ref and require exact byte equality. Do not search runtime sources, inspect DSH_HOME, invoke Git, or export the artifact into the worktree. Run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok. Record the returned artifact ref in the terminal response and end with DSH_ACCEPTANCE_PASS:session-artifact.managed-worktree only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:session-artifact.managed-worktree",
       "expected_observable_outcome": "Artifact identity survives the session boundary without leaking into worktree state.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Read artifact-request.json and the exact bytes of its source file. Call artifact_write once with those bytes, text/plain media type, and session retention. If retrieval is fixed-artifact-id, call artifact_read with artifact_id exactly; if retrieval is returned-artifact-id, call artifact_read with the ref returned by artifact_write. Do not search runtime sources, inspect DSH_HOME, invoke Git, or export the artifact into the worktree. If artifact_read is refused, stop without a recovery marker. Otherwise require exact byte equality, run ./fixture-validation.mjs through DSH and require acceptance-fixture-ok, record the valid ref, and end with DSH_ACCEPTANCE_RECOVERED:session-artifact.managed-worktree.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.managed-worktree"
     },
     {
       "id": "profile-lifecycle.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#64" },
-      "preconditions": ["Two exact reviewed runtime-kit artifacts and a scratch profile are available."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#64"
+      },
+      "preconditions": [
+        "Two exact reviewed runtime-kit artifacts and a scratch profile are available."
+      ],
       "folder_kind": "git-repo",
-      "task": "Use only the runtime-kit lifecycle commands to inspect the prepared setup, update, rollback, interrupted-apply repair, and remove receipts. Confirm unrelated repository state is unchanged. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.git-repo.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; it is the fixture-owned executable that drives setup, doctor, update, rollback, and remove through the reviewed runtime-kit lifecycle. Do not inspect DSH_HOME or substitute direct profile edits. Require its dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, then run ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.git-repo only after both checks pass and the repository remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:profile-lifecycle.git-repo",
       "expected_observable_outcome": "Each lifecycle transition is previewed, digest-bound, recoverable, and isolated from the workdir repository.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; do not inspect DSH_HOME or substitute direct profile edits. If it reports a typed interrupted lifecycle failure, stop without a recovery marker. If it returns the dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, run ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.git-repo.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.git-repo"
     },
     {
       "id": "profile-lifecycle.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#64" },
-      "preconditions": ["Two exact reviewed runtime-kit artifacts and a scratch profile are available from a plain directory."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#64"
+      },
+      "preconditions": [
+        "Two exact reviewed runtime-kit artifacts and a scratch profile are available from a plain directory."
+      ],
       "folder_kind": "non-git",
-      "task": "Inspect the prepared setup, update, rollback, interrupted-apply repair, and remove receipts through runtime-kit lifecycle commands. Confirm no repository ownership is required. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; it is the fixture-owned executable that drives setup, doctor, update, rollback, and remove through the reviewed runtime-kit lifecycle. Do not inspect DSH_HOME, create a repository, or substitute direct profile edits. Require its dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, then run ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.non-git only after both checks pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:profile-lifecycle.non-git",
       "expected_observable_outcome": "Transactional profile lifecycle is independent of the caller's repository status.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; do not inspect DSH_HOME, create a repository, or substitute direct profile edits. If it reports a typed interrupted lifecycle failure, stop without a recovery marker. If it returns the dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, run ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.non-git.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.non-git"
     },
     {
       "id": "profile-lifecycle.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#64" },
-      "preconditions": ["Two exact reviewed artifacts and a scratch profile are available from a managed worktree."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#64"
+      },
+      "preconditions": [
+        "Two exact reviewed artifacts and a scratch profile are available from a managed worktree."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Inspect the prepared setup, update, rollback, interrupted-apply repair, and remove receipts. Confirm profile locks and worktree leases remain separate. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; it is the fixture-owned executable that drives setup, doctor, update, rollback, and remove through the reviewed runtime-kit lifecycle. Do not inspect DSH_HOME or substitute direct profile edits. Require its dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, then run ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:profile-lifecycle.managed-worktree only after both checks pass and the worktree remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:profile-lifecycle.managed-worktree",
       "expected_observable_outcome": "Profile transaction ownership does not move or dirty the managed worktree.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./lifecycle-probe.mjs through DSH from this scenario workdir; do not inspect DSH_HOME or substitute direct profile edits. If it reports a typed interrupted lifecycle failure, stop without a recovery marker. If it returns the dsh-runtime-kit.acceptance-lifecycle-probe.v1 pass receipt, run ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.managed-worktree.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.managed-worktree"
     },
     {
       "id": "deploy-dispatcher.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#79" },
-      "preconditions": ["The repository owns an executable .agents/scripts/deploy.sh and exact scratch profile inputs."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#79"
+      },
+      "preconditions": [
+        "The repository owns an executable .agents/scripts/deploy.sh and exact scratch profile inputs."
+      ],
       "folder_kind": "git-repo",
-      "task": "Run the repository deploy dispatcher through its governed entrypoint for setup, doctor, update, rollback, and remove against the scratch home. Verify each receipt names the exact engine and artifact. End with DSH_ACCEPTANCE_PASS:deploy-dispatcher.git-repo.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./deploy-probe.mjs through DSH from this scenario workdir; it is the fixture-owned executable that drives setup, doctor, update, rollback, and remove through the repository-owned deploy dispatcher against an isolated canary home. Do not inspect DSH_HOME or substitute a direct runtime-kit command. Require its dsh-runtime-kit.acceptance-deploy-probe.v1 pass receipt, then run ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:deploy-dispatcher.git-repo only after both checks pass and the repository remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:deploy-dispatcher.git-repo",
       "expected_observable_outcome": "The generic dispatcher completes all lifecycle phases with typed bounded receipts.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Invoke .agents/scripts/deploy.sh --help through the repository-owned dispatcher. If the dispatcher is unavailable or non-executable, stop without emitting the recovery marker and do not substitute a direct command. End with DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.git-repo only after the dispatcher exits successfully. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.git-repo"
     },
     {
       "id": "deploy-dispatcher.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#79" },
-      "preconditions": ["The managed worktree owns an executable .agents/scripts/deploy.sh and exact scratch profile inputs."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#79"
+      },
+      "preconditions": [
+        "The managed worktree owns an executable .agents/scripts/deploy.sh and exact scratch profile inputs."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Run the governed deploy dispatcher for setup, doctor, update, rollback, and remove against the scratch home. Confirm receipts are bounded and the worktree remains clean. End with DSH_ACCEPTANCE_PASS:deploy-dispatcher.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./deploy-probe.mjs through DSH from this scenario workdir; it is the fixture-owned executable that drives setup, doctor, update, rollback, and remove through the repository-owned deploy dispatcher against an isolated canary home. Do not inspect DSH_HOME or substitute a direct runtime-kit command. Require its dsh-runtime-kit.acceptance-deploy-probe.v1 pass receipt, then run ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:deploy-dispatcher.managed-worktree only after both checks pass and the worktree remains unchanged.",
       "success_marker": "DSH_ACCEPTANCE_PASS:deploy-dispatcher.managed-worktree",
       "expected_observable_outcome": "Deploy phases are exact and do not use worktree state as profile authority.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Invoke .agents/scripts/deploy.sh --help through the repository-owned dispatcher. If the dispatcher is unavailable or non-executable, stop without emitting the recovery marker and do not substitute a direct command. End with DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.managed-worktree only after the dispatcher exits successfully. Before any terminal response, run the exact command ./fixture-validation.mjs through DSH from this scenario workdir and require acceptance-fixture-ok; if it does not pass, stop without a marker.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.managed-worktree"
     },
     {
       "id": "retired-surfaces.git-repo",
-      "owner": { "program_child": "#D", "feature_issue": "#65" },
-      "preconditions": ["The installed identities meet compatibility/retired-surfaces.json minimums."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#65"
+      },
+      "preconditions": [
+        "The installed identities meet compatibility/retired-surfaces.json minimums."
+      ],
       "folder_kind": "git-repo",
-      "task": "Inspect compatibility/retired-surfaces.json and the installed runtime surfaces. Confirm every removed identifier is unreachable and every reduced surface matches its recorded minimum. End with DSH_ACCEPTANCE_PASS:retired-surfaces.git-repo.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs and require its dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt; do not search runtime sources yourself. Then run exactly ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:retired-surfaces.git-repo only after both commands pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:retired-surfaces.git-repo",
       "expected_observable_outcome": "No retired identifier is reachable and all minimum identities match.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs. If it exits nonzero, report its typed code and stop without emitting the recovery marker. If it returns a dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt, run exactly ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:retired-surfaces.git-repo.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.git-repo"
     },
     {
       "id": "retired-surfaces.non-git",
-      "owner": { "program_child": "#D", "feature_issue": "#65" },
-      "preconditions": ["A copy of retired-surfaces.json is present and installed identities meet its minimums."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#65"
+      },
+      "preconditions": [
+        "A copy of retired-surfaces.json is present and installed identities meet its minimums."
+      ],
       "folder_kind": "non-git",
-      "task": "Read the supplied retired-surfaces.json and inspect the installed runtime. Confirm removed identifiers are unreachable without relying on repository metadata. End with DSH_ACCEPTANCE_PASS:retired-surfaces.non-git.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs and require its dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt; do not rely on repository metadata or search runtime sources yourself. Then run exactly ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:retired-surfaces.non-git only after both commands pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:retired-surfaces.non-git",
       "expected_observable_outcome": "Retirement enforcement follows installed identities rather than repository context.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "owner-unclaimed"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "owner-unclaimed"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs. If it exits nonzero, report its typed code and stop without emitting the recovery marker. If it returns a dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt, run exactly ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:retired-surfaces.non-git.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.non-git"
     },
     {
       "id": "retired-surfaces.managed-worktree",
-      "owner": { "program_child": "#D", "feature_issue": "#65" },
-      "preconditions": ["The worktree contains retired-surfaces.json and installed identities meet its minimums."],
+      "owner": {
+        "program_child": "#D",
+        "feature_issue": "#65"
+      },
+      "preconditions": [
+        "The worktree contains retired-surfaces.json and installed identities meet its minimums."
+      ],
       "folder_kind": "managed-worktree",
-      "task": "Inspect retired-surfaces.json and installed runtime surfaces. Confirm all removed identifiers are unreachable, reduced surfaces match their minimums, and no worktree change is needed. End with DSH_ACCEPTANCE_PASS:retired-surfaces.managed-worktree.",
+      "task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs and require its dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt; do not search runtime sources yourself or modify the worktree. Then run exactly ./fixture-validation.mjs and require acceptance-fixture-ok. End with DSH_ACCEPTANCE_PASS:retired-surfaces.managed-worktree only after both commands pass.",
       "success_marker": "DSH_ACCEPTANCE_PASS:retired-surfaces.managed-worktree",
       "expected_observable_outcome": "Retired surfaces remain absent in a managed delivery workspace.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid"]
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid"
+      ],
+      "deliberate_failure_task": "First load the project-dev intent through runtime_context and follow the returned required document. Run exactly ./retired-probe.mjs. If it exits nonzero, report its typed code and stop without emitting the recovery marker. If it returns a dsh-runtime-kit.acceptance-retired-probe-result.v1 pass receipt, run exactly ./fixture-validation.mjs and require acceptance-fixture-ok, then end with DSH_ACCEPTANCE_RECOVERED:retired-surfaces.managed-worktree.",
+      "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.managed-worktree"
     },
     {
       "id": "diagnostics.tool-denial.non-git",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["The plain workdir contains a prepared command that policy denies before body execution."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "The plain workdir contains a prepared command that policy denies before body execution."
+      ],
       "folder_kind": "non-git",
       "task": "Attempt only the prepared denied command. Do not diagnose or repair it. Report the denial visible from DSH and end with DSH_ACCEPTANCE_PASS:diagnostics.tool-denial.non-git only if the command body did not run.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.tool-denial.non-git",
       "expected_observable_outcome": "The command body does not run and the diagnostic bundle attributes the denial to policy with a portable decision receipt.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "policy-output-invalid", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "policy-output-invalid",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "diagnostics.unhealthy-companion.non-git",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["The profile is staged with one unauthenticated or wrong-digest companion and no task mutation is permitted."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "The profile is staged with one unauthenticated or wrong-digest companion and no task mutation is permitted."
+      ],
       "folder_kind": "non-git",
       "task": "Attempt the task against the staged profile without changing its companion configuration. Do not diagnose or repair it. End with DSH_ACCEPTANCE_PASS:diagnostics.unhealthy-companion.non-git only if DSH starts and reports the health refusal.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.unhealthy-companion.non-git",
       "expected_observable_outcome": "The unhealthy companion prevents task execution and the diagnostic attributes the health failure without leaking its local path.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "diagnostics.stale-plan-digest.non-git",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["A prepared runtime-kit lifecycle apply command carries a stale expected plan digest for the scratch profile."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "A prepared runtime-kit lifecycle apply command carries a stale expected plan digest for the scratch profile."
+      ],
       "folder_kind": "non-git",
       "task": "Invoke only the prepared stale-digest lifecycle command through the real tools pipeline and make no repair. Report the typed lifecycle refusal and end with DSH_ACCEPTANCE_PASS:diagnostics.stale-plan-digest.non-git only if no lifecycle mutation occurred.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.stale-plan-digest.non-git",
       "expected_observable_outcome": "The stale plan is rejected without lifecycle mutation and the diagnostic reports an operations-owned outcome.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "diagnostics.provider-unavailable.non-git",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["The external harness has selected a deliberately unavailable provider for this scratch DSH invocation."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "The external harness has selected a deliberately unavailable provider for this scratch DSH invocation."
+      ],
       "folder_kind": "non-git",
       "task": "Return DSH_ACCEPTANCE_PASS:diagnostics.provider-unavailable.non-git without using tools. The external harness must not repair or replace the deliberately unavailable provider.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.provider-unavailable.non-git",
       "expected_observable_outcome": "DSH fails at the provider boundary and diagnostics retain a provider-owned outcome without credentials.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "diagnostics.dirty-anchor.git-repo",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["The primary repository anchor contains a prepared uncommitted change and the task has no authority to discard it."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "The primary repository anchor contains a prepared uncommitted change and the task has no authority to discard it."
+      ],
       "folder_kind": "git-repo",
       "task": "Attempt only the prepared governed mutation from the dirty anchor and make no cleanup. Report the visible denial and end with DSH_ACCEPTANCE_PASS:diagnostics.dirty-anchor.git-repo only if the prepared user change remains intact.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.dirty-anchor.git-repo",
       "expected_observable_outcome": "The governed mutation is denied without altering user work and diagnostics expose the dirty-anchor policy decision.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "diagnostics.finish-line-refusal.managed-worktree",
-      "owner": { "program_child": "#C", "feature_issue": "#215" },
-      "preconditions": ["The managed worktree has an authoritative acceptance command and a prepared edit whose required validation remains unrun."],
+      "owner": {
+        "program_child": "#C",
+        "feature_issue": "#215"
+      },
+      "preconditions": [
+        "The managed worktree has an authoritative acceptance command and a prepared edit whose required validation remains unrun."
+      ],
       "folder_kind": "managed-worktree",
       "task": "Make the prepared edit and attempt to stop before running the registered validation. Do not diagnose or satisfy the refusal. End with DSH_ACCEPTANCE_PASS:diagnostics.finish-line-refusal.managed-worktree only if completion is allowed, which the external harness must treat as a failed precondition.",
       "success_marker": "DSH_ACCEPTANCE_PASS:diagnostics.finish-line-refusal.managed-worktree",
       "expected_observable_outcome": "Completion is refused and the diagnostic names the exact finish-line evidence still required.",
       "expected_reminders": [],
-      "forbidden_outcomes": ["credential-value", "session-outcome-unavailable"]
+      "forbidden_outcomes": [
+        "credential-value",
+        "session-outcome-unavailable"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     },
     {
       "id": "github-pr-delivery.managed-worktree",
-      "owner": { "program_child": "#E", "feature_issue": "#197" },
-      "preconditions": ["A disposable protected GitHub repository, authenticated managed session, signing identity, required checks, and provider review identities are available."],
+      "owner": {
+        "program_child": "#E",
+        "feature_issue": "#197"
+      },
+      "preconditions": [
+        "A disposable protected GitHub repository, authenticated managed session, signing identity, required checks, and provider review identities are available."
+      ],
       "folder_kind": "managed-worktree",
       "task": "Implement the prepared small function, owner test, and documentation; create signed governed commits; deliver the pull request with forge-cli; complete review and ledger gates; merge; read the merged pull request back; and clean the worktree. End with DSH_ACCEPTANCE_PASS:github-pr-delivery.managed-worktree only after provider read-back confirms the merged head.",
       "success_marker": "DSH_ACCEPTANCE_PASS:github-pr-delivery.managed-worktree",
       "expected_observable_outcome": "The complete protected GitHub PR lifecycle finishes unattended with checks, review evidence, merge read-back, and cleanup.",
-      "expected_reminders": ["runtime_kit_governed_commit"],
-      "forbidden_outcomes": ["silent-stop", "policy-unavailable", "policy-output-invalid", "unchecked_task_items", "unresolved_review_threads"]
+      "expected_reminders": [
+        "runtime_kit_governed_commit"
+      ],
+      "forbidden_outcomes": [
+        "silent-stop",
+        "policy-unavailable",
+        "policy-output-invalid",
+        "unchecked_task_items",
+        "unresolved_review_threads"
+      ],
+      "deliberate_failure_task": null,
+      "deliberate_failure_success_marker": null
     }
   ]
 }

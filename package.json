@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "bin": {
     "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-acceptance-fixture": "./dist/bin/dsh-runtime-kit-acceptance-fixture.js",
     "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./dist/scripts/check-rule-parity-source.js",
     "dsh-runtime-kit-manage-dsh-patch": "./dist/scripts/manage-dsh-patch.js",

@@ -232,6 +232,16 @@ function providerError(result: WorkspaceLeaseDenied) {
   return new WorkspaceLeaseError(result.reason, code, result.state)
 }
 
+function providerAdmissionError(result: WorkspaceLeaseDenied) {
+  const error = providerError(result)
+  return new WorkspaceLeaseError(
+    `${error.code}: ${error.message}; the tool body did not run`,
+    error.code,
+    error.state,
+    { cause: error },
+  )
+}
+
 function unavailable(message: string, cause?: unknown) {
   return new WorkspaceLeaseError(
     message,
@@ -785,7 +795,7 @@ export class WorkspaceLease extends Service {
         controller.signal,
       )
       if (result.kind === 'not-required') return { state: (('unmanaged') as const) }
-      if (result.kind === 'denied') throw providerError(result)
+      if (result.kind === 'denied') throw providerAdmissionError(result)
       if (slot.disposed || slot.session !== session) {
         await this.#releaseGeneration(provider, session, result, 'session-rebound')
         throw unavailable('workspace lease anchor lifecycle changed after bind')
@@ -949,7 +959,7 @@ export class WorkspaceLease extends Service {
           },
           signal,
         )
-        if (result.kind === 'denied') throw providerError(result)
+        if (result.kind === 'denied') throw providerAdmissionError(result)
         if (result.kind === 'not-required') return undefined
         if (slot.disposed
           || slot.session !== exact
@@ -1142,7 +1152,7 @@ export class WorkspaceLease extends Service {
     }
     assertProviderResult(result, 'begin')
     if (result.kind === 'not-required') return undefined
-    if (result.kind === 'denied') throw providerError(result)
+    if (result.kind === 'denied') throw providerAdmissionError(result)
     if (result.kind !== 'granted') {
       throw unavailable('workspace lease provider returned an invalid begin result')
     }

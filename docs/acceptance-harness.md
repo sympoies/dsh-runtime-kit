@@ -38,6 +38,13 @@ Resolve these before changing a profile:
   `apps/cli/lib/bin.js` with Node 24, and one task wrapper that runs that host
   wrapper through `dsh-runtime-kit-launch` with the accepted runtime root.
 
+Keep each family's runtime root and staged companion directory beneath that
+family's owner-only `DSH_HOME`. The packaged fixture provider may deliberately
+change and exactly restore those inputs; it refuses a companion outside the
+isolated family root. Set `DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE` to the two already-built, reviewed
+artifacts used by the profile-lifecycle family.
+
 Do not use Homebrew or fnm executable paths for authenticated companions when
 an ancestor is group- or other-writable. Runtime health rejects that topology
 even when the binary digest is correct. Put the environment in an owner-only
@@ -96,6 +103,60 @@ Because the driver accepts an executable path rather than a command prefix,
 put that launcher command in a second owner-only wrapper and pass its absolute
 path as `--dsh-bin`.
 
+The Codex or Claude Code process is the external harness, not the DSH runtime
+principal. Its DSH host wrapper must remove inherited provider/session identity
+such as `CODEX_SESSION_ID`, `CODEX_THREAD_ID`, and every `AGENT_SESSION_*`
+selector before boot. Forwarding an ordinary managed Codex or Claude principal
+into nested DSH makes DSH lifecycle events target the wrong provider runtime;
+the authenticated activity boundary rejects that mismatch.
+
+One-shot DSH checkout leases intentionally outlive the process that acquired
+them. Therefore each `git-repo` and `managed-worktree` DSH process uses a
+different physical scratch checkout: one for success, one for the induced
+failure, and one for the clean retry. Pass the third path as
+`--retry-workdir`. The driver verifies its folder kind, prepares and recovers
+the same family fixture there, records the distinct cwd, and proves that the
+induced run and retry received byte-identical `deliberate_failure_task` argv.
+Do not delete a lease, weaken the guard, or present unrelated
+`WORKSPACE_FOREIGN_ACTIVE` contention as family-specific recovery evidence.
+For `managed-subagent-workspace` rows, provision a distinct host-issued child
+for each primary. Export the repository identity as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY`, the failure pair as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE`, and export the clean pair as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE`. The retry variables
+must be supplied together, and the retry primary must equal the canonical
+`--retry-workdir`; otherwise fixture setup fails closed instead of reusing the
+failure child.
+
+The managed-subagent controller records `review-complete` in the primary
+checkout's `controller-review.txt` only after it has reviewed the submitted
+child bytes. This bounded parent-owned edit creates the primary finish-line
+generation that the final exact validation must satisfy; the implementation
+target in the primary remains `subagent-before`. Independently attest all three
+states after DSH exits: primary target unchanged, primary review recorded, and
+child target changed to `subagent-after`.
+
+The authenticated fixture provider validates the complete primary/child
+topology before its first write: the child must be a registered linked Git
+worktree sharing the primary's canonical Git common directory. It then stages
+the child checkout itself during the primary `prepare` or `induce` transition.
+The child therefore receives its own
+`AGENT_DOCS.toml`, project document, `subagent-target.txt`, and executable
+`fixture-validation.mjs`; no unpublished pre-seeding step is permitted. These
+child files are retained for external attestation. After rerunning child
+validation, remove the disposable child through the host-owned `git-cli
+worktree` lifecycle; provider cleanup does not erase independently observable
+child state before attestation.
+
+The controller must not execute Bash in the child worktree. Closing the lane
+releases that child and advances its workspace generation, which would make a
+controller-owned pre-close child validation stale while a post-close command
+would cross the released lease. The child runs its own registered validation
+before submitting; after DSH exits, the external harness reruns the same
+executable directly in the retained child checkout and records its output.
+
 Preview setup with an already-built local checkout or exact package artifact:
 
 ```sh
@@ -133,6 +194,63 @@ workdir. Repeated `--scenario` flags run serially. One invocation uses one
 workdir; use another invocation for a different folder kind and append to the
 same output file.
 
+For `git-repo` and `managed-worktree`, start from a clean minimal scratch
+repository. Commit its ignore rules before the run so every provider-owned path
+listed in `compatibility/acceptance-fixtures.json` is ignored; otherwise fixture
+staging itself dirties the lease anchor before DSH can exercise the scenario.
+Do not reuse a developer checkout whose unrelated tracked files or local
+changes can affect repository policy or attestation.
+
+Git-writing tasks need the DSH process to update Git metadata. A linked managed
+worktree keeps that metadata outside the worktree directory, so the default
+`workspace-write` sandbox cannot create its index lock. Do not solve that by
+giving an uncontained DSH process standing host access. Put the primary
+repository (including its `.git` directory), every linked worktree, `DSH_HOME`,
+the runtime root, and result artifacts beneath one canonical owner-only
+`<family-root>`; these remain disposable scratch repositories. Then run the
+Git-writing DSH process inside an outer OS sandbox
+that makes the host read-only and grants writes only to that family root. The
+inner DSH process may use `DSH_PERMISSION_MODE=danger-full-access` only inside
+this second containment boundary; agent-hook, the checkout lease, and the
+governed commit tool still enforce repository authority.
+
+On the authoritative Linux runner, the owner-only DSH wrapper uses the
+following `bwrap` shape. Replace every placeholder with a canonical absolute
+path, keep the environment allowlist explicit, and pass the DSH arguments
+through unchanged:
+
+```sh
+exec /usr/bin/bwrap \
+  --die-with-parent --new-session \
+  --ro-bind / / \
+  --bind <family-root> <family-root> \
+  --tmpfs /tmp --dev /dev --proc /proc \
+  --chdir <scenario-workdir> \
+  --clearenv \
+  --setenv HOME <family-root>/home \
+  --setenv PATH <node-24-toolchain>:/usr/bin:/bin \
+  --setenv DSH_HOME <family-root>/dsh-home \
+  --setenv DSH_RUNTIME_KIT_RUNTIME_ROOT <family-root>/runtime \
+  --setenv DSH_PERMISSION_MODE danger-full-access \
+  -- <absolute-node-24> <absolute-dsh-cli> "$@"
+```
+
+Add only the other fixed-input variables required by the selected profile and
+provider. Validate before boot that `<scenario-workdir>` and every writable
+profile, repository, worktree, Git common directory, runtime, and result path
+remain beneath `<family-root>`. If `bwrap` or an equivalent independently
+enforced write boundary is unavailable, record the Git-writing row as
+`precondition-unmet`; do not fall back to uncontained `danger-full-access`.
+Non-Git rows and Git rows that do not need out-of-worktree metadata remain in
+ordinary `workspace-write` mode.
+
+For Git rows, allocate all three physical checkouts before starting. The
+success invocation receives the success checkout. The deliberate-failure
+invocation receives the induced-failure checkout as `--workdir` and the clean
+checkout as `--retry-workdir`. Both Git paths must report the scenario's exact
+folder kind. Non-Git rows reuse one directory and must not pass
+`--retry-workdir`.
+
 ```sh
 /absolute/dsh-runtime-kit acceptance-drive \
   --profile headless \
@@ -164,18 +282,27 @@ child of the program, not an invitation to fix it during baseline capture.
 contract for child #D. It maps all 33 #D catalog rows into twelve capability
 families and gives each row two case identities:
 
-- `<scenario-id>.success` runs the unchanged catalog task and requires an
+- `<scenario-id>.success` runs the committed `task` and requires an
   independent observation of its natural-language outcome;
-- `<scenario-id>.deliberate-failure` runs the byte-identical catalog task in
-  the manifest's reversible degraded setup and passes only when the retained
-  structured session outcome is failed and the ordinary success marker is
-  absent. The external harness then diagnoses and performs a clean recovery.
+- `<scenario-id>.deliberate-failure` runs the committed
+  `deliberate_failure_task` in the manifest's reversible degraded setup and
+  passes only when the retained structured session outcome is failed and its
+  recovery marker is absent. The driver restores the fixture and reruns the
+  byte-identical `deliberate_failure_task`; only that clean retry may emit the
+  declared recovery marker.
+
+Both task byte streams are SHA-256-bound in the v2 scenario pack. The operator
+must not supply phase prose or a cause hint. The phase distinction comes only
+from committed catalog data, and recovery—not prompt drift—changes the failure
+task's result.
 
 Use one clean scratch profile per capability family. Do not reuse a family
 profile for another family, and do not run two folder kinds in one driver
-invocation. Every case gets a distinct run id. Supply an owner-only executable
-fixture provider with `--fixture-bin`; the driver binds its identity and invokes
-`prepare`/`cleanup` for a success row or
+invocation. Every case gets a distinct run id. The installed driver discovers
+its packaged `dsh-runtime-kit-acceptance-fixture` sibling by default and binds
+its identity. `--fixture-bin` remains an authenticated override for provider
+development; a fresh installed-package run does not need a machine-local
+provider path. The driver invokes `prepare`/`cleanup` for a success row or
 `induce`/`recover`/clean-retry/`cleanup` for a deliberate-failure row. First run
 the success half:
 
@@ -189,13 +316,12 @@ the success half:
   --artifact-dir /absolute/results/artifacts \
   --dsh-home /absolute/family-dsh-home \
   --dsh-bin /absolute/activated-dsh-wrapper \
-  --fixture-bin /absolute/fixture-provider \
   --run-id workspace-identity-non-git-success-1
 ```
 
-Then apply only that family's `deliberate_failure.induction`, preserving what
-the manifest says is needed for exact recovery, and run the failure half with a
-different id:
+Then run the failure half with a different id. The packaged fixture provider
+applies only that family's `deliberate_failure.induction` and preserves the
+exact inverse state for recovery:
 
 ```sh
 /absolute/dsh-runtime-kit acceptance-drive \
@@ -207,17 +333,50 @@ different id:
   --artifact-dir /absolute/results/artifacts \
   --dsh-home /absolute/family-dsh-home \
   --dsh-bin /absolute/activated-dsh-wrapper \
-  --fixture-bin /absolute/fixture-provider \
   --run-id workspace-identity-non-git-failure-1
 ```
 
-The driver does not alter the catalog prompt for the failure half and rejects a
-marker-only or ordinary-success response. After the induced run stops at the
+The corresponding Git form adds the distinct clean checkout:
+
+```sh
+/absolute/dsh-runtime-kit acceptance-drive \
+  --profile headless \
+  --scenario workspace-identity.git-repo \
+  --phase deliberate-failure \
+  --workdir /absolute/workspace-identity.git-repo-failure \
+  --retry-workdir /absolute/workspace-identity.git-repo-retry \
+  --output /absolute/results/feature-pack.jsonl \
+  --artifact-dir /absolute/results/artifacts \
+  --dsh-home /absolute/family-dsh-home \
+  --dsh-bin /absolute/activated-dsh-wrapper \
+  --run-id workspace-identity-git-repo-failure-1
+```
+
+The driver selects the catalog's digest-bound failure prompt without altering
+it and rejects a marker-only or ordinary-success response. After the induced run stops at the
 typed boundary, the external harness invokes `dsh-runtime-kit diagnose` without
 a human cause hint and derives `code`, `component`, `evidence_reference`,
 `next_action`, and `observable_state_check` from the result's diagnostic bundle.
 The attestation append rejects diagnosis fields that do not match that exact
 failed result.
+
+`compatibility/acceptance-fixtures.json` is the public fixture ownership
+contract. Its twelve family recipes cover every `#D` scenario exactly once,
+name only bounded relative fixture files, select one closed failure kind, and
+declare the fixed typed operation sequence for all four transitions. The
+provider never executes manifest shell text. It writes an
+`acceptance-fixture.json` plus the family inputs into the scenario workdir and
+retains private, digest-bound transition receipts below the family DSH home,
+keyed by a digest of the canonical workdir so induced and retry fixtures cannot
+redirect or overwrite one another.
+Existing caller paths fail as collisions. Cleanup removes digest-identical
+provider scaffolding but retains the declared family inputs so the external
+harness can inspect task mutations after the driver returns. Those retained
+paths remain provider-owned across the phase pair: after the success
+attestation, the next `success` to `deliberate-failure` transition resets only
+those state-bound paths to their typed baseline. Any other phase transition,
+workdir change within one fixture state, symlink, or ownership drift fails closed. The harness discards
+the isolated scenario directory only after the final failure attestation.
 
 The fixture provider receives only bounded arguments: `--schema`, `--stage`,
 `--phase`, `--family`, `--scenario`, and `--profile`; the workdir is its current
@@ -228,7 +387,21 @@ fields, `status: "pass"`, and one or more portable `{kind, reference, sha256}`
 evidence rows. The driver refuses a missing, changed, non-executable, malformed,
 or mismatched provider. A deliberate-failure result passes only when induction
 produced a failed structured outcome, recovery succeeded, the byte-identical
-catalog task then passed as a clean retry, and cleanup succeeded.
+`deliberate_failure_task` then passed as a clean retry, and cleanup succeeded.
+All twelve failure kinds are executable: workspace lease ownership, governed
+commit ordering, prerequisite digest, companion identity, authoritative
+validation ordering, host workspace issuance, protected destination,
+restricted-role mutation, artifact retrieval identity, lifecycle plan digest,
+dispatcher executable role, and retired-surface invocation. Each non-global
+fault is selected through a provider-owned phase input that the committed task
+must read; recovery restores that input's exact prior bytes.
+
+For provider development, override discovery with an absolute executable:
+
+```sh
+dsh-runtime-kit acceptance-drive ... \
+  --fixture-bin /absolute/dsh-runtime-kit-acceptance-fixture
+```
 
 After each driver process returns, the external Codex or Claude harness—not the
 DSH task—inspects the declared file, Git state, receipt, artifact, process,
@@ -314,12 +487,11 @@ The draft follows `docs/policies/heuristic-error-inbox.md` and merely suggests
 `workflow::heuristic-records`. A human or explicitly authorized delivery flow
 must review and submit it. The driver contains no provider mutation step.
 
-The runtime-health IDs deliberately use two invocations with different run
-IDs. First stage the unhealthy companion and retain the resulting
-`profile-doctor` / `precondition-unmet` row. Repair the companion outside the
-driver, then invoke the same scenario ID again and retain the repaired task
-row. Those paired rows are the scenario evidence; one synchronous driver
-process cannot pause while its external harness changes the profile.
+The runtime-health failure runs retain the pre-model
+`HealthProbeFailure` code from command stderr through an exact allowlist. The
+driver restores the companion mode, reruns doctor through normal activation,
+and executes the byte-identical failure task as its clean retry before
+returning one paired result row.
 
 ## Result contract
 
