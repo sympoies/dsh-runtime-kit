@@ -54,7 +54,7 @@ repository contributor routing and must not be copied over the root catalog.
 | Harness | `AGENTS.md` | Codex, Hermes, DSH | session policy | yes | Loaded by each harness at session start; it is deliberately not duplicated in either catalog. |
 | Harness | `CLAUDE.md` → `@AGENTS.md` | Claude | session policy | yes | Claude loads its native project entrypoint at session start, which imports the complete repository policy from `AGENTS.md`; neither file is duplicated in a catalog. |
 | Root catalog | `PROJECT_DEV_EDIT.md` | Codex, Claude, Hermes | `project-dev` / `edit` | yes | Loaded on every repository edit preflight as the runtime-neutral compact contributor contract. |
-| Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Available on demand for setup, ownership, validation, or delivery detail; it is not mandatory prompt context. |
+| Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Concise routine maintenance principles, validation, and reference routing; it is not mandatory prompt context. |
 | Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`, imported by Claude through `CLAUDE.md`) makes reading it mandatory before proposing work outside this repository. |
 | Packaged DSH catalog | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Loaded from the activated DSH home catalog. DSH is excluded from the root document entries so it never receives a duplicate copy. |
 
@@ -345,9 +345,9 @@ npm run acceptance -- \
   --review-specialists-bin /absolute/path/to/nils-cli/bin/review-specialists \
   --semantic-commit-bin /absolute/path/to/nils-cli/bin/semantic-commit \
   --forge-cli-bin /absolute/path/to/nils-cli/bin/forge-cli \
-  --nils-source-commit cf997a39ef64127c6b925a3cba0294760b8d31b6 \
-  --nils-archive-name nils-cli-v1.27.0-x86_64-unknown-linux-gnu.tar.gz \
-  --nils-archive-sha256 192f2e9b0225d730ff870f16654d9cec99a70ccec8dafe3199ea35a8672d421c \
+  --nils-source-commit "$(jq -r '.release.source_commit' compatibility/nils-cli.json)" \
+  --nils-archive-name "$(jq -r '.release.archive.name' compatibility/nils-cli.json)" \
+  --nils-archive-sha256 "$(jq -r '.release.archive.sha256' compatibility/nils-cli.json)" \
   --pnpm-bin /absolute/path/to/pnpm \
   --npm-bin /absolute/path/to/npm \
   --output /absolute/path/to/acceptance-summary.json \
@@ -369,7 +369,6 @@ repository delivery surfaces described by `AGENTS.md`. Do not bypass signing,
 hooks, checkout leases, review convergence, or protected-branch controls.
 
 ## DeepSeek Harness patch and rollback notes
-
 
 Apply the reviewed patch to a pristine selected checkout, rebuild the host
 libraries, and run the keyless end-to-end smoke test:
