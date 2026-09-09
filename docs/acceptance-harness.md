@@ -51,6 +51,23 @@ even when the binary digest is correct. Put the environment in an owner-only
 shell wrapper and invoke that wrapper by absolute path; do not rely on an
 opaque `export PATH=... && npm run ...` command.
 
+The same rule reaches further than the companions. The driver authenticates the
+DSH wrapper, the runtime-kit executable and the fixture executable, and it walks
+each one's whole ancestor chain with symlinks resolved. A shared evidence root
+is usually group-writable, so the candidate package and the wrappers belong
+under the owner-only state root, not beside the retained results; a symlink from
+one into the other does not help. Each condition only appears once the previous
+one is fixed, which makes a first attempt look like several unrelated setup
+bugs:
+
+| Refusal | Cause |
+| --- | --- |
+| `unsafe-output`: result parent must be an owner-only real directory | the result directory's immediate parent is not `0700` |
+| `invalid-path`: DSH executable has an unsafe containing directory | a wrapper ancestor is group- or other-writable |
+| `invalid-path`: runtime-kit executable has an unsafe containing directory | a candidate-package ancestor is group- or other-writable |
+
+Keep only the result JSONL and its artifacts in the evidence directory.
+
 ## Build before packing or setup
 
 The npm package ships TypeScript build output under `dist/`. `npm pack` does
