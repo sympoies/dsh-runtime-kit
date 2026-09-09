@@ -8,10 +8,10 @@
 - Profile: tracking
 - Plan branch: `fix/issue-218-executable-fixtures`
 - Current sprint: Sprint 2
-- Status: blocked
-- Current task: Task 2.2
-- Next task: restore the configured real-provider quota, then rerun the unchanged v50 candidate through the complete 66-case real-provider matrix
-- Blockers: the only configured DSH provider returns typed `provider-failure / QUOTA` before the model runs; #221 is implemented in the candidate
+- Status: validating
+- Current task: Task 2.3
+- Next task: deliver and review the PR, then run hosted acceptance before closing #218
+- Blockers: none for the #218 executable-fixture delivery; the 28 non-pass baseline rows remain owned by #217 and block #D promotion
 - Last updated: 2026-09-09
 - Branch/commit/PR: `fix/issue-218-executable-fixtures`; PR pending
 
@@ -23,8 +23,8 @@
 | 1.2 | Implement the packaged provider transitions | done | all twelve induction/inverse integration cases pass | #220 phase tasks are digest-bound; workspace lease uses the v2 protocol and other families switch only their typed phase input |
 | 1.3 | Integrate discovery and harness guidance | done | packaged-provider discovery, task-digest summary binding, and explicit override tests pass | Attestation-owned fixture inputs are retained after driver cleanup |
 | 2.1 | Validate package, smoke, and scripted accounting | done | focused final suite passes 70/70; full test passes 927/928 with one intentional skip, typecheck and policy benchmark pass, and all three smoke legs pass; packaged v50 scripted proof reports 66/66 results and 66/66 attestations | `typecheck:test` has the same broad pre-existing failures on accepted main and is waived as baseline noise |
-| 2.2 | Run the complete real-provider matrix | blocked | fresh v56 profiles and workdirs are ready; two independent attempts of the first unchanged task stop as typed `provider-failure / QUOTA` before model execution | Resume with the same packaged v50 candidate and clean v56 matrix after provider quota is restored |
-| 2.3 | Review, merge, and close the tracker | pending | pending | Depends on Task 2.2 |
+| 2.2 | Run the complete real-provider matrix | done | `gpt-5.6-luna` baseline records all 66 unique cases: 38 pass, 25 fail, 3 precondition-unmet; every pass has an external attestation | #217 retains the closed-set non-pass matrix and blocks #D promotion without expanding #218 |
+| 2.3 | Review, merge, and close the tracker | in-progress | final package, local gates, and real-provider baseline are complete | Deliver the PR, run the full pre-merge review, hosted acceptance, and strict tracker closeout |
 
 ## Validation Log
 
@@ -42,7 +42,8 @@
 - 2026-09-09: Final specialist re-review closed the executable ancestry, task/argv binding, folder-kind binding, and managed-child Git-topology findings. The focused acceptance suite passes 70/70 and security, testing, and maintainability re-reviews report no remaining findings.
 - 2026-09-09: Packaged candidate v50 passed the complete scripted accounting gate: 66/66 driver results and 66/66 independent attestations with no missing, duplicate, invalid-pair, or profile-isolation rows. After the final source fixes, the full repository suite passed 927/928 with one intentional skip and all three required local DSH smoke legs passed again; typecheck and the policy benchmark also pass.
 - 2026-09-09: Fresh v56 real-provider profiles and workdirs were initialized successfully, including operations-engine installation, healthy doctor output, and composed headless configuration. The real harness authenticated owner-only copies of the v50 driver, fixture provider, and DSH launcher. Two independent attempts of `workspace-identity.non-git.success` both reached DSH and stopped before model execution with typed `provider-failure / QUOTA`; both stderr artifacts have SHA-256 `b9655c8665f8f7871c7981988af7316896b45f10383b18171f2b524f2b6ed0fa`. The strict 66/66 merge gate remains unmet and no PR may merge until provider availability is restored.
+- 2026-09-09: The existing ChatGPT-subscription-backed DSH relay replaced the unavailable provider without changing the candidate. A clean v59 matrix pinned `codex-proxy` to `gpt-5.6-luna` and recorded all 66 unique catalog cases: 38 pass, 25 fail, and 3 precondition-unmet. All 38 passing rows have independent attestations; there are no missing, unexpected, duplicate, quota, credential, authentication, or provider-availability rows. The final JSONL SHA-256 is `48bcc9d84cc622d9dc35a40b2e3128a2a4986aa4f444f3b1a856c84196ba7dd8`. #217 retains the 28 non-pass rows for later repair, so #218 can deliver the executable evidence boundary without falsely promoting #D.
 
 ## Handoff
 
-- Restore the configured provider quota, run the unchanged v50 candidate through the complete serial real-provider matrix, and require 66/66 results plus 66/66 independent attestations before PR delivery, merge, and hosted Gate 4.
+- Deliver the unchanged executable-fixture candidate, run the full pre-merge review and hosted Gate 4, then close #218. Keep #217 open until its retained real-provider matrix reaches 66 pass and 66 independent attestations, at which point #D may be promoted in #197.
