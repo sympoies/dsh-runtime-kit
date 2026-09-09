@@ -39,7 +39,7 @@
     {
       "id": "managed-subagent-workspace",
       "scenario_ids": ["managed-subagent-workspace.git-repo", "managed-subagent-workspace.managed-worktree"],
-      "fixture_files": ["subagent-target.txt", "subagent-request.json", "main-agent-objective.json", "main-agent-assignment.json"],
+      "fixture_files": ["subagent-target.txt", "controller-review.txt", "subagent-request.json", "main-agent-objective.json", "main-agent-assignment.json"],
       "failure_kind": "workspace-issuance-conflict",
       "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
     },

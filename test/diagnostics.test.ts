@@ -244,6 +244,48 @@ process.stdout.write(JSON.stringify({profile:{name:'private-profile-name',id:'pr
   assert.doesNotMatch(rendered, new RegExp(root, 'u'))
 })
 
+test('collector trusts the packaged acceptance-fixture failure envelope', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'diagnostic-acceptance-fixture-'))
+  chmodSync(root, 0o700)
+  const dshHome = join(root, 'home')
+  const sessions = join(dshHome, 'sessions', 'fixture')
+  mkdirSync(sessions, { recursive: true, mode: 0o700 })
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh.mjs')
+  writeFileSync(runtimeKit, `process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')`)
+  writeFileSync(dsh, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify([])+'\\n')\n`)
+  chmodSync(runtimeKit, 0o700)
+  chmodSync(dsh, 0o700)
+  const failure = JSON.stringify({
+    schema_version: 'cli.dsh-runtime-kit.acceptance-fixture.v1',
+    ok: false,
+    error: {
+      code: 'acceptance-fixture-induced-failure',
+      message: 'The authenticated fixture fault is active.',
+    },
+  })
+  const transcript = [
+    { type: 'session', cwd: root, createdAt: Date.now() },
+    { type: 'tool/result', data: { message: { content: [{
+      type: 'tool-result',
+      content: [{ type: 'text', text: `[stderr]\n${failure}\n[exit code: 1]` }],
+    }] } } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  writeFileSync(join(sessions, 'session.jsonl.zstd'), zstdCompressSync(Buffer.from(transcript)), { mode: 0o600 })
+
+  const { collectDiagnosticBundle } = await import('../dist/src/diagnostics/index.js')
+  const bundle = collectDiagnosticBundle({
+    profile: 'headless', dshHome, workdir: root, runtimeKitEntry: runtimeKit, dshBin: dsh,
+    environment: { PATH: process.env.PATH },
+  })
+  assert.deepEqual(bundle.session.typed_errors, [{
+    code: 'acceptance-fixture-induced-failure',
+    event: 'tool/result:cli.dsh-runtime-kit.acceptance-fixture.v1',
+  }])
+  assert.equal(bundle.session_outcome.status, 'failed')
+  assert.equal(bundle.session_outcome.code, 'acceptance-fixture-induced-failure')
+})
+
 test('collector projects a DSH terminal provider error without its credential guidance', async () => {
   const root = await mkdtemp(join(tmpdir(), 'diagnostic-provider-'))
   chmodSync(root, 0o700)
@@ -419,6 +461,49 @@ test('collector uses an exact nested agent-hook denial over trace rule history',
   assert.equal(withoutTrace.session_outcome.category, 'tool-denial')
   assert.equal(withoutTrace.session_outcome.code, 'dsh.checkout-lease-guard')
   assert.equal(withoutTrace.session_outcome.receipt, 'session.typed_errors[0]')
+})
+
+test('collector projects a shell sandbox denial but ignores the same text from a read tool', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'diagnostic-sandbox-denial-'))
+  chmodSync(root, 0o700)
+  const dshHome = join(root, 'home')
+  const sessions = join(dshHome, 'sessions', 'fixture')
+  mkdirSync(sessions, { recursive: true, mode: 0o700 })
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh.mjs')
+  writeFileSync(runtimeKit, `process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')`)
+  writeFileSync(dsh, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify([])+'\\n')\n`)
+  chmodSync(runtimeKit, 0o700)
+  chmodSync(dsh, 0o700)
+  const sandboxText = '[sandbox: file access denied under workspace-write mode]'
+  const transcript = [
+    { type: 'session', cwd: root, createdAt: Date.now() },
+    { type: 'tool/call', data: { name: 'read', callId: 'read-one' } },
+    { type: 'tool/result', data: { message: { source: { kind: 'tool', callId: 'read-one' }, content: [{
+      type: 'tool-result', isError: false, content: [{ type: 'text', text: sandboxText }],
+    }] } } },
+    { type: 'tool/call', data: { name: 'bash', callId: 'bash-one' } },
+    { type: 'tool/result', data: { message: { source: { kind: 'tool', callId: 'bash-one' }, content: [{
+      type: 'tool-result', isError: false,
+      content: [{ type: 'text', text: `[stderr]\n${sandboxText}\n[exit code: 1]` }],
+    }] } } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  writeFileSync(join(sessions, 'session.jsonl.zstd'), zstdCompressSync(Buffer.from(transcript)), { mode: 0o600 })
+
+  const { collectDiagnosticBundle } = await import('../dist/src/diagnostics/index.js')
+  const bundle = collectDiagnosticBundle({
+    profile: 'headless', dshHome, workdir: root, runtimeKitEntry: runtimeKit, dshBin: dsh,
+    environment: { PATH: process.env.PATH },
+  })
+  assert.deepEqual(bundle.session.typed_errors, [{
+    code: 'sandbox-file-access-denied',
+    event: 'tool/result:sandbox-policy',
+  }])
+  assert.equal(bundle.session_outcome.status, 'failed')
+  assert.equal(bundle.session_outcome.category, 'tool-denial')
+  assert.equal(bundle.session_outcome.component, 'policy')
+  assert.equal(bundle.session_outcome.code, 'sandbox-file-access-denied')
+  assert.equal(bundle.session_outcome.receipt, 'session.typed_errors[0]')
 })
 
 test('collector never executes an agent-hook whose identity is not pinned', async () => {

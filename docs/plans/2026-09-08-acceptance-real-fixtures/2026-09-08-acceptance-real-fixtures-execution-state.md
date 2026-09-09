@@ -8,11 +8,11 @@
 - Profile: tracking
 - Plan branch: `fix/issue-218-executable-fixtures`
 - Current sprint: Sprint 2
-- Status: in-progress
-- Current task: Task 2.1
-- Next task: run the final packaged candidate through scripted accounting, smoke, and the complete real-provider matrix
-- Blockers: none; #221 is an in-scope reporting repair exposed by the real runtime-health run
-- Last updated: 2026-09-08
+- Status: blocked
+- Current task: Task 2.2
+- Next task: restore the configured real-provider quota, then rerun the unchanged v50 candidate through the complete 66-case real-provider matrix
+- Blockers: the only configured DSH provider returns typed `provider-failure / QUOTA` before the model runs; #221 is implemented in the candidate
+- Last updated: 2026-09-09
 - Branch/commit/PR: `fix/issue-218-executable-fixtures`; PR pending
 
 ## Task Ledger
@@ -22,8 +22,8 @@
 | 1.1 | Freeze the fixture manifest contract | done | RED: missing manifest; GREEN: focused manifest/provider suite passes | Strict v1 coverage binds all 12 families and 33 rows |
 | 1.2 | Implement the packaged provider transitions | done | all twelve induction/inverse integration cases pass | #220 phase tasks are digest-bound; workspace lease uses the v2 protocol and other families switch only their typed phase input |
 | 1.3 | Integrate discovery and harness guidance | done | packaged-provider discovery, task-digest summary binding, and explicit override tests pass | Attestation-owned fixture inputs are retained after driver cleanup |
-| 2.1 | Validate package, smoke, and scripted accounting | in-progress | focused driver/provider suite passes 57/57; earlier full test and three smoke legs passed before the latest safety edits | Final full gates follow the real-provider matrix |
-| 2.2 | Run the complete real-provider matrix | pending | 4/66 exploratory rows passed across two non-Git pairs; the final matrix restarts from fresh workdirs | Git rows use distinct success, induced-failure, and clean-retry checkouts |
+| 2.1 | Validate package, smoke, and scripted accounting | done | focused final suite passes 70/70; full test passes 927/928 with one intentional skip, typecheck and policy benchmark pass, and all three smoke legs pass; packaged v50 scripted proof reports 66/66 results and 66/66 attestations | `typecheck:test` has the same broad pre-existing failures on accepted main and is waived as baseline noise |
+| 2.2 | Run the complete real-provider matrix | blocked | fresh v56 profiles and workdirs are ready; two independent attempts of the first unchanged task stop as typed `provider-failure / QUOTA` before model execution | Resume with the same packaged v50 candidate and clean v56 matrix after provider quota is restored |
 | 2.3 | Review, merge, and close the tracker | pending | pending | Depends on Task 2.2 |
 
 ## Validation Log
@@ -38,7 +38,11 @@
 - 2026-09-08: The maintainer approved #220's recommended contract: committed phase-specific catalog tasks, with byte identity preserved between each induced failure run and its clean retry. Task 1.2 resumed; generic or metadata-only faults remain forbidden.
 - 2026-09-08: Scenario/catalog schemas advanced to v2 and bind both phase-task digests plus the canonical recovery marker. The driver and pack summary reject task/marker drift. All twelve provider induction/inverse recipes now execute in focused integration tests, and #221's pre-model runtime-health code is retained through an allowlisted `HealthProbeFailure` projection.
 - 2026-09-08: A real nested invocation proved that an outer Codex lifecycle principal cannot be forwarded into an ordinary DSH subprocess: the task completed, but the outer provider rejected DSH activity as `session-activity-failed`. The harness contract now treats Codex or Claude as the external observer, strips its principal selectors before DSH starts, and requires three physical checkouts for each Git scenario so the one-shot workspace lease is neither bypassed nor reused. The driver authenticates the separate retry checkout, repeats the exact task bytes there, and records both checkout-specific fixture receipts.
+- 2026-09-09: Managed-subagent fixtures now validate the child before submission, close the lane before the controller's read-only verification, and require the external harness to rerun child validation after DSH exits. This keeps the child activity-ledger generation current across lane release. Exact primary, child, and controller-review bytes are independently attested; retry workspaces are selected through their own authenticated environment pair.
+- 2026-09-09: Final specialist re-review closed the executable ancestry, task/argv binding, folder-kind binding, and managed-child Git-topology findings. The focused acceptance suite passes 70/70 and security, testing, and maintainability re-reviews report no remaining findings.
+- 2026-09-09: Packaged candidate v50 passed the complete scripted accounting gate: 66/66 driver results and 66/66 independent attestations with no missing, duplicate, invalid-pair, or profile-isolation rows. After the final source fixes, the full repository suite passed 927/928 with one intentional skip and all three required local DSH smoke legs passed again; typecheck and the policy benchmark also pass.
+- 2026-09-09: Fresh v56 real-provider profiles and workdirs were initialized successfully, including operations-engine installation, healthy doctor output, and composed headless configuration. The real harness authenticated owner-only copies of the v50 driver, fixture provider, and DSH launcher. Two independent attempts of `workspace-identity.non-git.success` both reached DSH and stopped before model execution with typed `provider-failure / QUOTA`; both stderr artifacts have SHA-256 `b9655c8665f8f7871c7981988af7316896b45f10383b18171f2b524f2b6ed0fa`. The strict 66/66 merge gate remains unmet and no PR may merge until provider availability is restored.
 
 ## Handoff
 
-- Package the principal-isolated candidate, prove one Git pair, then run repository/package/smoke gates, scripted 66/66 accounting, and the complete serial real-provider matrix before delivery.
+- Restore the configured provider quota, run the unchanged v50 candidate through the complete serial real-provider matrix, and require 66/66 results plus 66/66 independent attestations before PR delivery, merge, and hosted Gate 4.

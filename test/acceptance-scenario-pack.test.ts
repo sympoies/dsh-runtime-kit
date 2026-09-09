@@ -27,6 +27,12 @@ function taskMetadata(scenarioId: string, phase: 'success' | 'deliberate-failure
   }
 }
 
+function taskCommand(scenarioId: string, phase: 'success' | 'deliberate-failure', cwd: string) {
+  const scenario = loadAcceptanceCatalog(CATALOG).scenarios.find(row => row.id === scenarioId)!
+  const task = phase === 'success' ? scenario.task : scenario.deliberate_failure_task!
+  return { argv: ['/tmp/dsh', '--profile', 'headless', task], cwd }
+}
+
 function fixtureStage(
   stage: 'prepare' | 'induce' | 'recover' | 'cleanup',
   phase: 'success' | 'deliberate-failure',
@@ -44,12 +50,22 @@ function fixtureObserved(
   family: string,
   scenarioId: string,
 ) {
-  return { fixture: {
+  const folderKind = scenarioId.endsWith('.non-git') ? 'non-git'
+    : scenarioId.endsWith('.managed-worktree') ? 'managed-worktree' : 'git-repo'
+  const gitRetry = folderKind !== 'non-git'
+  return {
+    command: taskCommand(scenarioId, phase, '/tmp/work'),
+    fixture: {
     start: fixtureStage(phase === 'success' ? 'prepare' : 'induce', phase, family, scenarioId),
     ...(phase === 'success' ? {} : {
       recovery: fixtureStage('recover', phase, family, scenarioId),
       clean_retry: {
-        status: 'pass', success_gate_passed: true,
+        status: 'pass', success_gate_passed: true, task_byte_identical: true,
+        command: taskCommand(scenarioId, phase, '/tmp/retry'),
+        ...(gitRetry ? {
+          fixture_induce: fixtureStage('induce', phase, family, scenarioId),
+          fixture_recovery: fixtureStage('recover', phase, family, scenarioId),
+        } : {}),
         exit_code: 0, signal: null, success_marker_seen: true,
         stdout: { path: '/tmp/retry.stdout', sha256: '1'.repeat(64), bytes: 1 },
         stderr: { path: '/tmp/retry.stderr', sha256: '2'.repeat(64), bytes: 0 },
@@ -61,6 +77,9 @@ function fixtureObserved(
       },
     }),
     cleanup: fixtureStage('cleanup', phase, family, scenarioId),
+    ...(phase === 'deliberate-failure' && gitRetry
+      ? { retry_cleanup: fixtureStage('cleanup', phase, family, scenarioId) }
+      : {}),
   } }
 }
 
@@ -111,6 +130,7 @@ test('external harness attestation is append-only, portable, and phase-bound', a
     schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
     run_id: 'pack-success-1',
     scenario_id: 'automatic-prerequisite.non-git',
+    folder_kind: 'non-git',
     status: 'pass',
     scenario_pack: {
       schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
@@ -137,6 +157,15 @@ test('external harness attestation is append-only, portable, and phase-bound', a
     },
   }, undefined, 2)}\n`)
 
+  const mismatchedRows = readFileSync(output, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  mismatchedRows[0].folder_kind = 'git-repo'
+  writeFileSync(output, `${mismatchedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+  assert.throws(
+    () => appendAcceptanceAttestation({ outputPath: output, attestationPath }),
+    /complete fixture stage chain/u,
+  )
+  mismatchedRows[0].folder_kind = 'non-git'
+  writeFileSync(output, `${mismatchedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
   const appended = appendAcceptanceAttestation({ outputPath: output, attestationPath })
   assert.equal(appended.case_id, 'automatic-prerequisite.non-git.success')
   assert.equal(appended.status, 'pass')
@@ -157,6 +186,7 @@ test('deliberate-failure attestation requires diagnosis and recovery evidence', 
     schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
     run_id: 'pack-failure-1',
     scenario_id: 'runtime-health.non-git',
+    folder_kind: 'non-git',
     status: 'pass',
     scenario_pack: {
       schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
@@ -247,6 +277,8 @@ test('pack summary requires distinct successful result and attestation pairs for
           schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
           run_id: runId,
           scenario_id: scenarioId,
+          folder_kind: scenarioId.endsWith('.non-git') ? 'non-git'
+            : scenarioId.endsWith('.managed-worktree') ? 'managed-worktree' : 'git-repo',
           status: 'pass',
           scenario_pack: {
             schema_version: pack.schema_version,
@@ -320,6 +352,12 @@ test('pack summary requires distinct successful result and attestation pairs for
 
   const validRows = readFileSync(output, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   const retryMutations: Array<[string, (retry: Record<string, unknown>) => void]> = [
+    ['false task byte identity', retry => { retry.task_byte_identical = false }],
+    ['changed retry task argv', retry => {
+      (retry.command as { argv: string[] }).argv[3] = 'different task bytes'
+    }],
+    ['missing retry fixture induce', retry => { delete retry.fixture_induce }],
+    ['missing retry fixture recovery', retry => { delete retry.fixture_recovery }],
     ['missing missing_reminders', retry => { delete retry.missing_reminders }],
     ['nonempty missing_reminders', retry => { retry.missing_reminders = ['missing'] }],
     ['missing forbidden_outcomes_seen', retry => { delete retry.forbidden_outcomes_seen }],
@@ -347,6 +385,54 @@ test('pack summary requires distinct successful result and attestation pairs for
     assert.equal(invalid.status, 'fail', name)
     assert.equal(invalid.counts.missing_results, 1, name)
   }
+
+  type MutablePackResult = {
+    observed: {
+      command?: { argv: string[] }
+      fixture: { retry_cleanup?: unknown }
+    }
+  }
+  for (const [name, mutate] of [
+    ['missing executed command', (result: MutablePackResult) => { delete result.observed.command }],
+    ['changed executed task', (result: MutablePackResult) => {
+      assert.ok(result.observed.command)
+      result.observed.command.argv[3] = 'different task bytes'
+    }],
+    ['missing retry cleanup', (result: MutablePackResult) => {
+      delete result.observed.fixture.retry_cleanup
+    }],
+  ] as Array<[string, (result: MutablePackResult) => void]>) {
+    const invalidRows = structuredClone(validRows)
+    const result = invalidRows.find(row => row.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1'
+      && row.scenario_pack.phase === 'deliberate-failure' && row.folder_kind !== 'non-git')
+    mutate(result as MutablePackResult)
+    const invalidOutput = join(root, `${name.replaceAll(' ', '-')}.jsonl`)
+    writeFileSync(invalidOutput, `${invalidRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+    const invalid = summarizeAcceptanceScenarioPack({ outputPath: invalidOutput, pack })
+    assert.equal(invalid.status, 'fail', name)
+    assert.equal(invalid.counts.missing_results, 1, name)
+  }
+
+  const downgradedFolderRows = structuredClone(validRows)
+  const downgradedFolderResult = downgradedFolderRows.find(
+    row => row.schema_version === 'dsh-runtime-kit.acceptance-drive-result.v1'
+      && row.scenario_pack.phase === 'deliberate-failure' && row.folder_kind !== 'non-git',
+  )
+  downgradedFolderResult.folder_kind = 'non-git'
+  delete downgradedFolderResult.observed.fixture.clean_retry.fixture_induce
+  delete downgradedFolderResult.observed.fixture.clean_retry.fixture_recovery
+  delete downgradedFolderResult.observed.fixture.retry_cleanup
+  const downgradedFolderOutput = join(root, 'downgraded-folder-kind.jsonl')
+  writeFileSync(
+    downgradedFolderOutput,
+    `${downgradedFolderRows.map(row => JSON.stringify(row)).join('\n')}\n`,
+  )
+  const downgradedFolder = summarizeAcceptanceScenarioPack({
+    outputPath: downgradedFolderOutput,
+    pack,
+  })
+  assert.equal(downgradedFolder.status, 'fail')
+  assert.equal(downgradedFolder.counts.missing_results, 1)
 
   for (const [name, mutate] of [
     ['wrong task digest', (packRow: Record<string, unknown>) => { packRow.task_sha256 = '0'.repeat(64) }],

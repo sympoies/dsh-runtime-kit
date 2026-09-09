@@ -112,6 +112,10 @@ type WorkspaceLeaseSnapshot = {
   temporary_git_dir_sha256: string | null
 }
 type ExternalSnapshot = FileSnapshot | WorkspaceLeaseSnapshot
+type ManagedChildState = {
+  worktree: string
+  owned_files: OwnedFile[]
+}
 type FixtureState = {
   schema_version: typeof STATE_SCHEMA
   family: string
@@ -124,7 +128,18 @@ type FixtureState = {
   sequence: number
   owned_files: OwnedFile[]
   external_snapshot: ExternalSnapshot | null
+  managed_child: ManagedChildState | null
 }
+
+const MANAGED_CHILD_FIXTURE_PATHS = [
+  'acceptance-fixture.json',
+  '.dsh-acceptance/guide.md',
+  '.dsh-acceptance/protected/.fixture-root',
+  'AGENT_DOCS.toml',
+  'PROJECT_DEV_EDIT.md',
+  'fixture-validation.mjs',
+  'subagent-target.txt',
+] as const
 
 export type AcceptanceFixtureResult = {
   schema_version: typeof RESULT_SCHEMA
@@ -348,8 +363,156 @@ export function loadAcceptanceFixtureManifest(
   return { schema_version: MANIFEST_SCHEMA, families }
 }
 
+function governedRequest(input: AcceptanceFixtureInput, induced: boolean = false) {
+  const managed = input.scenarioId.endsWith('.managed-worktree')
+  return {
+    schema_version: 'dsh-runtime-kit.acceptance-governed-request.v1',
+    expected_outcome: induced
+      ? 'stop-on-governed-precondition-refusal'
+      : managed ? 'signed-feature-commit' : 'typed-default-branch-refusal',
+    sequence: induced
+      ? ['validate', 'governed-commit']
+      : managed
+        ? ['edit', 'stage', 'governed-commit', 'validate']
+        : ['edit', 'stage', 'governed-commit', 'verify-default-branch-refusal', 'unstage', 'remove-output', 'validate'],
+    edit: { path: 'governed.txt', content: 'committed\n' },
+    stage_command: 'git add -- governed.txt',
+    unstage_command: 'git reset -- governed.txt',
+    remove_output_command: 'rm -- governed.txt',
+    validation_command: './fixture-validation.mjs',
+    commit: {
+      tool: 'runtime_kit_governed_commit',
+      type: 'test',
+      scope: 'acceptance',
+      subject: 'prove governed acceptance',
+      body_bullets: ['Commit only the bounded acceptance fixture output.'],
+      expected_head_command: 'git rev-parse HEAD',
+    },
+  }
+}
+
+function gitPathFile(path: string, label: string) {
+  const metadata = safeFile(path, label)
+  if (metadata.size <= 0 || metadata.size > 4096) {
+    throw new FixtureError('fixture-input-invalid', `${label} is not a bounded Git path file`)
+  }
+  const value = readFileSync(path, 'utf8')
+  const normalized = value.endsWith('\n') ? value.slice(0, -1) : value
+  if (normalized.length === 0 || normalized.includes('\n') || normalized.includes('\r')
+    || normalized.includes('\0')) {
+    throw new FixtureError('fixture-input-invalid', `${label} is not a single Git path`)
+  }
+  return normalized
+}
+
+function gitWorktreeTopology(worktree: string, label: string) {
+  const dotGit = join(worktree, '.git')
+  if (!existsSync(dotGit)) {
+    throw new FixtureError('fixture-input-invalid', `${label} must be a Git checkout`)
+  }
+  const metadata = lstatSync(dotGit)
+  if (metadata.isSymbolicLink()) {
+    throw new FixtureError('fixture-input-invalid', `${label} has an unsafe Git administrative link`)
+  }
+  if (metadata.isDirectory()) {
+    const common = safeDirectory(dotGit, `${label} Git directory`, false)
+    return { common, gitDirectory: common, linked: false }
+  }
+  if (!metadata.isFile()) {
+    throw new FixtureError('fixture-input-invalid', `${label} has an unsupported .git entry`)
+  }
+  const declaration = gitPathFile(dotGit, `${label} .git file`)
+  const match = /^gitdir: (.+)$/u.exec(declaration)
+  if (match === null) {
+    throw new FixtureError('fixture-input-invalid', `${label} .git file is malformed`)
+  }
+  const gitDirectory = safeDirectory(
+    resolve(worktree, match[1]!),
+    `${label} Git administrative directory`,
+    false,
+  )
+  const commonDeclaration = gitPathFile(join(gitDirectory, 'commondir'), `${label} commondir`)
+  const common = safeDirectory(
+    resolve(gitDirectory, commonDeclaration),
+    `${label} Git common directory`,
+    false,
+  )
+  const backReference = gitPathFile(join(gitDirectory, 'gitdir'), `${label} gitdir back-reference`)
+  if (resolve(gitDirectory, backReference) !== dotGit) {
+    throw new FixtureError('fixture-input-invalid', `${label} Git worktree back-reference is invalid`)
+  }
+  return { common, gitDirectory, linked: true }
+}
+
+function mainAgentFixtureContext(input: AcceptanceFixtureInput) {
+  const primary = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY
+  const worktree = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE
+  const repository = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY
+  const retryPrimary = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY
+  const retryWorktree = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE
+  if (primary === undefined || worktree === undefined || repository === undefined
+    || !/^[A-Za-z0-9._-]{1,128}\/[A-Za-z0-9._-]{1,128}$/u.test(repository)) {
+    throw new FixtureError(
+      'fixture-input-missing',
+      'managed subagent repository, primary, and host-issued worktree are required',
+    )
+  }
+  if ((retryPrimary === undefined) !== (retryWorktree === undefined)) {
+    throw new FixtureError(
+      'fixture-input-missing',
+      'managed subagent retry primary and worktree must be supplied together',
+    )
+  }
+  for (const [path, label] of [
+    [primary, 'managed subagent primary'],
+    [worktree, 'managed subagent worktree'],
+    ...(retryPrimary === undefined ? [] : [
+      [retryPrimary, 'managed subagent retry primary'],
+      [retryWorktree!, 'managed subagent retry worktree'],
+    ]),
+  ] as Array<[string, string]>) {
+    if (!isAbsolute(path) || path.includes('\0') || !existsSync(path)) {
+      throw new FixtureError('fixture-input-invalid', `${label} must name an existing absolute directory`)
+    }
+  }
+  const canonicalPrimary = safeDirectory(primary, 'managed subagent primary', false)
+  const canonicalWorktree = safeDirectory(worktree, 'managed subagent worktree', false)
+  if (canonicalPrimary === canonicalWorktree) {
+    throw new FixtureError('fixture-input-invalid', 'managed subagent primary and child must be distinct')
+  }
+  const canonicalRetryPrimary = retryPrimary === undefined
+    ? undefined : safeDirectory(retryPrimary, 'managed subagent retry primary', false)
+  const canonicalRetryWorktree = retryWorktree === undefined
+    ? undefined : safeDirectory(retryWorktree, 'managed subagent retry worktree', false)
+  if (canonicalRetryPrimary !== undefined && canonicalRetryPrimary === canonicalRetryWorktree) {
+    throw new FixtureError('fixture-input-invalid', 'managed subagent retry primary and child must be distinct')
+  }
+  const retry = canonicalRetryPrimary !== undefined && canonicalRetryPrimary === input.workdir
+  const selectedPrimary = retry ? canonicalRetryPrimary : canonicalPrimary
+  const selectedWorktree = retry ? canonicalRetryWorktree : canonicalWorktree
+  if (selectedPrimary !== input.workdir) {
+    throw new FixtureError('fixture-input-invalid', 'managed subagent primary must match the scenario workdir')
+  }
+  const primaryTopology = gitWorktreeTopology(selectedPrimary, 'managed subagent primary')
+  const childTopology = gitWorktreeTopology(selectedWorktree!, 'managed subagent child')
+  if (!childTopology.linked || childTopology.common !== primaryTopology.common
+    || !within(join(primaryTopology.common, 'worktrees'), childTopology.gitDirectory)) {
+    throw new FixtureError(
+      'fixture-input-invalid',
+      'managed subagent child must be a linked worktree from the primary repository',
+    )
+  }
+  return {
+    primary: selectedPrimary,
+    worktree: selectedWorktree!,
+    repository,
+  }
+}
+
 function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: AcceptanceFixtureInput) {
   const scenario = input.scenarioId
+  const mainAgent = family.id === 'managed-subagent-workspace'
+    ? mainAgentFixtureContext(input) : undefined
   if (path === 'leased.txt') return 'leased-fixture\n'
   if (path === 'sibling.txt') return 'sibling-fixture\n'
   if (path === 'workspace-request.json') return `${JSON.stringify({
@@ -358,10 +521,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     content: 'lease-recovered',
   }, undefined, 2)}\n`
   if (path === 'governed-target.txt') return 'governed-fixture\n'
-  if (path === 'governed-request.json') return `${JSON.stringify({
-    schema_version: 'dsh-runtime-kit.acceptance-governed-request.v1',
-    sequence: ['edit', 'validate', 'governed-commit'],
-  }, undefined, 2)}\n`
+  if (path === 'governed-request.json') return `${JSON.stringify(governedRequest(input), undefined, 2)}\n`
   if (path === 'fixture-source.mjs') return 'export const plusOne = value => value\n'
   if (path === 'fixture-source.test.mjs') {
     return "import assert from 'node:assert/strict'\nimport { plusOne } from './fixture-source.mjs'\nassert.equal(plusOne(1), 2)\n"
@@ -377,13 +537,14 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     sequence: ['edit', 'validate', 'finish'],
   }, undefined, 2)}\n`
   if (path === 'subagent-target.txt') return 'subagent-before\n'
+  if (path === 'controller-review.txt') return 'review-pending\n'
   if (path === 'subagent-request.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-subagent-request.v1',
     workspace: 'new-host-issued-worktree',
     objective_file: join(input.workdir, 'main-agent-objective.json'),
     assignment_file: join(input.workdir, 'main-agent-assignment.json'),
-    primary_worktree: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY ?? null,
-    child_worktree: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE ?? null,
+    primary_worktree: mainAgent!.primary,
+    child_worktree: mainAgent!.worktree,
     target: 'subagent-target.txt',
     content: 'subagent-after',
   }, undefined, 2)}\n`
@@ -392,15 +553,20 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     tier: 'L0',
     objective_summary: `prove ${scenario} uses one native managed DSH lane`,
     objective: { goal: 'complete one isolated implementation assignment and close its lane' },
-    done_criteria: ['child worktree differs from the primary', 'child result accepted', 'lane closed'],
-    constraints: ['no commit', 'no delivery', 'leave the primary checkout unchanged'],
+    done_criteria: [
+      'child worktree differs from the primary',
+      'child result accepted',
+      'controller review recorded in the primary',
+      'lane closed',
+    ],
+    constraints: ['no commit', 'no delivery', 'leave the primary implementation target unchanged'],
     durable_refs: [],
     next_action: null,
     work_context: {
       schema_version: 'agent-session.work-context-input.v1',
       intent: 'project-dev',
       tier: 'L2',
-      repositories: [process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY ?? null],
+      repositories: [mainAgent!.repository],
       summary: 'DSH project-dev session',
     },
   }, undefined, 2)}\n`
@@ -409,18 +575,18 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     assignment_id: `lane-${sha256(input.workdir).slice(0, 16)}`,
     task_summary: 'edit and validate subagent-target.txt in the host-issued child worktree',
     task: {
-      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline, run node fixture-validation.mjs, then call main_agent_checkpoint with state submitted and report the validated result.',
+      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline, run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command, then call main_agent_checkpoint with state submitted and report the validated result.',
     },
     launch: {
       agent: 'dsh',
-      cwd: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE ?? null,
+      cwd: mainAgent!.worktree,
       title: null,
       session_id: `worker-${sha256(input.workdir).slice(0, 16)}`,
       coordination_mode: 'enforce',
       agent_args: [],
     },
-    repository: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY ?? null,
-    worktree: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE ?? null,
+    repository: mainAgent!.repository,
+    worktree: mainAgent!.worktree,
     base_ref: 'main',
     scopes: ['subagent-target.txt'],
     durable_refs: [],
@@ -661,6 +827,17 @@ function atomicJson(path: string, value: unknown) {
   chmodSync(path, 0o600)
 }
 
+function validOwnedFiles(value: unknown): value is OwnedFile[] {
+  return Array.isArray(value) && value.every(item => {
+    const owned = record(item)
+    return owned !== undefined && exactKeys(owned, ['path', 'sha256', 'mode', 'disposition'])
+      && typeof owned.path === 'string' && SAFE_PATH.test(owned.path)
+      && typeof owned.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(owned.sha256)
+      && Number.isSafeInteger(owned.mode) && (owned.mode as number) >= 0 && (owned.mode as number) <= 0o777
+      && ['cleanup', 'retain-for-attestation'].includes(String(owned.disposition))
+  })
+}
+
 function loadState(path: string): FixtureState | undefined {
   if (!existsSync(path)) return undefined
   safeFile(path, 'fixture state', true)
@@ -673,7 +850,7 @@ function loadState(path: string): FixtureState | undefined {
   const row = record(value)
   if (row === undefined || !exactKeys(row, [
     'schema_version', 'family', 'scenario_id', 'profile', 'phase', 'workdir', 'dsh_home', 'status', 'sequence',
-    'owned_files', 'external_snapshot',
+    'owned_files', 'external_snapshot', 'managed_child',
   ]) || row.schema_version !== STATE_SCHEMA || typeof row.family !== 'string'
     || typeof row.scenario_id !== 'string' || typeof row.profile !== 'string'
     || !['success', 'deliberate-failure'].includes(String(row.phase))
@@ -681,15 +858,13 @@ function loadState(path: string): FixtureState | undefined {
     || typeof row.dsh_home !== 'string' || !isAbsolute(row.dsh_home) || row.dsh_home.includes('\0')
     || !['active', 'recovered', 'cleaned'].includes(String(row.status))
     || !Number.isSafeInteger(row.sequence) || (row.sequence as number) < 0
-    || !Array.isArray(row.owned_files)
-    || row.owned_files.some(value => {
-      const owned = record(value)
-      return owned === undefined || !exactKeys(owned, ['path', 'sha256', 'mode', 'disposition'])
-        || typeof owned.path !== 'string' || !SAFE_PATH.test(owned.path)
-        || typeof owned.sha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(owned.sha256)
-        || !Number.isSafeInteger(owned.mode) || (owned.mode as number) < 0 || (owned.mode as number) > 0o777
-        || !['cleanup', 'retain-for-attestation'].includes(String(owned.disposition))
-    })
+    || !validOwnedFiles(row.owned_files)
+    || !(row.managed_child === null || (() => {
+      const child = record(row.managed_child)
+      return child !== undefined && exactKeys(child, ['worktree', 'owned_files'])
+        && typeof child.worktree === 'string' && isAbsolute(child.worktree) && !child.worktree.includes('\0')
+        && validOwnedFiles(child.owned_files)
+    })())
     || !(row.external_snapshot === null || (() => {
       const snapshot = record(row.external_snapshot)
       if (snapshot?.kind === 'file') {
@@ -760,6 +935,11 @@ function assertStateContract(
   ))) {
     throw new FixtureError('fixture-state-invalid', 'fixture state ownership does not match the family recipe')
   }
+  const requiresManagedChild = family.id === 'managed-subagent-workspace' && state.owned_files.length > 0
+  if ((requiresManagedChild && state.managed_child === null)
+    || (!requiresManagedChild && state.managed_child !== null)) {
+    throw new FixtureError('fixture-state-invalid', 'fixture managed-child ownership does not match the family recipe')
+  }
 }
 
 function existingOwnedPath(workdir: string, relativePath: string) {
@@ -781,6 +961,19 @@ function assertActiveState(state: FixtureState, input: AcceptanceFixtureInput) {
     const metadata = safeFile(path, `active fixture ${owned.path}`)
     if (sha256(readFileSync(path)) !== owned.sha256 || (metadata.mode & 0o777) !== owned.mode) {
       throw new FixtureError('fixture-state-drift', `active fixture file changed before transition: ${owned.path}`)
+    }
+  }
+  if (state.managed_child !== null) {
+    const child = safeDirectory(state.managed_child.worktree, 'managed subagent child', false)
+    for (const owned of state.managed_child.owned_files) {
+      const path = existingOwnedPath(child, owned.path)
+      if (!existsSync(path)) {
+        throw new FixtureError('fixture-state-drift', `managed child fixture is missing: ${owned.path}`)
+      }
+      const metadata = safeFile(path, `managed child fixture ${owned.path}`)
+      if (sha256(readFileSync(path)) !== owned.sha256 || (metadata.mode & 0o777) !== owned.mode) {
+        throw new FixtureError('fixture-state-drift', `managed child fixture changed before transition: ${owned.path}`)
+      }
     }
   }
 }
@@ -907,13 +1100,81 @@ Capability family: ${family.id}
 function fixtureValidation() {
   return `#!/usr/bin/env node
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 const fixture = JSON.parse(readFileSync('acceptance-fixture.json', 'utf8'))
+if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance/failure.json')) {
+  process.stderr.write(JSON.stringify({
+    schema_version: 'cli.dsh-runtime-kit.acceptance-fixture.v1',
+    ok: false,
+    error: {
+      code: 'acceptance-fixture-induced-failure',
+      message: 'The authenticated fixture fault is active.',
+    },
+  }) + '\\n')
+  process.exit(1)
+}
 assert.equal(fixture.schema_version, 'dsh-runtime-kit.acceptance-fixture.v1')
 assert.equal(typeof fixture.scenario_id, 'string')
 assert.equal(Array.isArray(fixture.fixture_files), true)
+if (fixture.family === 'managed-subagent-workspace') {
+  const pairs = [
+    [process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY, process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE],
+    [process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY, process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE],
+  ]
+  if (pairs.some(([primary, child]) => primary && child)) {
+    const cwd = realpathSync(process.cwd())
+    let matched = false
+    for (const [primary, child] of pairs) {
+      if (!primary || !child) continue
+      if (cwd === realpathSync(primary)) {
+        matched = true
+        assert.equal(readFileSync('subagent-target.txt', 'utf8'), 'subagent-before\\n')
+        assert.equal(readFileSync('controller-review.txt', 'utf8'), 'review-complete\\n')
+        break
+      }
+      if (cwd === realpathSync(child)) {
+        matched = true
+        assert.equal(readFileSync('subagent-target.txt', 'utf8'), 'subagent-after\\n')
+        break
+      }
+    }
+    assert.equal(matched, true, 'managed subagent validation cwd must match a declared primary or child')
+  }
+}
 process.stdout.write('acceptance-fixture-ok\\n')
 `
+}
+
+function stageManagedChildFixture(
+  family: AcceptanceFixtureFamily,
+  input: AcceptanceFixtureInput,
+  context: ReturnType<typeof mainAgentFixtureContext>,
+): ManagedChildState {
+  const worktree = context.worktree
+  const childInput = { ...input, workdir: worktree }
+  preflightOwnedPaths(worktree, [...MANAGED_CHILD_FIXTURE_PATHS])
+  const owned: OwnedFile[] = []
+  const fixture = {
+    schema_version: FIXTURE_SCHEMA,
+    family: family.id,
+    scenario_id: input.scenarioId,
+    profile: input.profile,
+    failure_kind: family.failure_kind,
+    fixture_files: ['subagent-target.txt'],
+    validation: { source_test: null, acceptance_test: null },
+  }
+  for (const [path, content, mode] of [
+    ['acceptance-fixture.json', `${JSON.stringify(fixture, undefined, 2)}\n`, 0o600],
+    ['.dsh-acceptance/guide.md', guide(family, childInput), 0o600],
+    ['.dsh-acceptance/protected/.fixture-root', 'dsh-acceptance-protected-root\n', 0o600],
+    ['AGENT_DOCS.toml', projectCatalog(family, childInput), 0o600],
+    ['PROJECT_DEV_EDIT.md', projectDocument(family, childInput), 0o600],
+    ['fixture-validation.mjs', fixtureValidation(), 0o700],
+    ['subagent-target.txt', 'subagent-before\n', 0o600],
+  ] as const) {
+    writeOwnedFile(worktree, path, content, owned, mode, 'retain-for-attestation')
+  }
+  return { worktree, owned_files: owned }
 }
 
 function stageFixture(
@@ -921,6 +1182,8 @@ function stageFixture(
   input: AcceptanceFixtureInput,
   prior: FixtureState | undefined,
 ): FixtureState {
+  const managedContext = family.id === 'managed-subagent-workspace'
+    ? mainAgentFixtureContext(input) : undefined
   if (prior !== undefined && prior.status !== 'cleaned') {
     assertActiveState(prior, input)
     return prior
@@ -945,6 +1208,23 @@ function stageFixture(
       safeFile(path, `retained fixture ${row.path}`)
       rmSync(path)
     }
+    if (prior.managed_child !== null && existsSync(prior.managed_child.worktree)) {
+      const child = safeDirectory(prior.managed_child.worktree, 'managed subagent child', false)
+      for (const row of [...prior.managed_child.owned_files].reverse()) {
+        const path = existingOwnedPath(child, row.path)
+        if (!existsSync(path)) {
+          throw new FixtureError('fixture-state-drift', `retained managed child fixture is missing: ${row.path}`)
+        }
+        safeFile(path, `retained managed child fixture ${row.path}`)
+        rmSync(path)
+      }
+      for (const directory of [
+        join(child, '.dsh-acceptance', 'protected'),
+        join(child, '.dsh-acceptance'),
+      ]) {
+        if (existsSync(directory)) rmdirSync(directory)
+      }
+    }
   }
   const stagingPaths = [
     'acceptance-fixture.json',
@@ -956,6 +1236,9 @@ function stageFixture(
     ...family.fixture_files,
   ]
   preflightOwnedPaths(input.workdir, stagingPaths)
+  if (managedContext !== undefined) {
+    preflightOwnedPaths(managedContext.worktree, [...MANAGED_CHILD_FIXTURE_PATHS])
+  }
   const owned: OwnedFile[] = []
   const fixture = {
     schema_version: FIXTURE_SCHEMA,
@@ -992,6 +1275,8 @@ function stageFixture(
       'retain-for-attestation',
     )
   }
+  const managedChild = managedContext === undefined
+    ? null : stageManagedChildFixture(family, input, managedContext)
   return {
     schema_version: STATE_SCHEMA,
     family: family.id,
@@ -1004,6 +1289,7 @@ function stageFixture(
     sequence: prior?.sequence ?? 0,
     owned_files: owned,
     external_snapshot: null,
+    managed_child: managedChild,
   }
 }
 
@@ -1231,10 +1517,7 @@ function fileFailureInput(family: AcceptanceFixtureFamily, input: AcceptanceFixt
   switch (family.failure_kind) {
     case 'governed-precondition': return {
       path: 'governed-request.json',
-      replacement: json({
-        schema_version: 'dsh-runtime-kit.acceptance-governed-request.v1',
-        sequence: ['governed-commit', 'edit', 'validate'],
-      }),
+      replacement: json(governedRequest(input, true)),
     }
     case 'unmet-validation': return {
       path: 'acceptance-request.json',
@@ -1377,6 +1660,12 @@ function induceFailure(family: AcceptanceFixtureFamily, input: AcceptanceFixture
       fileInput.replacement,
     )
   }
+  if (state.external_snapshot === null) {
+    throw new FixtureError(
+      'fixture-failure-kind-unimplemented',
+      `fixture family ${family.id} did not change a family-owned runtime input`,
+    )
+  }
   state.status = 'active'
 }
 
@@ -1481,6 +1770,10 @@ export function renewAcceptanceFixtureLease(input: AcceptanceFixtureInput) {
   const family = manifest.families.find(row => row.id === input.family)
   if (family === undefined || !family.scenario_ids.includes(input.scenarioId)) {
     throw new FixtureError('unknown-fixture-scenario', 'scenario is not owned by the requested fixture family')
+  }
+  if (family.id === 'managed-subagent-workspace'
+    && (input.stage === 'prepare' || input.stage === 'induce')) {
+    mainAgentFixtureContext(normalized)
   }
   const stateRoot = ensurePrivateDescendant(
     dshHome,
@@ -1617,6 +1910,10 @@ function receipt(
       disposition: row.disposition,
     })),
     external_snapshot_active: state.external_snapshot !== null,
+    managed_child: state.managed_child === null ? null : {
+      worktree: state.managed_child.worktree,
+      owned_files: state.managed_child.owned_files,
+    },
   }
   const name = `${String(state.sequence).padStart(4, '0')}-${input.stage}.json`
   const path = join(stateRoot, name)
@@ -1653,6 +1950,10 @@ export function runAcceptanceFixture(input: AcceptanceFixtureInput): AcceptanceF
   if (family === undefined || !family.scenario_ids.includes(input.scenarioId)) {
     throw new FixtureError('unknown-fixture-scenario', 'scenario is not owned by the requested fixture family')
   }
+  if (family.id === 'managed-subagent-workspace'
+    && (input.stage === 'prepare' || input.stage === 'induce')) {
+    mainAgentFixtureContext(normalized)
+  }
   const stateRoot = ensurePrivateDescendant(
     dshHome,
     'runtime-kit',
@@ -1685,6 +1986,7 @@ export function runAcceptanceFixture(input: AcceptanceFixtureInput): AcceptanceF
         sequence: state?.sequence ?? 0,
         owned_files: [],
         external_snapshot: null,
+        managed_child: null,
       }
     } else {
       throw new FixtureError('fixture-transition-invalid', `${input.stage} requires an active fixture`)

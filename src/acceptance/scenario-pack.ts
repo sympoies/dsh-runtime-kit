@@ -415,10 +415,24 @@ function digestEvidenceList(value: unknown) {
   return Array.isArray(value) && value.length <= 4096 && value.every(digestEvidence)
 }
 
-function cleanRetryMatches(value: unknown) {
+function executedTaskArgv(value: unknown, expectedTaskSha256: string) {
+  const executed = record(value)
+  const argv = executed?.argv
+  if (executed === undefined || !exactKeys(executed, ['argv', 'cwd'])
+    || !Array.isArray(argv) || argv.length !== 4
+    || argv.some(item => typeof item !== 'string' || item.includes('\0'))
+    || !isAbsolute(String(argv[0])) || argv[1] !== '--profile'
+    || String(argv[2]).length === 0 || !isAbsolute(String(executed.cwd))
+    || createHash('sha256').update(String(argv[3])).digest('hex') !== expectedTaskSha256) return undefined
+  return argv as string[]
+}
+
+function cleanRetryMatches(value: unknown, expectedTaskSha256: string, initialArgv: string[]) {
   const retry = record(value)
   const decisions = record(retry?.policy_decisions)
   return retry?.status === 'pass' && retry.success_gate_passed === true
+    && retry.task_byte_identical === true
+    && JSON.stringify(executedTaskArgv(retry.command, expectedTaskSha256)) === JSON.stringify(initialArgv)
     && retry.exit_code === 0 && retry.signal === null && retry.success_marker_seen === true
     && digestEvidence(retry.stdout) && digestEvidence(retry.stderr)
     && Array.isArray(retry.missing_reminders) && retry.missing_reminders.length === 0
@@ -436,14 +450,40 @@ function cleanRetryMatches(value: unknown) {
     && retry.executable_identity_error === null
 }
 
-function fixtureChainMatches(result: JsonRecord, phase: AcceptanceScenarioPackPhase, family: string, scenarioId: string) {
-  const fixture = record(record(result.observed)?.fixture)
+function scenarioFolderKind(scenarioId: string) {
+  if (scenarioId.endsWith('.managed-worktree')) return 'managed-worktree'
+  if (scenarioId.endsWith('.git-repo')) return 'git-repo'
+  if (scenarioId.endsWith('.non-git')) return 'non-git'
+  return undefined
+}
+
+function fixtureChainMatches(
+  result: JsonRecord,
+  phase: AcceptanceScenarioPackPhase,
+  family: string,
+  scenarioId: string,
+  taskSha256: string,
+) {
+  const observed = record(result.observed)
+  const initialArgv = executedTaskArgv(observed?.command, taskSha256)
+  const expectedFolderKind = scenarioFolderKind(scenarioId)
+  if (initialArgv === undefined || expectedFolderKind === undefined
+    || result.folder_kind !== expectedFolderKind) return false
+  const fixture = record(observed?.fixture)
   if (!fixtureReceiptMatches(fixture?.start, {
     stage: phase === 'success' ? 'prepare' : 'induce', phase, family, scenarioId,
   }) || !fixtureReceiptMatches(fixture?.cleanup, { stage: 'cleanup', phase, family, scenarioId })) return false
   if (phase === 'success') return fixture?.recovery === undefined && fixture?.clean_retry === undefined
-  return fixtureReceiptMatches(fixture?.recovery, { stage: 'recover', phase, family, scenarioId })
-    && cleanRetryMatches(fixture?.clean_retry)
+  const retry = record(fixture?.clean_retry)
+  if (!fixtureReceiptMatches(fixture?.recovery, { stage: 'recover', phase, family, scenarioId })
+    || !cleanRetryMatches(retry, taskSha256, initialArgv)) return false
+  const gitRetry = expectedFolderKind !== 'non-git'
+  return gitRetry
+    ? fixtureReceiptMatches(retry?.fixture_induce, { stage: 'induce', phase, family, scenarioId })
+      && fixtureReceiptMatches(retry?.fixture_recovery, { stage: 'recover', phase, family, scenarioId })
+      && fixtureReceiptMatches(fixture?.retry_cleanup, { stage: 'cleanup', phase, family, scenarioId })
+    : retry?.fixture_induce === undefined
+      && retry?.fixture_recovery === undefined && fixture?.retry_cleanup === undefined
 }
 
 function resultTaskBindingMatches(
@@ -504,7 +544,7 @@ export function appendAcceptanceAttestation(input: { outputPath: string, attesta
       'attestation requires a result bound to the committed phase-specific task',
     )
   }
-  if (!fixtureChainMatches(result, phase, String(resultPack?.family), scenarioId)) {
+  if (!fixtureChainMatches(result, phase, String(resultPack?.family), scenarioId, String(resultPack?.task_sha256))) {
     throw new ScenarioPackError('attestation-fixture-mismatch', 'attestation requires the complete fixture stage chain')
   }
   if (rows.map(record).some(item => item?.schema_version === ACCEPTANCE_HARNESS_ATTESTATION_SCHEMA
@@ -588,7 +628,7 @@ export function summarizeAcceptanceScenarioPack(input: {
       taskSha256: expectedTask.taskSha256,
       successMarker: expectedTask.successMarker,
     })) return false
-    if (!fixtureChainMatches(item, pack.phase, expectedFamily, item.scenario_id)) return false
+    if (!fixtureChainMatches(item, pack.phase, expectedFamily, item.scenario_id, expectedTask.taskSha256)) return false
     if (pack.phase === 'deliberate-failure') {
       const outcome = record(item.session_outcome)
       const bundle = record(item.diagnostic_bundle)

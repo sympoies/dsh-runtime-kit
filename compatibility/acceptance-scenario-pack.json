@@ -71,13 +71,13 @@
         {
           "scenario_id": "governed-commit.git-repo",
       "success_task_sha256": "ec8a62747be7fd1e8a25a1ddc16dc2b8889eafdd3d1ce4986756edbc69ca017f",
-      "deliberate_failure_task_sha256": "51beddd54a2c9885a79c8d11ff4498d0f45376b68175ed79c5cd5b77af3dad22",
+      "deliberate_failure_task_sha256": "244f2a0ad2f45f02ec3b8c6eb497e2989987ee31a80f5b91d2b2fbb433926621",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo"
         },
         {
           "scenario_id": "governed-commit.managed-worktree",
-      "success_task_sha256": "6fa10e76888bb4c948298172820492b6185e874778d87d30fdd1c1c9137e9178",
-      "deliberate_failure_task_sha256": "7e2ec40607b8bfd5909f617b69e1bafc360fb4057228ef47f4a4b5910e0f0171",
+      "success_task_sha256": "e092cf95cb673f94645ef586efadeda26bf05485a97fc1ca8d1c2bee36369679",
+      "deliberate_failure_task_sha256": "5ed538e68201fd0bc0d5205e3debb5cc5200dafca2927a675ad885d2236d1d71",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree"
         }
       ]
@@ -194,19 +194,19 @@
         {
           "scenario_id": "authoritative-acceptance.git-repo",
       "success_task_sha256": "27352f8361e72daeacc7ea710e2e9fd34878afd1e00101308a9a5a67ae55a806",
-      "deliberate_failure_task_sha256": "baa5e6b9541798ec45632b34fdb9f22d3cbe642bff6d45657068bf3f1a39f139",
+      "deliberate_failure_task_sha256": "c00af69760674e28f5349990b831eced708edbe4bd1373dba29b2df425fea7a5",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.git-repo"
         },
         {
           "scenario_id": "authoritative-acceptance.non-git",
       "success_task_sha256": "81315513294ef1b92b9539cc7984d053b36138c69c3b39c75d3a4e6dd9e831c8",
-      "deliberate_failure_task_sha256": "b665694048e8f66327e688e698094e9400b557067a7c4748393b42ce2d0d21e2",
+      "deliberate_failure_task_sha256": "a6806748786e786eb9d47919c7e129554679ed6be3c0db2766fb4070149b87af",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.non-git"
         },
         {
           "scenario_id": "authoritative-acceptance.managed-worktree",
       "success_task_sha256": "0a3438247a95eac9e644161f894d1ed381f8478f9442bb18742f3d5f8c90cc50",
-      "deliberate_failure_task_sha256": "03826453af967b8af8e545f967aa6d136c869779e5ae0df1b903a7e2b0db7122",
+      "deliberate_failure_task_sha256": "ffe8fd1bd3e0839ae64e33ed37c57d64dcbaefab278a5ae9c037f078515c2a52",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.managed-worktree"
         }
       ]
@@ -218,7 +218,7 @@
         "managed-subagent-workspace.git-repo",
         "managed-subagent-workspace.managed-worktree"
       ],
-      "success_observation": "Compare parent and child workspace identities, primary checkout bytes, returned child result, and final worktree inventory independently; the host must issue and remove the child worktree.",
+      "success_observation": "Verify that the primary implementation target remains subagent-before, the controller-owned review file is exactly review-complete, and the distinct retained child target is subagent-after. Rerun the registered child validation after DSH exits, then remove the child through the host-owned worktree lifecycle.",
       "deliberate_failure": {
         "induction": "Create a reversible row-specific workspace issuance conflict before the unchanged delegation task, without altering the parent checkout or task prompt.",
         "diagnosis_task": "Attempt the unchanged delegation. If the host cannot issue the child workspace, use dsh-runtime-kit diagnose and the workspace/session receipts to report the code, owner, evidence reference, next action, and observable recovery check.",
@@ -230,19 +230,19 @@
           "observable_state_check"
         ],
         "recovery": "Remove only the inducing conflict through the host-owned workspace lifecycle, then retry delegation with a new run id.",
-        "recovery_observation": "The primary checkout stayed unchanged, the retry used a distinct child worktree, and no child worktree or lease remains."
+        "recovery_observation": "The retry primary implementation target stayed subagent-before, its controller-owned review file became exactly review-complete, and the distinct retry child remained available with subagent-after through external validation. Remove that child and its released lease only after attestation."
       },
       "task_bindings": [
         {
           "scenario_id": "managed-subagent-workspace.git-repo",
-          "success_task_sha256": "17d0b49c6b2d465acd669004649fa7f832b31c3b69c508f1d0a647e6c5b66ff3",
-          "deliberate_failure_task_sha256": "614436577f650ab77e5727f99926720a59ea9c75df58568cdfb5bea35a289611",
+      "success_task_sha256": "b9d90198b0d1dbbc6a09af978e23a21c36e601a7811fbfcef63184fcaa42d672",
+      "deliberate_failure_task_sha256": "a574ce87ab1852833c2fc12ea2115fbc4a15acd0142e5871bd035b3194e02334",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo"
         },
         {
           "scenario_id": "managed-subagent-workspace.managed-worktree",
-          "success_task_sha256": "5336076d39adc1c490d34e4f2c7785c86391c04381203dedbf3191a891068231",
-          "deliberate_failure_task_sha256": "c65a077f6e71df8a9efe6db7602be71a98e9add8a37bd14097e9c57eb458cc1a",
+      "success_task_sha256": "43fda120c44c8146932450e8f51486d11f2baec14f157a1f90aaad4fde2ca52b",
+      "deliberate_failure_task_sha256": "7ffcd533885347f82aa76c9ed22410b9d0eee0f2ff241008f36400afc58f10f2",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree"
         }
       ]

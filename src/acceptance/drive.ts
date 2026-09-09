@@ -295,7 +295,26 @@ function assertAbsoluteDirectory(path: string, label: string) {
 function executable(path: string, label: string) {
   if (!isAbsolute(path) || path.includes('\0')) throw new DriveError('invalid-path', `${label} must be absolute`)
   const canonical = realpathSync(path)
-  safeRegularFile(canonical, label)
+  const metadata = safeRegularFile(canonical, label)
+  if ((typeof process.getuid === 'function' && metadata.uid !== process.getuid())
+    || (metadata.mode & 0o022) !== 0) {
+    throw new DriveError('invalid-path', `${label} must be current-user-owned and not group/other-writable`)
+  }
+  let cursor = dirname(canonical)
+  for (;;) {
+    const ancestor = lstatSync(cursor)
+    const ownerTrusted = typeof process.getuid !== 'function'
+      || ancestor.uid === process.getuid() || ancestor.uid === 0
+    const writableByOthers = (ancestor.mode & 0o022) !== 0
+    const sticky = (ancestor.mode & 0o1000) !== 0
+    if (ancestor.isSymbolicLink() || !ancestor.isDirectory() || !ownerTrusted
+      || (writableByOthers && !sticky)) {
+      throw new DriveError('invalid-path', `${label} has an unsafe containing directory`)
+    }
+    const parent = dirname(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
   try {
     accessSync(canonical, constants.X_OK)
   } catch {
@@ -333,8 +352,9 @@ function command(
   dshHome: string,
   timeoutMs: number,
 ): CapturedCommand {
-  const argv = [executablePath, ...args]
-  const result = spawnSync(executablePath, args, {
+  const trustedExecutable = executable(executablePath, 'command executable')
+  const argv = [trustedExecutable, ...args]
+  const result = spawnSync(trustedExecutable, args, {
     cwd,
     env: { ...process.env, DSH_HOME: dshHome },
     encoding: 'utf8',
@@ -1285,7 +1305,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         : executed.error !== undefined || executed.exit_code !== 0 || executed.signal !== null
           ? 'scenario-execution-failed'
           : 'scenario-outcome-mismatch'
-      const runtimeHealthCode = runtimeHealthCodeFromCommandOutput(commandOutput)
+      const runtimeHealthCode = runtimeHealthCodeFromCommandOutput(executed.stderr)
       const diagnostic = diagnosticEvidence(selectedScenario.id, {
         exit_code: executed.exit_code,
         error_code: identityError?.code ?? runtimeHealthCode

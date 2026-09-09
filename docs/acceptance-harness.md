@@ -119,6 +119,43 @@ the same family fixture there, records the distinct cwd, and proves that the
 induced run and retry received byte-identical `deliberate_failure_task` argv.
 Do not delete a lease, weaken the guard, or present unrelated
 `WORKSPACE_FOREIGN_ACTIVE` contention as family-specific recovery evidence.
+For `managed-subagent-workspace` rows, provision a distinct host-issued child
+for each primary. Export the repository identity as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY`, the failure pair as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE`, and export the clean pair as
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY` and
+`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE`. The retry variables
+must be supplied together, and the retry primary must equal the canonical
+`--retry-workdir`; otherwise fixture setup fails closed instead of reusing the
+failure child.
+
+The managed-subagent controller records `review-complete` in the primary
+checkout's `controller-review.txt` only after it has reviewed the submitted
+child bytes. This bounded parent-owned edit creates the primary finish-line
+generation that the final exact validation must satisfy; the implementation
+target in the primary remains `subagent-before`. Independently attest all three
+states after DSH exits: primary target unchanged, primary review recorded, and
+child target changed to `subagent-after`.
+
+The authenticated fixture provider validates the complete primary/child
+topology before its first write: the child must be a registered linked Git
+worktree sharing the primary's canonical Git common directory. It then stages
+the child checkout itself during the primary `prepare` or `induce` transition.
+The child therefore receives its own
+`AGENT_DOCS.toml`, project document, `subagent-target.txt`, and executable
+`fixture-validation.mjs`; no unpublished pre-seeding step is permitted. These
+child files are retained for external attestation. After rerunning child
+validation, remove the disposable child through the host-owned `git-cli
+worktree` lifecycle; provider cleanup does not erase independently observable
+child state before attestation.
+
+The controller must not execute Bash in the child worktree. Closing the lane
+releases that child and advances its workspace generation, which would make a
+controller-owned pre-close child validation stale while a post-close command
+would cross the released lease. The child runs its own registered validation
+before submitting; after DSH exits, the external harness reruns the same
+executable directly in the retained child checkout and records its output.
 
 Preview setup with an already-built local checkout or exact package artifact:
 
@@ -163,6 +200,16 @@ listed in `compatibility/acceptance-fixtures.json` is ignored; otherwise fixture
 staging itself dirties the lease anchor before DSH can exercise the scenario.
 Do not reuse a developer checkout whose unrelated tracked files or local
 changes can affect repository policy or attestation.
+
+Git-writing tasks need the DSH process to update Git metadata. A linked managed
+worktree keeps that metadata outside the worktree directory, so the default
+`workspace-write` sandbox cannot create its index lock. For these disposable
+scratch repositories only, set `DSH_PERMISSION_MODE=danger-full-access` in the
+owner-only DSH wrapper before boot. The headless profile has no interactive
+approval answerer; leaving `workspace-write` active makes a legitimate
+`git add` fail closed instead of testing the governed commit boundary. Keep the
+workdir disposable and let agent-hook, the checkout lease, and the governed
+commit tool continue to enforce repository authority.
 
 For Git rows, allocate all three physical checkouts before starting. The
 success invocation receives the success checkout. The deliberate-failure

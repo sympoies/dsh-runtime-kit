@@ -565,6 +565,7 @@ function concatenatedZstd(bytes: Buffer) {
 const OWNED_TOOL_RESULT_SCHEMAS = new Set([
   'cli.dsh-runtime-kit.operations.v1',
   'cli.dsh-runtime-kit.acceptance-drive.v1',
+  'cli.dsh-runtime-kit.acceptance-fixture.v1',
   'cli.dsh-runtime-kit.diagnose.v1',
 ])
 
@@ -579,7 +580,11 @@ function digestDetails(value: unknown) {
   return Object.keys(projected).length === 0 ? undefined : projected
 }
 
-function ownedToolResultErrors(message: unknown, event: string): TypedSessionError[] {
+function ownedToolResultErrors(
+  message: unknown,
+  event: string,
+  allowSandboxDenial: boolean = false,
+): TypedSessionError[] {
   const content = record(message)?.content
   if (!Array.isArray(content)) return []
   const errors: TypedSessionError[] = []
@@ -607,6 +612,13 @@ function ownedToolResultErrors(message: unknown, event: string): TypedSessionErr
         errors.push({
           code: observed === 'blocked' ? 'policy-denied' : observed.startsWith('dsh.') ? observed : `dsh.${observed}`,
           event: `${event}:agent-hook`,
+        })
+      }
+      if (allowSandboxDenial
+        && /(?:^|\n)\[sandbox: file access denied under (?:read-only|workspace-write) mode\](?:\n|$)/u.test(text.text)) {
+        errors.push({
+          code: 'sandbox-file-access-denied',
+          event: `${event}:sandbox-policy`,
         })
       }
     }
@@ -731,6 +743,7 @@ function latestSession(
       typedErrors.push(...values)
       if (typedErrors.length > 20) typedErrors.splice(0, typedErrors.length - 20)
     }
+    const shellCallIds = new Set<string>()
     let startedAt = Number.POSITIVE_INFINITY
     let finishedAt = Number.NEGATIVE_INFINITY
     for (const line of decoded.toString('utf8').split('\n')) {
@@ -739,6 +752,10 @@ function latestSession(
       try { row = record(JSON.parse(line)) } catch { continue }
       const type = typeof row?.type === 'string' ? row.type : 'unknown'
       const data = record(row?.data)
+      if (type === 'tool/call' && (data?.name === 'bash' || data?.name === 'shell')
+        && typeof data.callId === 'string') {
+        shellCallIds.add(data.callId)
+      }
       const eventTime = typeof row?.time === 'number'
         ? row.time
         : typeof row?.createdAt === 'number' ? row.createdAt : undefined
@@ -761,7 +778,11 @@ function latestSession(
           event: type,
         }])
       }
-      appendTypedErrors(ownedToolResultErrors(data?.message, type))
+      const message = record(data?.message)
+      const messageSource = record(message?.source)
+      const shellResult = messageSource?.kind === 'tool' && typeof messageSource.callId === 'string'
+        && shellCallIds.has(messageSource.callId)
+      appendTypedErrors(ownedToolResultErrors(data?.message, type, shellResult))
       if (type.startsWith('finish-line/')) {
         finishLine = { code: logicalCode(data?.code, 'finish-line-refused'), event: type }
       }
@@ -928,7 +949,8 @@ export function collectDiagnosticBundle(input: {
       const row = record(value)
       return { action: typeof row?.action === 'string' ? row.action : undefined, rule_ids: Array.isArray(row?.rule_ids) ? row.rule_ids.filter(id => typeof id === 'string') as string[] : [] }
     }) : [],
-    policy_code: typeof typed?.event === 'string' && typed.event.endsWith(':agent-hook')
+    policy_code: typeof typed?.event === 'string'
+      && (typed.event.endsWith(':agent-hook') || typed.event.endsWith(':sandbox-policy'))
       ? typed.code
       : undefined,
     ...suppliedObservation,
