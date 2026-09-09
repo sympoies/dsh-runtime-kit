@@ -1,8 +1,8 @@
 # Documentation
 
 This directory holds durable documentation for `dsh-runtime-kit`. The root
-`README.md` is the product entrypoint for DSH users; `DEVELOPMENT.md` is the
-routine contributor entrypoint.
+`README.md` is the product entrypoint for DSH users; root `DEVELOPMENT.md` is
+the routine contributor entrypoint.
 
 ## Use and operate
 
@@ -40,8 +40,10 @@ routine contributor entrypoint.
 
 ## Develop and investigate
 
-- [Contributor setup and validation](../DEVELOPMENT.md) — prerequisites,
-  source-of-truth files, routine gates, smoke tests, and delivery constraints.
+- [Contributor workflow](../DEVELOPMENT.md) — maintenance principles, routine
+  gates, and documentation routing.
+- [Development reference](development-reference.md) — detailed source,
+  build, package, patch, smoke, compatibility, and delivery procedures.
 - [Test-first evidence](test-first-evidence.md) — retained implementation and
   validation evidence for the migration work.
 - [Development log](devlog/README.md) — curated, newest-first project history.

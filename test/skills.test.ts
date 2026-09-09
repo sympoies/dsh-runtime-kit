@@ -384,6 +384,10 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
 
 test('repository agent-docs semantic smoke is wired to the documented product entrypoints', () => {
   const development = readFileSync(join(projectRoot, 'DEVELOPMENT.md'), 'utf8')
+  const developmentReference = readFileSync(
+    join(projectRoot, 'docs', 'development-reference.md'),
+    'utf8',
+  )
   const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   const compatibilityWorkflow = readFileSync(
     join(projectRoot, '.github', 'workflows', 'compatibility.yml'),
@@ -406,28 +410,29 @@ test('repository agent-docs semantic smoke is wired to the documented product en
   assert.match(compatibilityWorkflow, /run: npm run test:agent-docs-catalog/u)
 
   assert.match(development, /--phase edit[\s\\]+\n\s+--strict --require-declared-intent/u)
-  assert.match(development, /Two catalogs intentionally coexist\./u)
-  assert.match(development, /\| Harness \| `AGENTS\.md` \| Codex, Hermes, DSH/u)
-  assert.match(development, /\| Harness \| `CLAUDE\.md` → `@AGENTS\.md` \| Claude/u)
+  assert.match(development, /docs\/development-reference\.md/u)
+  assert.match(developmentReference, /Two catalogs intentionally coexist\./u)
+  assert.match(developmentReference, /\| Harness \| `AGENTS\.md` \| Codex, Hermes, DSH/u)
+  assert.match(developmentReference, /\| Harness \| `CLAUDE\.md` → `@AGENTS\.md` \| Claude/u)
   assert.match(
-    development,
+    developmentReference,
     /\| Root catalog \| `PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,
   )
   assert.match(
-    development,
+    developmentReference,
     /\| Root catalog \| `DEVELOPMENT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit`, `delivery` \| no/u,
   )
   assert.match(
-    development,
+    developmentReference,
     /\| Root catalog \| `docs\/policies\/upstream-contribution\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `delivery` \| no in the catalog/u,
   )
   assert.match(
-    development,
+    developmentReference,
     /\| Packaged DSH catalog \| installed `PROJECT_DEV_EDIT\.md` \(source: `agent-docs\/PROJECT_DEV_EDIT\.md`\) \| DSH \| `project-dev` \/ `edit` \| yes/u,
   )
-  assert.match(development, /after\s+the final mutation and before declaring the task complete/u)
-  assert.match(development, /authoritative finish-line resolver/u)
-  assert.match(development, /they are not automatic model context/u)
+  assert.match(developmentReference, /after\s+the final mutation and before declaring the task complete/u)
+  assert.match(developmentReference, /authoritative finish-line resolver/u)
+  assert.match(developmentReference, /they are not automatic model context/u)
 })
 
 test('nils-cli compatibility is machine-readable and pinned to the current DSH-capable release', () => {

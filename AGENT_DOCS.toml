@@ -26,7 +26,7 @@ product = ["codex", "claude", "hermes"]
 phase = ["edit", "delivery"]
 required = false
 when = "always"
-notes = "Optional contributor orientation for setup, source ownership, validation, and delivery details."
+notes = "Concise contributor principles, routine validation, and routing to detailed maintenance references."
 
 [[document]]
 context = "project-dev"

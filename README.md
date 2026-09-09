@@ -15,6 +15,11 @@ Codex and Claude Code continue to use agent-runtime-kit plus nils-cli and are
 not modified by DSH activation. DSH continues to own the agent loop, sessions,
 tools, sandbox, approvals, skills, and subagents.
 
+For repository maintenance, start with
+[`DEVELOPMENT.md`](DEVELOPMENT.md). Detailed build, package, patch, smoke,
+compatibility, acceptance, and delivery procedures are in the
+[`development reference`](docs/development-reference.md).
+
 ## Repository boundary
 
 - This repository owns reusable DSH runtime governance and lifecycle contracts.
@@ -249,7 +254,8 @@ for its ownership model and current limitations.
 - [Acceptance boundary](docs/acceptance.md)
 - [Historical migration snapshot](docs/migration.md)
 - [Development log](docs/devlog/README.md)
-- [Contributor setup and validation](DEVELOPMENT.md)
+- [Contributor workflow](DEVELOPMENT.md)
+- [Detailed development reference](docs/development-reference.md)
 
 ## License
 
