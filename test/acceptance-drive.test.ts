@@ -1259,3 +1259,201 @@ process.stdout.write(${JSON.stringify(`${marker}${trailer}\n`)})
     assert.equal(summary.status, expected ? 'pass' : 'fail')
   }
 })
+
+// The catalog's own deliberate-failure task for several rows instructs the
+// session to report the induced typed code and stop without emitting the
+// recovery marker. A session that complies exits cleanly, so requiring a failed
+// session process rejects exactly the behaviour the task asked for. The proof
+// that the induction is what blocked the row is the controlled differential:
+// byte-identical task bytes yield no marker while the fault is staged and the
+// marker once the authenticated inverse transition has reversed it.
+function reportAndStopDsh(root: string, failureTask: string) {
+  return executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+// Exactly what the packaged probe writes when it reaches the staged condition.
+process.stderr.write(JSON.stringify({status:'induced',code:'retired-surface-unreachable',surface_id:'workspace-lease-quarantine-registry'})+'\\n')
+process.stdout.write('The staged probe reported retired-surface-unreachable; stopping without the recovery marker.\\n')
+`)
+}
+
+test('a complying deliberate-failure session that reports and stops is accepted', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-report-and-stop-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'),
+    dshBin: reportAndStopDsh(root, failureTask),
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'report-and-stop',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.status, 'completed', 'a complying session exits cleanly')
+  assert.equal(result.observed.success_marker_seen, false, 'the induced leg must not claim recovery')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.success_marker_seen, true)
+  assert.equal(result.observed.fixture.clean_retry.task_byte_identical, true)
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('an infrastructure failure in the induced leg is not an observed induced failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-infra-leg-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  // The provider, not the staged induction, ended this leg. Recovering and
+  // passing a clean retry must not launder that into an accepted row.
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+process.stderr.write('dsh: QUOTA: usage limit reached\\n')
+process.exit(1)
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'infra-leg',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('prose about an induced failure is not accepted without the typed probe record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-prose-only-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  // Only the fixture's typed record counts; a session describing the fault in
+  // prose has produced no machine-readable evidence of the staged induction.
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+process.stdout.write('The probe failed with retired-surface-unreachable, so I stopped.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'prose-only',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.induced_failure, undefined)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+// The real path: the probe's record reaches the driver inside a session
+// transcript tool result, embedded in a larger surface, because DSH's own output
+// carries only the model's summary of it.
+test('the induced record is read from the session transcript tool result', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-induced-transcript-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const probe = JSON.stringify({status:'induced',code:'retired-surface-unreachable',surface_id:'workspace-lease-quarantine-registry'})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:'[stderr]\\n'+probe+'\\n[exit code: 70]'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'induced.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The probe reported retired-surface-unreachable; stopping without the marker.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'induced-transcript',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.deepEqual(result.observed.induced_failure, { code: 'retired-surface-unreachable' })
+  assert.equal(result.session_outcome.status, 'completed')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})

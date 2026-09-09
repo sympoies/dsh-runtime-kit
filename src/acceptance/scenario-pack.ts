@@ -555,16 +555,25 @@ export function appendAcceptanceAttestation(input: { outputPath: string, attesta
   if (phase === 'deliberate-failure') {
     const outcome = record(result.session_outcome)
     const bundle = record(result.diagnostic_bundle)
-    if (outcome?.status !== 'failed' || typeof outcome.code !== 'string'
-      || typeof outcome.component !== 'string' || typeof outcome.next_action !== 'string'
+    // An induction is not always a runtime fault. Where the fixture stages a
+    // condition the runtime then handles correctly, the session legitimately
+    // completes and the machine-readable evidence is the fixture probe's own typed
+    // induced record, which the driver retains on the result row. Both anchors bind
+    // the diagnosis to recorded evidence; neither accepts harness narration alone.
+    const induced = record(record(result.observed)?.induced_failure)
+    const anchoredCode = outcome?.status === 'failed' ? outcome.code : induced?.code
+    const runtimeAnchored = outcome?.status === 'failed'
+    if (typeof anchoredCode !== 'string' || anchoredCode.length === 0
       || typeof bundle?.name !== 'string' || normalizedDiagnosis === undefined
-      || normalizedDiagnosis.code !== outcome.code
-      || normalizedDiagnosis.component !== outcome.component
-      || normalizedDiagnosis.next_action !== outcome.next_action
-      || normalizedDiagnosis.evidence_reference !== bundle.name) {
+      || normalizedDiagnosis.code !== anchoredCode
+      || normalizedDiagnosis.evidence_reference !== bundle.name
+      || (runtimeAnchored && (typeof outcome.component !== 'string'
+        || typeof outcome.next_action !== 'string'
+        || normalizedDiagnosis.component !== outcome.component
+        || normalizedDiagnosis.next_action !== outcome.next_action))) {
       throw new ScenarioPackError(
         'attestation-diagnosis-mismatch',
-        'deliberate-failure diagnosis must match the result outcome and diagnostic bundle',
+        'deliberate-failure diagnosis must match the result outcome or its retained induced record',
       )
     }
   }

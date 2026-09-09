@@ -120,6 +120,7 @@ type TranscriptScan = {
     actions: string[]
     rule_ids: string[]
   }
+  inducedFailure?: { code: string }
   error?: { code: string, message: string, path: string }
 }
 
@@ -233,6 +234,46 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
     forbidden_outcomes: stringList(row.forbidden_outcomes, `scenario ${id} forbidden_outcomes`),
   }
 }
+
+// A deliberate-failure induction is not always a runtime fault. Several families
+// stage a condition the runtime then handles correctly, and the fixture's own probe
+// reports it as a typed JSON line on the command output surface:
+//
+//   {"status":"induced","code":"retired-surface-unreachable", ...}
+//
+// Only `induced` counts. A probe writing `status:"failed"` has found a real contract
+// violation, and laundering that into an accepted induced failure would turn a
+// genuine defect into a pass.
+const FIXTURE_INDUCED_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+
+// The probe writes its record to the tool's own output, so by the time the driver
+// sees it the object is embedded in a larger tool-result surface rather than
+// occupying its own line. Extract the flat object and parse it, so the evidence
+// stays the fixture's machine-readable record and never the model's prose about it.
+function fixtureInducedFailure(surface: string) {
+  for (const match of surface.matchAll(/\{[^{}]*"status"\s*:\s*"induced"[^{}]*\}/gu)) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(match[0])
+    } catch {
+      continue
+    }
+    const row = record(parsed)
+    if (row === undefined || row.status !== 'induced') continue
+    if (typeof row.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
+    return { code: row.code }
+  }
+  return undefined
+}
+
+// An induced leg that ended because the provider, the host runtime or an
+// unclassifiable fault stopped it proves nothing about the staged induction, so
+// those categories never satisfy the deliberate-failure contract.
+const INFRASTRUCTURE_OUTCOME_CATEGORIES: ReadonlySet<string> = new Set([
+  'provider-failure',
+  'health-failure',
+  'unknown',
+])
 
 function safeRegularFile(path: string, label: string) {
   let metadata
@@ -714,6 +755,33 @@ function transcriptDecisionSurface(value: unknown, runtimeContextCallIds: Set<st
   return JSON.stringify({ errors, direct_errors: directErrors })
 }
 
+// `transcriptDecisionSurface` is deliberately restricted to error content because
+// it feeds reminder and forbidden-outcome matching, where a wider surface would
+// invite false positives. The fixture's induced record needs the opposite: every
+// tool-result text, whether or not the tool reported an error. It is scanned on its
+// own pass and only ever matches an exact typed object, so it cannot disturb those
+// gates.
+function transcriptToolResultText(value: unknown) {
+  const row = record(value)
+  const data = record(row?.data)
+  const message = record(data?.message)
+  const groups = [data?.content, message?.content].filter(Array.isArray) as unknown[][]
+  const texts: string[] = []
+  for (const group of groups) {
+    for (const item of group) {
+      const result = record(item)
+      if (result?.type !== 'tool-result') continue
+      const inner = Array.isArray(result.content) ? result.content : []
+      for (const part of inner) {
+        const text = record(part)?.text
+        if (typeof text === 'string') texts.push(text)
+      }
+      if (typeof result.text === 'string') texts.push(result.text)
+    }
+  }
+  return texts.join('\n')
+}
+
 function scanTranscripts(
   transcripts: string[],
   expectedReminders: string[],
@@ -727,6 +795,7 @@ function scanTranscripts(
   let compressedBytes = 0
   let decompressedBytes = 0
   const runtimeContextCallIds = new Set<string>()
+  let inducedFailure: { code: string } | undefined
   for (const path of transcripts) {
     try {
       const metadata = safeRegularFile(path, 'session transcript')
@@ -752,6 +821,7 @@ function scanTranscripts(
           runtimeContextCallIds.add(data.callId)
           continue
         }
+        inducedFailure ??= fixtureInducedFailure(transcriptToolResultText(value))
         if (!observedTranscriptRecord(value)) continue
         const decisionSurface = transcriptDecisionSurface(value, runtimeContextCallIds)
         for (const marker of expectedReminders) if (decisionSurface.includes(marker)) reminders.add(marker)
@@ -782,6 +852,7 @@ function scanTranscripts(
           actions: [...actions].sort(),
           rule_ids: [...ruleIds].sort(),
         },
+        ...(inducedFailure === undefined ? {} : { inducedFailure }),
         error: { code: normalized.code, message: normalized.message, path },
       }
     }
@@ -795,6 +866,7 @@ function scanTranscripts(
       actions: [...actions].sort(),
       rule_ids: [...ruleIds].sort(),
     },
+    ...(inducedFailure === undefined ? {} : { inducedFailure }),
   }
 }
 
@@ -1336,8 +1408,18 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       const inducedFailureEvidencePass = forbidden.length === 0
         && captureError === undefined && transcriptScan.error === undefined
         && identityError === undefined
+      const inducedFailure = input.phase === 'deliberate-failure'
+        ? transcriptScan.inducedFailure
+          ?? fixtureInducedFailure(`${executed.stdout}\n${executed.stderr}`)
+        : undefined
+      // The controlled differential against the byte-identical clean retry is what
+      // ties the blocked leg to the staged induction, so the leg itself only has to
+      // withhold the recovery marker and end for a scenario reason: either a typed
+      // runtime failure or the fixture's own typed induced record.
       const expectedFailureObserved = input.phase === 'deliberate-failure'
-        && diagnostic.outcome.status === 'failed' && !markerSeen
+        && !markerSeen
+        && !INFRASTRUCTURE_OUTCOME_CATEGORIES.has(diagnostic.outcome.category)
+        && (diagnostic.outcome.status === 'failed' || inducedFailure !== undefined)
       const fixtureRecovery = fixtureBin === undefined || packRow === undefined
         || input.phase !== 'deliberate-failure' || !expectedFailureObserved ? undefined : fixtureCommand({
           executablePath: fixtureBin,
@@ -1472,6 +1554,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
           stderr,
           success_marker_seen: markerSeen,
           expected_failure_observed: expectedFailureObserved,
+          ...(inducedFailure === undefined ? {} : { induced_failure: inducedFailure }),
           ...(fixtureStart === undefined ? {} : {
             fixture: {
               start: {
