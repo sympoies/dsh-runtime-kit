@@ -42,6 +42,9 @@ the routine contributor entrypoint.
 
 - [Contributor workflow](../DEVELOPMENT.md) — maintenance principles, routine
   gates, and documentation routing.
+- [Layered development and testing](development-testing.md) — mandatory
+  validation order, evidence identities, failure routing, and the
+  self-improvement loop.
 - [Development reference](development-reference.md) — detailed source,
   build, package, patch, smoke, compatibility, and delivery procedures.
 - [Test-first evidence](test-first-evidence.md) — retained implementation and
