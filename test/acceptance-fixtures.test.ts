@@ -721,6 +721,9 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
       }
       if (family.id === 'workspace-identity') {
         assert.equal(existsSync(join(workdir, '.git')), true)
+        const temporaryRepositoryConfig = readFileSync(join(workdir, '.git', 'config'), 'utf8')
+        assert.match(temporaryRepositoryConfig, /\[maintenance\]\s+auto = false/u)
+        assert.match(temporaryRepositoryConfig, /\[gc\]\s+auto = 0/u)
         assert.equal(renewAcceptanceFixtureLease(input), 10_000)
       }
       if (family.id === 'governed-commit') {

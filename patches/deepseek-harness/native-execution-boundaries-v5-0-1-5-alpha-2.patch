@@ -2207,7 +2207,7 @@ index c00aa212ab..d6e78796d4 100644
  
  /** Policy seeded onto a child session's log at the delegation boundary. */
 diff --git a/packages/subagent/subagent/src/continuation-activation.ts b/packages/subagent/subagent/src/continuation-activation.ts
-index df2b6da439..3a129e43f0 100644
+index df2b6da439..79ab58f2bf 100644
 --- a/packages/subagent/subagent/src/continuation-activation.ts
 +++ b/packages/subagent/subagent/src/continuation-activation.ts
 @@ -14,6 +14,7 @@ import type {
@@ -2236,7 +2236,7 @@ index df2b6da439..3a129e43f0 100644
 +   * Deployment setup contributions installed into the unpublished child
 +   * context; the returned commit is honoured immediately before publication.
 +   */
-+  applySetup?: (childCtx: Context) => AgentSetupCommit
++  applySetup?: (childCtx: Context, child: Agent) => AgentSetupCommit
 +  /** Bind the host-issued workspace to the created child Agent before publication. */
 +  activateWorkspace?: (agent: Agent) => Promise<void>
    signal: AbortSignal
@@ -2256,7 +2256,7 @@ index df2b6da439..3a129e43f0 100644
        }
 -      applyChildComposition(childCtx, parent, inputs.composition)
 +      applyChildComposition(childCtx, parent, inputs.composition, child)
-+      return inputs.applySetup?.(childCtx)
++      return inputs.applySetup?.(childCtx, child)
      }
      const observer = this.observeActivation(provider, childId, parent)
      const handle: AgentHandle = create === undefined
@@ -2277,7 +2277,7 @@ index df2b6da439..3a129e43f0 100644
        childId,
        parentSession: parent.id,
 diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index b86d5cd836..6d215a837b 100644
+index b86d5cd836..f963c5af14 100644
 --- a/packages/subagent/subagent/src/continuation.ts
 +++ b/packages/subagent/subagent/src/continuation.ts
 @@ -15,9 +15,9 @@
@@ -2306,7 +2306,7 @@ index b86d5cd836..6d215a837b 100644
  } from './types.ts'
  
 +/** One deployment capability installed into a continuable child's unpublished context. */
-+export type ContinuableSetupContribution = (childCtx: Context) => () => void
++export type ContinuableSetupContribution = (childCtx: Context, child: Agent) => () => void
 +
 +interface SetupRegistration {
 +  readonly contribution: ContinuableSetupContribution
@@ -2343,7 +2343,7 @@ index b86d5cd836..6d215a837b 100644
 +    }
 +  }
 +
-+  apply(childCtx: Context): AgentSetupCommit {
++  apply(childCtx: Context, child: Agent): AgentSetupCommit {
 +    const state: SetupTransaction = { installations: [], invalidated: false }
 +    try {
 +      for (const registration of [...this.registrations]) {
@@ -2351,7 +2351,7 @@ index b86d5cd836..6d215a837b 100644
 +        const installation: SetupInstallation = {
 +          registration,
 +          childCtx,
-+          dispose: registration.contribution(childCtx),
++          dispose: registration.contribution(childCtx, child),
 +          released: false,
 +          transaction: state,
 +        }
@@ -2500,7 +2500,7 @@ index b86d5cd836..6d215a837b 100644
            agentOptions,
            composition: { persona: request.persona, toolFilter: request.toolFilter },
 +          ...workspace === undefined ? {} : { workspace },
-+          applySetup: childCtx => this.setupRegistry.apply(childCtx),
++          applySetup: (childCtx, child) => this.setupRegistry.apply(childCtx, child),
 +          activateWorkspace: agent => this.host.activateWorkspace({
 +            agent,
 +            descriptor: workspace as ContinuableWorkspaceDescriptor,
@@ -2688,7 +2688,7 @@ index b86d5cd836..6d215a837b 100644
          },
          composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
 +        ...descriptor.workspace === undefined ? {} : { workspace: descriptor.workspace },
-+        applySetup: childCtx => this.setupRegistry.apply(childCtx),
++        applySetup: (childCtx, child) => this.setupRegistry.apply(childCtx, child),
 +        activateWorkspace: agent => this.host.activateWorkspace({
 +          agent,
 +          descriptor: descriptor.workspace as ContinuableWorkspaceDescriptor,
@@ -3751,13 +3751,28 @@ index 1b9ce56c3f..df0a5de1ac 100644
     * Optional static provider-owned provider/model route for one-shot Agent
     * options. Consumers merge tool/model overrides over these values before
 diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index f2bbd16ef5..4f95a9534a 100644
+index f2bbd16ef5..bea60a7188 100644
 --- a/packages/subagent/subagent/tests/continuation.spec.ts
 +++ b/packages/subagent/subagent/tests/continuation.spec.ts
-@@ -252,6 +252,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
+@@ -252,6 +252,158 @@ function observeCancel(agent: Agent, callback: () => void): void {
  }
  
  describe('SubagentRuntime.startContinuable', () => {
++  it('supplies each setup contribution the exact unpublished child Agent', async () => {
++    const { ctx, parent } = await setup([textResponse('done')])
++    let observed: Agent | undefined
++    ctx.subagents.registerContinuableSetup((childCtx, child) => {
++      expect(child.ctx).toBe(childCtx)
++      expect(ctx.agents.get(child.id)).toBeUndefined()
++      observed = child
++      return () => {}
++    })
++
++    const started = await ctx.subagents.startContinuable(startSpec(parent))
++    expect(observed?.id).toBe(started.childId)
++    await waitNoActivation(ctx, started.childId)
++  })
++
 +  it('binds and cold-resumes one host-issued workspace without exposing its opaque ref', async () => {
 +    const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
 +    parkParent(ctx, parent)
@@ -3898,7 +3913,7 @@ index f2bbd16ef5..4f95a9534a 100644
    it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
      const { ctx, parent, adapter } = await setup([textResponse('first answer')])
      const enqueued: { id: MessageId; loggedYet: boolean }[] = []
-@@ -341,7 +478,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -341,7 +493,7 @@ describe('SubagentRuntime.startContinuable', () => {
      expect(descriptorIndex).toBeLessThan(turnStartIndex)
      const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
      expect(descriptor.data).toEqual({
@@ -3907,7 +3922,7 @@ index f2bbd16ef5..4f95a9534a 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -532,7 +669,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -532,7 +684,7 @@ describe('SubagentRuntime.startContinuable', () => {
      const descriptor = child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')
  
      expect(descriptor?.data).toEqual({
@@ -3916,7 +3931,7 @@ index f2bbd16ef5..4f95a9534a 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -566,7 +703,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -566,7 +718,7 @@ describe('SubagentRuntime.startContinuable', () => {
  
      expect(child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')?.data)
        .toEqual({

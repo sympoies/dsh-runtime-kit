@@ -51,7 +51,11 @@ materialization, preserves model-order persistence projection, and adds the
 dynamic protected-root sandbox contract. It also adds DSH-owned restricted
 one-shot roles: immutable host registration, caller-minimal starts, exact-live
 classification and receipts, atomic unpublished-child authority mounting,
-bounded global/per-role admission, and quiescent teardown. Runtime-kit selects the candidate
+bounded global/per-role admission, and quiescent teardown. The authenticated
+continuation setup seam passes the exact unpublished child `Agent` alongside
+its context. Runtime-kit therefore never tries to rediscover that identity
+through a module-private DSH scope tag, which is not portable across separate
+host and installed-package module instances. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
 target hashes bind those seams independently for rc.1 and 0.1.5-alpha.2; an

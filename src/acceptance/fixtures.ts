@@ -1390,7 +1390,16 @@ function initializeLeaseRepository(root: string, includeAll: boolean = false) {
   const config = join(git, 'config')
   const head = join(git, 'HEAD')
   const target = join(root, 'leased.txt')
-  if (!existsSync(config)) writeFileSync(config, '[core]\n\trepositoryformatversion = 0\n\tbare = false\n', { mode: 0o600, flag: 'wx' })
+  if (!existsSync(config)) writeFileSync(config, [
+    '[core]',
+    '\trepositoryformatversion = 0',
+    '\tbare = false',
+    '[maintenance]',
+    '\tauto = false',
+    '[gc]',
+    '\tauto = 0',
+    '',
+  ].join('\n'), { mode: 0o600, flag: 'wx' })
   if (!existsSync(head)) writeFileSync(head, 'ref: refs/heads/main\n', { mode: 0o600, flag: 'wx' })
   if (!existsSync(target)) writeFileSync(target, 'leased-fixture\n', { mode: 0o600, flag: 'wx' })
   safeFile(config, 'workspace lease repository config', true)

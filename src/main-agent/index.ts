@@ -7,6 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   dshRc7AgentRoute,
+  dshRc7ContextAgent,
+  dshRc7ContextService,
   dshRc7RunInfo,
   dshRc7SessionHeader,
 } from '../compat/dsh-rc7.js'
@@ -45,6 +47,7 @@ const LANE_SCHEMA = 'dsh-runtime-kit.main-agent-lane.v2'
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
 const QUEUE_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.queuePrompt')
+const DELIVER_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.deliverPrompt')
 const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
   runInitialize: 'main_agent_run_initialize',
   workerLaunch: 'main_agent_worker_launch',
@@ -57,11 +60,16 @@ const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
 })
 
 /**
- * Queue one host-authored revision prompt across the legacy service method and
- * the alpha.4 symbol-keyed host capability.
+ * Queue one host-authored revision prompt across the versioned host-only
+ * capabilities and the legacy service method.
  */
 async function queueRevisionPrompt(subagents: SubagentRuntime, parent: any, childId: any, content: any[], signal: AbortSignal) {
   const source = { kind: (('plugin') as const), plugin: 'dsh-runtime-kit' }
+  const deliverPrompt = ((subagents) as any)[DELIVER_SUBAGENT_PROMPT]
+  if (typeof deliverPrompt === 'function') {
+    await deliverPrompt.call(subagents, parent, childId, content, source, signal, 'queue')
+    return
+  }
   const queuePrompt = ((subagents) as any)[QUEUE_SUBAGENT_PROMPT]
   if (typeof queuePrompt === 'function') {
     await queuePrompt.call(subagents, parent, childId, content, source, signal)
@@ -739,8 +747,10 @@ export function applyMainAgentMode(ctx: Context, config: {
   if (typeof registerContinuableSetup !== 'function') {
     throw new TypeError('subagent continuable setup registry is unavailable')
   }
-  registerContinuableSetup.call(ctx.subagents, (childCtx: Context) => {
-    const agent = ((childCtx) as any).agent
+  registerContinuableSetup.call(ctx.subagents, (childCtx: Context, suppliedAgent: unknown) => {
+    const agent = dshRc7ContextAgent(childCtx, suppliedAgent)
+    const childTools = dshRc7ContextService(childCtx, 'tools') as any
+    const childSystemPrompt = dshRc7ContextService(childCtx, 'systemPrompt') as any
     const childHeader = dshRc7SessionHeader(agent)
     const parentSession = childHeader.parentSession
     // Lane membership is transitive: the host-bound root child and every
@@ -759,7 +769,10 @@ export function applyMainAgentMode(ctx: Context, config: {
     if (typeof childSession === 'string' && childSession.length > 0) {
       disposers.push(() => { lanes.unbindMember(childSession) })
     }
-    disposers.push(childCtx.tools.guard(
+    if (childTools === undefined || typeof childTools.guard !== 'function') {
+      throw new TypeError('child tool runtime is unavailable')
+    }
+    disposers.push(childTools.guard(
       (exec: { name: string }) => (laneDeniedTools.has(exec.name)
         ? 'dsh-runtime-kit:main-agent-lane-tool-denied'
         : undefined),
@@ -768,21 +781,20 @@ export function applyMainAgentMode(ctx: Context, config: {
     // ever checkpoint its own assignment: there is no argument through which it
     // could name another lane.
     const checkpointFile = laneCheckpointFile(lane)
-    if (typeof childCtx.tools.register === 'function') {
-      const disposeBootstrap = childCtx.tools.register(
+    if (typeof childTools.register === 'function') {
+      const disposeBootstrap = childTools.register(
         Object.freeze(laneBootstrapTool(lane)),
       )
       if (typeof disposeBootstrap === 'function') disposers.push(disposeBootstrap)
     }
-    if (checkpointFile !== undefined && typeof childCtx.tools.register === 'function') {
-      const disposeCheckpoint = childCtx.tools.register(
+    if (checkpointFile !== undefined && typeof childTools.register === 'function') {
+      const disposeCheckpoint = childTools.register(
         Object.freeze(laneCheckpointTool(lane, checkpointFile)),
       )
       if (typeof disposeCheckpoint === 'function') disposers.push(disposeCheckpoint)
     }
-    const systemPrompt = ((childCtx) as any).systemPrompt
-    if (systemPrompt !== undefined && typeof systemPrompt.section === 'function') {
-      const disposeSection = systemPrompt.section({
+    if (childSystemPrompt !== undefined && typeof childSystemPrompt.section === 'function') {
+      const disposeSection = childSystemPrompt.section({
         name: 'dsh-runtime-kit:main-agent-lane',
         order: LANE_SECTION_ORDER,
         text: laneEnvironmentSection(lane),

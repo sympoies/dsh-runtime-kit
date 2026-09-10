@@ -9,11 +9,11 @@
       "release_artifacts": {
         "0.1.2-rc.1": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch",
-          "sha256": "1c8db07c69827a3d60b6bd24269bcc564f5e120158268c205d9f4b1ed5f86522"
+          "sha256": "2af6650add011dd84cb740b752dd182aaec97656640fa2ad654f07d311c73208"
         },
         "0.1.5-alpha.2": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch",
-          "sha256": "593cab3859ac173b1d99746f6e91e3e9c0d7fa0f0a5d19f1bf8fcdb2dc043e12"
+          "sha256": "257ca5f3c7efc2abd9c929dde9d54d43f2f60e92dcd88a16e9265e11b3caccb0"
         }
       },
       "targets": {
@@ -333,7 +333,7 @@
           "release_hashes": {
             "0.1.5-alpha.2": {
               "before_sha256": "f6ff8a3f8066d4f7e31b666dbb12d3d794ee0c69a7cbacbd3da9615a4509651c",
-              "after_sha256": "b4385a12a0e886d2d3ea5ab986c1df55f4603bfbdd6a9d399d3220b7bd4d9a2f"
+              "after_sha256": "9213c4dec6093050441eb41bbd6bdd79f94ecb65f40ab63757dc8c510c352d22"
             }
           }
         },
@@ -341,11 +341,11 @@
           "release_hashes": {
             "0.1.2-rc.1": {
               "before_sha256": "746dd3ddd623d2f476a44c31ff11a35b33b9271f0a85b06c85f5d5c14835a5bd",
-              "after_sha256": "8443feb184c356dbfe5439decb10ffc8b3d7326bfe15de6453bb5923a286843d"
+              "after_sha256": "fd8f49eb6c2951e2f70cd1260e339a4954cb805be94a2dae63e10d6995cfefd4"
             },
             "0.1.5-alpha.2": {
               "before_sha256": "0324599499683693377681c381af7f13465235be5ba273093ceee06202ad7e4d",
-              "after_sha256": "939cc0a2e1182b18dafc86691e37c5d54f1606506fa8a1a1cc28c649707c9552"
+              "after_sha256": "0288f43ec6defa4fbcd830f06f2bda1754ccb58b22bf2cda1fd4a3cde630c92b"
             }
           }
         },
@@ -389,11 +389,11 @@
           "release_hashes": {
             "0.1.2-rc.1": {
               "before_sha256": "6952892c363a67d000dc4d9403cd8facb8942fcc994ba9f3c148c55f5218338b",
-              "after_sha256": "955dd23757eacd4ea8376c86fcad0ae000e81f3ef1b82aa3729bef923bb6ed8d"
+              "after_sha256": "e62323c6a7276db380e5feddb1a4c168c90bea66426e86dc05439ba1dc229028"
             },
             "0.1.5-alpha.2": {
               "before_sha256": "0e94c13a788ef0b878d5ad810f029c1564c348d3a2871fbe25c1dc4fd67951ab",
-              "after_sha256": "ab653d43cacb92915363b9e186affde6edf2f2bcd61ff7f55ca1722ba23cb00f"
+              "after_sha256": "451edffe0785d436c03d11bf9e84e712a08f6c96b0cef98010dc9e91e4ec3fcd"
             }
           }
         },

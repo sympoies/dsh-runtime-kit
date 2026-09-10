@@ -158,6 +158,7 @@ function createContext({
   children = [],
   followupFailure = false,
   hostPromptQueue = false,
+  hostPromptDelivery = false,
   drainFailure = false,
   closeContinuable,
   lifecycleEvents = [],
@@ -323,6 +324,21 @@ function createContext({
       signal,
     ) => {
       followups.push({ parent, childId, content, options: { source, signal } })
+      if (followupFailure) throw new Error('inbox rejected the message')
+      return 'message-2'
+    }
+  }
+  if (hostPromptDelivery) {
+    delete ctx.subagents.followup
+    ctx.subagents[Symbol.for('dsh.subagent.deliverPrompt')] = async (
+      parent,
+      childId,
+      content,
+      source,
+      signal,
+      delivery,
+    ) => {
+      followups.push({ parent, childId, content, options: { source, signal, delivery } })
       if (followupFailure) throw new Error('inbox rejected the message')
       return 'message-2'
     }
@@ -1232,22 +1248,35 @@ test('lane children get the deny guard and environment section; foreign children
   )
   const guards = []
   const sections = []
-  const laneChildCtx = {
-    agent: { session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } } },
-    tools: {
-      guard(callback) {
-        guards.push(callback)
-        return () => guards.pop()
-      },
-    },
-    systemPrompt: {
-      section(definition) {
-        sections.push(definition)
-        return () => sections.pop()
-      },
+  const laneChildAgent = {
+    session: { header: { id: launched.child_session_id, parentSession: 'controller-one' } },
+  }
+  const laneTools = {
+    guard(callback) {
+      guards.push(callback)
+      return () => guards.pop()
     },
   }
-  const dispose = harness.setup()(laneChildCtx)
+  const laneSystemPrompt = {
+    section(definition) {
+      sections.push(definition)
+      return () => sections.pop()
+    },
+  }
+  const laneChildCtx = new Proxy({}, {
+    get(_target, property) {
+      if (property === 'get') {
+        return name => name === 'tools'
+          ? laneTools
+          : name === 'systemPrompt' ? laneSystemPrompt : undefined
+      }
+      if (property === 'tools' || property === 'systemPrompt') {
+        throw new Error(`cannot get property "${property}" without inject`)
+      }
+      return undefined
+    },
+  })
+  const dispose = harness.setup()(laneChildCtx, laneChildAgent)
   assert.equal(guards.length, 1, 'lane child gets the authority guard')
   assert.equal(
     guards[0]({ name: 'subagent' }),
@@ -1970,6 +1999,7 @@ async function launchedLane(scratch, options = {}) {
     children: options.children,
     followupFailure: options.followupFailure,
     hostPromptQueue: options.hostPromptQueue,
+    hostPromptDelivery: options.hostPromptDelivery,
     drainFailure: options.drainFailure,
     closeContinuable: options.closeContinuable,
     lifecycleEvents: options.lifecycleEvents,
@@ -2197,6 +2227,39 @@ test('request-changes uses the alpha.4 symbol-keyed host prompt queue', async (t
 
   assert.equal(returned.delivered, true)
   assert.equal(harness.followups.length, 1)
+  assert.deepEqual(harness.followups[0].options.source, {
+    kind: 'plugin',
+    plugin: 'dsh-runtime-kit',
+  })
+})
+
+test('request-changes uses the alpha.2 delivery symbol with queue semantics', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const livenessFile = laneSidecarPath(scratch, 'worker-one')
+  const start = workerStartEnvelope(livenessFile)
+  const envelope = (spec) => (spec.argv.includes('request-changes')
+    ? {
+        schema_version: 'cli.main-agent.worker-request-changes.v1',
+        ok: true,
+        data: { schema_version: 'main-agent.worker-request-changes-result.v1', assignment: { revision: 5 } },
+      }
+    : start)
+  const { harness } = await launchedLane(scratch, { envelope, hostPromptDelivery: true })
+
+  const returned = await harness.registeredTools.get('main_agent_worker_request_changes').execute(
+    {
+      assignment_id: 'assignment-one',
+      if_revision: 4,
+      reason: 'exercise the alpha.2 host delivery seam',
+      idempotency_key: 'changes-alpha-2',
+    },
+    controllerExec(),
+  )
+
+  assert.equal(returned.delivered, true)
+  assert.equal(harness.followups.length, 1)
+  assert.equal(harness.followups[0].options.delivery, 'queue')
   assert.deepEqual(harness.followups[0].options.source, {
     kind: 'plugin',
     plugin: 'dsh-runtime-kit',
