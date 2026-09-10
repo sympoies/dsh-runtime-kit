@@ -125,7 +125,7 @@ Two exact DSH `0.1.2-rc.1` compositions are supported:
 - the native DSH `headless` profile; and
 - Agent Console's `dsh-tui` profile with
   `@deepseek-ai/dsh-base`,
-  `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4`, then
+  `@deepseek-harness-tui/dsh-tui@0.10.1`, then
   `@sympoies/dsh-runtime-kit` in that order.
 
 Unknown profile names contain only the base bundle. They are neither equivalent
@@ -139,25 +139,30 @@ profile linker and peer settings while recording the TUI release's explicit
 `false` lifecycle decisions. Those package-install decisions do not restrict
 the agent's host CLI or `PATH`.
 
-After installing the authenticated 0.10.0-beta.4 archive and before starting
-the TUI, apply the narrowed beta.4 runtime repair:
+Once the ordered profile is complete — the authenticated 0.10.1 archive
+installed and `@sympoies/dsh-runtime-kit` added as the final bundle — and
+before starting the TUI, apply the narrowed history-permission repair:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
   --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
 ```
 
+Apply it last: `dsh plugin add` re-materializes the profile's package tree, so
+a bundle added afterwards restores the pristine TUI bytes and drops the repair.
+[`docs/operations.md`](docs/operations.md) owns the ordering rule.
+
 The command accepts only the exact package name, version, `package.json` bytes,
 patch digest, and target before/after hashes in
 [`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
-Unknown or partially patched packages fail closed. Beta.4 already carries the
+Unknown or partially patched packages fail closed. The 0.10 line already carries the
 upstream asynchronous history persistence from dsh-TUI #593, so runtime-kit no
-longer patches input dispatch or lock retries. The remaining repair maps
-beta.4's legacy read-only `session.events` view to alpha.4's public cached
-`snapshotEvents()` API and restricts owner-owned legacy history data directories
-and files to 0700/0600 before reading them. Unexpected or symlinked paths are
-refused. Apply, check, and reverse authenticate both target differences
-together.
+longer patches input dispatch or lock retries, and it ships upstream's own
+live-Session compatibility facade, so the former `session.events` adaptation is
+retired too. The single remaining repair restricts owner-owned legacy history
+data directories and files to 0700/0600 before reading them. Unexpected or
+symlinked paths are refused. Apply, check, and reverse authenticate that one
+target difference.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

@@ -273,7 +273,7 @@ runtime-kit tools/skills, and Main Agent service together:
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
-DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.10.0-beta.4' \
+DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.10.1' \
 npm run test:smoke
 ```
 

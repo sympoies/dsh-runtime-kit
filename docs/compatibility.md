@@ -5,7 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` |
+| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.1` |
 | Cordis | `4.0.1` or `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.8` |
@@ -57,18 +57,22 @@ target hashes bind those seams independently for rc.2, alpha.4, and rc.1; an
 unknown or locally drifted checkout remains ineligible.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
-owns the narrowed installed-package repair for the exact 0.10.0-beta.4 TUI
+owns the narrowed installed-package repair for the exact 0.10.1 TUI
 artifact.
 It binds the package manifest bytes, patch digest, and target before/after
 hashes. The manager accepts only pristine or exactly patched bytes and emits a
 typed check/apply/reverse receipt. The
 [upstream history repair](https://github.com/ccch1mneyyy/dsh-TUI/pull/593) is
-included in beta.4 and is no longer part of the downstream diff. The remaining
-authenticated target only migrates owner-owned legacy history paths to private
-modes before reading them; it is separate from #593's async lock repair and has
-no upstream counterpart, so the entry's `upstream_reference` state is
-`not-reported`. Once a downstream patch does have an upstream issue or pull
-request, that link belongs in the same field as the patch's removal signal;
+included in the 0.10 line and is no longer part of the downstream diff. The
+The 0.10 stable line additionally ships upstream's own live-Session
+compatibility facade (`lib/types/dsh-adapter/compat/liveSession.js`), which
+resolves the log through `snapshotEvents()` when `Session.events` is absent, so
+the downstream session-event bridge is retired with this promotion. The one
+remaining authenticated target only migrates owner-owned legacy history paths
+to private modes before reading them; it is separate from #593's async lock
+repair and has no upstream counterpart, so the entry's `upstream_reference`
+state is `not-reported`. Once a downstream patch does have an upstream issue or
+pull request, that link belongs in the same field as the patch's removal signal;
 `docs/policies/upstream-contribution.md` owns the states and their rules.
 
 [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) is authoritative
@@ -114,18 +118,33 @@ and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
 authority facts a sanitized live observation must prove. It does not broaden
 the generic DSH version range or authorize another custom profile.
 The TUI pin includes the exact package specifier, source tag and tag-ref type,
-source revision, npm tarball URL, SRI, and shasum. The beta.4 release uses a
+source revision, npm tarball URL, SRI, and shasum. The 0.10.1 release uses a
 lightweight tag whose ref points directly at the recorded commit, rather than
-the annotated tag object used by the prior 0.9.3 boundary. The prerelease adds
-the 0.10 interaction and plugin surfaces, repairs beta.1's startup failure,
-and includes #593's asynchronous history persistence; these remain upstream
-TUI behaviors rather than runtime-kit patches. The narrowed package repair
-recorded in `compatibility/dsh-tui-patches.json` migrates retained, owner-owned
-history data to private modes before reading it, refuses unexpected or
-symlinked paths, and maps beta.4's legacy read-only session-event view to DSH
-alpha.4's public cached snapshot interface. DSH alpha.4 natively provides the
-package-inventory plugin, so the former rc.2-only TUI configuration removal is
-no longer applied.
+the annotated tag object used by the prior 0.9.3 boundary. The stable line
+closes the 0.10 interaction and plugin surfaces, adds terminal image rendering
+with its Kitty/Sixel probe and text fallback, and includes both #593's
+asynchronous history persistence and the live-Session compatibility facade;
+these remain upstream TUI behaviors rather than runtime-kit patches. The
+narrowed package repair recorded in `compatibility/dsh-tui-patches.json` now
+does exactly one thing: migrate retained, owner-owned history data to private
+modes before reading it, refusing unexpected or symlinked paths. DSH alpha.4
+natively provides the package-inventory plugin, so the former rc.2-only TUI
+configuration removal is no longer applied.
+
+The stable line also introduces the optional `sharp` and `sixel` decoding
+dependencies. Neither package, nor sharp's prebuilt platform packages, declares
+an install, preinstall, postinstall, or prepare script, so the Agent Console
+pnpm installation contract's `allowBuilds` denials are unchanged by this
+promotion. 0.10.1 adds no dependency of its own: its adapter and channel
+refactor, default context bar, and long-line transcript folding are internal to
+the already-installed closure.
+
+0.10.1 also *widens* its DSH peer ranges to admit `0.1.3-alpha.2` and the
+`0.1.5` line alongside the releases 0.10.0 accepted. That widening is additive:
+the pinned `0.1.2-rc.1` composition remains inside every range, so the Agent
+Console DSH pin and the three-release headless window are unchanged by this
+promotion. Admitting a `0.1.5` DSH is a separate promotion with its own patch
+artifacts and host rebuild, and this contract does not authorize it.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.

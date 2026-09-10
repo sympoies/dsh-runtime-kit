@@ -216,7 +216,7 @@
       "status": "retained",
       "summary": "The Agent Console profile pins one exact DSH release and TUI artifact rather than the three-release window.",
       "paths": ["src/compat/agent-console.js", "compatibility/agent-console.json"],
-      "replacement": { "owner": "runtime-kit", "contract": "exact Agent Console composition (DSH 0.1.2-rc.1, dsh-tui 0.10.0-beta.4)" },
+      "replacement": { "owner": "runtime-kit", "contract": "exact Agent Console composition (DSH 0.1.2-rc.1, dsh-tui 0.10.1)" },
       "first_supported": { "runtime_kit": "dsh-tui beta.4 promotion", "nils_cli": "1.27.34" },
       "compatibility_window": "intentionally narrower than the headless window",
       "rollback": "n/a",

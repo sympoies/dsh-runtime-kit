@@ -95,15 +95,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4',
+  '@deepseek-harness-tui/dsh-tui@0.10.1',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  'f7db605713a861b28c004b2dc18813bb74d61154',
+  '78081cebde1ee1b47a561ef57c04f128c5623476',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-+DAyd7uWgSibjxiTtC/SFODt/TdNrrmS9dSAYP53VNAhA6sFcJATp1qPNhG/31coVM+mb5HmZD5rwX60MC/cCQ==',
+  'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -1677,7 +1677,7 @@ try {
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch',
-    'patches/dsh-tui/beta-4-runtime-compat.patch',
+    'patches/dsh-tui/legacy-history-permissions.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -1764,6 +1764,18 @@ try {
       && authenticated.shasum === agentConsoleCompatibility.tui.artifact.shasum
     assert.equal(agentConsoleTuiArtifactVerified, true)
     runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])
+  }
+  runDsh(['plugin', '--profile', profile, 'add', tarball])
+  if (profile !== nativeMainAgentProfile) {
+    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
+  }
+
+  // The installed-package repair runs only after the profile's final bundle is
+  // added. `dsh plugin add` reconciles the profile by re-materializing its
+  // package tree from the pnpm store, which discards an in-place patch applied
+  // to an earlier bundle. This is the operator order too: compose the complete
+  // profile, then apply the repair before the first launch.
+  if (agentConsoleTuiPackage !== undefined) {
     const appliedTuiPatch = await manageDshTuiPatch({
       action: 'apply',
       packageRoot: agentConsoleTuiPackageRoot,
@@ -1786,10 +1798,6 @@ try {
     agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
       agentConsoleTuiPackageRoot,
     )
-  }
-  runDsh(['plugin', '--profile', profile, 'add', tarball])
-  if (profile !== nativeMainAgentProfile) {
-    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
   }
 
   const installedProfileManifest = JSON.parse(

@@ -129,7 +129,7 @@ test('the DSH TUI patch rejects target symlinks before mutation', async () => {
   }
 })
 
-test('the checked-in beta.4 patch keeps upstream async history and adapts the rc.1 session log', async () => {
+test('the checked-in 0.10 patch narrows to legacy history permissions only', async () => {
   const manifest = JSON.parse(await readFile(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
@@ -138,11 +138,8 @@ test('the checked-in beta.4 patch keeps upstream async history and adapts the rc
   const patch = validated.patches[0]
   const bytes = await readFile(join(projectRoot, patch.path))
   assert.equal(sha256(bytes), patch.sha256)
-  assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.0-beta.4'])
-  assert.deepEqual(Object.keys(patch.targets), [
-    'lib/types/history.js',
-    'lib/types/dsh-adapter/plugin.js',
-  ])
+  assert.deepEqual(Object.keys(patch.validated_releases), ['0.10.1'])
+  assert.deepEqual(Object.keys(patch.targets), ['lib/types/history.js'])
   const additions = bytes.toString('utf8').split('\n')
     .filter(line => line.startsWith('+') && !line.startsWith('+++'))
     .join('\n')
@@ -154,8 +151,11 @@ test('the checked-in beta.4 patch keeps upstream async history and adapts the rc
   assert.match(additions, /process\.getuid/u)
   assert.match(additions, /0o700/u)
   assert.match(additions, /0o600/u)
-  assert.match(additions, /ensureSessionEventsCompatibility/u)
-  assert.match(additions, /snapshotEvents/u)
+  // The 0.10 line ships the upstream live-Session compatibility facade
+  // (`compat/liveSession.snapshotLiveSessionEvents`), so the downstream
+  // `session.events` bridge must stay retired rather than be reintroduced.
+  assert.doesNotMatch(bytes.toString('utf8'), /ensureSessionEventsCompatibility/u)
+  assert.doesNotMatch(bytes.toString('utf8'), /dsh-adapter\/plugin\.js/u)
   assert.doesNotMatch(bytes.toString('utf8'), /Atomics\.wait|sleepSync/u)
   assert.doesNotMatch(additions, /(?:mkdir|rm)Sync/u)
   assert.doesNotMatch(bytes.toString('utf8'), /plugin-package-inventory-deepseek/u)
