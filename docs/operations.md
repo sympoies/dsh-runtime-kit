@@ -426,12 +426,19 @@ digests each patch target. It never invokes Git and never mutates the package.
 | `unsupported` | package identity, manifest bytes, or a target path is outside the reviewed set |
 | `drift` | a target matches neither the reviewed before nor after digest |
 | `partially-applied` | targets disagree with each other |
+| `manifest-invalid` | the packaged patch manifest failed validation — a packaging defect, not a profile state |
 | `not-applicable` | any profile other than `dsh-tui` |
 
 Every status except `patched` and `not-applicable` makes the profile
 `needs-attention`, so a repair reverted by `update`, `rollback`, or collateral
-restore cannot pass as healthy. A symlinked or non-regular target is reported
-as `unsupported` rather than followed.
+restore cannot pass as healthy. A symlinked package root, symlinked
+intermediate directory, or non-regular target is reported as `unsupported`
+rather than followed, matching the patch manager's refusals.
+
+Clear a failing status with the `--action apply` command above, not with
+`doctor --repair`: `--repair` is scoped to interrupted operations and
+owner-record adoption, so it reports `repair-not-required` for an unpatched
+TUI and cannot restore the repair.
 
 Management plans bind the reported DSH version to the matching exact source
 revision in `compatibility/dsh.json`. Only releases present in that reviewed

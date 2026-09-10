@@ -21,7 +21,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
-import { manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
+import { inspectDshTuiRepair, manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
 import { fetchAuthenticatedAgentConsoleArtifact } from '../dist/src/compat/agent-console-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -1744,6 +1744,7 @@ try {
   let agentConsoleTuiPatchVerified = false
   let agentConsoleTuiHistoryNonblockingVerified = false
   let agentConsoleTuiLiveSessionFacadeVerified = false
+  let agentConsoleTuiRepairInspectionVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -1834,6 +1835,27 @@ try {
     agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
       agentConsoleTuiPackageRoot,
     )
+
+    // The positive direction of the doctor check, against the SHIPPED manifest
+    // and the real installed package. Every other test covers only the failing
+    // statuses, or reaches `patched` through a synthetic fixture manifest, so
+    // without this a drift between `compatibility/dsh-tui-patches.json` and the
+    // authenticated release would make `doctor --profile dsh-tui` report
+    // `needs-attention` forever on a correctly repaired profile while the whole
+    // suite stayed green. This asserts the manifest-to-bytes agreement only;
+    // the doctor wiring itself is covered in test/operations.test.ts.
+    const repairInspection = inspectDshTuiRepair({
+      packageRoot: agentConsoleTuiPackageRoot,
+      manifest: dshTuiPatchManifest,
+    })
+    assert.equal(
+      repairInspection.status,
+      'patched',
+      `the shipped patch manifest must report the repaired package as patched (${repairInspection.error ?? 'no error'})`,
+    )
+    assert.equal(repairInspection.ok, true)
+    assert.equal(repairInspection.version, agentConsoleCompatibility.tui.version)
+    agentConsoleTuiRepairInspectionVerified = true
   }
 
   const installedProfileManifest = JSON.parse(
@@ -4472,6 +4494,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     agentConsoleTuiPatchVerified,
     agentConsoleTuiHistoryNonblockingVerified,
     agentConsoleTuiLiveSessionFacadeVerified,
+    agentConsoleTuiRepairInspectionVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

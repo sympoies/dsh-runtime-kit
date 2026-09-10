@@ -6,9 +6,10 @@ node_modules
 *.tgz
 agent-out/
 
-# Local agent-validation hook state. The declared validation gate writes this
-# in every checkout, so leaving it untracked-and-visible makes `forge-cli pr
-# deliver` refuse on a clean tree.
+# Local agent-harness state. Nothing in this repository writes it: the local
+# agent pre-edit/validation hooks record their state here while a session runs.
+# Leaving it untracked-and-visible makes `forge-cli pr deliver` refuse on an
+# otherwise clean tree.
 .cache/
 
 # Project-local Claude directory (skills live in .agents/skills/)

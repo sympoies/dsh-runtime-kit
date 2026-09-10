@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync } from 'node:fs'
+import { lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
@@ -159,16 +159,30 @@ export function inspectDshTuiRepair(input: { packageRoot: string, manifest: unkn
     return outcome('unsupported', { error: 'package root must be absolute' })
   }
 
+  // Ordering is deliberate. `realpathSync` throws ENOENT for a package root
+  // that does not exist, which is the `absent` state rather than a refusal, so
+  // the traversal check runs inside this block and only a genuine ENOENT/ENOTDIR
+  // maps to `absent`. Every other failure keeps its own reason instead of
+  // reporting a present-but-unreadable package as "not installed".
   let packageJsonBytes
   try {
+    if (realpathSync(input.packageRoot) !== input.packageRoot) {
+      return outcome('unsupported', { error: 'package root must not traverse a symlink' })
+    }
     const packageJsonPath = contained(input.packageRoot, 'package.json')
     const metadata = lstatSync(packageJsonPath)
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
       return outcome('unsupported', { error: 'package manifest is not an ordinary file' })
     }
     packageJsonBytes = readFileSync(packageJsonPath)
-  } catch {
-    return outcome('absent', { error: 'the DSH TUI package is not installed' })
+  } catch (error) {
+    const code = ((error) as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      return outcome('absent', { error: 'the DSH TUI package is not installed' })
+    }
+    return outcome('unsupported', {
+      error: `the installed package could not be read (${code ?? 'unknown error'})`,
+    })
   }
 
   let packageJson
@@ -201,6 +215,14 @@ export function inspectDshTuiRepair(input: { packageRoot: string, manifest: unkn
         return outcome('unsupported', {
           version,
           error: `patch target is not an ordinary file: ${path}`,
+        })
+      }
+      // Refuse a symlinked intermediate directory as well, so this agrees with
+      // the manager's `regularContainedFile` rather than only checking the leaf.
+      if (realpathSync(dirname(target)) !== dirname(target)) {
+        return outcome('unsupported', {
+          version,
+          error: `patch target directory must not traverse a symlink: ${path}`,
         })
       }
       actual = digest(readFileSync(target))

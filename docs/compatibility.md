@@ -147,11 +147,11 @@ re-materializes the profile's package tree. This is **not** specific to the
 it is whether the TUI package is already materialized in the resolved pnpm
 store — with the package present the repair survived the later add, and with it
 freshly fetched into that store the next add re-materialized the package and
-discarded the repair. Because pnpm derives its store from `HOME` unless
-`PNPM_HOME` pins it, the same commands can therefore differ between a
-workstation and CI. A promotion note in an earlier revision of this document
+discarded the repair. A promotion note in an earlier revision of this document
 attributed the discard to the 0.10 line; that attribution was wrong and is
-corrected here.
+corrected here. How this interacts with CI versus a workstation is deliberately
+not claimed: the store-state dependence is established, the divergence between
+those two surfaces is not.
 
 [`docs/operations.md`](operations.md) encodes the consequence as an ordering and
 re-apply rule, and `doctor` enforces it: on the `dsh-tui` profile it

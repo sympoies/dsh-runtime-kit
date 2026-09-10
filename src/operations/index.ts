@@ -3853,8 +3853,15 @@ function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string
  * this diagnosis would notice.
  */
 function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFor>) {
+  // Every branch carries the same identifying fields, so a consumer keying on
+  // `schema_version` never has to special-case the non-inspection outcomes.
+  const base = {
+    schema_version: 'dsh-runtime-kit.dsh-tui-repair-inspection.v1',
+    package_name: AGENT_CONSOLE_CONTRACT.tui.package,
+    patch_id: DSH_TUI_PATCHES.patches?.[0]?.id ?? null,
+  }
   if (profile !== AGENT_CONSOLE_CONTRACT.profile) {
-    return { ok: true, status: 'not-applicable' }
+    return { ...base, ok: true, status: 'not-applicable' }
   }
   try {
     return inspectDshTuiRepair({
@@ -3863,7 +3870,12 @@ function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFo
     })
   } catch {
     // A malformed packaged manifest is a packaging defect, not an observation.
-    return { ok: false, status: 'manifest-invalid', error: 'the packaged DSH TUI patch manifest is invalid' }
+    return {
+      ...base,
+      ok: false,
+      status: 'manifest-invalid',
+      error: 'the packaged DSH TUI patch manifest is invalid',
+    }
   }
 }
 
