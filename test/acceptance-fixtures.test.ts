@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
+  directoryTreeDigest,
   loadAcceptanceFixtureManifest,
   renewAcceptanceFixtureLease,
   runAcceptanceFixture,
@@ -41,6 +52,34 @@ function managedWorktree(primary: string, child: string, branch: string) {
   git(primary, ['reset', '--hard', commit])
   git(primary, ['worktree', 'add', '-b', branch, child, 'HEAD'])
 }
+
+test('fixture tree digest tolerates only an enumerated entry disappearing before metadata inspection', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-digest-race-'))
+  const stable = join(root, 'stable.txt')
+  const transient = join(root, 'maintenance.lock')
+  writeFileSync(stable, 'stable\n', { mode: 0o600 })
+  writeFileSync(transient, 'transient\n', { mode: 0o600 })
+
+  let removed = false
+  const raced = directoryTreeDigest(root, path => {
+    if (path === transient) {
+      rmSync(path)
+      removed = true
+    }
+    return lstatSync(path)
+  })
+
+  assert.equal(removed, true)
+  assert.equal(raced, directoryTreeDigest(root))
+  assert.throws(
+    () => directoryTreeDigest(root, () => {
+      const error = new Error('metadata denied') as NodeJS.ErrnoException
+      error.code = 'EACCES'
+      throw error
+    }),
+    /metadata denied/u,
+  )
+})
 
 test('package ships a complete executable #D fixture provider', () => {
   const fixtureManifest = join(ROOT, 'compatibility', 'acceptance-fixtures.json')
