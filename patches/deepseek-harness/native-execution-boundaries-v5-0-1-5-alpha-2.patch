@@ -1,37 +1,28 @@
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
-index 1b8448e69..0b76b4bd5 100644
+index 06e1f51b57..b9547917b2 100644
 --- a/packages/core/agent-loop/src/agent.ts
 +++ b/packages/core/agent-loop/src/agent.ts
 @@ -16,7 +16,7 @@ import type {
    RequestErrorAction,
  } from '@deepseek-ai/dsh-agent'
- import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
+ import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 -import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
-+import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall, StreamChunk, ToolCallBlock } from '@deepseek-ai/dsh-llm'
++import type { ContentBlock, GenerateOptions, LlmCallConfig, Message, PreparedLlmCall, ToolCallBlock } from '@deepseek-ai/dsh-llm'
  import {
-   BlockAssembler,
    LlmError,
-@@ -25,6 +25,7 @@ import {
+   createAssistantMessage,
+@@ -24,6 +24,7 @@ import {
    markAgentLoopRequest,
  } from '@deepseek-ai/dsh-llm'
  import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 +import type { JsonValue } from '@deepseek-ai/dsh-util-values'
  import type { Scope } from '@deepseek-ai/dsh-scope'
  import { createScope } from '@deepseek-ai/dsh-scope'
- import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-@@ -57,6 +58,24 @@ type PreparedStep =
+ import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+@@ -59,6 +60,15 @@ type PreparedStep =
      assembly: PromptAssembly
    }
  
-+/** Remove provider argument bytes from raw durable chunks before classification. */
-+function persistenceSafeChunk(chunk: StreamChunk): StreamChunk {
-+  if (chunk.type === 'tool-call-delta') return { ...chunk, argumentsDelta: '' }
-+  if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') {
-+    return { ...chunk, block: { ...chunk.block, arguments: '' } }
-+  }
-+  return chunk
-+}
-+
 +/** Parse one raw call for the persistence projector; invalid JSON remains text. */
 +function persistenceArguments(raw: string): JsonValue {
 +  try {
@@ -44,75 +35,62 @@ index 1b8448e69..0b76b4bd5 100644
  /** Remove adapter-derived values before plugins propose the next request config. */
  function requestProposal(header: EpochHeader): LlmCallConfig {
    if (header.adapterDefaults === undefined) return header.config
-@@ -365,7 +384,11 @@ export class ReactLoopAgent implements Agent {
-         signal.throwIfAborted()
-         for await (const chunk of stream) {
-           signal.throwIfAborted()
--          chunkSeqs.push(this.session.append('assistant/chunk', { turn, step, chunk }).seq)
-+          chunkSeqs.push(this.session.append('assistant/chunk', {
+@@ -463,8 +473,32 @@ export class ReactLoopAgent implements Agent {
+           continue
+         }
+ 
++        const content = live.blocks()
++        const durableToolCalls: ToolCallBlock[] = []
++        const durableContent: ContentBlock[] = []
++        for (const block of content) {
++          if (block.type !== 'tool-call') {
++            durableContent.push(block)
++            continue
++          }
++          const decision = await this.loopCtx.tools.projectForPersistence({
++            callId: block.id,
++            name: block.name,
++            arguments: persistenceArguments(block.arguments),
++            agent: this,
++            signal,
 +            turn,
 +            step,
-+            chunk: persistenceSafeChunk(chunk),
-+          }).seq)
-           assembler.push(chunk)
-         }
-         signal.throwIfAborted()
-@@ -407,8 +430,32 @@ export class ReactLoopAgent implements Agent {
-         continue
-       }
- 
-+      const content = assembler.blocks()
-+      const durableToolCalls: ToolCallBlock[] = []
-+      const durableContent = []
-+      for (const block of content) {
-+        if (block.type !== 'tool-call') {
-+          durableContent.push(block)
-+          continue
++          })
++          const durable = decision.kind === 'keep'
++            ? block
++            : { ...block, arguments: JSON.stringify(decision.arguments) }
++          durableToolCalls.push(durable)
++          durableContent.push(durable)
 +        }
-+        const decision = await this.loopCtx.tools.projectForPersistence({
-+          callId: block.id,
-+          name: block.name,
-+          arguments: persistenceArguments(block.arguments),
-+          agent: this,
++        signal.throwIfAborted()
+         const message = createAssistantMessage({
+-          content: live.blocks(),
++          content,
+           source: {
+             provider: request.provider,
+             model: request.model,
+@@ -476,7 +510,7 @@ export class ReactLoopAgent implements Agent {
+           () => this.session.append('assistant/message', {
+             turn,
+             step,
+-            message,
++            message: { ...message, content: durableContent },
+             ...live.usage === undefined ? {} : { usage: live.usage },
+             stream: live.stream,
+           }, { surfaceOp: 'append' }).seq,
+@@ -486,7 +520,9 @@ export class ReactLoopAgent implements Agent {
+         const toolCalls = message.content.filter(block => block.type === 'tool-call')
+         if (toolCalls.length === 0) return { kind: 'completed' }
+         const { concluded } = await executeToolCalls(
+-          this.loopCtx, turn, step, toolCalls, signal,
++          this.loopCtx, turn, step, toolCalls,
++          durableToolCalls,
 +          signal,
-+          turn,
-+          step,
-+        })
-+        const durable = decision.kind === 'keep'
-+          ? block
-+          : { ...block, arguments: JSON.stringify(decision.arguments) }
-+        durableToolCalls.push(durable)
-+        durableContent.push(durable)
-+      }
-+      signal.throwIfAborted()
-       const message = createAssistantMessage({
--        content: assembler.blocks(),
-+        content,
-         source: {
-           provider: request.provider,
-           model: request.model,
-@@ -420,7 +467,7 @@ export class ReactLoopAgent implements Agent {
-         {
-           turn,
-           step,
--          message,
-+          message: { ...message, content: durableContent },
-           ...assembler.usage === undefined ? {} : { usage: assembler.usage },
-         },
-         { surfaceOp: 'append', sourceEventSeqs: chunkSeqs },
-@@ -430,7 +477,9 @@ export class ReactLoopAgent implements Agent {
-       const toolCalls = message.content.filter(block => block.type === 'tool-call')
-       if (toolCalls.length === 0) return { kind: 'completed' }
-       const { concluded } = await executeToolCalls(
--        this.loopCtx, turn, step, toolCalls, signal,
-+        this.loopCtx, turn, step, toolCalls,
-+        durableToolCalls,
-+        signal,
-         context => this.inbox.splice('next-step', this.inbox.nextStep.length, 0, [context]),
-       )
-       return concluded ? { kind: 'completed' } : null
+           context => this.inbox.splice('next-step', this.inbox.nextStep.length, 0, [context]),
+         )
+         return concluded ? { kind: 'completed' } : null
 diff --git a/packages/core/agent-loop/src/tool-calls.ts b/packages/core/agent-loop/src/tool-calls.ts
-index e6aca31f5..5a4887dce 100644
+index e6aca31f56..5a4887dcef 100644
 --- a/packages/core/agent-loop/src/tool-calls.ts
 +++ b/packages/core/agent-loop/src/tool-calls.ts
 @@ -20,6 +20,7 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -191,7 +169,7 @@ index e6aca31f5..5a4887dce 100644
    }
    /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 6c1711df3..b0a08ad01 100644
+index bef11baf26..e39262f7d5 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -132,6 +132,17 @@ declare module '@deepseek-ai/cordis' {
@@ -445,7 +423,7 @@ index 6c1711df3..b0a08ad01 100644
    /**
     * The prompt statement of the `ptc` executor collapse, registered wherever
     * {@link sdkSection} is and rendering empty outside an effective `ptc`.
-@@ -1106,6 +1297,49 @@ export class ToolRuntime extends Service {
+@@ -1105,6 +1296,49 @@ export class ToolRuntime extends Service {
      )
    }
  
@@ -495,7 +473,7 @@ index 6c1711df3..b0a08ad01 100644
    /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
    private guardReason(exec: ToolExecution): string | undefined {
      const globalReason = this.layers.global.guardReason(exec)
-@@ -1340,12 +1574,12 @@ export class ToolRuntime extends Service {
+@@ -1339,12 +1573,12 @@ export class ToolRuntime extends Service {
          const dispatched = await this.dispatchScheduledExecution(prepared.exec)
          return dispatched.kind === 'post-result'
            ? await this.finalizeScheduledExecution(prepared.exec, dispatched.result)
@@ -510,7 +488,7 @@ index 6c1711df3..b0a08ad01 100644
        /* v8 ignore next -- closed-union exhaustiveness guard */
        default:
          return assertNever(prepared, 'scheduled tool preparation')
-@@ -1396,20 +1630,31 @@ export class ToolRuntime extends Service {
+@@ -1395,20 +1629,31 @@ export class ToolRuntime extends Service {
      // the same retained path), while the `UNKNOWN_TOOL` denial and the
      // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
      // could never execute).
@@ -545,7 +523,7 @@ index 6c1711df3..b0a08ad01 100644
        })
        if (collapsed) {
          // The collapse denies the call before the policy pipeline, but a
-@@ -1436,6 +1681,8 @@ export class ToolRuntime extends Service {
+@@ -1435,6 +1680,8 @@ export class ToolRuntime extends Service {
        return { kind: 'ready', exec: execution }
      } catch (error: unknown) {
        const execution: MutableToolRunContext = { ...base, arguments: undefined }
@@ -554,7 +532,7 @@ index 6c1711df3..b0a08ad01 100644
        this.contentFinalizers.set(execution, finalizerFor())
        return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
      }
-@@ -1456,29 +1703,41 @@ export class ToolRuntime extends Service {
+@@ -1455,29 +1702,41 @@ export class ToolRuntime extends Service {
      next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
    ): Promise<T> {
      const created = this.createExecution(input)
@@ -605,7 +583,7 @@ index 6c1711df3..b0a08ad01 100644
            kind: 'post-result',
            exec,
            result: this.materializeFinalResult({
-@@ -1486,15 +1745,43 @@ export class ToolRuntime extends Service {
+@@ -1485,15 +1744,43 @@ export class ToolRuntime extends Service {
              isError: true,
              error: { message: denialReason },
            }),
@@ -655,7 +633,7 @@ index 6c1711df3..b0a08ad01 100644
    }
  
    /** Whether the original caller signal is currently aborted. */
-@@ -1502,7 +1789,7 @@ export class ToolRuntime extends Service {
+@@ -1501,7 +1788,7 @@ export class ToolRuntime extends Service {
      const state = this.cancellationStates.get(exec)
      /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
      if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
@@ -664,7 +642,7 @@ index 6c1711df3..b0a08ad01 100644
    }
  
    /** Canonical cancellation outcome selected by whether the tool body started. */
-@@ -1515,6 +1802,142 @@ export class ToolRuntime extends Service {
+@@ -1514,6 +1801,142 @@ export class ToolRuntime extends Service {
        : toolAbortedBeforeDispatchResult(prior)
    }
  
@@ -807,7 +785,7 @@ index 6c1711df3..b0a08ad01 100644
    /**
     * Dispatch the registered body with the original caller signal fused back
     * into any around-wrapper replacement. Cancellation never abandons the body:
-@@ -1534,7 +1957,12 @@ export class ToolRuntime extends Service {
+@@ -1533,7 +1956,12 @@ export class ToolRuntime extends Service {
      }
      exec.signal = signal
      try {
@@ -821,7 +799,7 @@ index 6c1711df3..b0a08ad01 100644
        if (!tool) throw new ToolNotFoundError(exec.name)
        state.bodyInvoked = true
        const returned = await tool.execute(exec.arguments, exec)
-@@ -1543,7 +1971,9 @@ export class ToolRuntime extends Service {
+@@ -1542,7 +1970,9 @@ export class ToolRuntime extends Service {
          ? toolAbortedResult(result)
          : result
      } catch (error: unknown) {
@@ -832,7 +810,7 @@ index 6c1711df3..b0a08ad01 100644
      } finally {
        fused.dispose()
        exec.signal = wrapperSignal
-@@ -1558,14 +1988,56 @@ export class ToolRuntime extends Service {
+@@ -1557,14 +1987,56 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
@@ -889,7 +867,7 @@ index 6c1711df3..b0a08ad01 100644
        const deferredContexts = this.deferredContexts.get(exec)
        /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
        if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
-@@ -1598,17 +2070,77 @@ export class ToolRuntime extends Service {
+@@ -1597,17 +2069,77 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -975,7 +953,7 @@ index 6c1711df3..b0a08ad01 100644
    }
  
    /**
-@@ -1619,7 +2151,45 @@ export class ToolRuntime extends Service {
+@@ -1618,7 +2150,45 @@ export class ToolRuntime extends Service {
     * @returns the materialized final result.
     * @internal
     */
@@ -1022,7 +1000,7 @@ index 6c1711df3..b0a08ad01 100644
      let materializedResult: ToolExecutionResult
      try {
        materializedResult = this.materializeFinalResult(result)
-@@ -1632,10 +2202,18 @@ export class ToolRuntime extends Service {
+@@ -1631,10 +2201,18 @@ export class ToolRuntime extends Service {
      } catch (error: unknown) {
        finalResult = this.materializeFinalResult(toolErrorResult(error))
      }
@@ -1042,7 +1020,7 @@ index 6c1711df3..b0a08ad01 100644
    /** Apply the snapshotted tool-owned content transform without exposing other result fields. */
    private applyFinalContent(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
      const finalizeContent = this.contentFinalizers.get(exec)
-@@ -1735,6 +2313,15 @@ export class ToolRuntime extends Service {
+@@ -1734,6 +2312,15 @@ export class ToolRuntime extends Service {
        scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
        () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
      )
@@ -1058,7 +1036,7 @@ index 6c1711df3..b0a08ad01 100644
      const decisionContexts = decision.additionalContexts ?? []
      if (decision.kind === 'block') {
        const message = failureMessageFromContent(decision.feedback)
-@@ -1756,8 +2343,7 @@ export class ToolRuntime extends Service {
+@@ -1755,8 +2342,7 @@ export class ToolRuntime extends Service {
        if (result.isError) {
          throw new TypeError('tools/post-execute cannot replace the value of a failed result')
        }
@@ -1068,7 +1046,7 @@ index 6c1711df3..b0a08ad01 100644
        const replaced = this.createSuccessResult(exec, tool, decision.value)
        return this.markCanonical(exec, {
          ...replaced,
-@@ -1774,6 +2360,14 @@ export class ToolRuntime extends Service {
+@@ -1773,6 +2359,14 @@ export class ToolRuntime extends Service {
    /** Registry-normalized results and the exact dispatch that validated each value. */
    private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
  
@@ -1083,7 +1061,7 @@ index 6c1711df3..b0a08ad01 100644
    /** Mark one registry-normalized result as canonical only for its owning dispatch. */
    private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
      this.canonicalResults.set(result, exec.token)
-@@ -1781,7 +2375,7 @@ export class ToolRuntime extends Service {
+@@ -1780,7 +2374,7 @@ export class ToolRuntime extends Service {
    }
  
    /** Snapshot, validate, render, and optionally project one successful body value. */
@@ -1092,7 +1070,7 @@ index 6c1711df3..b0a08ad01 100644
      const detached = snapshotToolValue(tool.name, candidate)
      const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
      if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
-@@ -1825,8 +2419,7 @@ export class ToolRuntime extends Service {
+@@ -1824,8 +2418,7 @@ export class ToolRuntime extends Service {
          ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
        })
      }
@@ -1103,7 +1081,7 @@ index 6c1711df3..b0a08ad01 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/src/ptc.ts b/packages/core/tools/src/ptc.ts
-index 8af4f8730..1e3cb0c15 100644
+index cc6e947997..eddce36374 100644
 --- a/packages/core/tools/src/ptc.ts
 +++ b/packages/core/tools/src/ptc.ts
 @@ -557,7 +557,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
@@ -1116,7 +1094,7 @@ index 8af4f8730..1e3cb0c15 100644
                  exec.deferContext(createUserMessage({
                    content: result.content,
 diff --git a/packages/fs/fs-sandbox/src/index.ts b/packages/fs/fs-sandbox/src/index.ts
-index 60dd6b3ba..014c2e03d 100644
+index 60dd6b3bad..014c2e03d3 100644
 --- a/packages/fs/fs-sandbox/src/index.ts
 +++ b/packages/fs/fs-sandbox/src/index.ts
 @@ -31,7 +31,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -1141,10 +1119,10 @@ index 60dd6b3ba..014c2e03d 100644
      for (const root of writableRoots(policy)) {
        if (await isPathUnder(fresh.targetKey, root)) {
 diff --git a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
-index 435086a30..9278923b9 100644
+index e445c47553..73720e0b0b 100644
 --- a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 +++ b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
-@@ -237,3 +237,27 @@ describe('FsError identity', () => {
+@@ -241,3 +241,27 @@ describe('FsError identity', () => {
      expect((error as FsError).code).toBe('FS_SANDBOX_DENIED')
    })
  })
@@ -1173,7 +1151,7 @@ index 435086a30..9278923b9 100644
 +  })
 +})
 diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
-index 695a9fdfc..73fabfcc2 100644
+index 695a9fdfc9..73fabfcc2f 100644
 --- a/packages/fs/tool-fs/src/sandbox.ts
 +++ b/packages/fs/tool-fs/src/sandbox.ts
 @@ -13,7 +13,7 @@
@@ -1211,10 +1189,10 @@ index 695a9fdfc..73fabfcc2 100644
          approver: this.ctx.get('approval'),
          agent: exec.agent,
 diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
-index 8f75a0b51..65132139e 100644
+index 49ad5d74f9..6c80a5323b 100644
 --- a/packages/fs/tool-fs/tests/tools.spec.ts
 +++ b/packages/fs/tool-fs/tests/tools.spec.ts
-@@ -902,6 +902,25 @@ describe('sandbox escalation API (write/edit)', () => {
+@@ -907,6 +907,25 @@ describe('sandbox escalation API (write/edit)', () => {
      }])
    })
  
@@ -1241,7 +1219,7 @@ index 8f75a0b51..65132139e 100644
      const { ctx, fs } = await setupConfining()
      fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
 diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
-index 77a8a2495..ff61cbbab 100644
+index 8fa9f6d39b..f29695fc93 100644
 --- a/packages/goal/goal/src/index.ts
 +++ b/packages/goal/goal/src/index.ts
 @@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
@@ -1261,7 +1239,7 @@ index 77a8a2495..ff61cbbab 100644
  /** Wire payload schema of the `goal` projection (current goal or pre-create/cleared null). */
  const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
    zod.object({
-@@ -387,6 +394,7 @@ export class GoalService extends TypertRemoteService {
+@@ -389,6 +396,7 @@ export class GoalService extends TypertRemoteService {
     */
    @Remote('complete')
    complete(agent: Agent, ref: GoalRef): GoalView {
@@ -1270,10 +1248,10 @@ index 77a8a2495..ff61cbbab 100644
        agent,
        ref,
 diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
-index d72ac7c75..0c730a1f0 100644
+index ac32cd3765..9603d60b76 100644
 --- a/packages/goal/goal/tests/goal.spec.ts
 +++ b/packages/goal/goal/tests/goal.spec.ts
-@@ -314,6 +314,44 @@ describe('GoalService mutations', () => {
+@@ -343,6 +343,44 @@ describe('GoalService mutations', () => {
      expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
    })
  
@@ -1319,10 +1297,10 @@ index d72ac7c75..0c730a1f0 100644
      const phases = ['paused', 'blocked'] as const
      for (const phase of phases) {
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index cdecc4c96..44013c831 100644
+index 367688c0d1..bb1276bf7f 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
-@@ -184,6 +184,12 @@ export interface PreparedAdapterCall {
+@@ -191,6 +191,12 @@ export interface PreparedAdapterCall {
    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
  }
  
@@ -1335,7 +1313,7 @@ index cdecc4c96..44013c831 100644
  /**
   * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
   * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
-@@ -326,6 +332,7 @@ export interface DirectoryRegistrationHandle {
+@@ -333,6 +339,7 @@ export interface DirectoryRegistrationHandle {
  export class LlmRuntime extends TypertRemoteService {
    private adapters = new Map<string, AdapterRegistration>()
    private directory = new Map<string, LlmConfigurableProvider>()
@@ -1343,7 +1321,7 @@ index cdecc4c96..44013c831 100644
    private discoveries = new Map<
      string,
      (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
-@@ -335,6 +342,35 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -342,6 +349,35 @@ export class LlmRuntime extends TypertRemoteService {
      super(ctx, 'llm')
    }
  
@@ -1379,7 +1357,7 @@ index cdecc4c96..44013c831 100644
    /** Notify topology observers without letting one broken listener veto the commit. */
    private emitAdaptersUpdated(): void {
      // Cordis emit uses Array.map: one synchronous throw starves later
-@@ -1052,16 +1088,32 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -1107,16 +1143,32 @@ export class LlmRuntime extends TypertRemoteService {
      return this.streamWithRegistration(options)
    }
  
@@ -1415,10 +1393,10 @@ index cdecc4c96..44013c831 100644
  }
  
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 47309daea..b1374a6ab 100644
+index 74265c6510..0feba1c3d8 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
-@@ -459,6 +459,87 @@ describe('LlmRuntime', () => {
+@@ -531,6 +531,87 @@ describe('LlmRuntime', () => {
      })()).rejects.toBe(consumerFailure)
    })
  
@@ -1507,7 +1485,7 @@ index 47309daea..b1374a6ab 100644
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
 diff --git a/packages/sandbox/sandbox-local/src/index.ts b/packages/sandbox/sandbox-local/src/index.ts
-index f9415d59d..422ea9e62 100644
+index 9e9b45a741..3c6b977783 100644
 --- a/packages/sandbox/sandbox-local/src/index.ts
 +++ b/packages/sandbox/sandbox-local/src/index.ts
 @@ -323,6 +323,13 @@ export class LocalSandboxProvider extends SandboxProvider {
@@ -1525,13 +1503,13 @@ index f9415d59d..422ea9e62 100644
      return {
        argv: [...runnerArgv, '--', ...argv],
 diff --git a/packages/sandbox/sandbox-local/src/profiles.ts b/packages/sandbox/sandbox-local/src/profiles.ts
-index 4d647580c..cb1491e2c 100644
+index 23c10d5f82..4cec6b80cc 100644
 --- a/packages/sandbox/sandbox-local/src/profiles.ts
 +++ b/packages/sandbox/sandbox-local/src/profiles.ts
 @@ -5,7 +5,7 @@
   */
  
- import { grantArgs as landlockGrantArgs } from '@deepseek-ai/node-addon-landlock-run'
+ import { grantArgs as landlockGrantArgs } from '@deepseek-ai/node-addon-system/landlock-run'
 -import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 +import { protectedRoots, writableRoots } from '@deepseek-ai/dsh-sandbox'
  import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -1556,10 +1534,10 @@ index 4d647580c..cb1491e2c 100644
    return ['-p', forms.join(' ')]
  }
 diff --git a/packages/sandbox/sandbox-local/tests/local.spec.ts b/packages/sandbox/sandbox-local/tests/local.spec.ts
-index 285afb865..21903a429 100644
+index e6d7aaa258..a95fcce790 100644
 --- a/packages/sandbox/sandbox-local/tests/local.spec.ts
 +++ b/packages/sandbox/sandbox-local/tests/local.spec.ts
-@@ -73,6 +73,13 @@ describe('profile dialects', () => {
+@@ -83,6 +83,13 @@ describe('profile dialects', () => {
      ])
    })
  
@@ -1573,7 +1551,7 @@ index 285afb865..21903a429 100644
    it('landlock read-only: readable tree plus a writable /dev/null, nothing else', () => {
      // /dev/null specifically, NOT /dev: a whole-/dev grant would let confined
      // commands write real host paths beneath it (/dev/shm) under read-only.
-@@ -104,6 +111,12 @@ describe('profile dialects', () => {
+@@ -114,6 +121,12 @@ describe('profile dialects', () => {
      expect(profile).toContain(grant)
      expect(profile.split(grant)).toHaveLength(2)
    })
@@ -1586,7 +1564,7 @@ index 285afb865..21903a429 100644
  })
  
  describe('runnerCommand config', () => {
-@@ -192,6 +205,27 @@ describe('the platform chains', () => {
+@@ -202,6 +215,27 @@ describe('the platform chains', () => {
      expect(probeLandlock).toHaveBeenCalledWith(launcher)
    })
  
@@ -1615,7 +1593,7 @@ index 285afb865..21903a429 100644
      // The safety property moves to execution time: an unusable sandbox-exec
      // refuses to run the command, and the wrap's runnerFailureRules let
 diff --git a/packages/sandbox/sandbox-policy/src/index.ts b/packages/sandbox/sandbox-policy/src/index.ts
-index ba688c975..d02eff192 100644
+index ba688c9759..d02eff192d 100644
 --- a/packages/sandbox/sandbox-policy/src/index.ts
 +++ b/packages/sandbox/sandbox-policy/src/index.ts
 @@ -20,7 +20,7 @@
@@ -1702,7 +1680,7 @@ index ba688c975..d02eff192 100644
     * Read the session override without applying the deployment default.
     * @param session - session whose log supplies the override.
 diff --git a/packages/sandbox/sandbox-policy/tests/policy.spec.ts b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
-index 7ba166354..68fb67e9a 100644
+index 608abeeade..d19dd3b9f8 100644
 --- a/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 +++ b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 @@ -15,7 +15,7 @@ import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-a
@@ -1754,7 +1732,7 @@ index 7ba166354..68fb67e9a 100644
      const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
      try {
 diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
-index 5cc180fe2..f051ed47b 100644
+index 5cc180fe2b..f051ed47b7 100644
 --- a/packages/sandbox/sandbox/src/escalation.ts
 +++ b/packages/sandbox/sandbox/src/escalation.ts
 @@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
@@ -1804,7 +1782,7 @@ index 5cc180fe2..f051ed47b 100644
   * The model-facing denial marker — the one vocabulary both enforcing families
   * teach and report, so the model recognizes a policy denial identically
 diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
-index 2d9ee5b91..dc138f2c4 100644
+index 2d9ee5b91b..dc138f2c47 100644
 --- a/packages/sandbox/sandbox/src/index.ts
 +++ b/packages/sandbox/sandbox/src/index.ts
 @@ -14,11 +14,13 @@ export {
@@ -1837,7 +1815,7 @@ index 2d9ee5b91..dc138f2c4 100644
     * Opaque identity of the calling session (the branded `dsh-session`
     * SessionId). Backends key per-session state off it (e.g. windows-acl gives
 diff --git a/packages/sandbox/sandbox/src/roots.ts b/packages/sandbox/sandbox/src/roots.ts
-index 1215f3dac..556fad85e 100644
+index 1215f3dac1..556fad85ec 100644
 --- a/packages/sandbox/sandbox/src/roots.ts
 +++ b/packages/sandbox/sandbox/src/roots.ts
 @@ -15,6 +15,7 @@
@@ -1860,7 +1838,7 @@ index 1215f3dac..556fad85e 100644
 +  )))]
 +}
 diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
-index 15810d09d..6073180ef 100644
+index 15810d09d5..6073180efc 100644
 --- a/packages/sandbox/sandbox/tests/escalation.spec.ts
 +++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
 @@ -12,6 +12,8 @@ import {
@@ -1897,7 +1875,7 @@ index 15810d09d..6073180ef 100644
    it('the denial marker names the mode', () => {
      expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
 diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
-index 278d64391..6c1432678 100644
+index 278d643910..6c14326782 100644
 --- a/packages/shell/tool-bash/src/index.ts
 +++ b/packages/shell/tool-bash/src/index.ts
 @@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
@@ -1936,10 +1914,10 @@ index 278d64391..6c1432678 100644
        const policy = approvedMode === undefined
          ? standingPolicy
 diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
-index ca8ce99c8..53cd9a29f 100644
+index 1dfbd27b81..21355843a0 100644
 --- a/packages/shell/tool-bash/tests/tools.spec.ts
 +++ b/packages/shell/tool-bash/tests/tools.spec.ts
-@@ -651,6 +651,19 @@ describe('sandbox escalation through the generic task producer', () => {
+@@ -639,6 +639,19 @@ describe('sandbox escalation through the generic task producer', () => {
      expect(text(await call(ctx, 'bash', escalate, malformed))).toContain('not strictly wider')
    })
  
@@ -1960,29 +1938,33 @@ index ca8ce99c8..53cd9a29f 100644
      const withoutService = await setupSandboxed()
      expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
 diff --git a/packages/subagent/subagent-in-process-driver/src/index.ts b/packages/subagent/subagent-in-process-driver/src/index.ts
-index 4ca07b843..927cbccc9 100644
+index c0886dc104..0ffbd54d31 100644
 --- a/packages/subagent/subagent-in-process-driver/src/index.ts
 +++ b/packages/subagent/subagent-in-process-driver/src/index.ts
-@@ -121,13 +121,14 @@ export async function startInProcessRun(
+@@ -121,13 +121,17 @@ export async function startInProcessRun(
    let structured: StructuredAttachment | undefined
-   const setup = (childCtx: Context): void => {
-     appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
-+    if (request.outputSchema !== undefined) {
-+      structured = attachStructuredRuntime(childCtx, request.outputSchema)
-+    }
-     applyChildComposition(childCtx, parent, {
-       persona: request.persona,
-       toolFilter: request.toolFilter,
+   const setup = (childCtx: Context, child: Agent): void => {
+     appendDelegatedPolicyOverrides(child.session, inherited)
+-    applyChildComposition(childCtx, parent, {
+-      persona: request.persona,
+-      toolFilter: request.toolFilter,
+-    })
++    // The structured runtime is a per-child scoped registration, so it must
++    // exist before composition applies its restriction; a later registration
++    // is invisible to an already-restricted child.
+     if (request.outputSchema !== undefined) {
+       structured = attachStructuredRuntime(childCtx, request.outputSchema)
+     }
++    applyChildComposition(childCtx, parent, {
++      persona: request.persona,
++      toolFilter: request.toolFilter,
 +      restrictedRole: request.restrictedRole,
-     })
--    if (request.outputSchema !== undefined) {
--      structured = attachStructuredRuntime(childCtx, request.outputSchema)
--    }
++    }, child)
      attachDescriptorAppend(childCtx, request.descriptor)
    }
  
 diff --git a/packages/subagent/subagent-spawn-in-process/src/index.ts b/packages/subagent/subagent-spawn-in-process/src/index.ts
-index 73811155c..f0d13e2e2 100644
+index 73811155c1..f0d13e2e23 100644
 --- a/packages/subagent/subagent-spawn-in-process/src/index.ts
 +++ b/packages/subagent/subagent-spawn-in-process/src/index.ts
 @@ -46,6 +46,7 @@ class SpawnInProcessProvider implements SubagentProvider {
@@ -1994,10 +1976,10 @@ index 73811155c..f0d13e2e2 100644
    readonly inheritsParentContext = false
  
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 228b9de2f..f793e1082 100644
+index c00aa212ab..d6e78796d4 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
-@@ -8,12 +8,14 @@
+@@ -8,18 +8,21 @@
   * @module @deepseek-ai/dsh-subagent/child-agent
   */
  
@@ -2013,7 +1995,14 @@ index 228b9de2f..f793e1082 100644
  // Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
  // to the policy services when composed — delegation consumes both
  // opportunistically (the documented `ctx.get` pattern), never as a hard dep —
-@@ -27,6 +29,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
+ // and merge the `sandbox/mode` / `approval/policy` session-event payloads.
+ import type {} from '@deepseek-ai/dsh-sandbox-policy'
+ import type {} from '@deepseek-ai/dsh-user-approval'
++import { SubagentError } from './error.ts'
+ // Type-only: make `ctx.get('agentPresets')` resolve to the preset roster when
+ // composed — a child inherits its parent's composition opportunistically (the
+ // documented `ctx.get` pattern), never as a hard dep. A rosterless deployment
+@@ -27,6 +30,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
  // them through the tool registry's global layer.
  import type {} from '@deepseek-ai/dsh-agent-presets'
  import { delegationDepthOf } from './depth.ts'
@@ -2021,7 +2010,7 @@ index 228b9de2f..f793e1082 100644
  
  /** Thrown when starting a child would exceed the requested depth cap. */
  export class SubagentDepthError extends Error {
-@@ -133,17 +136,21 @@ export function resolveChildAgentOptions(
+@@ -133,17 +137,21 @@ export function resolveChildAgentOptions(
   * @param parent - the delegating parent agent.
   * @param childDepth - the resolved delegation depth to persist.
   * @param isSeeded - whether this child inherits a parent-log prefix, including an explicitly empty one.
@@ -2044,7 +2033,7 @@ index 228b9de2f..f793e1082 100644
      ...agentPreset === undefined ? {} : { agentPreset },
      parentSession: parentHeader.id,
      isSeeded,
-@@ -161,6 +168,8 @@ export interface ChildComposition {
+@@ -161,6 +169,8 @@ export interface ChildComposition {
    readonly persona?: string | undefined
    /** Per-child tool scoping. */
    readonly toolFilter?: ToolRestriction | undefined
@@ -2053,7 +2042,7 @@ index 228b9de2f..f793e1082 100644
  }
  
  /**
-@@ -174,6 +183,105 @@ export const SUBAGENT_DELEGATION_CONTEXT
+@@ -174,6 +184,105 @@ export const SUBAGENT_DELEGATION_CONTEXT
      + 'When the task needs access beyond that scope, do not retry the denied operation; state the '
      + 'limitation in your reply so the delegating agent can handle it.'
  
@@ -2159,7 +2148,15 @@ index 228b9de2f..f793e1082 100644
  /**
   * Compose one child inside its creation window: join its parent's preset,
   * register the fixed delegation-scope statement, then apply the child's own
-@@ -214,7 +322,40 @@ export function applyChildComposition(
+@@ -200,6 +309,7 @@ export function applyChildComposition(
+   childCtx: Context,
+   parent: Agent,
+   composition: ChildComposition,
++  childAgent?: Agent,
+ ): void {
+   childCtx.get('agentPresets')?.composeFrom(childCtx, parent.ctx)
+   childCtx.systemPrompt.context({
+@@ -214,7 +324,48 @@ export function applyChildComposition(
        text: composition.persona,
      })
    }
@@ -2184,7 +2181,15 @@ index 228b9de2f..f793e1082 100644
 +    }
 +  }
 +  if (role !== undefined) {
-+    const child = childCtx.agent as Agent
++    // A restricted role mounts authority onto the exact unpublished child, so
++    // a caller that asks for one must supply it.
++    if (childAgent === undefined) {
++      throw new SubagentError(
++        'a restricted-role child composition requires the exact unpublished child Agent',
++        'ROLE_CHILD_UNAVAILABLE',
++      )
++    }
++    const child = childAgent
 +    child.session.append('sandbox/mode', { mode: role.sandbox.mode, source: 'delegation' })
 +    child.session.append('approval/policy', { policy: role.approval, source: 'delegation' })
 +    const allow = role.toolFilter.allow === undefined ? undefined : new Set(role.toolFilter.allow)
@@ -2201,37 +2206,104 @@ index 228b9de2f..f793e1082 100644
  }
  
  /** Policy seeded onto a child session's log at the delegation boundary. */
-diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index 2103ce227..4fe9f9096 100644
---- a/packages/subagent/subagent/src/continuation.ts
-+++ b/packages/subagent/subagent/src/continuation.ts
-@@ -28,6 +28,7 @@ import type {
+diff --git a/packages/subagent/subagent/src/continuation-activation.ts b/packages/subagent/subagent/src/continuation-activation.ts
+index df2b6da439..3a129e43f0 100644
+--- a/packages/subagent/subagent/src/continuation-activation.ts
++++ b/packages/subagent/subagent/src/continuation-activation.ts
+@@ -14,6 +14,7 @@ import type {
    Agent,
    AgentHandle,
    AgentOptions,
 +  AgentSetupCommit,
    CreateAgentOptions,
  } from '@deepseek-ai/dsh-agent'
- import { ReasoningEffortId, boundContextSummary, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
-@@ -50,11 +51,137 @@ import {
+ import { errorChain } from '@deepseek-ai/dsh-llm'
+@@ -32,6 +33,7 @@ import {
  import type { DelegatedPolicyOverrides } from './child-agent.ts'
- import { assertSubagentMaxDepth } from './depth.ts'
- import { seedDescriptorTurn } from './descriptor-seed.ts'
--import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentResult, SubagentStartRequest } from './types.ts'
-+import type {
-+  ContinuableCreateRequest,
-+  ContinuableCreateSpec,
+ import { createSettlementMessage } from './continuation-messages.ts'
+ import type { SubagentDescriptorData } from './descriptor.ts'
++import type { ContinuableWorkspaceDescriptor } from './types.ts'
+ import { SubagentError } from './error.ts'
+ import { SubagentInbox } from './inbox.ts'
+ import type { SubagentDelivery } from './inbox.ts'
+@@ -104,6 +106,15 @@ export interface MaterializeInputs {
+   }
+   agentOptions: AgentOptions
+   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
++  /** Non-bearer identity of the host-issued workspace this child is bound to. */
++  workspace?: ContinuableWorkspaceDescriptor
++  /**
++   * Deployment setup contributions installed into the unpublished child
++   * context; the returned commit is honoured immediately before publication.
++   */
++  applySetup?: (childCtx: Context) => AgentSetupCommit
++  /** Bind the host-issued workspace to the created child Agent before publication. */
++  activateWorkspace?: (agent: Agent) => Promise<void>
+   signal: AbortSignal
+ }
+ 
+@@ -576,14 +587,15 @@ export class ContinuableActivationRegistry {
+   ): Promise<Activation> {
+     const { childId, provider, parent, create } = inputs
+     inputs.signal.throwIfAborted()
+-    const setup = (childCtx: Context, child: Agent): void => {
++    const setup = (childCtx: Context, child: Agent) => {
+       // Only fresh creation appends the descriptor and delegated policy after
+       // the inherited marker; a cold resume replays those persisted events.
+       if (create !== undefined) {
+         child.session.append('subagent/descriptor', create.descriptor)
+         appendDelegatedPolicyOverrides(child.session, create.delegatedPolicies)
+       }
+-      applyChildComposition(childCtx, parent, inputs.composition)
++      applyChildComposition(childCtx, parent, inputs.composition, child)
++      return inputs.applySetup?.(childCtx)
+     }
+     const observer = this.observeActivation(provider, childId, parent)
+     const handle: AgentHandle = create === undefined
+@@ -605,6 +617,15 @@ export class ContinuableActivationRegistry {
+         setup,
+       })
+ 
++    if (inputs.workspace !== undefined && inputs.activateWorkspace !== undefined) {
++      try {
++        await inputs.activateWorkspace(handle.agent)
++      } catch (error: unknown) {
++        await handle.dispose().catch(() => undefined)
++        throw error
++      }
++    }
++
+     const activation: Activation = {
+       childId,
+       parentSession: parent.id,
+diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
+index b86d5cd836..6d215a837b 100644
+--- a/packages/subagent/subagent/src/continuation.ts
++++ b/packages/subagent/subagent/src/continuation.ts
+@@ -15,9 +15,9 @@
+ 
+ import { randomUUID } from 'node:crypto'
+ import type { Context } from '@deepseek-ai/cordis'
+-import type { Agent } from '@deepseek-ai/dsh-agent'
++import type { Agent, AgentSetupCommit } from '@deepseek-ai/dsh-agent'
+ import { brandString } from '@deepseek-ai/dsh-brand'
+-import { ReasoningEffortId, contentHasImage, createUserMessage } from '@deepseek-ai/dsh-llm'
++import { ReasoningEffortId, contentHasImage, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+ import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+ import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+ import type { SessionId } from '@deepseek-ai/dsh-session'
+@@ -48,10 +48,142 @@ import type {
+   ContinuableCreateSpec,
+   ContinuableStart,
+   ContinuableStartSpec,
 +  ContinuableWorkspaceActivationRequest,
 +  ContinuableWorkspaceDescriptor,
 +  ContinuableWorkspacePrepareRequest,
 +  ContinuableWorkspacePrepared,
 +  ContinuableWorkspaceSelection,
-+  SubagentResult,
-+  SubagentStartRequest,
-+} from './types.ts'
- import type { ActivationObserver, ActivationTerminal } from './lifecycle.ts'
- import { SubagentError } from './error.ts'
- import { isAdjacentAgentSendMessageTool } from './internal.ts'
+   SubagentInterruptAuthority,
+   SubagentSendMessageOptions,
+ } from './types.ts'
  
 +/** One deployment capability installed into a continuable child's unpublished context. */
 +export type ContinuableSetupContribution = (childCtx: Context) => () => void
@@ -2349,22 +2421,6 @@ index 2103ce227..4fe9f9096 100644
 +  }
 +}
 +
- /** Durable attribution for one model-authored message between adjacent Agents. */
- export interface AgentMessageSource {
-   readonly kind: 'agent-message'
-@@ -107,6 +234,8 @@ export interface ContinuableStartSpec {
-   readonly request: Omit<SubagentStartRequest, 'label' | 'signal' | 'outputSchema'>
-   /** Caller cancellation, owning the operation only until inbox acceptance. */
-   readonly signal: AbortSignal
-+  /** Trusted host-only workspace selection. Never part of model tool input. */
-+  readonly workspace?: ContinuableWorkspaceSelection
- }
- 
- /** Identities returned once a continuable child accepted its initial prompt. */
-@@ -132,6 +261,17 @@ export interface SubagentSendMessageOptions {
-   readonly signal: AbortSignal
- }
- 
 +/** Deployment scheduling policy for accepted child reports. */
 +export type SubagentReportDelivery = 'quiet' | 'next-step'
 +
@@ -2376,38 +2432,30 @@ index 2103ce227..4fe9f9096 100644
 +  readonly signal: AbortSignal
 +}
 +
- /** Inputs shared by model steering and the human Queue adapter. */
+ /** Inputs shared by model steering and human prompt delivery. */
  type ChildDeliveryOptions =
-   | { readonly delivery: 'steer'; readonly signal: AbortSignal }
-@@ -162,6 +302,9 @@ interface ContinuationHost {
-    * @returns the provider's detached creation spec.
-    */
+   | {
+@@ -69,6 +201,9 @@ type ChildDeliveryOptions =
+ interface ContinuationHost {
+   /** Resolve one provider's detached continuable-creation contribution. */
    prepareContinuable(name: string, request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
 +  snapshotWorkspace(selection: ContinuableWorkspaceSelection, parent: Agent): ContinuableWorkspaceDescriptor
 +  prepareWorkspace(request: ContinuableWorkspacePrepareRequest): Promise<ContinuableWorkspacePrepared>
 +  activateWorkspace(request: ContinuableWorkspaceActivationRequest): Promise<void>
-   /**
-    * Build the lifecycle observer for one Activation's residency epoch.
-    * @param provider - the provider name recorded in the durable descriptor.
-@@ -248,6 +391,7 @@ interface MaterializeInputs {
-   }
-   agentOptions: AgentOptions
-   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
-+  workspace?: ContinuableWorkspaceDescriptor
-   signal: AbortSignal
+   /** Build the lifecycle observer for one Activation residency epoch. */
+   observeActivation(provider: string, childId: SessionId, parent: Agent): ActivationObserver
  }
- 
-@@ -393,6 +537,7 @@ export class SubagentContinuationManager {
+@@ -85,6 +220,7 @@ export class SubagentContinuationManager {
    constructor(
      private readonly ctx: Context,
      private readonly host: ContinuationHost,
 +    private readonly setupRegistry: SubagentActivationSetupRegistry,
    ) {
-     // Ordinary Cordis owner effects unwind in reverse registration order, which
-     // cannot express the dynamic child graph. Register the private scope's
-@@ -435,6 +580,9 @@ export class SubagentContinuationManager {
+     this.activations = new ContinuableActivationRegistry(
+       ctx,
+@@ -108,6 +244,9 @@ export class SubagentContinuationManager {
      const childId = spec.childId ?? brandString<SessionId>(randomUUID())
-     this.assertChildIdAvailable(childId)
+     this.activations.assertChildIdAvailable(childId)
      const childDepth = resolveChildDepth(parent, request.maxDepth)
 +    const workspace = spec.workspace === undefined
 +      ? undefined
@@ -2415,7 +2463,7 @@ index 2103ce227..4fe9f9096 100644
      // Snapshot before any await: invalid descriptor JSON rejects the call
      // before a child exists, and the detached value is what reaches the log.
      const agentOptions = resolveChildAgentOptions(parent, request.agentOptions, childDepth)
-@@ -450,11 +598,21 @@ export class SubagentContinuationManager {
+@@ -123,6 +262,7 @@ export class SubagentContinuationManager {
        ...agentReasoningEffort !== undefined ? { agentReasoningEffort } : {},
        ...request.persona !== undefined ? { persona: request.persona } : {},
        ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
@@ -2423,36 +2471,45 @@ index 2103ce227..4fe9f9096 100644
      })
      // Capture before the first await: a later parent switch belongs to the
      // parent's future, not to this child.
-     const delegatedPolicies = captureDelegatedPolicyOverrides(parent)
- 
-+    const preparedWorkspace = workspace === undefined
-+      ? undefined
-+      : await this.host.prepareWorkspace({
-+        sessionId: childId,
-+        parent,
-+        signal: spec.signal,
-+        descriptor: workspace,
-+        ref: spec.workspace?.ref,
-+      })
-     const prepared = await this.host.prepareContinuable(spec.provider, {
-       sessionId: childId,
-       parent,
-@@ -484,12 +642,13 @@ export class SubagentContinuationManager {
+@@ -133,6 +273,15 @@ export class SubagentContinuationManager {
+     // but the service is also callable outside a turn.
+     const releaseHold = this.activations.holdOwnership(parent, childId)
+     try {
++      const preparedWorkspace = workspace === undefined
++        ? undefined
++        : await this.host.prepareWorkspace({
++          sessionId: childId,
++          parent,
++          signal: spec.signal,
++          descriptor: workspace,
++          ref: spec.workspace?.ref,
++        })
+       const prepared = await this.host.prepareContinuable(spec.provider, {
+         sessionId: childId,
          parent,
-         create: {
-           seed,
--          meta: childSessionMeta(parent, childDepth, prepared.seed !== undefined),
-+          meta: childSessionMeta(parent, childDepth, prepared.seed !== undefined, preparedWorkspace?.cwd),
-           inheritedEventCount,
-           delegatedPolicies,
-         },
-         agentOptions,
-         composition: { persona: request.persona, toolFilter: request.toolFilter },
-+        ...workspace === undefined ? {} : { workspace },
-         signal: spec.signal,
-       })
-       return this.submitMaterialized(
-@@ -556,6 +715,81 @@ export class SubagentContinuationManager {
+@@ -162,13 +311,20 @@ export class SubagentContinuationManager {
+           parent,
+           create: {
+             seed,
+-            meta: childSessionMeta(parent, childDepth, prepared.seed !== undefined),
++            meta: childSessionMeta(parent, childDepth, prepared.seed !== undefined, preparedWorkspace?.cwd),
+             inheritedEventCount,
+             delegatedPolicies,
+             descriptor,
+           },
+           agentOptions,
+           composition: { persona: request.persona, toolFilter: request.toolFilter },
++          ...workspace === undefined ? {} : { workspace },
++          applySetup: childCtx => this.setupRegistry.apply(childCtx),
++          activateWorkspace: agent => this.host.activateWorkspace({
++            agent,
++            descriptor: workspace as ContinuableWorkspaceDescriptor,
++            signal: spec.signal,
++          }),
+           signal: spec.signal,
+         })
+         const childHeader = activation.handle.agent.session.header
+@@ -231,6 +387,92 @@ export class SubagentContinuationManager {
      })
    }
  
@@ -2468,7 +2525,7 @@ index 2103ce227..4fe9f9096 100644
 +    options: SubagentReportOptions,
 +  ): Promise<MessageId> {
 +    options.signal.throwIfAborted()
-+    this.assertAdmitting(child)
++    this.activations.assertAdmitting(child)
 +    const activation = this.authorizeReporter(child)
 +    const parent = this.resolveReportParent(child)
 +    return this.deliverReport(activation, parent, content, options.delivery)
@@ -2483,7 +2540,7 @@ index 2103ce227..4fe9f9096 100644
 +        'UNAUTHORIZED',
 +      )
 +    }
-+    if (activation.disposal !== undefined) {
++    if (activation.inbox.closing !== undefined) {
 +      throw new SubagentError(
 +        `subagent "${child.id}" activation is being disposed; the report was not delivered`,
 +        'ACTIVATION_CLOSING',
@@ -2524,7 +2581,18 @@ index 2103ce227..4fe9f9096 100644
 +      },
 +    })
 +    if (delivery === 'next-step') {
-+      this.sendWaking(parent, message, () => { this.sendReport(parent, message, delivery) })
++      // A continuation-managed receiving parent owns its own Activation inbox;
++      // the registry routes through it and wakes it, and falls back to the
++      // Agent's own steering surface for a host-owned parent.
++      try {
++        this.activations.sendWaking(parent, message, 'steer')
++      } catch (error: unknown) {
++        throw new SubagentError(
++          'direct parent is not live; report was not delivered',
++          'PARENT_UNAVAILABLE',
++          { cause: error },
++        )
++      }
 +    } else {
 +      this.sendReport(parent, message, delivery)
 +    }
@@ -2534,31 +2602,8 @@ index 2103ce227..4fe9f9096 100644
    /**
     * Queue one human-authored prompt as a distinct direct-child turn.
     * @param parent - exact live direct parent authorizing delivery.
-@@ -709,6 +943,22 @@ export class SubagentContinuationManager {
-     return message.id
-   }
- 
-+  /**
-+   * Terminally release one resident continuable child and its live descendants.
-+   * A cold child owns no activation authority and is therefore an accepted no-op.
-+   */
-+  async close(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
-+    signal.throwIfAborted()
-+    this.assertAdmitting(parent)
-+    await this.locks.run(childId, async () => {
-+      signal.throwIfAborted()
-+      const activation = this.activations.get(childId)
-+      if (activation === undefined) return
-+      this.authorizeLineage(parent, childId, activation.parentSession)
-+      await this.dispose(activation)
-+    })
-+  }
-+
-   /**
-    * Perform one waking send to a parent, accounted against that parent's own
-    * Activation when it has one. Registering the id before the send is what
-@@ -747,6 +997,24 @@ export class SubagentContinuationManager {
-     }
+@@ -388,6 +630,24 @@ export class SubagentContinuationManager {
+     await this.activations.drainDescendants(parents)
    }
  
 +  /** Send one report while translating only the parent's own rejection. */
@@ -2580,9 +2625,32 @@ index 2103ce227..4fe9f9096 100644
 +  }
 +
    /**
-    * Close admission, await every already-admitted materialization through
-    * publication or rollback, then dispose the stable live Activation forest
-@@ -1002,6 +1270,32 @@ export class SubagentContinuationManager {
+    * Release selected resident direct children of one exact live parent.
+    * @param parent - exact live direct parent authorizing the selected release.
+@@ -397,6 +657,22 @@ export class SubagentContinuationManager {
+     await this.activations.drainChildren(parent, childIds)
+   }
+ 
++  /**
++   * Terminally release one resident continuable child and its live descendants.
++   * A cold child owns no activation authority and is therefore an accepted no-op.
++   */
++  async close(parent: Agent, childId: SessionId, signal: AbortSignal): Promise<void> {
++    signal.throwIfAborted()
++    this.activations.assertAdmitting(parent)
++    await this.activations.locks.run(childId, async () => {
++      signal.throwIfAborted()
++      const activation = this.activations.get(childId)
++      if (activation === undefined) return
++      this.activations.authorizeLineage(parent, childId, activation.parentSession)
++      await this.activations.dispose(activation)
++    })
++  }
++
+   /**
+    * Cold-resume a persisted child and submit the waiting turn. The descriptor
+    * supplies every reconstruction input; no subagent provider is dispatched.
+@@ -429,6 +705,32 @@ export class SubagentContinuationManager {
          'NOT_RESUMABLE',
        )
      }
@@ -2614,54 +2682,23 @@ index 2103ce227..4fe9f9096 100644
 +    }
      let activation: Activation
      try {
-       activation = await this.materialize({
-@@ -1016,6 +1310,7 @@ export class SubagentContinuationManager {
+       activation = await this.activations.materialize({
+@@ -443,6 +745,13 @@ export class SubagentContinuationManager {
              : {},
          },
          composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
 +        ...descriptor.workspace === undefined ? {} : { workspace: descriptor.workspace },
++        applySetup: childCtx => this.setupRegistry.apply(childCtx),
++        activateWorkspace: agent => this.host.activateWorkspace({
++          agent,
++          descriptor: descriptor.workspace as ContinuableWorkspaceDescriptor,
++          signal: options.signal,
++        }),
          signal: options.signal,
        })
      } catch (error: unknown) {
-@@ -1126,7 +1421,7 @@ export class SubagentContinuationManager {
-     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
-     // some other owner holds — a duplicate would reject there with rollback.
-     inputs.signal.throwIfAborted()
--    const setup = (childCtx: Context): void => {
-+    const setup = (childCtx: Context) => {
-       // Only fresh creation seeds the delegation policy onto the child's own
-       // log (after any fork seed, so fresh policy wins stale seed state); a
-       // cold resume replays those persisted events instead.
-@@ -1134,6 +1429,7 @@ export class SubagentContinuationManager {
-         appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
-       }
-       applyChildComposition(childCtx, parent, inputs.composition)
-+      return this.setupRegistry.apply(childCtx)
-     }
-     const observer = this.host.observeActivation(provider, childId, parent)
-     // Agent creation owns rollback before handle transfer. A rejection leaves
-@@ -1155,6 +1451,19 @@ export class SubagentContinuationManager {
-         setup,
-       })
- 
-+    if (inputs.workspace !== undefined) {
-+      try {
-+        await this.host.activateWorkspace({
-+          agent: handle.agent,
-+          descriptor: inputs.workspace,
-+          signal: inputs.signal,
-+        })
-+      } catch (error: unknown) {
-+        await handle.dispose().catch(() => undefined)
-+        throw error
-+      }
-+    }
-+
-     const activation: Activation = {
-       childId,
-       // The durable lineage, not merely the caller: creation stamps this same
 diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
-index de9191cc5..95b873ccf 100644
+index de9191cc50..95b873ccf1 100644
 --- a/packages/subagent/subagent/src/descriptor.ts
 +++ b/packages/subagent/subagent/src/descriptor.ts
 @@ -25,6 +25,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -2795,7 +2832,7 @@ index de9191cc5..95b873ccf 100644
    const snapshot = snapshotJsonValue(candidate)
    if (snapshot === undefined) {
 diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index 28e50930c..2271623c9 100644
+index 8a91e06e56..1449615134 100644
 --- a/packages/subagent/subagent/src/index.ts
 +++ b/packages/subagent/subagent/src/index.ts
 @@ -29,11 +29,14 @@
@@ -2807,7 +2844,7 @@ index 28e50930c..2271623c9 100644
 +import { realpathSync } from 'node:fs'
 +import { Context, FiberState } from '@deepseek-ai/cordis'
 +import type { Fiber } from '@deepseek-ai/cordis'
- import { admitPromptContent } from '@deepseek-ai/dsh-attachment'
+ import type {} from '@deepseek-ai/dsh-attachment'
  import { scopeTarget } from '@deepseek-ai/dsh-scope'
  import type { Scoped } from '@deepseek-ai/dsh-scope'
 -import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -2815,68 +2852,63 @@ index 28e50930c..2271623c9 100644
  import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
  import type { Agent } from '@deepseek-ai/dsh-agent'
  import type { SessionId } from '@deepseek-ai/dsh-session'
-@@ -52,6 +55,17 @@ import type {
- import type {
-   ContinuableCreateRequest,
+@@ -54,7 +57,18 @@ import type {
    ContinuableCreateSpec,
+   ContinuableStart,
+   ContinuableStartSpec,
 +  ContinuableWorkspaceActivationRequest,
 +  ContinuableWorkspaceDescriptor,
 +  ContinuableWorkspacePrepareRequest,
 +  ContinuableWorkspacePrepared,
 +  ContinuableWorkspaceProvider,
 +  ContinuableWorkspaceSelection,
+   ResolvedSubagentStartRequest,
 +  RestrictedRoleAuthority,
 +  RestrictedRoleDefinition,
 +  RestrictedRoleReceipt,
 +  RestrictedRoleRun,
 +  RestrictedRoleStartRequest,
-   ResolvedSubagentStartRequest,
    SubagentCapabilities,
+   SubagentInterruptAuthority,
    SubagentProvider,
-@@ -64,11 +78,13 @@ import { SubagentError } from './error.ts'
+@@ -68,7 +82,8 @@ import { SubagentError } from './error.ts'
  import { assertSubagentMaxDepth } from './depth.ts'
  import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
  import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
 -import SubagentContinuationManager from './continuation.ts'
 +import SubagentContinuationManager, { SubagentActivationSetupRegistry } from './continuation.ts'
- import type {
++import type { ContinuableSetupContribution, SubagentReportOptions } from './continuation.ts'
+ import type { SubagentDelivery } from './inbox.ts'
+ import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
+ import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
+@@ -86,7 +101,18 @@ export type {
+   ContinuableCreateSpec,
    ContinuableStart,
    ContinuableStartSpec,
-+  ContinuableSetupContribution,
-   SubagentInterruptAuthority,
-+  SubagentReportOptions,
-   SubagentSendMessageOptions,
- } from './continuation.ts'
- import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
-@@ -83,6 +99,17 @@ export { SubagentRunId } from './types.ts'
- export type {
-   ContinuableCreateRequest,
-   ContinuableCreateSpec,
 +  ContinuableWorkspaceActivationRequest,
 +  ContinuableWorkspaceDescriptor,
 +  ContinuableWorkspacePrepareRequest,
 +  ContinuableWorkspacePrepared,
 +  ContinuableWorkspaceProvider,
 +  ContinuableWorkspaceSelection,
+   ResolvedSubagentStartRequest,
 +  RestrictedRoleAuthority,
 +  RestrictedRoleDefinition,
 +  RestrictedRoleReceipt,
 +  RestrictedRoleRun,
 +  RestrictedRoleStartRequest,
-   ResolvedSubagentStartRequest,
    SubagentCapabilities,
-   SubagentProvider,
-@@ -124,7 +151,9 @@ export type {
-   AgentMessageSource,
-   ContinuableStart,
-   ContinuableStartSpec,
-+  ContinuableSetupContribution,
    SubagentInterruptAuthority,
-+  SubagentReportOptions,
-   SubagentSendMessageOptions,
-   SubagentSettledMessageSource,
- } from './continuation.ts'
-@@ -174,6 +203,199 @@ declare module '@deepseek-ai/cordis' {
+   SubagentProvider,
+@@ -125,6 +151,7 @@ export {
+ } from './child-agent.ts'
+ export type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
+ export type { AgentMessageSource, SubagentSettledMessageSource } from './continuation-messages.ts'
++export type { ContinuableSetupContribution, SubagentReportOptions } from './continuation.ts'
+ export type * from './control-types.ts'
+ export type { SubagentDescendantListEntry } from './list-children.ts'
+ export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
+@@ -171,6 +198,199 @@ declare module '@deepseek-ai/cordis' {
    }
  }
  
@@ -3076,7 +3108,7 @@ index 28e50930c..2271623c9 100644
  /**
   * Durable attribution of one browser-authored follow-up. The Session
   * Controller declares this `user-rpc` message source and depends on this
-@@ -190,7 +412,18 @@ interface BrowserPromptSource {
+@@ -187,7 +407,18 @@ interface BrowserPromptSource {
  /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
  export class SubagentRuntime extends TypertRemoteService {
    private providers = new Map<string, SubagentProvider>()
@@ -3095,7 +3127,7 @@ index 28e50930c..2271623c9 100644
    /**
     * The contained lifecycle-edge publisher. Built here because scoped dispatch
     * keys its carrier by this exact service instance, whose own context filter
-@@ -202,20 +435,54 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -199,14 +430,19 @@ export class SubagentRuntime extends TypertRemoteService {
      super(ctx, 'subagents')
      this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
      ctx.inject(['agents'], (childCtx: Context) => {
@@ -3116,6 +3148,7 @@ index 28e50930c..2271623c9 100644
        }, 'subagents.continuationBinding()')
      })
      ctx.inject(['sessionProjections'], (projectionCtx) => {
+@@ -214,6 +450,35 @@ export class SubagentRuntime extends TypertRemoteService {
        projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
        projectionCtx.sessionProjections.register(subagentIdentityProjectionDefinition)
      })
@@ -3151,8 +3184,8 @@ index 28e50930c..2271623c9 100644
    }
  
    /**
-@@ -275,6 +542,18 @@ export class SubagentRuntime extends TypertRemoteService {
-     return this.requireContinuations().queuePrompt(parent, childId, content, source, signal)
+@@ -277,6 +542,18 @@ export class SubagentRuntime extends TypertRemoteService {
+       : this.requireContinuations().queuePrompt(parent, childId, content, source, signal)
    }
  
 +  /**
@@ -3170,7 +3203,7 @@ index 28e50930c..2271623c9 100644
    /**
     * Interrupt one live continuable child's current turn under a human parent
     * address or an exact live ancestor Agent. Fire-and-return: the cancel
-@@ -294,6 +573,95 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -296,6 +573,95 @@ export class SubagentRuntime extends TypertRemoteService {
      this.continuations?.interrupt(targetSessionId, authority)
    }
  
@@ -3266,7 +3299,7 @@ index 28e50930c..2271623c9 100644
    /**
     * Close continuable admission below exact live parent Agents, stop only their
     * visible descendant Activations synchronously, then await admitted scoped
-@@ -537,6 +905,297 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -541,6 +907,297 @@ export class SubagentRuntime extends TypertRemoteService {
      return [...this.providers.keys()]
    }
  
@@ -3564,7 +3597,7 @@ index 28e50930c..2271623c9 100644
    /**
     * Establish a published child on the named provider. Capability and semantic
     * checks run before delegation. Provider ownership lasts until its promise
-@@ -548,6 +1207,9 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -554,6 +1211,9 @@ export class SubagentRuntime extends TypertRemoteService {
     * @returns the published holder-owned run.
     */
    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
@@ -3575,10 +3608,19 @@ index 28e50930c..2271623c9 100644
      this.assertCapabilities(provider, request)
      assertSubagentMaxDepth(request.maxDepth)
 diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
-index 9ee1e09ae..a8e8a6e4f 100644
+index 1b9ce56c3f..df0a5de1ac 100644
 --- a/packages/subagent/subagent/src/types.ts
 +++ b/packages/subagent/subagent/src/types.ts
-@@ -163,6 +163,63 @@ export interface SubagentStartRequest {
+@@ -47,6 +47,8 @@ export interface ContinuableStartSpec {
+   readonly request: Omit<SubagentStartRequest, 'label' | 'signal' | 'outputSchema'>
+   /** Caller cancellation, owning the operation only until inbox acceptance. */
+   readonly signal: AbortSignal
++  /** Trusted host-only workspace selection. Never part of model tool input. */
++  readonly workspace?: ContinuableWorkspaceSelection
+ }
+ 
+ /** Identities returned once a continuable child accepted its initial prompt. */
+@@ -207,6 +209,63 @@ export interface SubagentStartRequest {
  export interface ResolvedSubagentStartRequest extends SubagentStartRequest {
    /** Detached descriptor a session-backed provider persists in the child log. */
    readonly descriptor: SubagentDescriptorData
@@ -3642,7 +3684,7 @@ index 9ee1e09ae..a8e8a6e4f 100644
  }
  
  /**
-@@ -199,6 +256,56 @@ export interface ContinuableCreateSpec {
+@@ -243,6 +302,56 @@ export interface ContinuableCreateSpec {
    readonly seed?: readonly SessionEvent[]
  }
  
@@ -3699,7 +3741,7 @@ index 9ee1e09ae..a8e8a6e4f 100644
  /**
   * Why a subagent run ended. Merge-extensible (a backend may add variants);
   * consumers branch on the known cases and fall through `default`. The known
-@@ -308,6 +415,8 @@ export interface SubagentProvider {
+@@ -352,6 +461,8 @@ export interface SubagentProvider {
     * It says nothing about tool registration, injected services, or authority inheritance.
     */
    readonly inheritsParentContext: boolean
@@ -3709,10 +3751,10 @@ index 9ee1e09ae..a8e8a6e4f 100644
     * Optional static provider-owned provider/model route for one-shot Agent
     * options. Consumers merge tool/model overrides over these values before
 diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index 851720f22..77b5d32b9 100644
+index f2bbd16ef5..4f95a9534a 100644
 --- a/packages/subagent/subagent/tests/continuation.spec.ts
 +++ b/packages/subagent/subagent/tests/continuation.spec.ts
-@@ -201,6 +201,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
+@@ -252,6 +252,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
  }
  
  describe('SubagentRuntime.startContinuable', () => {
@@ -3744,7 +3786,7 @@ index 851720f22..77b5d32b9 100644
 +      workspace: { provider: 'managed', ref },
 +    })
 +    await waitNoActivation(ctx, started.childId)
-+    const loaded = await ctx.sessionPersistence.load(started.childId)
++    const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
 +    const descriptor = loaded.events.find(event => event.type === 'subagent/descriptor')
 +    expect(descriptor?.data).toMatchObject({
 +      version: SUBAGENT_DESCRIPTOR_VERSION,
@@ -3766,7 +3808,7 @@ index 851720f22..77b5d32b9 100644
 +    parkParent(ctx, parent)
 +    const started = await ctx.subagents.startContinuable(startSpec(parent))
 +    await waitNoActivation(ctx, started.childId)
-+    const loaded = await ctx.sessionPersistence.load(started.childId)
++    const loaded = await loadStoredSession(ctx.sessionPersistence, started.childId)
 +    const descriptor = loaded.events.find(event => event.type === 'subagent/descriptor')
 +    expect(descriptor?.data).toMatchObject({ version: 2, mode: 'continuable' })
 +    expect(descriptor?.data).not.toHaveProperty('workspace')
@@ -3856,7 +3898,7 @@ index 851720f22..77b5d32b9 100644
    it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
      const { ctx, parent, adapter } = await setup([textResponse('first answer')])
      const enqueued: { id: MessageId; loggedYet: boolean }[] = []
-@@ -290,7 +427,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -341,7 +478,7 @@ describe('SubagentRuntime.startContinuable', () => {
      expect(descriptorIndex).toBeLessThan(turnStartIndex)
      const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
      expect(descriptor.data).toEqual({
@@ -3865,7 +3907,7 @@ index 851720f22..77b5d32b9 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -420,7 +557,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -532,7 +669,7 @@ describe('SubagentRuntime.startContinuable', () => {
      const descriptor = child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')
  
      expect(descriptor?.data).toEqual({
@@ -3874,7 +3916,7 @@ index 851720f22..77b5d32b9 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -454,7 +591,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -566,7 +703,7 @@ describe('SubagentRuntime.startContinuable', () => {
  
      expect(child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')?.data)
        .toEqual({
@@ -3884,11 +3926,11 @@ index 851720f22..77b5d32b9 100644
          provider: 'spawn',
          label: 'child task',
 diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
-index 261f614fb..2686bec75 100644
+index beaeef58ba..5ad5543292 100644
 --- a/packages/subprocess/subprocess-local/src/index.ts
 +++ b/packages/subprocess/subprocess-local/src/index.ts
-@@ -35,6 +35,11 @@ import { LocalTerminalHandle } from './terminal.ts'
-  * JavaScript-observable host exit.
+@@ -49,6 +49,11 @@ import { LocalTerminalHandle } from './terminal.ts'
+  * JavaScript-observable host exit also performs synchronous final termination.
   */
  export class LocalSubprocessRuntime extends SubprocessRuntime {
 +  override readonly descriptorSpawnMode = process.platform === 'linux'
@@ -3899,35 +3941,32 @@ index 261f614fb..2686bec75 100644
    /** Live handles retained for normal disposal and synchronous host-exit finalization. */
    private live = new Set<LocalSubprocessHandle>()
    /** Live terminals retained through normal quiescence or host-exit finalization. */
-@@ -144,7 +149,14 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
-   }
- 
-   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
--    const handle = spawnSubprocess(spec, this.internals)
-+    return this.own(spawnSubprocess(spec, this.internals))
+@@ -175,6 +180,15 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
+         : launchWindowsJob(spec, env)
+       handle = bindManagedProcess(spec, launch, binding)
+     }
++    return this.own(handle)
 +  }
 +
 +  override spawnDescriptor(spec: SubprocessSpawnSpec, executableFd: number): SubprocessHandle {
++    validateSubprocessSpec(spec)
 +    return this.own(spawnSubprocess(spec, this.internals, executableFd))
 +  }
 +
 +  private own(handle: LocalSubprocessHandle): SubprocessHandle {
      this.live.add(handle)
-     // Release ownership only once the whole TREE is gone, not at direct-child
+     // Release ownership only once the whole managed range is gone, not at direct-child
      // settlement — a TERM-trapping helper that outlives the leader must stay
 diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
-index 433ba0179..b7d93c297 100644
+index 9079716c71..1f956d2178 100644
 --- a/packages/subprocess/subprocess-local/src/spawn.ts
 +++ b/packages/subprocess/subprocess-local/src/spawn.ts
-@@ -7,12 +7,27 @@
-  * @module dsh-subprocess-local/spawn
-  */
+@@ -10,10 +10,25 @@
  
--import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
-+import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
+ import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
  import type { Readable } from 'node:stream'
 -import { randomBytes } from 'node:crypto'
--import { closeSync, mkdtempSync, openSync, unlinkSync, writeSync } from 'node:fs'
+-import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
 +import { createHash, randomBytes } from 'node:crypto'
 +import {
 +  chmodSync,
@@ -3951,8 +3990,8 @@ index 433ba0179..b7d93c297 100644
  import { setTimeout as sleepMs } from 'node:timers/promises'
  import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-@@ -27,15 +42,19 @@ import type {
- import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+@@ -36,15 +51,19 @@ type SpawnProcess = (
+ ) => ChildProcess
  
  /**
 - * Build a child environment: explicit caller entries override the scrubbed
@@ -3977,25 +4016,22 @@ index 433ba0179..b7d93c297 100644
    if (process.platform !== 'win32') return { ...env, ...extra }
    let entries: [string, string | undefined][] = Object.entries(env)
    for (const [key, value] of Object.entries(extra ?? {})) {
-@@ -54,10 +73,17 @@ export interface SpawnInternals {
+@@ -65,10 +84,14 @@ export interface SpawnInternals {
    taskkill?: (pid: number) => void
    /** Host platform override for signalling decisions. */
    platform?: NodeJS.Platform
 +  /** Parent for private Darwin descriptor copies (defaults to the OS temp dir). */
 +  descriptorExecDir?: string
-+  /** Process spawn seam used only by descriptor-materialization tests. */
-+  spawnProcess?: SpawnProcess
    /** Linux process-group member probe (defaults to `/proc` inspection). */
    linuxProcessGroupHasLiveMembers?: (processGroupId: number) => boolean | undefined
  }
  
-+type SpawnProcess = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess
 +const MAX_DESCRIPTOR_EXECUTABLE_BYTES = 256 * 1024 * 1024
 +
  /**
   * Local-only synchronous final termination used by the owning service during
   * host exit and as the last fallback after failed normal disposal. It is
-@@ -314,6 +340,190 @@ function signalTree(
+@@ -637,27 +660,248 @@ export function bindManagedProcess(
    }
  }
  
@@ -4184,11 +4220,13 @@ index 433ba0179..b7d93c297 100644
 +}
 +
  /**
-  * Spawn one isolated detached process tree with the spec's per-stream stdio
-  * dispositions. Runtime exits resolve `done` as {@link SubprocessOutcome};
-@@ -323,7 +533,11 @@ function signalTree(
+  * Spawn one detached PGID/taskkill fallback and bind the common lifecycle.
++ * An `executableFd` binds the launch to exactly those descriptor bytes instead
++ * of resolving `argv[0]` from the filesystem again.
+  * @param spec - fully resolved argv, cwd, stdio, grace, cancellation, environment.
+  * @param internals - test-only spill-directory, platform, and taskkill overrides.
++ * @param executableFd - open descriptor whose bytes must be the executed image.
   * @returns live subprocess handle.
-  * @throws when `graceMs` cannot be represented by one Node timer.
   */
 -export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInternals = {}): LocalSubprocessHandle {
 +export function spawnSubprocess(
@@ -4196,30 +4234,18 @@ index 433ba0179..b7d93c297 100644
 +  internals: SpawnInternals = {},
 +  executableFd?: number,
 +): LocalSubprocessHandle {
-   if (!Number.isFinite(spec.graceMs) || spec.graceMs <= 0 || spec.graceMs > MAX_TIMER_DELAY_MS) {
-     throw new Error(`subprocess graceMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`)
-   }
-@@ -332,6 +546,13 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
-   const taskkill = internals.taskkill ?? taskkillProcessTree
-   const linuxGroupHasLiveMembers = internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers
- 
-+  const spawnProcess = internals.spawnProcess ?? spawn
+   const binding = prepareManagedProcessBinding(internals)
+   const platform = internals.platform ?? process.platform
+   const [program, ...args] = spec.argv
+-  const child = (internals.spawn ?? spawn)(program as string, args, {
 +
 +  if (executableFd !== undefined
 +    && (!Number.isSafeInteger(executableFd) || executableFd < 0)) {
 +    throw new Error('subprocess executable descriptor must be a non-negative safe integer')
 +  }
 +
-   if (spec.signal?.aborted) {
-     throw new Error(`aborted before spawn: ${String(spec.signal.reason ?? 'aborted')}`)
-   }
-@@ -347,18 +568,42 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
-   const stdinMode = spec.stdio.stdin
- 
-   const env = childEnv(spec.env)
--  const child = spawn(program, args, {
 +  const childExecutableFd = 3
-+  let executable = program
++  let executable = program as string
 +  let inheritedExecutableFd: number | undefined
 +  let transientExecutable: TransientExecutable | undefined
 +  if (executableFd !== undefined) {
@@ -4233,70 +4259,82 @@ index 433ba0179..b7d93c297 100644
 +    else throw new Error('subprocess descriptor-bound execution is unsupported on this platform')
 +  }
 +  const spawnOptions: SpawnOptions = {
-+    ...(executableFd === undefined ? {} : { argv0: program }),
++    ...(executableFd === undefined ? {} : { argv0: program as string }),
      cwd: spec.cwd,
-     env,
+     env: childEnv(spec.env),
      stdio: [
-       stdinMode === 'ignore' ? 'ignore' : 'pipe',
-       outMode === 'inherit' ? 'inherit' : 'pipe',
-       errMode === 'inherit' ? 'inherit' : 'pipe',
+       spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
+       spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
+       spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
 +      ...(inheritedExecutableFd === undefined ? [] : [inheritedExecutableFd]),
      ],
-     // `detached` gives teardown a tree root on POSIX (its own process group);
-     // Windows terminates by root pid through taskkill /T instead.
      detached: platform !== 'win32',
+     windowsHide: platform === 'win32',
 -  })
 +  }
 +  let child: ChildProcess
 +  try {
 +    transientExecutable?.verify()
-+    child = spawnProcess(executable, args, spawnOptions)
++    child = (internals.spawn ?? spawn)(executable, args, spawnOptions)
 +  } catch (error: unknown) {
 +    transientExecutable?.cleanup()
 +    throw error
 +  }
- 
-   const collectStream = (mode: SubprocessOutputMode, stream: Readable | null, label: string): OutputCollector | undefined => {
-     if (!isCollect(mode) || stream === null) return undefined
-@@ -424,6 +669,10 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
-     return treeExitObservation
-   }
- 
+   const direct = directChildResult(child)
+   const pid = child.pid
+   const owner = fallbackOwner(
+@@ -668,11 +912,16 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+     internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers,
+     direct,
+   )
+-  return bindManagedProcess(spec, {
++  const handle = bindManagedProcess(spec, {
+     stdin: child.stdin,
+     stdout: child.stdout,
+     stderr: child.stderr,
+     direct,
+     owner,
+   }, binding)
 +  if (transientExecutable !== undefined) {
-+    void observeTreeExit().then(() => { transientExecutable?.cleanup() })
++    const release = (): void => { transientExecutable?.cleanup() }
++    void handle.waitForExit().then(release, release)
 +  }
-+
-   // The escalation's tier primitive (not on the handle — terminate() is the
-   // only consumer-facing termination verb). Guards on TREE liveness, not
-   // outcome settlement: a TERM-trapping helper can outlive the settled direct
-@@ -485,6 +734,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
-       // No meaningful close outcome follows a spawn failure.
-       settled = true
-       cleanup()
-+      transientExecutable?.cleanup()
-       reject(error)
-     })
-     child.on('exit', (exitCode, signal) => {
++  return handle
+ }
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfaaa..02b497797 100644
+index 67cdd88d5a..42e3d3248c 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-@@ -1,4 +1,5 @@
--import { mkdtempSync, readFileSync, statSync, unlinkSync } from 'node:fs'
-+import { spawn as spawnChild } from 'node:child_process'
-+import { chmodSync, closeSync, existsSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync } from 'node:fs'
+@@ -1,5 +1,19 @@
+ import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'node:child_process'
+-import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
++import {
++  chmodSync,
++  closeSync,
++  existsSync,
++  ftruncateSync,
++  mkdtempSync,
++  openSync,
++  readFileSync,
++  readdirSync,
++  realpathSync,
++  rmSync,
++  rmdirSync,
++  statSync,
++  unlinkSync,
++} from 'node:fs'
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
- import { describe, expect, it, vi } from 'vitest'
-@@ -11,6 +12,7 @@ import {
+ import { afterAll, describe, expect, it, vi } from 'vitest'
+@@ -14,6 +28,7 @@ import {
  } from '../src/spawn.ts'
  import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 +import * as spawnModule from '../src/spawn.ts'
+ import { waitWithAbort } from '../src/managed-owner.ts'
  
- /**
-  * Translate the suite's POSIX command strings into node one-liners on Windows,
-@@ -55,22 +57,47 @@ function shellArgv(command: string): string[] {
+ vi.mock('node:child_process', async (importOriginal) => {
+@@ -64,22 +79,47 @@ function shellArgv(command: string): string[] {
    }
  }
  
@@ -4345,7 +4383,7 @@ index 1f21dfaaa..02b497797 100644
        if (failNextUnlink.value) {
          failNextUnlink.value = false
          throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
-@@ -179,6 +206,294 @@ describe('spawnSubprocess', () => {
+@@ -196,6 +236,294 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
@@ -4411,10 +4449,10 @@ index 1f21dfaaa..02b497797 100644
 +        }, {
 +          platform: 'darwin',
 +          descriptorExecDir,
-+          spawnProcess(program, args, options) {
++          spawn(program, args, options) {
 +            expect(readFileSync(program)).toEqual(readFileSync('/bin/bash'))
 +            expect(statSync(program).mode & 0o777).toBe(0o500)
-+            return spawnChild(program, args, options)
++            return nodeSpawn(program, args, options)
 +          },
 +        }, executableFd)
 +        const result = await finish(handle)
@@ -4502,7 +4540,7 @@ index 1f21dfaaa..02b497797 100644
 +        expect(() => spawnSubprocess(spec('true'), {
 +          platform: 'darwin',
 +          descriptorExecDir,
-+          spawnProcess() { throw new Error('simulated spawn failure') },
++          spawn() { throw new Error('simulated spawn failure') },
 +        }, executableFd)).toThrow('simulated spawn failure')
 +        expect(readdirSync(descriptorExecDir)).toEqual([])
 +      } finally {
@@ -4594,10 +4632,10 @@ index 1f21dfaaa..02b497797 100644
 +        const handle = spawnSubprocess(spec('true'), {
 +          platform: 'darwin',
 +          descriptorExecDir,
-+          spawnProcess(program, args, options) {
++          spawn(program, args, options) {
 +            materializedPath = program
 +            failUnlinkPath.value = program
-+            return spawnChild(program, args, options)
++            return nodeSpawn(program, args, options)
 +          },
 +        }, executableFd)
 +        const result = await finish(handle)
@@ -4641,10 +4679,10 @@ index 1f21dfaaa..02b497797 100644
      const result = await finish(spawnSubprocess(spec('echo oops >&2')))
      expect(result.exitCode).toBe(0)
 diff --git a/packages/subprocess/subprocess/src/index.ts b/packages/subprocess/subprocess/src/index.ts
-index a7413159f..08d9319f5 100644
+index 0cda343664..d8abfa2a53 100644
 --- a/packages/subprocess/subprocess/src/index.ts
 +++ b/packages/subprocess/subprocess/src/index.ts
-@@ -100,6 +100,14 @@ declare module '@deepseek-ai/cordis' {
+@@ -113,6 +113,14 @@ declare module '@deepseek-ai/cordis' {
   *   when the top-level process exits.
   */
  export abstract class SubprocessRuntime extends Service {
@@ -4659,7 +4697,7 @@ index a7413159f..08d9319f5 100644
    constructor(ctx: Context) {
      super(ctx, 'subprocess')
    }
-@@ -129,6 +137,23 @@ export abstract class SubprocessRuntime extends Service {
+@@ -143,6 +151,23 @@ export abstract class SubprocessRuntime extends Service {
     */
    abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
  

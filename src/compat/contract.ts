@@ -17,28 +17,23 @@ export function isChannel(value: string | undefined): value is Channel {
 }
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const SUPPORTED_DSH_RELEASES = Object.freeze({
-  '0.1.1-rc.2': Object.freeze({
-    ref: 'refs/tags/dsh-v0.1.1-rc.2',
-    revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
-    cordis: '4.0.1',
-  }),
-  '0.1.2-alpha.4': Object.freeze({
-    ref: 'refs/tags/dsh-v0.1.2-alpha.4',
-    revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
-    cordis: '4.0.2',
-  }),
   '0.1.2-rc.1': Object.freeze({
     ref: 'refs/tags/dsh-v0.1.2-rc.1',
     revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
     cordis: '4.0.2',
   }),
+  '0.1.5-alpha.2': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.5-alpha.2',
+    revision: 'b2e3b2a0125854567a4a5fcba75782e42fe84901',
+    cordis: '4.0.2',
+  }),
 })
 const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
-const SUPPORTED_CORDIS_RELEASES = Object.freeze(['4.0.1', '4.0.2'])
+const SUPPORTED_CORDIS_RELEASES = Object.freeze(['4.0.2'])
 const SUPPORTED_CORDIS_VERSION_RANGE = SUPPORTED_CORDIS_RELEASES.join(' || ')
 const DSH_SUPPORT_POLICY = Object.freeze({
   kind: 'rolling-latest-releases',
-  maximum_releases: 3,
+  maximum_releases: 2,
   promotion: 'add newest release and retire the oldest release in the same change',
 })
 
@@ -187,7 +182,7 @@ export function validateDshCompatibilityManifest(input: unknown) {
   )) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
-      'DSH support policy must retain exactly the latest three reviewed releases',
+      'DSH support policy must retain exactly the latest two reviewed releases',
     )
   }
   const channels = requireRecord(manifest.channels, 'DSH compatibility channels are missing')

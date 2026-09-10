@@ -83,7 +83,7 @@ function validRuntime() {
   }
 }
 
-test('DSH compatibility manifest enforces a rolling window of exactly three releases', () => {
+test('DSH compatibility manifest enforces a rolling window of exactly two releases', () => {
   const manifest = validateDshCompatibilityManifest(
     JSON.parse(readFileSync(manifestPath, 'utf8')),
   )
@@ -92,7 +92,7 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
   assert.deepEqual(Object.keys(manifest.channels).sort(), ['pinned', 'upstream-next'])
   assert.deepEqual(manifest.support_policy, {
     kind: 'rolling-latest-releases',
-    maximum_releases: 3,
+    maximum_releases: 2,
     promotion: 'add newest release and retire the oldest release in the same change',
   })
   assert.equal(manifest.channels.pinned.version, '0.1.2-rc.1')
@@ -101,19 +101,14 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
   assert.deepEqual(manifest.validated_releases, {
-    '0.1.1-rc.2': {
-      ref: 'refs/tags/dsh-v0.1.1-rc.2',
-      revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e',
-      cordis: '4.0.1',
-    },
-    '0.1.2-alpha.4': {
-      ref: 'refs/tags/dsh-v0.1.2-alpha.4',
-      revision: '4e84901e6471b79ec0338099867ebb4606d12bb5',
-      cordis: '4.0.2',
-    },
     '0.1.2-rc.1': {
       ref: 'refs/tags/dsh-v0.1.2-rc.1',
       revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
+      cordis: '4.0.2',
+    },
+    '0.1.5-alpha.2': {
+      ref: 'refs/tags/dsh-v0.1.5-alpha.2',
+      revision: 'b2e3b2a0125854567a4a5fcba75782e42fe84901',
       cordis: '4.0.2',
     },
   })
@@ -154,12 +149,12 @@ test('DSH compatibility manifest enforces a rolling window of exactly three rele
   for (const [name, contract] of Object.entries(manifest.public_packages)) {
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
-      ? '4.0.1 || 4.0.2'
-      : '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1')
+      ? '4.0.2'
+      : '0.1.2-rc.1 || 0.1.5-alpha.2')
   }
 
   const expandedWindow = structuredClone(manifest)
-  expandedWindow.support_policy.maximum_releases = 4
+  expandedWindow.support_policy.maximum_releases = 3
   assert.throws(
     () => validateDshCompatibilityManifest(expandedWindow),
     error => error instanceof DshCompatibilityError
@@ -488,29 +483,35 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   assert.equal(typeof loaded.isNonWideningSandboxEcho, 'function')
   assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
 
-  const rc2 = await loadDshRc7Runtime({
-    ...options(),
-    packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
-      ? '4.0.1'
-      : '0.1.1-rc.2',
-  })
-  assert.deepEqual(new Set(Object.values(rc2.versions)), new Set(['0.1.1-rc.2', '4.0.1']))
-
-  const alpha4 = await loadDshRc7Runtime({
+  const alpha2 = await loadDshRc7Runtime({
     ...options(),
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
       ? '4.0.2'
-      : '0.1.2-alpha.4',
+      : '0.1.5-alpha.2',
   })
-  assert.deepEqual(new Set(Object.values(alpha4.versions)), new Set(['0.1.2-alpha.4', '4.0.2']))
+  assert.deepEqual(new Set(Object.values(alpha2.versions)), new Set(['0.1.5-alpha.2', '4.0.2']))
 
   const rc1 = await loadDshRc7Runtime(options())
   assert.deepEqual(new Set(Object.values(rc1.versions)), new Set(['0.1.2-rc.1', '4.0.2']))
 
+  // A release retired by the two-release window is refused as an unreviewed
+  // peer set, not admitted because it once composed.
+  for (const retired of ['0.1.1-rc.2', '0.1.2-alpha.4']) {
+    await assert.rejects(
+      loadDshRc7Runtime({
+        ...options(),
+        packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
+          ? '4.0.2'
+          : retired,
+      }),
+      error => error instanceof DshCompatibilityError
+        && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+    )
+  }
+
   for (const [dshVersion, cordisVersion, expectedCordisVersion] of [
-    ['0.1.1-rc.2', '4.0.2', '4.0.1'],
-    ['0.1.2-alpha.4', '4.0.1', '4.0.2'],
     ['0.1.2-rc.1', '4.0.1', '4.0.2'],
+    ['0.1.5-alpha.2', '4.0.1', '4.0.2'],
   ]) {
     let invalidCompositionImports = 0
     await assert.rejects(
@@ -612,10 +613,10 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   }
   if (installed !== undefined) {
     const installedVersions = new Set(Object.values(installed.versions))
-    assert.equal(installedVersions.has('4.0.1') || installedVersions.has('4.0.2'), true)
+    assert.equal(installedVersions.has('4.0.2'), true)
     assert.equal(installedVersions.size, 2)
     assert.equal(
-      ['0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1']
+      ['0.1.2-rc.1', '0.1.5-alpha.2']
         .some(version => installedVersions.has(version)),
       true,
     )
@@ -856,7 +857,9 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /if: matrix\.public_contract/)
   assert.match(workflow, /node-version: \$\{\{ matrix\.node \}\}/)
   assert.match(workflow, /node: \[24\]/)
-  assert.equal(workflow.match(/node: 24/g)?.length, 4)
+  // One non-pinned release row plus the two channel rows: the two-release
+  // window retires the third upstream row with its release.
+  assert.equal(workflow.match(/node: 24/g)?.length, 3)
   assert.doesNotMatch(workflow, /node(?:-version)?: (?:\[)?22/)
   assert.doesNotMatch(workflow, /22\.19\.0/)
   assert.match(workflow, /Rebuild and authenticate unpatched DSH runtime/)
