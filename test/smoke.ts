@@ -95,15 +95,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4',
+  '@deepseek-harness-tui/dsh-tui@0.10.1',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  'f7db605713a861b28c004b2dc18813bb74d61154',
+  '78081cebde1ee1b47a561ef57c04f128c5623476',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-+DAyd7uWgSibjxiTtC/SFODt/TdNrrmS9dSAYP53VNAhA6sFcJATp1qPNhG/31coVM+mb5HmZD5rwX60MC/cCQ==',
+  'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -1677,7 +1677,7 @@ try {
     'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch',
-    'patches/dsh-tui/beta-4-runtime-compat.patch',
+    'patches/dsh-tui/legacy-history-permissions.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -1743,6 +1743,7 @@ try {
   let agentConsoleTuiArtifactVerified = false
   let agentConsoleTuiPatchVerified = false
   let agentConsoleTuiHistoryNonblockingVerified = false
+  let agentConsoleTuiLiveSessionFacadeVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -1764,6 +1765,53 @@ try {
       && authenticated.shasum === agentConsoleCompatibility.tui.artifact.shasum
     assert.equal(agentConsoleTuiArtifactVerified, true)
     runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])
+  }
+  runDsh(['plugin', '--profile', profile, 'add', tarball])
+  if (profile !== nativeMainAgentProfile) {
+    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
+  }
+
+  // The installed-package repair runs only after the profile's final bundle is
+  // added. `dsh plugin add` reconciles the profile by re-materializing its
+  // package tree from the pnpm store, which discards an in-place patch applied
+  // to an earlier bundle. This is the operator order too: compose the complete
+  // profile, then apply the repair before the first launch.
+  if (agentConsoleTuiPackage !== undefined) {
+    // The downstream `session.events` bridge was retired because the pinned TUI
+    // resolves the live log through its own compatibility facade. Assert that
+    // positive premise here: a future promotion that drops the facade must fail
+    // at the pin rather than at runtime, with the bridge gone as well.
+    // Read rather than import: the facade imports `@deepseek-ai/dsh-session`,
+    // which resolves only inside the profile's own dependency closure.
+    const liveSessionFacade = join(
+      agentConsoleTuiPackageRoot,
+      'lib/types/dsh-adapter/compat/liveSession.js',
+    )
+    assert.equal(
+      existsSync(liveSessionFacade),
+      true,
+      'the pinned TUI must ship the upstream live-Session compatibility facade',
+    )
+    const liveSessionSource = readFileSync(liveSessionFacade, 'utf8')
+    assert.match(
+      liveSessionSource,
+      /export function snapshotLiveSessionEvents\(/u,
+      'the upstream facade must export snapshotLiveSessionEvents()',
+    )
+    assert.match(
+      liveSessionSource,
+      /snapshotEvents\(\)/u,
+      'the upstream facade must resolve the live log through snapshotEvents()',
+    )
+    // The premise the retired downstream bridge rested on: the adapter itself
+    // consumes the facade instead of reading `Session.events` directly.
+    assert.match(
+      readFileSync(join(agentConsoleTuiPackageRoot, 'lib/types/dsh-adapter/presets.js'), 'utf8'),
+      /snapshotLiveSessionEvents\(session\)/u,
+      'the pinned TUI adapter must resolve the running preset through the facade',
+    )
+    agentConsoleTuiLiveSessionFacadeVerified = true
+
     const appliedTuiPatch = await manageDshTuiPatch({
       action: 'apply',
       packageRoot: agentConsoleTuiPackageRoot,
@@ -1786,10 +1834,6 @@ try {
     agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
       agentConsoleTuiPackageRoot,
     )
-  }
-  runDsh(['plugin', '--profile', profile, 'add', tarball])
-  if (profile !== nativeMainAgentProfile) {
-    runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
   }
 
   const installedProfileManifest = JSON.parse(
@@ -4427,6 +4471,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     agentConsoleTuiArtifactVerified,
     agentConsoleTuiPatchVerified,
     agentConsoleTuiHistoryNonblockingVerified,
+    agentConsoleTuiLiveSessionFacadeVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

@@ -45,18 +45,18 @@ const EXPECTED_CONTRACT = Object.freeze({
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.10.0-beta.4',
-    specifier: '@deepseek-harness-tui/dsh-tui@0.10.0-beta.4',
+    version: '0.10.1',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.10.1',
     source: {
       repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
-      tag: 'v0.10.0-beta.4',
+      tag: 'v0.10.1',
       tag_ref_type: 'commit',
-      revision: 'f7db605713a861b28c004b2dc18813bb74d61154',
+      revision: '78081cebde1ee1b47a561ef57c04f128c5623476',
     },
     artifact: {
-      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.0-beta.4.tgz',
-      integrity: 'sha512-+DAyd7uWgSibjxiTtC/SFODt/TdNrrmS9dSAYP53VNAhA6sFcJATp1qPNhG/31coVM+mb5HmZD5rwX60MC/cCQ==',
-      shasum: '293aec6bb30a0edb74cb3eaf7417aba6d8036885',
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.1.tgz',
+      integrity: 'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
+      shasum: '72a4b599e1f9b719f6e1a82c1c4b3bff3130c2b1',
     },
   },
   bundles: [
@@ -159,7 +159,7 @@ test('the package pins the complete latest Agent Console composition contract', 
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.2-rc.1',
-    tui_version: '0.10.0-beta.4',
+    tui_version: '0.10.1',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -189,10 +189,13 @@ test('the Agent Console release and runtime patch select the same TUI', () => {
     Object.keys(patchManifest.patches[0].validated_releases),
     [EXPECTED_CONTRACT.tui.version],
   )
-  assert.equal(patchManifest.patches[0].id, 'beta-4-runtime-compat-v1')
+  assert.equal(patchManifest.patches[0].id, 'legacy-history-permissions-v1')
   const patch = readFileSync(join(projectRoot, patchManifest.patches[0].path), 'utf8')
   assert.doesNotMatch(patch, /Atomics\.wait|sleepSync/u)
-  assert.match(patch, /snapshotEvents/u)
+  // The pinned TUI ships its own live-Session facade, so the downstream
+  // session-event bridge stays out of the Agent Console repair.
+  assert.doesNotMatch(patch, /snapshotEvents/u)
+  assert.match(patch, /prepareHistoryStorage/u)
 })
 
 test('the Agent Console smoke adapter advertises its configured reasoning effort', () => {
@@ -243,6 +246,7 @@ test('public Agent Console smoke authenticates the contract tarball before local
   const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
   const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
   const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")
+  const finalBundle = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', tarball])", installed)
   const patched = source.indexOf("action: 'apply',", installed)
   const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', patched)
 
@@ -250,6 +254,16 @@ test('public Agent Console smoke authenticates the contract tarball before local
   assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
   assert.ok(installed > written, 'the smoke must install the verified local archive')
   assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
+  assert.ok(finalBundle > installed, 'the smoke must add runtime-kit as the final profile bundle')
+  // `dsh plugin add` re-materializes the profile's package tree from the pnpm
+  // store, which discards an in-place TUI repair applied to an earlier bundle.
+  // The repair must therefore follow the profile's LAST bundle add, not merely
+  // the TUI archive install.
+  assert.ok(
+    patched > finalBundle,
+    'the smoke must apply the TUI repair after the final profile bundle add, '
+      + 'because a later `dsh plugin add` re-materializes the package tree',
+  )
   assert.ok(startup > patched, 'the smoke must exercise the patched TUI runtime')
   assert.equal(
     source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])"),

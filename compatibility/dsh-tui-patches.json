@@ -3,25 +3,21 @@
   "package_name": "@deepseek-harness-tui/dsh-tui",
   "patches": [
     {
-      "id": "beta-4-runtime-compat-v1",
+      "id": "legacy-history-permissions-v1",
       "upstream_reference": {
         "state": "not-reported"
       },
-      "path": "patches/dsh-tui/beta-4-runtime-compat.patch",
-      "sha256": "cb6d7701ec9c20f21941684bdd69f6d2de5bc483f6e47ba8a12d2d26fcb93d11",
+      "path": "patches/dsh-tui/legacy-history-permissions.patch",
+      "sha256": "c9db943f8a7792c12db62cec1999adf2e5035febb6f501916c9c4404e429234b",
       "targets": {
         "lib/types/history.js": {
-          "before_sha256": "af8b9135a13dcfd4d3763c318a046edaa1660d58507350d94b7f67a44b88c74c",
-          "after_sha256": "ec712f5279eb72bf4ed2e9cb344ef14b2a914cb7114581b44c460356eb076dfb"
-        },
-        "lib/types/dsh-adapter/plugin.js": {
-          "before_sha256": "95d6e0b2c38cabaf99863097f833fffc04b36d25cc0d19ea7433f1da9763f37f",
-          "after_sha256": "92a1e5358ddde75f6b79753133752263ef8b538d5e8931cbcbb633902219cd28"
+          "before_sha256": "8e13a3c86a9a9fbc3c8c3c105f599e632d8821cf2e0d7a6037b2ee5c113aa6df",
+          "after_sha256": "8a9e397f6ff035708ae535c5d2b6e4dfb36a30bf9d6508afa5054edd368d0bdc"
         }
       },
       "validated_releases": {
-        "0.10.0-beta.4": {
-          "package_json_sha256": "cd730bdaca266a634199fb53a942b588acd5cbf774be53d5deff62f8f8908d0c"
+        "0.10.1": {
+          "package_json_sha256": "c7948fb4d41661eda7932032de887642faad16305c777d8de77e2c8b8cbfc5b4"
         }
       }
     }

@@ -12,7 +12,7 @@ profile. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
 created the ordered base +
-`@deepseek-harness-tui/dsh-tui@0.10.0-beta.4` profile before runtime-kit is
+`@deepseek-harness-tui/dsh-tui@0.10.1` profile before runtime-kit is
 added as its final bundle. Save the complete pre-activation profile and the
 owner-only runtime root as the rollback point.
 
@@ -31,22 +31,38 @@ allowBuilds:
 
 These transitive install scripts are not required at runtime. This deployment
 setting prevents pnpm from rejecting the install and does not create a host
-CLI, `PATH`, or agent-execution allowlist.
+CLI, `PATH`, or agent-execution allowlist. The 0.10 line's image decoders —
+required `sixel` and optional `sharp` — add no install, preinstall, postinstall,
+or prepare script of their own, so the denial set above is complete for this
+release.
 
-After the authenticated TUI archive is installed, apply the exact
-package-level repair before the first launch:
+Apply the exact package-level repair once the profile's **final** bundle is
+installed — that is, after `@sympoies/dsh-runtime-kit` is added, not
+immediately after the TUI archive — and before the first launch:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action apply \
   --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
 ```
 
+Ordering is load-bearing on the 0.10 TUI line. `dsh plugin add` reconciles the
+profile by re-materializing its package tree from the pnpm store, so any later
+bundle add silently restores the pristine TUI bytes and discards an
+already-applied repair. This was verified by digest against 0.10.1; the
+outgoing `0.10.0-beta.4` pin retained the repair across the same step, so treat
+the behavior as a property of the current pin rather than of the command in
+general. Re-apply the repair after every profile mutation that touches the
+`dsh-tui` profile — including runtime-kit's own `update` and `rollback`, see
+[Update, rollback, and remove](#update-rollback-and-remove) — and re-check the
+receipt before starting the service.
+
 The required receipt state is `after: "patched"`. Check it before service
-start. Beta.4 already includes dsh-TUI #593's asynchronous history persistence.
-The narrowed repair adapts beta.4's legacy `session.events` reader to alpha.4's
-cached `snapshotEvents()` interface and restricts legacy history paths as one
-authenticated transaction. Reverse the same patch before replacing the
-package; never edit either installed target by hand. On first history append,
+start. The 0.10 line already includes dsh-TUI #593's asynchronous history persistence
+and upstream's own live-Session compatibility facade, so the former
+`session.events` adaptation is no longer applied and the repair now has exactly
+one authenticated target: it restricts legacy history paths as one transaction.
+Reverse the same patch before replacing the
+package; never edit the installed target by hand. On first history append,
 the patch preserves legacy entries while restricting owner-owned data paths to
 0700/0600; an unexpected type, owner, or symlink is refused without following
 it.
@@ -369,7 +385,7 @@ references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
 The supported UI boundary is exact: DSH `0.1.2-rc.1`, dsh-tui
-`0.10.0-beta.4`, and the
+`0.10.1`, and the
 ordered three-bundle composition. Other DSH/TUI releases, arbitrary custom
 profiles, and live lane re-adoption after a harness restart remain outside this
 contract. Managed continuation metadata can reconstruct an exact host-issued
@@ -379,11 +395,12 @@ that authority. Under WorkspaceLease v2 that anchor is context only: a denied
 anchor lease no longer quarantines the session, and a session may coordinate
 several repositories without restarting.
 
-The TUI is an explicit prerelease promotion. Do not replace the exact specifier
-with npm's moving `latest` tag. Keep the previous beta.3 profile receipt and
-package identity until beta.4 startup, profile inspection, and live smoke have
-passed on every deployed surface; rollback restores that exact prior contract
-without deleting profile homes or unrelated session state.
+The TUI pin is an explicit exact-release promotion, and this is the first
+stable 0.10 release on this boundary. Do not replace the exact specifier with
+npm's moving `latest` tag. Keep the previous beta.4 profile receipt and package
+identity until 0.10.1 startup, profile inspection, and live smoke have passed
+on every deployed surface; rollback restores that exact prior contract without
+deleting profile homes or unrelated session state.
 
 Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils
@@ -416,6 +433,25 @@ Rollback restores the exact previous runtime-kit target and matching activation
 assets. Remove delegates the package mutation to DSH, removes only
 runtime-kit-owned receipts and unreferenced assets, and preserves unrelated
 bundles, user patches, private skills, and provider configuration.
+
+On the `dsh-tui` profile these three commands are themselves profile
+mutations: `update`, `rollback`, and collateral restore all delegate to
+`dsh plugin --profile dsh-tui add`, which re-materializes the profile's package
+tree and therefore discards an applied TUI history-permission repair. No
+runtime-kit gate detects that revert — `doctor` verifies DSH, the installed
+runtime-kit tree, assets, and receipts, but never the TUI package's target
+digests. After any of them, re-run the repair and require `after: "patched"`
+before restarting the service:
+
+```sh
+dsh-runtime-kit-manage-dsh-tui-patch --action check \
+  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+```
+
+A `pristine` receipt here is the expected post-mutation state, not a passing
+check: apply the repair again before service start. This applies to the 0.10
+TUI line; the outgoing `0.10.0-beta.4` pin retained the repair across the same
+profile mutation.
 
 ## Interrupted operations and repair
 
