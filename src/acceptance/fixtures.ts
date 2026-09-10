@@ -11,6 +11,7 @@ import {
   renameSync,
   rmdirSync,
   rmSync,
+  type Stats,
   writeFileSync,
 } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -1436,12 +1437,21 @@ function ensureLeaseRepository(input: AcceptanceFixtureInput) {
   ))
 }
 
-function directoryTreeDigest(root: string) {
+export function directoryTreeDigest(
+  root: string,
+  inspect: (path: string) => Stats = lstatSync,
+) {
   const hash = createHash('sha256')
   const walk = (directory: string) => {
     for (const name of readdirSync(directory).sort()) {
       const path = join(directory, name)
-      const metadata = lstatSync(path)
+      let metadata: Stats
+      try {
+        metadata = inspect(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw error
+      }
       const relativePath = relative(root, path)
       if (metadata.isSymbolicLink() || (!metadata.isDirectory() && !metadata.isFile())) {
         throw new FixtureError('unsafe-fixture-path', 'temporary lease repository contains an unsafe entry')
