@@ -27,6 +27,8 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { parse as parseYaml } from 'yaml'
 
+import { agentConsoleRc7ProfileContract } from '../compat/agent-console.js'
+import { inspectDshTuiRepair } from '../compat/dsh-tui-patch.js'
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
 import {
   assertProvenanceOutsideSources,
@@ -117,6 +119,11 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
 ))
+const DSH_TUI_PATCHES = JSON.parse(readFileSync(
+  packageAsset('compatibility', 'dsh-tui-patches.json'),
+  'utf8',
+))
+const AGENT_CONSOLE_CONTRACT = agentConsoleRc7ProfileContract()
 const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
 const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
 const SUPERVISOR_SETTLEMENT_MS = 7_000
@@ -3835,6 +3842,31 @@ function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string
   }
 }
 
+/**
+ * Repair state of the Agent Console TUI package for this profile.
+ *
+ * Only the exact `dsh-tui` profile carries the installed-package repair, so
+ * every other profile reports `not-applicable` rather than a failure. For that
+ * profile the repair is health-relevant rather than install-time-only: DSH
+ * reconciles a profile by re-materializing its package tree, so `update`,
+ * `rollback`, and collateral restore all revert the repair, and nothing else in
+ * this diagnosis would notice.
+ */
+function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFor>) {
+  if (profile !== AGENT_CONSOLE_CONTRACT.profile) {
+    return { ok: true, status: 'not-applicable' }
+  }
+  try {
+    return inspectDshTuiRepair({
+      packageRoot: join(paths.profileDir, 'node_modules', ...AGENT_CONSOLE_CONTRACT.tui.package.split('/')),
+      manifest: DSH_TUI_PATCHES,
+    })
+  } catch {
+    // A malformed packaged manifest is a packaging defect, not an observation.
+    return { ok: false, status: 'manifest-invalid', error: 'the packaged DSH TUI patch manifest is invalid' }
+  }
+}
+
 function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook: ReturnType<typeof resolveAgentHookRuntime>, agentDocs: {agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}, dshBin: string, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
@@ -3865,6 +3897,7 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
         ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
         : { ok: false, error: activationInput.error },
       policy: { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null },
+      agent_console_tui: agentConsoleTuiDoctor(profile, paths),
       dsh,
     }
   }
@@ -3937,6 +3970,7 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     dsh.ok === true ? dsh.version : undefined,
   )
   const lifecycle = lifecycleDiagnostic(paths, profile, state, stateRead.version, actual, activationInput)
+  const agentConsoleTui = agentConsoleTuiDoctor(profile, paths)
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
@@ -3944,6 +3978,7 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     && docs.ok
     && activation.ok
     && dsh.ok
+    && agentConsoleTui.ok
     && lifecycle.error === undefined
   // A downgraded seam is visible, not failing: the profile is healthy, and the
   // advisory tells an operator (and acceptance) that this profile must not
@@ -3963,6 +3998,7 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     policy,
     agent_docs: docs,
     activation,
+    agent_console_tui: agentConsoleTui,
     dsh,
   }
 }

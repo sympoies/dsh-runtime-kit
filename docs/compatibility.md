@@ -140,14 +140,27 @@ denials are unchanged by this promotion. 0.10.1 adds no dependency of its own:
 its adapter and channel refactor, default context bar, and long-line transcript
 folding are internal to the already-installed closure.
 
-That changed closure is not inert. Under `0.10.0-beta.4`, applying the package
-repair and then adding a further bundle to the same profile left the repair in
-place; under the 0.10 line, `dsh plugin add` re-materializes the profile tree
-and discards it. The exact mechanism has not been isolated — the new decoder
-closure altering profile reconciliation is the leading hypothesis — but the
-observable difference is what
-[`docs/operations.md`](operations.md) now encodes as an ordering and re-apply
-rule.
+Separately, adding a later bundle to a composed `dsh-tui` profile can discard
+an already-applied installed-package repair, because `dsh plugin add`
+re-materializes the profile's package tree. This is **not** specific to the
+0.10 line: it reproduces on `0.10.0-beta.4` and on `0.10.1` alike. What decides
+it is whether the TUI package is already materialized in the resolved pnpm
+store — with the package present the repair survived the later add, and with it
+freshly fetched into that store the next add re-materialized the package and
+discarded the repair. Because pnpm derives its store from `HOME` unless
+`PNPM_HOME` pins it, the same commands can therefore differ between a
+workstation and CI. A promotion note in an earlier revision of this document
+attributed the discard to the 0.10 line; that attribution was wrong and is
+corrected here.
+
+[`docs/operations.md`](operations.md) encodes the consequence as an ordering and
+re-apply rule, and `doctor` enforces it: on the `dsh-tui` profile it
+authenticates the installed package and digests each patch target, so a
+reverted repair reports `needs-attention` instead of passing as healthy. That
+check is read-only and shares the reviewed manifest with the patch manager, so
+it cannot admit a release or target the manager would refuse. Enforcement
+matters more than the guidance precisely because the discard is store-state
+dependent and therefore not reliably reproducible by an operator.
 
 0.10.1 also *widens* its DSH peer ranges to admit `0.1.3-alpha.2` and the
 `0.1.5` line alongside the releases 0.10.0 accepted. That widening is additive:

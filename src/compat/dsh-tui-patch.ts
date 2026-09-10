@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync } from 'node:fs'
 import { lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
@@ -8,6 +9,7 @@ import { isPatchAction, type PatchAction } from './dsh-patch.js'
 
 const SCHEMA = 'dsh-runtime-kit.dsh-tui-patches.v1'
 const RECEIPT_SCHEMA = 'dsh-runtime-kit.dsh-tui-patch-receipt.v1'
+const INSPECTION_SCHEMA = 'dsh-runtime-kit.dsh-tui-repair-inspection.v1'
 const PACKAGE_NAME = '@deepseek-harness-tui/dsh-tui'
 const SHA256 = /^[0-9a-f]{64}$/u
 const SAFE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
@@ -119,6 +121,108 @@ export function validateDshTuiPatchManifest(value: unknown) {
     }
   }
   return Object.freeze(structuredClone(manifest))
+}
+
+/**
+ * Read-only repair state for one installed DSH TUI package.
+ *
+ * This is the health-probe counterpart to `manageDshTuiPatch`: it answers
+ * "is the reviewed repair currently applied?" without Git, without mutation,
+ * and synchronously, so `doctor` can fold it into a profile diagnosis.
+ *
+ * The distinction matters operationally. `dsh plugin add` reconciles a profile
+ * by re-materializing its package tree, which silently restores the pristine
+ * TUI bytes, so a profile that was patched at install time can be unpatched
+ * later by an unrelated bundle mutation. `pristine` is therefore a real
+ * finding here, not a neutral state.
+ *
+ * Unlike the manager this never throws for target state: an unreadable,
+ * substituted, or symlinked package is reported as a status the caller can
+ * surface. A malformed *manifest* still throws, because that is a packaging
+ * defect rather than an observation.
+ */
+export function inspectDshTuiRepair(input: { packageRoot: string, manifest: unknown }) {
+  const manifest = validateDshTuiPatchManifest(input.manifest)
+  const patch = manifest.patches[0]
+  const base = Object.freeze({
+    schema_version: INSPECTION_SCHEMA,
+    package_name: manifest.package_name,
+    patch_id: patch.id,
+  })
+  const outcome = (status: string, extra: Record<string, unknown> = {}) => Object.freeze({
+    ...base,
+    ok: status === 'patched',
+    status,
+    ...extra,
+  })
+  if (!isAbsolute(input.packageRoot)) {
+    return outcome('unsupported', { error: 'package root must be absolute' })
+  }
+
+  let packageJsonBytes
+  try {
+    const packageJsonPath = contained(input.packageRoot, 'package.json')
+    const metadata = lstatSync(packageJsonPath)
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      return outcome('unsupported', { error: 'package manifest is not an ordinary file' })
+    }
+    packageJsonBytes = readFileSync(packageJsonPath)
+  } catch {
+    return outcome('absent', { error: 'the DSH TUI package is not installed' })
+  }
+
+  let packageJson
+  try {
+    packageJson = JSON.parse(packageJsonBytes.toString('utf8'))
+  } catch {
+    return outcome('unsupported', { error: 'package manifest is not valid JSON' })
+  }
+  const release = patch.validated_releases[packageJson.version]
+  if (packageJson.name !== manifest.package_name || release === undefined) {
+    return outcome('unsupported', {
+      error: 'installed package identity is not in the reviewed patch set',
+    })
+  }
+  if (digest(packageJsonBytes) !== release.package_json_sha256) {
+    return outcome('unsupported', {
+      version: packageJson.version,
+      error: 'package manifest bytes do not match the reviewed release',
+    })
+  }
+  const version = packageJson.version
+
+  const states: string[] = []
+  for (const [path, hashes] of (Object.entries(patch.targets) as [string, Record<string, any>][])) {
+    let actual
+    try {
+      const target = contained(input.packageRoot, path)
+      const metadata = lstatSync(target)
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        return outcome('unsupported', {
+          version,
+          error: `patch target is not an ordinary file: ${path}`,
+        })
+      }
+      actual = digest(readFileSync(target))
+    } catch {
+      return outcome('unsupported', { version, error: `patch target is unreadable: ${path}` })
+    }
+    if (actual === hashes.after_sha256) states.push('patched')
+    else if (actual === hashes.before_sha256) states.push('pristine')
+    else return outcome('drift', { version, error: `patch target drifted: ${path}` })
+  }
+  if (!states.every(state => state === states[0])) {
+    return outcome('partially-applied', {
+      version,
+      error: 'patch targets are in a partially applied state',
+    })
+  }
+  return outcome(((states[0]) as string), {
+    version,
+    ...states[0] === 'patched' ? {} : {
+      error: 'the reviewed repair is not applied to the installed package',
+    },
+  })
 }
 
 function contained(root: string, child: string) {

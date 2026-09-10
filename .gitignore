@@ -1,6 +1,15 @@
-node_modules/
+# `node_modules` without a trailing slash so a managed worktree that symlinks
+# it to the primary checkout's install is ignored too; a symlink is not a
+# directory, so `node_modules/` alone leaves it untracked and dirty, and a
+# dirty worktree blocks governed PR delivery.
+node_modules
 *.tgz
 agent-out/
+
+# Local agent-validation hook state. The declared validation gate writes this
+# in every checkout, so leaving it untracked-and-visible makes `forge-cli pr
+# deliver` refuse on a clean tree.
+.cache/
 
 # Project-local Claude directory (skills live in .agents/skills/)
 .claude/
