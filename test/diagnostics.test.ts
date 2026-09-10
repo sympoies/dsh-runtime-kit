@@ -44,6 +44,8 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
     [{ error_code: 'plan-drift' }, 'operations-failure', 'operations'],
     [{ exit_code: 1, error_code: 'provider-unavailable' }, 'provider-failure', 'provider'],
     [{ error_code: 'WORKSPACE_DIRTY', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'policy'],
+    [{ error_code: 'GOVERNED_COMMIT_REJECTED', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'session'],
+    [{ error_code: 'assignment-launch-cwd-unavailable', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'session'],
     [{ finish_line: { code: 'finish-line-refused' } }, 'finish-line-stop', 'finish-line'],
   ] as const
 
@@ -148,6 +150,9 @@ test('pre-model runtime-health failure keeps its allowlisted typed code', () => 
   assert.equal(runtimeHealthCodeFromCommandOutput(
     'HealthProbeFailure: DSH_RUNTIME_HEALTH_NOT_A_REAL_CODE',
   ), undefined)
+  assert.equal(runtimeHealthCodeFromCommandOutput(
+    'dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID: LLM call denied by a monotonic guard\n',
+  ), 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
   const outcome = classifySessionOutcome({
     exit_code: 1,
     error_code: runtimeHealthCodeFromCommandOutput(stderr),

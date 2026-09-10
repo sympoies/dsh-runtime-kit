@@ -538,7 +538,10 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     sequence: ['edit', 'validate', 'finish'],
   }, undefined, 2)}\n`
   if (path === 'subagent-target.txt') return 'subagent-before\n'
-  if (path === 'controller-review.txt') return 'review-pending\n'
+  // The controller task replaces this token with `review-complete\n`. Leaving
+  // the seed token unterminated prevents line-oriented edit tools from retaining
+  // the old newline and accidentally producing a double-newline final state.
+  if (path === 'controller-review.txt') return 'review-pending'
   if (path === 'subagent-request.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-subagent-request.v1',
     workspace: 'new-host-issued-worktree',
@@ -548,6 +551,13 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     child_worktree: mainAgent!.worktree,
     target: 'subagent-target.txt',
     content: 'subagent-after',
+    controller_review: {
+      file_path: join(mainAgent!.primary, 'controller-review.txt'),
+      content: 'review-complete\n',
+    },
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${scenario}`
+      : `DSH_ACCEPTANCE_RECOVERED:${scenario}`,
   }, undefined, 2)}\n`
   if (path === 'main-agent-objective.json') return `${JSON.stringify({
     schema_version: 'main-agent.objective-packet.v1',
@@ -576,7 +586,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     assignment_id: `lane-${sha256(input.workdir).slice(0, 16)}`,
     task_summary: 'edit and validate subagent-target.txt in the host-issued child worktree',
     task: {
-      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline, run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command, then call main_agent_checkpoint with state submitted and report the validated result.',
+      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline. For the write call, do not include sandbox_permissions or justification, then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command. Call main_agent_checkpoint with state submitted and report the validated result.',
     },
     launch: {
       agent: 'dsh',
@@ -1082,6 +1092,10 @@ function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtu
   const prerequisite = family.id === 'automatic-prerequisite'
     ? '\nFor the plain-directory scenario, read `prerequisite-marker.txt` and create `prerequisite.txt` with exactly that marker. For source scenarios, repair `plusOne` so the prepared focused test passes.\n'
     : ''
+  const managedController = family.id === 'managed-subagent-workspace'
+    ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. Emit its exact `terminal_marker` at the finish line; do not derive either value from a workdir, phase label, or idempotency key.\n'
+    : ''
+  const terminalMarker = '\nBefore the final response, read `terminal_marker` from `acceptance-fixture.json` and copy that exact value at the finish line; do not derive it from a workdir, phase label, or any other identifier.\n'
   const validations = projectValidationCommands(family, input).map(command => `\`${command}\``).join(' and ')
   return `# Acceptance fixture development
 
@@ -1092,7 +1106,9 @@ provider-owned inputs, use the runtime's governed tools, and run the exact
 registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation. Do not edit
 the catalog task, weaken a policy denial, or treat fixture metadata as proof of
 the observable outcome.
-${prerequisite}
+
+When the catalog task says to run a command through DSH, use the current DSH session's Bash tool from this scenario directory. Never launch dsh, dsh-host, or another nested agent session to satisfy that instruction.
+${prerequisite}${terminalMarker}${managedController}
 
 Capability family: ${family.id}
 `
@@ -1113,6 +1129,17 @@ if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance
     },
   }) + '\\n')
   process.exit(1)
+}
+if (fixture.family === 'restricted-role' && existsSync('.dsh-acceptance/failure.json')) {
+  assert.equal(readFileSync('review-target.txt', 'utf8'), 'review-target-unchanged\\n')
+  assert.match(readFileSync('review-instruction.txt', 'utf8'), /^Replace /u)
+  process.stdout.write(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+    status: 'induced',
+    code: 'restricted-role-write-unavailable',
+    observable_state: 'review-target-unchanged',
+  }) + '\\n')
+  process.exit(0)
 }
 assert.equal(fixture.schema_version, 'dsh-runtime-kit.acceptance-fixture.v1')
 assert.equal(typeof fixture.scenario_id, 'string')
@@ -1160,6 +1187,9 @@ function stageManagedChildFixture(
     family: family.id,
     scenario_id: input.scenarioId,
     profile: input.profile,
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${input.scenarioId}`
+      : `DSH_ACCEPTANCE_RECOVERED:${input.scenarioId}`,
     failure_kind: family.failure_kind,
     fixture_files: ['subagent-target.txt'],
     validation: { source_test: null, acceptance_test: null },
@@ -1246,6 +1276,9 @@ function stageFixture(
     family: family.id,
     scenario_id: input.scenarioId,
     profile: input.profile,
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${input.scenarioId}`
+      : `DSH_ACCEPTANCE_RECOVERED:${input.scenarioId}`,
     failure_kind: family.failure_kind,
     fixture_files: family.fixture_files,
     validation: {

@@ -186,10 +186,26 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
   assert.equal(induced.data.status, 'pass')
   assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
   assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), true)
+  assert.equal(
+    JSON.parse(readFileSync(join(workdir, 'acceptance-fixture.json'), 'utf8')).terminal_marker,
+    'DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git',
+  )
   assert.equal(statSync(join(workdir, 'fixture-validation.mjs')).mode & 0o777, 0o700)
   assert.match(
     readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
     /Follow the current repository instructions/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /use the current DSH session's Bash tool/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /Never launch dsh, dsh-host, or another nested agent session/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /terminal_marker[\s\S]*do not derive it from a workdir/iu,
   )
   assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
   assert.equal(readFileSync(join(workdir, 'prerequisite-marker.txt'), 'utf8'), 'project-dev-prerequisite-ready\n')
@@ -268,6 +284,47 @@ test('authoritative fixture validation emits a typed failure only while its faul
   })
   assert.equal(recovered.status, 0, recovered.stderr)
   assert.equal(recovered.stdout, 'acceptance-fixture-ok\n')
+})
+
+test('restricted-role fixture validation reports the induced unavailable write while preserving the target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-restricted-role-failure-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const input = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    phase: 'deliberate-failure' as const,
+    family: 'restricted-role',
+    scenarioId: 'restricted-role.non-git',
+    profile: 'headless-restricted-role',
+    workdir,
+    dshHome,
+  }
+
+  runAcceptanceFixture({ ...input, stage: 'induce' })
+  const induced = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+    cwd: workdir,
+    encoding: 'utf8',
+  })
+  assert.equal(induced.status, 0, induced.stderr)
+  assert.equal(induced.stderr, '')
+  assert.deepEqual(JSON.parse(induced.stdout), {
+    schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+    status: 'induced',
+    code: 'restricted-role-write-unavailable',
+    observable_state: 'review-target-unchanged',
+  })
+  assert.equal(readFileSync(join(workdir, 'review-target.txt'), 'utf8'), 'review-target-unchanged\n')
+
+  runAcceptanceFixture({ ...input, stage: 'recover' })
+  const recovered = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+    cwd: workdir,
+    encoding: 'utf8',
+  })
+  assert.equal(recovered.status, 0, recovered.stderr)
+  assert.equal(recovered.stdout, 'acceptance-fixture-ok\n')
+  assert.equal(readFileSync(join(workdir, 'review-target.txt'), 'utf8'), 'review-target-unchanged\n')
 })
 
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
@@ -406,8 +463,19 @@ test('managed subagent assignment uses the exact registered child validation com
 
     const assignment = JSON.parse(readFileSync(join(workdir, 'main-agent-assignment.json'), 'utf8'))
     const objective = JSON.parse(readFileSync(join(workdir, 'main-agent-objective.json'), 'utf8'))
+    const request = JSON.parse(readFileSync(join(workdir, 'subagent-request.json'), 'utf8'))
+    const projectGuide = readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
     assert.match(assignment.task.objective, /run the exact command \.\/fixture-validation\.mjs/u)
     assert.match(assignment.task.objective, /without a wrapper, prefix, suffix, or compound command/u)
+    assert.match(assignment.task.objective, /write call, do not include sandbox_permissions or justification/iu)
+    assert.deepEqual(request.controller_review, {
+      file_path: join(workdir, 'controller-review.txt'),
+      content: 'review-complete\n',
+    })
+    assert.equal(request.terminal_marker, 'DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo')
+    assert.match(projectGuide, /controller_review/u)
+    assert.match(projectGuide, /terminal_marker/u)
+    assert.match(projectGuide, /do not derive either value from a workdir/u)
     assert.doesNotMatch(assignment.task.objective, /run node fixture-validation\.mjs/u)
     assert.deepEqual(objective.done_criteria, [
       'child worktree differs from the primary',
@@ -420,7 +488,7 @@ test('managed subagent assignment uses the exact registered child validation com
       'no delivery',
       'leave the primary implementation target unchanged',
     ])
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending\n')
+    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
 
     const primaryValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
       cwd: workdir,
@@ -481,7 +549,7 @@ test('managed subagent assignment uses the exact registered child validation com
       workdir,
       dshHome,
     })
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending\n')
+    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
     assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
   } finally {
     for (const name of names) {

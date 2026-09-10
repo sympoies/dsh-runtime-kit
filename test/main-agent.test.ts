@@ -516,6 +516,71 @@ test('controller initialization is a native readiness-fenced tool', async () => 
   })
 })
 
+test('DSH capability probing sees only the activated agent-hook XDG roots', async () => {
+  const runtimeEnvironment = {
+    DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: '/private/runtime/assets/digest/agent-hook/config.toml',
+    DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: '/private/runtime/state/agent-hook',
+  }
+  const previous = new Map(
+    Object.keys(runtimeEnvironment).map(name => [name, process.env[name]]),
+  )
+  Object.assign(process.env, runtimeEnvironment)
+  try {
+    await withControllerEnvironment(async (controllerEnvironment) => {
+      const harness = createContext({
+        envelope: (spec) => spec.argv.includes('capabilities')
+          ? {
+              schema_version: 'cli.main-agent.capabilities.v1',
+              ok: true,
+              data: {
+                schema_version: 'main-agent.capabilities.v1',
+                provider: 'dsh',
+                compatible: true,
+                capabilities: { external_runtime: 'main-agent.external-runtime.v1' },
+              },
+            }
+          : spec.argv.includes('readiness')
+            ? {
+                schema_version: 'cli.main-agent.self-readiness.v1',
+                ok: true,
+                data: {
+                  schema_version: 'main-agent.runtime-readiness.v1',
+                  ready: true,
+                  session_id: controllerEnvironment.AGENT_SESSION_ID,
+                  session_incarnation: controllerEnvironment.AGENT_SESSION_RUNTIME_ID,
+                  checkpoint_file: controllerEnvironment.AGENT_SESSION_CHECKPOINT_FILE,
+                },
+              }
+            : {
+                schema_version: 'cli.main-agent.init.v1',
+                ok: true,
+                data: { schema_version: 'main-agent.init-result.v1', run: { state: 'active' } },
+              },
+      })
+      applyMainAgentMode(harness.ctx, { mainAgentCli: MAIN_AGENT_CLI })
+
+      await harness.registeredTools.get('main_agent_run_initialize').execute({
+        objective_file: '/private/objective.json',
+        idempotency_key: 'initialize-1',
+      }, controllerExec())
+
+      const [capabilities, readiness, initialize] = harness.spawned
+      assert.deepEqual(capabilities.spec.env, {
+        ...controllerEnvironment,
+        XDG_CONFIG_HOME: '/private/runtime/assets/digest',
+        XDG_STATE_HOME: '/private/runtime/state',
+      })
+      assert.deepEqual(readiness.spec.env, controllerEnvironment)
+      assert.deepEqual(initialize.spec.env, controllerEnvironment)
+    })
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
 test('controller initialization creates no run when compatibility is unproven', async () => {
   const harness = createContext({
     envelope: {
@@ -536,7 +601,11 @@ test('controller initialization creates no run when compatibility is unproven', 
       objective_file: '/private/objective.json',
       idempotency_key: 'initialize-1',
     }, controllerExec()),
-    /main-agent-capabilities-incompatible/,
+    error => {
+      assert.match(error.message, /main-agent-capabilities-incompatible/u)
+      assert.equal(error.code, 'main-agent-capabilities-incompatible')
+      return true
+    },
   )
   assert.equal(harness.spawned.length, 1, 'readiness and init never run after a failed capability gate')
 })

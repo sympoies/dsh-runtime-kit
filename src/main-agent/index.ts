@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import {
@@ -114,6 +114,7 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
  * other session can reach another lane's checkpoint authority.
  */
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
+const ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_ID',
   'AGENT_SESSION_RUNTIME_ID',
@@ -124,9 +125,13 @@ const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_BIN',
 ])
 
-function laneError(code: string, details?: unknown) {
+function laneError(code: string, details?: unknown, surfacedCode: unknown = code) {
   const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
-  return new Error(`dsh-runtime-kit:${code}${suffix}`)
+  return Object.assign(new Error(`dsh-runtime-kit:${code}${suffix}`), {
+    code: typeof surfacedCode === 'string' && ERROR_CODE.test(surfacedCode)
+      ? surfacedCode
+      : code,
+  })
 }
 
 function requireNonEmptyString(value: unknown, code: string) {
@@ -975,6 +980,32 @@ export function applyMainAgentMode(ctx: Context, config: {
     return selectControllerEnvironment(process.env)
   }
 
+  /**
+ * nils-cli proves DSH external-runtime compatibility by invoking its sibling
+ * `agent-hook doctor` without explicit path flags. The controller principal
+ * must otherwise remain the exact seven-field capability, so project only the
+ * XDG parents of this launcher's already-validated DSH activation into that
+ * one probe instead of widening every Main Agent subprocess environment.
+ */
+
+  const capabilityProbeEnvironment = (principal: Readonly<Record<string, string>>) => {
+    const configPath = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
+    const stateDir = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
+    if (configPath === undefined || stateDir === undefined) return principal
+    if (!isAbsolute(configPath)
+      || basename(configPath) !== 'config.toml'
+      || basename(dirname(configPath)) !== 'agent-hook'
+      || !isAbsolute(stateDir)
+      || basename(stateDir) !== 'agent-hook') {
+      throw laneError('main-agent-agent-hook-runtime-invalid')
+    }
+    return Object.freeze({
+      ...principal,
+      XDG_CONFIG_HOME: dirname(dirname(configPath)),
+      XDG_STATE_HOME: dirname(stateDir),
+    })
+  }
+
   const controllerExecutionEnvironment = (exec: any) => {
     requireControllerCaller(exec)
     const exact = exactControllerEnvironment(exec)
@@ -1131,10 +1162,11 @@ export function applyMainAgentMode(ctx: Context, config: {
     const result = await client.run(argv, { cwd, signal: exec.signal, env })
     if (!result.ok) throw laneError('main-agent-cli-failed', { code: result.code })
     if (result.envelope.ok !== true) {
+      const refusalCode = result.envelope?.error?.code
       throw laneError('main-agent-cli-refused', {
-        code: result.envelope?.error?.code,
+        code: refusalCode,
         message: result.envelope?.error?.message,
-      })
+      }, refusalCode)
     }
     return result.envelope.data
   }
@@ -1188,7 +1220,7 @@ export function applyMainAgentMode(ctx: Context, config: {
         'dsh',
         '--format',
         'json',
-      ], exec, cwd, candidateEnvironment)
+      ], exec, cwd, capabilityProbeEnvironment(candidateEnvironment))
       if (capabilities?.schema_version !== CAPABILITIES_SCHEMA
         || capabilities.compatible !== true
         || capabilities.capabilities?.external_runtime !== EXTERNAL_RUNTIME_CAPABILITY) {

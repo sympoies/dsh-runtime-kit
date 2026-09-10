@@ -251,6 +251,21 @@ const FIXTURE_INDUCED_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 // occupying its own line. Extract the flat object and parse it, so the evidence
 // stays the fixture's machine-readable record and never the model's prose about it.
 function fixtureInducedFailure(surface: string) {
+  for (const line of surface.split(/\r?\n/gu)) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const row = record(parsed)
+    const error = record(row?.error)
+    if (row?.schema_version === 'cli.dsh-runtime-kit.acceptance-fixture.v1'
+      && row.ok === false
+      && error?.code === 'acceptance-fixture-induced-failure') {
+      return { code: error.code }
+    }
+  }
   for (const match of surface.matchAll(/\{[^{}]*"status"\s*:\s*"induced"[^{}]*\}/gu)) {
     let parsed: unknown
     try {
@@ -266,6 +281,29 @@ function fixtureInducedFailure(surface: string) {
   return undefined
 }
 
+const MAIN_AGENT_REFUSAL_PREFIX = 'Error: dsh-runtime-kit:main-agent-cli-refused '
+
+// DSH's MCP transcript preserves a failed runtime-kit tool call as an error
+// tool-result, but some hosts flatten the thrown Error to its text and omit the
+// custom top-level `code` property. Accept only the runtime-kit's fixed prefix
+// followed by a valid JSON object from that error-only surface. Model prose and
+// successful tool output are deliberately excluded by the caller.
+function mainAgentInducedFailure(surface: string) {
+  for (const line of surface.split(/\r?\n/gu)) {
+    if (!line.startsWith(MAIN_AGENT_REFUSAL_PREFIX)) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line.slice(MAIN_AGENT_REFUSAL_PREFIX.length))
+    } catch {
+      continue
+    }
+    const row = record(parsed)
+    if (typeof row?.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
+    return { code: row.code }
+  }
+  return undefined
+}
+
 // An induced leg that ended because the provider, the host runtime or an
 // unclassifiable fault stopped it proves nothing about the staged induction, so
 // those categories never satisfy the deliberate-failure contract.
@@ -273,6 +311,11 @@ const INFRASTRUCTURE_OUTCOME_CATEGORIES: ReadonlySet<string> = new Set([
   'provider-failure',
   'health-failure',
   'unknown',
+])
+
+const INDUCED_RUNTIME_HEALTH_CODES: ReadonlyMap<string, string> = new Map([
+  ['automatic-prerequisite', 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'],
+  ['runtime-health', 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'],
 ])
 
 function safeRegularFile(path: string, label: string) {
@@ -761,7 +804,7 @@ function transcriptDecisionSurface(value: unknown, runtimeContextCallIds: Set<st
 // tool-result text, whether or not the tool reported an error. It is scanned on its
 // own pass and only ever matches an exact typed object, so it cannot disturb those
 // gates.
-function transcriptToolResultText(value: unknown) {
+function transcriptToolResultText(value: unknown, errorsOnly = false) {
   const row = record(value)
   const data = record(row?.data)
   const message = record(data?.message)
@@ -771,6 +814,7 @@ function transcriptToolResultText(value: unknown) {
     for (const item of group) {
       const result = record(item)
       if (result?.type !== 'tool-result') continue
+      if (errorsOnly && result.isError !== true) continue
       const inner = Array.isArray(result.content) ? result.content : []
       for (const part of inner) {
         const text = record(part)?.text
@@ -822,6 +866,7 @@ function scanTranscripts(
           continue
         }
         inducedFailure ??= fixtureInducedFailure(transcriptToolResultText(value))
+          ?? mainAgentInducedFailure(transcriptToolResultText(value, true))
         if (!observedTranscriptRecord(value)) continue
         const decisionSurface = transcriptDecisionSurface(value, runtimeContextCallIds)
         for (const marker of expectedReminders) if (decisionSurface.includes(marker)) reminders.add(marker)
@@ -1180,9 +1225,16 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         diagnosticArtifactName(runId, scenarioId),
         `${JSON.stringify(bundle, undefined, 2)}\n`,
       )
+    const session = record(bundle.session)
+    const typedErrorCodes = (Array.isArray(session?.typed_errors) ? session.typed_errors : [])
+      .flatMap(value => {
+        const code = record(value)?.code
+        return typeof code === 'string' ? [code] : []
+      })
     return {
       identity: { name: basename(artifact.path), sha256: artifact.sha256, bytes: artifact.bytes },
       outcome: bundle.session_outcome,
+      typedErrorCodes,
     }
   }
 
@@ -1416,9 +1468,18 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       // ties the blocked leg to the staged induction, so the leg itself only has to
       // withhold the recovery marker and end for a scenario reason: either a typed
       // runtime failure or the fixture's own typed induced record.
+      const expectedInducedHealthFailure = packRow !== undefined
+        && diagnostic.outcome.category === 'health-failure'
+        && diagnostic.outcome.component === 'runtime-health'
+        && INDUCED_RUNTIME_HEALTH_CODES.get(packRow.family) === diagnostic.outcome.code
+      const expectedFixtureInducedFailure = diagnostic.outcome.category === 'unknown'
+        && inducedFailure?.code === 'acceptance-fixture-induced-failure'
+        && diagnostic.outcome.code === inducedFailure.code
       const expectedFailureObserved = input.phase === 'deliberate-failure'
         && !markerSeen
-        && !INFRASTRUCTURE_OUTCOME_CATEGORIES.has(diagnostic.outcome.category)
+        && (!INFRASTRUCTURE_OUTCOME_CATEGORIES.has(diagnostic.outcome.category)
+          || expectedInducedHealthFailure
+          || expectedFixtureInducedFailure)
         && (diagnostic.outcome.status === 'failed' || inducedFailure !== undefined)
       const fixtureRecovery = fixtureBin === undefined || packRow === undefined
         || input.phase !== 'deliberate-failure' || !expectedFailureObserved ? undefined : fixtureCommand({
@@ -1520,9 +1581,12 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         && fixtureRetryInduce?.ok !== false
         && fixtureRetryRecovery?.ok !== false
         && recoveryPass
+      const governedCommitPass = selectedScenario.id !== 'governed-commit.managed-worktree'
+        || !diagnostic.typedErrorCodes.includes('GOVERNED_COMMIT_REJECTED')
       const status = fixturePass && (input.phase === 'deliberate-failure'
         ? inducedFailureEvidencePass && expectedFailureObserved
-        : commonEvidencePass && executed.exit_code === 0 && executed.signal === null && markerSeen)
+        : commonEvidencePass && governedCommitPass
+          && executed.exit_code === 0 && executed.signal === null && markerSeen)
         ? 'pass' : 'fail'
       const finishedAt = new Date()
       const row = {

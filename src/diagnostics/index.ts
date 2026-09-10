@@ -220,6 +220,28 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Preserve user changes, clean the intended anchor or move the task to an owned managed worktree, then retry.',
     }
   }
+  if (explicitCode === 'GOVERNED_COMMIT_REJECTED') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: explicitCode,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Inspect the governed commit precondition or semantic-commit refusal, then retry the unchanged governed request.',
+    }
+  }
+  if (explicitCode === 'assignment-launch-cwd-unavailable') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: explicitCode,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Restore the declared assignment workspace, then retry the unchanged managed-lane launch.',
+    }
+  }
   if (observation.error_component === 'operations'
     || /plan|digest|operation|rollback|install|package|drift/iu.test(explicitCode)) {
     const stateUnavailable = /lock|state|command-unavailable/iu.test(explicitCode)
@@ -285,7 +307,9 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
 
 export function runtimeHealthCodeFromCommandOutput(output: string) {
   if (typeof output !== 'string' || output.length === 0 || output.length > 2 * MAX_TEXT_BYTES) return undefined
-  const matches = [...output.matchAll(/(?:^|\n)HealthProbeFailure:\s*(DSH_RUNTIME_HEALTH_[A-Z0-9_]+)(?:\r?\n|$)/gu)]
+  const matches = [...output.matchAll(
+    /(?:^|\n)(?:HealthProbeFailure:\s*|dsh:\s*)(DSH_RUNTIME_HEALTH_[A-Z0-9_]+)(?::[^\r\n]*)?(?:\r?\n|$)/gu,
+  )]
     .map(match => match[1]!)
     .filter(code => RUNTIME_HEALTH_COMMAND_CODES.has(code))
   const unique = [...new Set(matches)]

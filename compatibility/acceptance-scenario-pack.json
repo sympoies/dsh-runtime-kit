@@ -28,20 +28,20 @@
       "task_bindings": [
         {
           "scenario_id": "workspace-identity.git-repo",
-      "success_task_sha256": "bcd4d1a4981f4776fbebf0dc370779a26dcbd0bc73421b3659cdde91404266d1",
-      "deliberate_failure_task_sha256": "8d18e62d1e3a116a0ffee8f4a42f8523be3588fad7ba5be73621e9fb58efba03",
+      "success_task_sha256": "cddcb899ac65c4e72fd393f5e1407a9d62743511ed9f0912c199c89ad70523b5",
+          "deliberate_failure_task_sha256": "0ad21217abb4a70d3e6f0973bd9a59ac07d9a3e6a0b0d763360a8f9052b32bfb",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.git-repo"
         },
         {
           "scenario_id": "workspace-identity.non-git",
-      "success_task_sha256": "dbaf302ecb1fdcc01df9d66105c2d17bc308c91455a1c71d887a0188e5361945",
-      "deliberate_failure_task_sha256": "b751fd5b57bdca55cede23587929ece4112cfc8ed543c251ae4a7345b3f201d9",
+      "success_task_sha256": "eb84765efa47b705cd142c1333475a133c9a845e188753b46d57cda94250b574",
+          "deliberate_failure_task_sha256": "33508a26c101b7d1917fe73bed20059c304ed09fc3c7a28a15047e9f13039c95",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.non-git"
         },
         {
           "scenario_id": "workspace-identity.managed-worktree",
-      "success_task_sha256": "36fcb217645e80dcbc6d8ce39fd408abf706085530b67f480200b0b45ccf71c3",
-      "deliberate_failure_task_sha256": "52f6608f090207a90be5e341aa84940b89ae24186637b4d5755f24e557ee6eaf",
+      "success_task_sha256": "6b777a15a6dd6d7a0bf0e6d4f98d9169fc0193051329a0eed0b1e32335660861",
+          "deliberate_failure_task_sha256": "e21fc033d9ff81a13f5d050f5985b701a9cda595ef3b416394c6fd4fbb0ac882",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:workspace-identity.managed-worktree"
         }
       ]
@@ -70,14 +70,14 @@
       "task_bindings": [
         {
           "scenario_id": "governed-commit.git-repo",
-      "success_task_sha256": "ec8a62747be7fd1e8a25a1ddc16dc2b8889eafdd3d1ce4986756edbc69ca017f",
-      "deliberate_failure_task_sha256": "244f2a0ad2f45f02ec3b8c6eb497e2989987ee31a80f5b91d2b2fbb433926621",
+          "success_task_sha256": "8156905e3d424b4b295e04c5535ee6abc6a16d01de97b0e3500b3e784f5e227b",
+          "deliberate_failure_task_sha256": "5878fa1a1a0a9f942502ac4c98b4d26e0e73645cc4be9a77f1a5d7194916a31a",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo"
         },
         {
           "scenario_id": "governed-commit.managed-worktree",
-      "success_task_sha256": "e092cf95cb673f94645ef586efadeda26bf05485a97fc1ca8d1c2bee36369679",
-      "deliberate_failure_task_sha256": "5ed538e68201fd0bc0d5205e3debb5cc5200dafca2927a675ad885d2236d1d71",
+          "success_task_sha256": "b332f75b237a57e008634b75e3ddcf9da13142eb3b992db0172d5d15fca6662e",
+          "deliberate_failure_task_sha256": "b56eb94bbb0389cb6c9002f86b1a341fd85576ebbe17461bca31c378b1bb9f67",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree"
         }
       ]
@@ -107,20 +107,20 @@
       "task_bindings": [
         {
           "scenario_id": "automatic-prerequisite.git-repo",
-      "success_task_sha256": "f91c215f5708731e58d2639262e431c300349b7dab8f014925dd1c3262051507",
-      "deliberate_failure_task_sha256": "e450711b4ce0b578468232084cd1aca64c12fd90ec4250a7f9f86c3dcc95632f",
+      "success_task_sha256": "b4453ac0e6e79b46f7124ec7349d5128f50a7d0bf23fc90382fc86db625f649d",
+      "deliberate_failure_task_sha256": "8a31fc70f336a7b1979bd2726af1ba0eadb3f2725ece56750cb6532fa64dea55",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.git-repo"
         },
         {
           "scenario_id": "automatic-prerequisite.non-git",
-      "success_task_sha256": "bb34aa9519775b1c6d6aa8f6936632adb554e53ffbabed0536072f48f27ea50f",
-      "deliberate_failure_task_sha256": "bbcc19384d25342eec007dac90fdb734c0a3f972bbbe0d303c13604ea6fffab3",
+      "success_task_sha256": "83774349432a0f25274b9c6bfc971588ee5e7f8d9ef837f4a03d2103c8631d17",
+      "deliberate_failure_task_sha256": "dfbcbeb2c2f192209fcb043d759d0d197fb617c059b5bf3d03b69e6693e8ef8e",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git"
         },
         {
           "scenario_id": "automatic-prerequisite.managed-worktree",
-      "success_task_sha256": "3f2d7b9b99ebbd94986b9afa31cdf17cfde30d7e3299d74a5c3c4d568de82c0a",
-      "deliberate_failure_task_sha256": "97e4815dca6835e99b4e721943192b3b058a80874fa0f257efcbbfe5a3289aea",
+      "success_task_sha256": "f5f5dfb041a56c6f36dd49af445c62ad843d231f0fe61a64d6e8f96f2a9ed3e5",
+      "deliberate_failure_task_sha256": "717ae0b75ff53a3e3d8df014a2bc37e3f5afcf7d5c299776930a74c65646008c",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.managed-worktree"
         }
       ]
@@ -150,20 +150,20 @@
       "task_bindings": [
         {
           "scenario_id": "runtime-health.git-repo",
-      "success_task_sha256": "52545dfafe452722bd8b46e7c92a2efd7a29d4842fc85042ddded0d19316e3e4",
-      "deliberate_failure_task_sha256": "275d4cdb1098985272838f8de5cd1edc9830d5e820fe69c04d2820d173ba3502",
+      "success_task_sha256": "79edbd38b993dcc331dd15f7bab85a6eb70975333c76ac7b6746008970884ef4",
+      "deliberate_failure_task_sha256": "6bc92cf2284489f893fe2538824007ffa9162749ef47eebd13bb64be8af0da21",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.git-repo"
         },
         {
           "scenario_id": "runtime-health.non-git",
-      "success_task_sha256": "1d95ca27a7b1a0ada990311fb31a3460eedf0d72428708b8264cc00950520814",
-      "deliberate_failure_task_sha256": "c7ed025228642b247a14bea60b0ff9f74133b3c02cae99c0c5bdc1a902be9ce9",
+      "success_task_sha256": "dca64520e337181836c6c9c5821168edfea43970d70748ebcbc634d3bb9ff76a",
+      "deliberate_failure_task_sha256": "6c830da96d2891d40bf7547f9e5ef9ebc957138f89f8a7bc0196bb59f9261958",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.non-git"
         },
         {
           "scenario_id": "runtime-health.managed-worktree",
-      "success_task_sha256": "3cf5a53bb994b6f86f90ea06bf875b6d68591f9975ac73b6a9576fbf035b5358",
-      "deliberate_failure_task_sha256": "501ed5d7c93e7685e8129e81117426f7fdaf6d74cebcbdc862fd1bc6cd351ccb",
+      "success_task_sha256": "8811f005b01bf605df0cb9c8358796719174231ebbf4e93e7e63d68d01433295",
+      "deliberate_failure_task_sha256": "5b6698e0eb16102775f1a39574feae5f1c045d0ece3121ce356dd19e832a49bb",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:runtime-health.managed-worktree"
         }
       ]
@@ -193,20 +193,20 @@
       "task_bindings": [
         {
           "scenario_id": "authoritative-acceptance.git-repo",
-      "success_task_sha256": "27352f8361e72daeacc7ea710e2e9fd34878afd1e00101308a9a5a67ae55a806",
-      "deliberate_failure_task_sha256": "c00af69760674e28f5349990b831eced708edbe4bd1373dba29b2df425fea7a5",
+      "success_task_sha256": "d3a8ace296e6a554a8df26ccd801b4c18a683de519d8ffe9617584443d151a23",
+      "deliberate_failure_task_sha256": "7bbe43ecbec7b14e099605b1248d51e32c4d9d7ac7757475ff2969c9dacffa9d",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.git-repo"
         },
         {
           "scenario_id": "authoritative-acceptance.non-git",
-      "success_task_sha256": "81315513294ef1b92b9539cc7984d053b36138c69c3b39c75d3a4e6dd9e831c8",
-      "deliberate_failure_task_sha256": "a6806748786e786eb9d47919c7e129554679ed6be3c0db2766fb4070149b87af",
+      "success_task_sha256": "1ba790d422874979f32c24134ffcbfa63bec0d6c3a114b5b0ea4594e05a1d191",
+      "deliberate_failure_task_sha256": "88e08a585c88679527ece9e1fcac89274e86aac90267e45cbf9412f177243caa",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.non-git"
         },
         {
           "scenario_id": "authoritative-acceptance.managed-worktree",
-      "success_task_sha256": "0a3438247a95eac9e644161f894d1ed381f8478f9442bb18742f3d5f8c90cc50",
-      "deliberate_failure_task_sha256": "ffe8fd1bd3e0839ae64e33ed37c57d64dcbaefab278a5ae9c037f078515c2a52",
+      "success_task_sha256": "4283933405981b9f61c9b76f96c8a00fa6810cb5c1d8edc8779d9d65b14cd38a",
+      "deliberate_failure_task_sha256": "9853d7fe32e273e6fce4fd9446ff81ffbc2420125cc890c2885c482d667bf018",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.managed-worktree"
         }
       ]
@@ -235,14 +235,14 @@
       "task_bindings": [
         {
           "scenario_id": "managed-subagent-workspace.git-repo",
-      "success_task_sha256": "b9d90198b0d1dbbc6a09af978e23a21c36e601a7811fbfcef63184fcaa42d672",
-      "deliberate_failure_task_sha256": "a574ce87ab1852833c2fc12ea2115fbc4a15acd0142e5871bd035b3194e02334",
+      "success_task_sha256": "9d7d8cf7d808457cf721c12b2328376b3c4c80d0b5f3905ce0a336e825e8c6a4",
+      "deliberate_failure_task_sha256": "dec1232135494e107b255de77d7929c5fe20f51a61c4fab45a1563f224083776",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo"
         },
         {
           "scenario_id": "managed-subagent-workspace.managed-worktree",
-      "success_task_sha256": "43fda120c44c8146932450e8f51486d11f2baec14f157a1f90aaad4fde2ca52b",
-      "deliberate_failure_task_sha256": "7ffcd533885347f82aa76c9ed22410b9d0eee0f2ff241008f36400afc58f10f2",
+      "success_task_sha256": "3b74d2541500a9a85955d7408f5b492b7a024e8d85d3c83328fcd639cd21b2fb",
+      "deliberate_failure_task_sha256": "500511eaf573f91da72abee7531743e90b368cf48bcb42e0b3488cd5ddbb2df1",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree"
         }
       ]
@@ -272,20 +272,20 @@
       "task_bindings": [
         {
           "scenario_id": "data-policy.git-repo",
-      "success_task_sha256": "05276fd81d7d8db62b6dd45790285e8641328d807b73567c32b2e6d5591a51c7",
-      "deliberate_failure_task_sha256": "6a8d8bcbed29af5ca2b19c59cf13b0cdd441ceb08c1ee60d4dced8a56ae6f6e4",
+      "success_task_sha256": "77cd0dd78951bee92062678cfb78e125239c29f32a5aa8d32950bc422ed6a692",
+      "deliberate_failure_task_sha256": "5cd0bd4cc5f7894e86271d896ed6f2884a5d8aadc6a193dd317a54e06d444794",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.git-repo"
         },
         {
           "scenario_id": "data-policy.non-git",
-      "success_task_sha256": "b2afb6c19670629ab19ef440bbad55640b66d1b1cfe1871185e55f59cffec50b",
-      "deliberate_failure_task_sha256": "de7c482d4dde6823b69b904144ed2495404720b81206037f5f16a335e7b21f74",
+      "success_task_sha256": "c4342a54cd11f7e2209f4c4afe70377b91f75020c25959e838fc49148e3e4b95",
+      "deliberate_failure_task_sha256": "c06e36964911c99e6535593eaf140286482796b7c84bb972b9de7c55e05a420e",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.non-git"
         },
         {
           "scenario_id": "data-policy.managed-worktree",
-      "success_task_sha256": "f8941ea4aa8162777083c43984798fd878dabd0fef20d75b945e36a59f74840d",
-      "deliberate_failure_task_sha256": "651673ae4574db261cf2756e0ac0513b75c253c4557c6900a8fffc1b9332f560",
+      "success_task_sha256": "15ed5b6ac3a4bd57b968626fb59fd6f8e94f6e416265a5fe8acf056470bbc4fc",
+      "deliberate_failure_task_sha256": "ab731f5c41e1a8c5d44fd6e50000eb993764b365b0f8cfb01f9d1c6ef9c23f0c",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.managed-worktree"
         }
       ]
@@ -300,7 +300,7 @@
       ],
       "success_observation": "Hash the reviewed target and inspect the parent-visible child result independently; reviewer findings must return while the target remains byte-identical.",
       "deliberate_failure": {
-        "induction": "Give the restricted reviewer a row-specific instruction that attempts one observable write after inspection, with the target digest retained before spawn.",
+    "induction": "Give the authenticated restricted reviewer a row-specific instruction requesting one observable write, retain the target digest before invocation, and surface the unavailable write through the fixture's typed induced record.",
         "diagnosis_task": "Run the restricted-role delegation and inspect the resulting denial through dsh-runtime-kit diagnose. Report the code, owner, evidence reference, next action, and observable recovery check; do not treat the expected denial as permission to mutate.",
         "required_diagnosis_fields": [
           "code",
@@ -309,26 +309,26 @@
           "next_action",
           "observable_state_check"
         ],
-        "recovery": "Discard the attempted mutation instruction, spawn a fresh read-only reviewer, and retrieve its findings under a new run id.",
+    "recovery": "Discard the attempted mutation instruction, invoke a fresh read-only reviewer through review_specialists, and retrieve its findings under a new run id.",
         "recovery_observation": "The target digest is unchanged across both runs and the clean reviewer result reaches the parent without a residual child process."
       },
       "task_bindings": [
         {
           "scenario_id": "restricted-role.git-repo",
-      "success_task_sha256": "b5eb7e313875d576c7b044d0a3e076a2c3318a82587bf9fe4a765c3ab7ba8c26",
-      "deliberate_failure_task_sha256": "a8f405ed519ccb2eef6e58da37480acc2278f8cd4161c038801dd4b06fcc8d07",
+        "success_task_sha256": "dcd59e354e9cdc0a9e7253fa5a0a2ae93e8758834f87d5e3f25e1accdfed8f7c",
+        "deliberate_failure_task_sha256": "c476e55e7c84dbc79e71158a7ab642f3ee2988998405d193e912d204c48aea1d",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.git-repo"
         },
         {
           "scenario_id": "restricted-role.non-git",
-      "success_task_sha256": "6c03fd6524ee57504466d19b729022387e386d687cacdb1ac5511de06e7579e1",
-      "deliberate_failure_task_sha256": "77b5a9b7480ed2e467939f6f89c1681a14e26ea142577f015fbcc986b2932e24",
+        "success_task_sha256": "25e1e1d6d317be49199d85935fa333838650b5ec353b6180fab71bf341dfa71a",
+        "deliberate_failure_task_sha256": "c7e9e0e59b033a098825fff594fc69baafe224e1e6bb06b64ebdafe3e8b2aaf1",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.non-git"
         },
         {
           "scenario_id": "restricted-role.managed-worktree",
-      "success_task_sha256": "c0972c98cdd6fb1fe30c8e6d314af728d4777122d2e9f9c4fa2d57014d08c6a9",
-      "deliberate_failure_task_sha256": "0390e03b349b998be87d751d05a6f6c6ed47eea1f62d6da8bbc690e8f737f9f1",
+        "success_task_sha256": "60cf25804845b6ce056b2fa5fbd42c0fca73b0eda500758f7d125ab498ba9dc9",
+        "deliberate_failure_task_sha256": "a2ec7acc1d721520a9309cb8966e6148411f096e96ab532b4669ea34f7c5ccd6",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.managed-worktree"
         }
       ]
@@ -358,20 +358,20 @@
       "task_bindings": [
         {
           "scenario_id": "session-artifact.git-repo",
-      "success_task_sha256": "aa83a3bda759b1eab3c6c1b508e69b98722e549a9bb23483afd7d4bf08f148cf",
-      "deliberate_failure_task_sha256": "c34a5824e8d8b27e4de29ac94195ea40386b34ebd41466b56bff323decd21aed",
+      "success_task_sha256": "893ed44550010f00b8c3596d98d94d9b149e7f921f145b4ed32365a7bb4c38f3",
+      "deliberate_failure_task_sha256": "ac7d0639454c7133d3725e3d55a70d083fc95836fa1b47a5f1f3e82dcbe58c87",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.git-repo"
         },
         {
           "scenario_id": "session-artifact.non-git",
-      "success_task_sha256": "b434f47bdf351be9522c245408a7ad049a4062ce2794510cf38691d4f616a5cd",
-      "deliberate_failure_task_sha256": "b68a310fa73cb6d6526178955bb9357fe38ed7a0cad63060d4808d4ccbd2729c",
+      "success_task_sha256": "93ecdec8105d3e0fd77fbd2d54722440db798eb161145c2ae91ece868873364b",
+      "deliberate_failure_task_sha256": "f106f233ad36190fd4752d2fd6424eb3dd89213c15f5c121662fdfec6820ad43",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.non-git"
         },
         {
           "scenario_id": "session-artifact.managed-worktree",
-      "success_task_sha256": "3db2b8bed1b7a04d0f9249bd6984cb3bd12c9c5bede12599b081ca965476b4fe",
-      "deliberate_failure_task_sha256": "f37db0fb4234c27b3111b0bcb0b1bc2267a1967f4d80c5412d24a2920a01f8aa",
+      "success_task_sha256": "4f9475ed27298bf1b657d53ba5d1c5aaf9858832fdf5e69a5d21d13aecc94d52",
+      "deliberate_failure_task_sha256": "dcccb4c38044ca9647727b8e44b25e0c3c90ee7079a6a5da98f1cc4f9ddb03c1",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:session-artifact.managed-worktree"
         }
       ]
@@ -401,20 +401,20 @@
       "task_bindings": [
         {
           "scenario_id": "profile-lifecycle.git-repo",
-      "success_task_sha256": "27e281baf0c162402811b1ac18e72c7f04eb2d3971a4413a205bd612fea98c85",
-      "deliberate_failure_task_sha256": "82e9e66a288a013f6ef05879158c213bd5e8502186a3b6f5ceaeb7f71edcb146",
+      "success_task_sha256": "cae856ddc845a8fed001a8d51504ebf7999b561bd68200b37bd1e7c692da9cd6",
+      "deliberate_failure_task_sha256": "f883b118bf7e8976c409149de310d5b1a315bbfc3d252f5c06cdb46bc426ceef",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.git-repo"
         },
         {
           "scenario_id": "profile-lifecycle.non-git",
-      "success_task_sha256": "0e22c0e035cdc012f62ad3a0c693a6aa6c412c56cdbda5c2ec6977d26a8b7381",
-      "deliberate_failure_task_sha256": "f890c732015b8a798888364389997f70b9d8463fbd6ed5122a2434b954c3d3bd",
+      "success_task_sha256": "f9ecca2be5debffb743782fc699a3f3fe23186693723f053b2aaaaad8b21b92f",
+      "deliberate_failure_task_sha256": "e5be3a87db83dc9ca2d0e4ee07a9f1ac9dee5cfe6e1050e53899d9afe84de325",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.non-git"
         },
         {
           "scenario_id": "profile-lifecycle.managed-worktree",
-      "success_task_sha256": "1b5cc3297434a88e83b8ed786d7e6d9739348b9b911e8a96658a9c9d32756255",
-      "deliberate_failure_task_sha256": "a3838aa0613f6d521759dc927368ecb2950f904641629d18d113c36fe66b4a78",
+      "success_task_sha256": "9b56f20598681e8e670747c50bbe47e439450f94ff017e46df7a124657095722",
+      "deliberate_failure_task_sha256": "7f3684d8cea630ab13ef4fa0ef4e399c2b02597c8e37c2d29b9f0562a9342d0b",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.managed-worktree"
         }
       ]
@@ -443,14 +443,14 @@
       "task_bindings": [
         {
           "scenario_id": "deploy-dispatcher.git-repo",
-          "success_task_sha256": "d09f4a9f03ec6ef153ac466a87bee0177a24844f9f14cff307a5cd27cba20d1f",
-      "deliberate_failure_task_sha256": "ff31cf0f0c045d944e6a473fab8d4a290bda1121e93a026fecbecd84d8e29fd0",
+          "success_task_sha256": "ed23a039ba226a9b9adbd3dba9fea2c940bd5bc3705dbc2c8df2ecb0d14dc1bc",
+      "deliberate_failure_task_sha256": "704429f825e1bbdf84af052be81c0c048f89414d3b654766d9ea3ce301ed0d91",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.git-repo"
         },
         {
           "scenario_id": "deploy-dispatcher.managed-worktree",
-          "success_task_sha256": "20ef5ceed7b72f2d476d6e62c7cb45c0ea286d6068f8254c48cd84ce2adbd53c",
-      "deliberate_failure_task_sha256": "85f33ea682dd158d3efc0e482587869aba4334ae7a7b74040c6ce2a4ced949f5",
+          "success_task_sha256": "47cc1c1c3c800be62b8157829ff6a77edd754f514a23da3e09b40954a878eb85",
+      "deliberate_failure_task_sha256": "4b24dccef5abf9d8f3696e9e272363b71b2033cd00db5550b181fed0b9af9f76",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.managed-worktree"
         }
       ]
@@ -480,20 +480,20 @@
       "task_bindings": [
         {
           "scenario_id": "retired-surfaces.git-repo",
-          "success_task_sha256": "e159a45e7c9c96d142b019a0af12d28bf95f50efced10232d910b1750755be39",
-          "deliberate_failure_task_sha256": "50c13b170b50bce19fc93784692e798183cfd3de9b75453387cc41d987b0c5d4",
+          "success_task_sha256": "8876259cdaca5191078b93bda241d67df412224309fd90da8134329d078c6f14",
+          "deliberate_failure_task_sha256": "9844c18118c8c070d400b5177c13be5572adfb330dcdbc395222396f6538369b",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.git-repo"
         },
         {
           "scenario_id": "retired-surfaces.non-git",
-          "success_task_sha256": "50420519deafb136d9ceec64cd4d2856ba146b26832aef893a5274091715ab9c",
-          "deliberate_failure_task_sha256": "0131e3a4941ab9ddcc950a0c9a0a7d7bab05a09b067d1b33a5dbda6fc36a658a",
+          "success_task_sha256": "7c5b96c8915376fbbaed823bd00b15056a5e40f9bcaa71632ba383790f64612b",
+          "deliberate_failure_task_sha256": "97aa2c8ba064ee46ef46d02344edcd27cb3a49a5ff901424782d1dcccd9dbc54",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.non-git"
         },
         {
           "scenario_id": "retired-surfaces.managed-worktree",
-          "success_task_sha256": "8990018e3ce875cc48e06bbda901215c502e664668adfb4ebcd11fa67b7b2f00",
-          "deliberate_failure_task_sha256": "d754c0254605925959c56b5ffed234a8d860ad4dff5deb759e8adf0f29739432",
+          "success_task_sha256": "209408847a6a6372c5dd7aeb355f59e316fb6590625fe78997b7f163cd944c2e",
+          "deliberate_failure_task_sha256": "a51a2eeecfd13f718d7a671f331e8eb1640c544a25126f2d27522fb10d9da7f5",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:retired-surfaces.managed-worktree"
         }
       ]

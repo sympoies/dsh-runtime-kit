@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createGovernedCommitTool } from '../dist/src/governed-commit/index.js'
-import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 const expectedHead = 'a'.repeat(40)
 
@@ -135,6 +134,8 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
     semanticCommit: 'semantic-commit',
     canonicalPath: value => value,
     hasRepository: () => true,
+    environment: { XDG_RUNTIME_DIR: '/run/user/1000' },
+    runtime: { uid: 1000, platform: 'linux' },
   })
   const args = validArgs()
 
@@ -157,7 +158,10 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
     '--body-bullet', 'Bind delivery to the session-owned managed worktree.',
   ])
   assert.equal(subject.spawns[0].cwd, '/managed/worktrees/task')
-  assert.deepEqual(subject.spawns[0].env, isolatedNilsEnvironment(undefined))
+  assert.deepEqual(subject.spawns[0].env, {
+    XDG_RUNTIME_DIR: '/run/user/1000',
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+  })
   assert.equal(subject.spawns[0].argv.includes('--repo'), false)
   assert.equal(subject.spawns[0].argv.includes('--message-file'), false)
   assert.deepEqual(result, {
@@ -171,6 +175,71 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
       file_count: 1,
       files: [{ status: 'M', path: 'src/runtime.ts', old_path: null }],
     },
+  })
+})
+
+test('governed commit forwards only the ambient signing bridge to semantic-commit', async () => {
+  const subject = harness()
+  const environment = {
+    GNUPGHOME: '/home/fixture/.gnupg',
+    GPG_TTY: '/dev/pts/7',
+    SSH_AUTH_SOCK: '/run/user/1000/ssh-agent.socket',
+    XDG_RUNTIME_DIR: '/run/user/1000',
+    UNRELATED_SECRET: 'must-not-cross',
+  }
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+    hasRepository: () => true,
+    environment,
+    runtime: { uid: 1000, platform: 'linux' },
+  })
+
+  await tool.execute(validArgs(), execution({ arguments: validArgs() }))
+
+  assert.deepEqual(subject.spawns[0].env, {
+    GNUPGHOME: '/home/fixture/.gnupg',
+    GPG_TTY: '/dev/pts/7',
+    SSH_AUTH_SOCK: '/run/user/1000/ssh-agent.socket',
+    XDG_RUNTIME_DIR: '/run/user/1000',
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+  })
+})
+
+test('governed commit restores the authenticated session principal for commit hooks', async () => {
+  const subject = harness()
+  const environment = {
+    GNUPGHOME: '/home/fixture/.gnupg',
+    XDG_RUNTIME_DIR: '/run/user/1000',
+  }
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: 'semantic-commit',
+    canonicalPath: value => value,
+    hasRepository: () => true,
+    environment,
+    runtime: { uid: 1000, platform: 'linux' },
+    managedSessionBridge: {
+      resolve(sessionId) {
+        assert.equal(sessionId, 'session-current')
+        return {
+          sessionId,
+          environment: {
+            AGENT_SESSION_ID: sessionId,
+            AGENT_SESSION_STATE_DIR: '/state/session-current',
+          },
+        }
+      },
+    },
+  })
+
+  await tool.execute(validArgs(), execution({ arguments: validArgs() }))
+
+  assert.deepEqual(subject.spawns[0].env, {
+    GNUPGHOME: '/home/fixture/.gnupg',
+    XDG_RUNTIME_DIR: '/run/user/1000',
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus',
+    AGENT_SESSION_ID: 'session-current',
+    AGENT_SESSION_STATE_DIR: '/state/session-current',
   })
 })
 
