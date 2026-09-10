@@ -17,7 +17,7 @@ provider read-back into one promotion result.
 - applies the authenticated execution-boundary patch, rebuilds DSH, and binds
   its typed patch receipt into the acceptance summary;
 - authenticates the exact Agent Console TUI artifact, applies its narrowed
-  package-level rc.2 compatibility patch, and proves upstream contended
+  legacy history-permission package repair, and proves upstream contended
   history persistence cannot delay input dispatch;
 - runs operations and runtime scenarios from separate fresh package
   extractions;

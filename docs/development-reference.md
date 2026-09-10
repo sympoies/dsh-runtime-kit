@@ -264,7 +264,9 @@ npm run test:workspace-lease-native-smoke
 
 Exercise the exact Agent Console layer on the same smoke by selecting the only
 authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
-applies and verifies the narrowed package-level rc.2 compatibility patch,
+then applies and verifies the narrowed legacy history-permission package
+repair — in that order, because a later bundle add re-materializes the profile
+tree and would discard it —
 disables only the interactive front door in its test overlay, and boots the
 real selected runtime to prove `userQuestions`,
 runtime-kit tools/skills, and Main Agent service together:

@@ -1743,6 +1743,7 @@ try {
   let agentConsoleTuiArtifactVerified = false
   let agentConsoleTuiPatchVerified = false
   let agentConsoleTuiHistoryNonblockingVerified = false
+  let agentConsoleTuiLiveSessionFacadeVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -1776,6 +1777,41 @@ try {
   // to an earlier bundle. This is the operator order too: compose the complete
   // profile, then apply the repair before the first launch.
   if (agentConsoleTuiPackage !== undefined) {
+    // The downstream `session.events` bridge was retired because the pinned TUI
+    // resolves the live log through its own compatibility facade. Assert that
+    // positive premise here: a future promotion that drops the facade must fail
+    // at the pin rather than at runtime, with the bridge gone as well.
+    // Read rather than import: the facade imports `@deepseek-ai/dsh-session`,
+    // which resolves only inside the profile's own dependency closure.
+    const liveSessionFacade = join(
+      agentConsoleTuiPackageRoot,
+      'lib/types/dsh-adapter/compat/liveSession.js',
+    )
+    assert.equal(
+      existsSync(liveSessionFacade),
+      true,
+      'the pinned TUI must ship the upstream live-Session compatibility facade',
+    )
+    const liveSessionSource = readFileSync(liveSessionFacade, 'utf8')
+    assert.match(
+      liveSessionSource,
+      /export function snapshotLiveSessionEvents\(/u,
+      'the upstream facade must export snapshotLiveSessionEvents()',
+    )
+    assert.match(
+      liveSessionSource,
+      /snapshotEvents\(\)/u,
+      'the upstream facade must resolve the live log through snapshotEvents()',
+    )
+    // The premise the retired downstream bridge rested on: the adapter itself
+    // consumes the facade instead of reading `Session.events` directly.
+    assert.match(
+      readFileSync(join(agentConsoleTuiPackageRoot, 'lib/types/dsh-adapter/presets.js'), 'utf8'),
+      /snapshotLiveSessionEvents\(session\)/u,
+      'the pinned TUI adapter must resolve the running preset through the facade',
+    )
+    agentConsoleTuiLiveSessionFacadeVerified = true
+
     const appliedTuiPatch = await manageDshTuiPatch({
       action: 'apply',
       packageRoot: agentConsoleTuiPackageRoot,
@@ -4435,6 +4471,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     agentConsoleTuiArtifactVerified,
     agentConsoleTuiPatchVerified,
     agentConsoleTuiHistoryNonblockingVerified,
+    agentConsoleTuiLiveSessionFacadeVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

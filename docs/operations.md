@@ -31,9 +31,10 @@ allowBuilds:
 
 These transitive install scripts are not required at runtime. This deployment
 setting prevents pnpm from rejecting the install and does not create a host
-CLI, `PATH`, or agent-execution allowlist. The 0.10 line's optional `sharp` and
-`sixel` image decoders add no install, preinstall, postinstall, or prepare
-script of their own, so the denial set above is complete for this release.
+CLI, `PATH`, or agent-execution allowlist. The 0.10 line's image decoders —
+required `sixel` and optional `sharp` — add no install, preinstall, postinstall,
+or prepare script of their own, so the denial set above is complete for this
+release.
 
 Apply the exact package-level repair once the profile's **final** bundle is
 installed — that is, after `@sympoies/dsh-runtime-kit` is added, not
@@ -44,11 +45,16 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
   --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
 ```
 
-Ordering is load-bearing. `dsh plugin add` reconciles the profile by
-re-materializing its package tree from the pnpm store, so any later bundle add
-silently restores the pristine TUI bytes and discards an already-applied
-repair. Re-apply the repair after every profile mutation that touches the
-`dsh-tui` profile, and re-check the receipt before starting the service.
+Ordering is load-bearing on the 0.10 TUI line. `dsh plugin add` reconciles the
+profile by re-materializing its package tree from the pnpm store, so any later
+bundle add silently restores the pristine TUI bytes and discards an
+already-applied repair. This was verified by digest against 0.10.1; the
+outgoing `0.10.0-beta.4` pin retained the repair across the same step, so treat
+the behavior as a property of the current pin rather than of the command in
+general. Re-apply the repair after every profile mutation that touches the
+`dsh-tui` profile — including runtime-kit's own `update` and `rollback`, see
+[Update, rollback, and remove](#update-rollback-and-remove) — and re-check the
+receipt before starting the service.
 
 The required receipt state is `after: "patched"`. Check it before service
 start. The 0.10 line already includes dsh-TUI #593's asynchronous history persistence
@@ -427,6 +433,25 @@ Rollback restores the exact previous runtime-kit target and matching activation
 assets. Remove delegates the package mutation to DSH, removes only
 runtime-kit-owned receipts and unreferenced assets, and preserves unrelated
 bundles, user patches, private skills, and provider configuration.
+
+On the `dsh-tui` profile these three commands are themselves profile
+mutations: `update`, `rollback`, and collateral restore all delegate to
+`dsh plugin --profile dsh-tui add`, which re-materializes the profile's package
+tree and therefore discards an applied TUI history-permission repair. No
+runtime-kit gate detects that revert — `doctor` verifies DSH, the installed
+runtime-kit tree, assets, and receipts, but never the TUI package's target
+digests. After any of them, re-run the repair and require `after: "patched"`
+before restarting the service:
+
+```sh
+dsh-runtime-kit-manage-dsh-tui-patch --action check \
+  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+```
+
+A `pristine` receipt here is the expected post-mutation state, not a passing
+check: apply the repair again before service start. This applies to the 0.10
+TUI line; the outgoing `0.10.0-beta.4` pin retained the repair across the same
+profile mutation.
 
 ## Interrupted operations and repair
 

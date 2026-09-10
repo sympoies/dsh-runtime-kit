@@ -63,7 +63,7 @@ It binds the package manifest bytes, patch digest, and target before/after
 hashes. The manager accepts only pristine or exactly patched bytes and emits a
 typed check/apply/reverse receipt. The
 [upstream history repair](https://github.com/ccch1mneyyy/dsh-TUI/pull/593) is
-included in the 0.10 line and is no longer part of the downstream diff. The
+included in the 0.10 line and is no longer part of the downstream diff.
 The 0.10 stable line additionally ships upstream's own live-Session
 compatibility facade (`lib/types/dsh-adapter/compat/liveSession.js`), which
 resolves the log through `snapshotEvents()` when `Session.events` is absent, so
@@ -131,13 +131,23 @@ modes before reading it, refusing unexpected or symlinked paths. DSH alpha.4
 natively provides the package-inventory plugin, so the former rc.2-only TUI
 configuration removal is no longer applied.
 
-The stable line also introduces the optional `sharp` and `sixel` decoding
-dependencies. Neither package, nor sharp's prebuilt platform packages, declares
-an install, preinstall, postinstall, or prepare script, so the Agent Console
-pnpm installation contract's `allowBuilds` denials are unchanged by this
-promotion. 0.10.1 adds no dependency of its own: its adapter and channel
-refactor, default context bar, and long-line transcript folding are internal to
-the already-installed closure.
+The stable line also introduces two image-decoding dependencies absent from the
+outgoing `0.10.0-beta.4` pin: `sixel` as a required `dependencies` entry and
+`sharp` as an `optionalDependencies` entry. Neither package, nor sharp's
+prebuilt platform packages, declares an install, preinstall, postinstall, or
+prepare script, so the Agent Console pnpm installation contract's `allowBuilds`
+denials are unchanged by this promotion. 0.10.1 adds no dependency of its own:
+its adapter and channel refactor, default context bar, and long-line transcript
+folding are internal to the already-installed closure.
+
+That changed closure is not inert. Under `0.10.0-beta.4`, applying the package
+repair and then adding a further bundle to the same profile left the repair in
+place; under the 0.10 line, `dsh plugin add` re-materializes the profile tree
+and discards it. The exact mechanism has not been isolated — the new decoder
+closure altering profile reconciliation is the leading hypothesis — but the
+observable difference is what
+[`docs/operations.md`](operations.md) now encodes as an ordering and re-apply
+rule.
 
 0.10.1 also *widens* its DSH peer ranges to admit `0.1.3-alpha.2` and the
 `0.1.5` line alongside the releases 0.10.0 accepted. That widening is additive:
