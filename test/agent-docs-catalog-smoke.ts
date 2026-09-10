@@ -54,9 +54,11 @@ assert.equal(audit.problems, 0)
 const expectedPhases = new Map([
   ['edit', [
     ['PROJECT_DEV_EDIT.md', true],
+    ['docs/development-testing.md', true],
     ['DEVELOPMENT.md', false],
   ]],
   ['delivery', [
+    ['docs/development-testing.md', true],
     ['DEVELOPMENT.md', false],
     ['docs/policies/upstream-contribution.md', false],
   ]],

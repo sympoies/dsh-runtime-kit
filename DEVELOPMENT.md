@@ -5,6 +5,9 @@ supported versions live in [`README.md`](README.md). Detailed source ownership,
 build, packaging, compatibility, patch, smoke, acceptance, and delivery
 procedures live in
 [`docs/development-reference.md`](docs/development-reference.md).
+The mandatory validation order, evidence rules, and failure routing live in
+[`docs/development-testing.md`](docs/development-testing.md) and are applied by
+the project-local `project-runtime-development` skill.
 
 ## Before editing
 
@@ -39,8 +42,9 @@ procedures live in
 
 ## Change workflow
 
-1. Define the observable contract delta and identify the source, tests,
-   compatibility manifests, package contents, and current docs it affects.
+1. Use the `project-runtime-development` skill to define the observable
+   contract delta and a validation map: earliest proving layer, owner, focused
+   command, expected receipt, identities, and permitted side effects.
 2. For testable behavior, capture a meaningful regression failure before the
    implementation change when practical. Documentation-only work records a
    concise waiver and validates links, package visibility, and whitespace.
@@ -64,6 +68,7 @@ procedures live in
 
 | Need | Canonical document |
 | --- | --- |
+| Layered development and testing | [`Layered development and testing`](docs/development-testing.md) |
 | Detailed build, package, patch, smoke, and delivery commands | [`Development reference`](docs/development-reference.md) |
 | Runtime design and trust boundaries | [`Architecture`](docs/architecture.md) |
 | Activation, update, rollback, repair, and removal | [`Operations`](docs/operations.md) |
