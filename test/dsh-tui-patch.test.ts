@@ -250,6 +250,26 @@ test('the read-only repair inspection reports each installed-package state', asy
   }
 })
 
+test('the repair inspection reports a non-object package manifest instead of throwing', async () => {
+  const value = await fixture()
+  try {
+    // `null` is the JSON value that makes an unguarded identity read throw a
+    // `TypeError`, which would escape a function whose whole contract is to
+    // return a status.
+    for (const body of ['null\n', '42\n', '"text"\n', '[]\n']) {
+      await writeFile(join(value.packageRoot, 'package.json'), body)
+      const result = inspectDshTuiRepair({
+        packageRoot: value.packageRoot,
+        manifest: value.manifest,
+      })
+      assert.equal(result.status, 'unsupported', body)
+      assert.equal(result.ok, false, body)
+    }
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
 test('the repair inspection refuses a symlinked target instead of following it', async () => {
   const value = await fixture()
   try {

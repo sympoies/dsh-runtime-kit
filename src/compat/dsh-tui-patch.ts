@@ -191,6 +191,13 @@ export function inspectDshTuiRepair(input: { packageRoot: string, manifest: unkn
   } catch {
     return outcome('unsupported', { error: 'package manifest is not valid JSON' })
   }
+  // `JSON.parse` accepts every JSON value, not only objects, and `null` is the
+  // one that turns the identity read below into a `TypeError`. This function
+  // reports a status instead of throwing, so the shape is checked before any
+  // property access.
+  if (typeof packageJson !== 'object' || packageJson === null || Array.isArray(packageJson)) {
+    return outcome('unsupported', { error: 'package manifest is not a JSON object' })
+  }
   const release = patch.validated_releases[packageJson.version]
   if (packageJson.name !== manifest.package_name || release === undefined) {
     return outcome('unsupported', {
