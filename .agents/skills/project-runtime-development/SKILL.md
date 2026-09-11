@@ -53,21 +53,25 @@ prior-layer evidence cannot be proved.
 5. Treat authenticated tool identity, role, permission mode, expected
    induction, build provenance, executable role, installed-tree identity, and
    external observable-state attestation as distinct contracts.
-6. Before real-provider work, bind the exact package and catalog SHA-256, DSH
+6. When a clean DSH profile needs multiple profile bundles, install them in one
+   transaction and assert the manifest tuple before any package repair or
+   configuration dump. Split transactions only when the intermediate tree is
+   itself the tested contract and has its own receipt.
+7. Before real-provider work, bind the exact package and catalog SHA-256, DSH
    and patch revision, provider/model/effort, harness contract, profile, and
    approved side effects. Give the external harness no human diagnosis hint.
-7. On `usage_limit_reached` or another typed entitlement failure, keep the
+8. On `usage_limit_reached` or another typed entitlement failure, keep the
    candidate frozen and stop. Wait for reset or separately authorized access;
    do not switch provider or model.
-8. Reuse a matrix prefix only under the canonical same-digest rule. Cite the
+9. Reuse a matrix prefix only under the canonical same-digest rule. Cite the
    prior run and independent attestations; otherwise restart the invalidated
    portion.
-9. If a generic failure occurs, the same layer fails again without new
+10. If a generic failure occurs, the same layer fails again without new
    evidence, or a missing primitive has another owner, stop and replan. Route
    `nils-cli` workflow contracts to `sympoies/nils-cli`, runtime-kit contracts
    here, public application semantics to `dsh-applications`, DSH-native agent
    behavior to DSH, and hosted promotion to `sympoies-infra`.
-10. Run the routine repository gate once on the stable candidate. Perform
+11. Run the routine repository gate once on the stable candidate. Perform
     hosted promotion only when the owning issue requires it, and never call a
     local rehearsal final promotion.
 

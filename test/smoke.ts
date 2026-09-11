@@ -1765,18 +1765,38 @@ try {
       === agentConsoleCompatibility.tui.artifact.integrity
       && authenticated.shasum === agentConsoleCompatibility.tui.artifact.shasum
     assert.equal(agentConsoleTuiArtifactVerified, true)
-    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])
+    // Compose the complete profile in one pnpm transaction. The prior split
+    // sequence created two package-tree materializations and reconciliation
+    // snapshots; hosted acceptance observed the runtime-kit layer absent after
+    // that sequence. One transaction gives the intended tuple one checkpoint.
+    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive, tarball])
+  } else {
+    runDsh(['plugin', '--profile', profile, 'add', tarball])
   }
-  runDsh(['plugin', '--profile', profile, 'add', tarball])
   if (profile !== nativeMainAgentProfile) {
     runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
   }
 
+  const installedProfileManifest = JSON.parse(
+    readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
+  )
+  const installedBundles = installedProfileManifest.dsh?.profile?.bundles
+  if (agentConsoleTuiPackage !== undefined) {
+    assert.deepEqual(
+      installedBundles,
+      [
+        '@deepseek-ai/dsh-base',
+        '@deepseek-harness-tui/dsh-tui',
+        '@sympoies/dsh-runtime-kit',
+      ],
+      'the atomic Agent Console install must declare the complete profile bundle tuple before TUI repair',
+    )
+  }
+
   // The installed-package repair runs only after the profile's final bundle is
-  // added. `dsh plugin add` reconciles the profile by re-materializing its
-  // package tree from the pnpm store, which discards an in-place patch applied
-  // to an earlier bundle. This is the operator order too: compose the complete
-  // profile, then apply the repair before the first launch.
+  // added. This is the operator order too: atomically compose the complete
+  // profile, verify its declared tuple, then apply the repair before the first
+  // launch.
   if (agentConsoleTuiPackage !== undefined) {
     // The downstream `session.events` bridge was retired because the pinned TUI
     // resolves the live log through its own compatibility facade. Assert that
@@ -1858,10 +1878,6 @@ try {
     agentConsoleTuiRepairInspectionVerified = true
   }
 
-  const installedProfileManifest = JSON.parse(
-    readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
-  )
-  const installedBundles = installedProfileManifest.dsh?.profile?.bundles
   const dump = runDsh(['--profile', profile, '--dump-config']).stdout
   const composedRowIds = collectDumpRowIds(dump)
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
@@ -1882,11 +1898,6 @@ try {
       koffi: false,
       protobufjs: false,
     })
-    assert.deepEqual(installedBundles, [
-      '@deepseek-ai/dsh-base',
-      '@deepseek-harness-tui/dsh-tui',
-      '@sympoies/dsh-runtime-kit',
-    ])
     const installedTuiManifest = JSON.parse(readFileSync(
       join(agentConsoleTuiPackageRoot, 'package.json'),
       'utf8',

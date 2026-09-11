@@ -105,6 +105,12 @@ by the operations engine. The selected DSH/Cordis row, patch digest, companion
 versions, artifact digest, installed digest, and smoke results belong in the
 receipt.
 
+When a clean profile needs multiple bundles before its first launch, install
+them in one profile transaction unless an intermediate installed state is the
+contract under test. Read and assert the declared bundle tuple immediately
+after that transaction, before an installed-package repair or configuration
+dump can turn a missing reconciliation into a generic downstream failure.
+
 Run only the smoke legs owned by the change while iterating. The complete local
 acceptance command may compose those legs after each has an independently
 diagnosable result; it must not become the first diagnostic surface.
