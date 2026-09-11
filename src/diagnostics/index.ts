@@ -242,6 +242,17 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Restore the declared assignment workspace, then retry the unchanged managed-lane launch.',
     }
   }
+  if (explicitCode === 'ARTIFACT_REF_INVALID') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: explicitCode,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Retry retrieval with the recorded valid artifact id; do not copy the artifact into the workdir as a workaround.',
+    }
+  }
   if (observation.error_component === 'operations'
     || /plan|digest|operation|rollback|install|package|drift/iu.test(explicitCode)) {
     const stateUnavailable = /lock|state|command-unavailable/iu.test(explicitCode)
