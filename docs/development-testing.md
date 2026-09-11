@@ -147,9 +147,19 @@ output, process stdout/stderr, an unrelated tool result, or another family's
 typed failure is not evidence. Attestation append and pack summary must use the
 same runtime-failure or fixture-induced diagnosis anchor.
 
-A typed provider receipt such as `usage_limit_reached` stops the run. Preserve
-the candidate and wait for the declared entitlement reset or obtain separately
-authorized credentials; the failure must not switch either provider or model.
+Before a provider batch, when the environment provides an authorized,
+capacity-aware subscription selector, consult it and synchronize the selected
+account's access-only projection through its owner. Record only the secret-safe
+selector receipt and subscription class, then keep that exact projection fixed
+within the batch; credentials and account nicknames do not enter evidence.
+
+A typed provider receipt such as `usage_limit_reached` from one account stops
+the current batch, but does not by itself prove that the configured account pool
+is exhausted. Between batches, the selector may choose another account with
+confirmed available capacity without changing the provider or model. Only when
+the entire configured pool has no confirmed usable capacity should the harness
+preserve the candidate and wait for a declared entitlement reset or separately
+authorized access; the failure must not switch either provider or model.
 
 ### 6. Full external-harness matrix
 

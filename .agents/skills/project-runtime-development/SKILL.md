@@ -66,9 +66,13 @@ prior-layer evidence cannot be proved.
 7. Before real-provider work, bind the exact package and catalog SHA-256, DSH
    and patch revision, provider/model/effort, harness contract, profile, and
    approved side effects. Give the external harness no human diagnosis hint.
-8. On `usage_limit_reached` or another typed entitlement failure, keep the
-   candidate frozen and stop. Wait for reset or separately authorized access;
-   do not switch provider or model.
+8. Before each provider batch, when the environment declares an authorized
+   capacity-aware subscription selector, use it to select and synchronize an
+   account with confirmed capacity, then keep that exact access-only projection
+   fixed within the batch. On `usage_limit_reached` from one account, consult
+   the selector only between batches. If it reports that the entire configured
+   pool has no confirmed capacity, keep the candidate frozen and stop. Wait for
+   reset or separately authorized access; do not switch provider or model.
 9. Reuse a matrix prefix only under the canonical same-digest rule. Cite the
    prior run and independent attestations; otherwise restart the invalidated
    portion.

@@ -65,7 +65,14 @@ test('project runtime development skill applies one canonical policy and closes 
   assert.match(workflow, /Invalidation prevents reuse.*does not by\s+itself require/isu)
   assert.match(workflow, /authenticated tool identity.*permission mode.*expected induction.*installed-tree identity.*attestation/isu)
   assert.match(workflow, /multiple profile bundles.*one transaction.*manifest tuple.*before.*repair/isu)
-  assert.match(workflow, /usage_limit_reached.*keep the candidate frozen.*do not switch provider or model/isu)
+  assert.match(
+    workflow,
+    /Before each provider batch.*capacity-aware subscription selector.*synchronize.*fixed within the batch/isu,
+  )
+  assert.match(
+    workflow,
+    /usage_limit_reached.*selector.*entire.*pool.*keep the candidate frozen.*do not switch provider or model/isu,
+  )
   assert.match(workflow, /same-digest rule.*prior run.*independent attestations/isu)
   assert.match(workflow, /generic failure.*same layer fails again.*stop and replan/isu)
   assert.match(workflow, /unactivated fallback.*activation manifest.*DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR.*agree.*authenticated-asset transition/isu)
@@ -123,7 +130,14 @@ test('canonical policy orders independently diagnosable runtime-kit validation l
   assert.match(provider, /correlated tool result.*exact registered probe command/isu)
   assert.match(provider, /model output.*process stdout\/stderr.*unrelated tool result.*another family's typed failure/isu)
   assert.match(provider, /Attestation append and pack summary.*same.*diagnosis anchor/isu)
-  assert.match(provider, /usage_limit_reached.*stops the run.*Preserve the candidate.*must not switch either provider or model/isu)
+  assert.match(
+    provider,
+    /Before a provider batch.*capacity-aware subscription selector.*synchronize.*access-only projection.*fixed within the batch/isu,
+  )
+  assert.match(
+    provider,
+    /usage_limit_reached.*one account.*selector.*another.*available.*entire configured pool.*Preserve the candidate.*must not switch either provider or model/isu,
+  )
 
   const matrix = normalizedSection(policy, '### 6. Full external-harness matrix')
   assert.match(matrix, /same-digest retry.*package SHA-256.*catalog SHA-256.*DSH revision and patch.*provider\/model\/effort.*harness contract.*projected scenario inputs/isu)
