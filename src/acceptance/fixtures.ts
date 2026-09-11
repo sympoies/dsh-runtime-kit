@@ -1456,6 +1456,7 @@ export function directoryTreeDigest(
       if (metadata.isSymbolicLink() || (!metadata.isDirectory() && !metadata.isFile())) {
         throw new FixtureError('unsafe-fixture-path', 'temporary lease repository contains an unsafe entry')
       }
+      if (metadata.isFile() && name.endsWith('.lock')) continue
       hash.update(`${relativePath}\0${metadata.isDirectory() ? 'directory' : 'file'}\0${metadata.mode & 0o777}\0`)
       if (metadata.isDirectory()) walk(path)
       else hash.update(readFileSync(path))

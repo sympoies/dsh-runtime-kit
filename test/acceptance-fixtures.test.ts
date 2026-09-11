@@ -81,6 +81,34 @@ test('fixture tree digest tolerates only an enumerated entry disappearing before
   )
 })
 
+test('fixture tree digest excludes transient Git locks across complete snapshots', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-git-lock-digest-'))
+  const objects = join(root, 'objects')
+  const stable = join(objects, 'stable-metadata')
+  const transient = join(objects, 'maintenance.lock')
+  const retainedDirectory = join(objects, 'retained.lock')
+  const retainedEntry = join(retainedDirectory, 'entry')
+  mkdirSync(objects, { mode: 0o700 })
+  mkdirSync(retainedDirectory, { mode: 0o700 })
+  writeFileSync(stable, 'stable\n', { mode: 0o600 })
+  writeFileSync(retainedEntry, 'retained\n', { mode: 0o600 })
+  writeFileSync(transient, 'transient\n', { mode: 0o600 })
+
+  const whileLocked = directoryTreeDigest(root)
+  rmSync(transient)
+  assert.equal(directoryTreeDigest(root), whileLocked)
+
+  writeFileSync(retainedEntry, 'changed\n', { mode: 0o600 })
+  const changedDirectoryDigest = directoryTreeDigest(root)
+  assert.notEqual(changedDirectoryDigest, whileLocked)
+
+  chmodSync(stable, 0o640)
+  assert.notEqual(directoryTreeDigest(root), changedDirectoryDigest)
+
+  symlinkSync(stable, join(objects, 'unsafe.lock'))
+  assert.throws(() => directoryTreeDigest(root), /temporary lease repository contains an unsafe entry/u)
+})
+
 test('package ships a complete executable #D fixture provider', () => {
   const fixtureManifest = join(ROOT, 'compatibility', 'acceptance-fixtures.json')
   const fixtureSource = join(ROOT, 'src', 'acceptance', 'fixtures.ts')
