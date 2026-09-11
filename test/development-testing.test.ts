@@ -64,6 +64,7 @@ test('project runtime development skill applies one canonical policy and closes 
   assert.match(workflow, /declared required layers/iu)
   assert.match(workflow, /Invalidation prevents reuse.*does not by\s+itself require/isu)
   assert.match(workflow, /authenticated tool identity.*permission mode.*expected induction.*installed-tree identity.*attestation/isu)
+  assert.match(workflow, /multiple profile bundles.*one transaction.*manifest tuple.*before.*repair/isu)
   assert.match(workflow, /usage_limit_reached.*keep the candidate frozen.*do not switch provider or model/isu)
   assert.match(workflow, /same-digest rule.*prior run.*independent attestations/isu)
   assert.match(workflow, /generic failure.*same layer fails again.*stop and replan/isu)
@@ -108,6 +109,9 @@ test('canonical policy orders independently diagnosable runtime-kit validation l
   assert.match(packaging, /build provenance.*executable roles.*package\.json#bin/isu)
   assert.match(packaging, /packageTreeDigest.*path.*entry kind.*executable role.*size.*content/isu)
   assert.match(packaging, /defects that arise only after extraction or installation/iu)
+
+  const runtime = normalizedSection(policy, '### 4. Runtime and versioned DSH smoke')
+  assert.match(runtime, /multiple bundles.*one profile transaction.*declared bundle tuple.*before.*repair/isu)
 
   const provider = normalizedSection(policy, '### 5. Single-scenario real-provider acceptance')
   assert.match(provider, /gpt-5\.6-luna.*do not silently replace.*DeepSeek API/isu)

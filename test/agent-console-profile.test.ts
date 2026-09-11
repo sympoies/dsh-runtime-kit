@@ -245,24 +245,28 @@ test('public Agent Console smoke authenticates the contract tarball before local
   const source = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
   const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
-  const installed = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])")
-  const finalBundle = source.indexOf("runDsh(['plugin', '--profile', profile, 'add', tarball])", installed)
+  const installed = source.indexOf(
+    "runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive, tarball])",
+  )
+  const inspected = source.indexOf('const installedProfileManifest = JSON.parse(', installed)
   const patched = source.indexOf("action: 'apply',", installed)
   const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', patched)
 
   assert.ok(fetched >= 0, 'the smoke must fetch through the authenticated artifact owner')
   assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
-  assert.ok(installed > written, 'the smoke must install the verified local archive')
-  assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
-  assert.ok(finalBundle > installed, 'the smoke must add runtime-kit as the final profile bundle')
-  // `dsh plugin add` re-materializes the profile's package tree from the pnpm
-  // store, which discards an in-place TUI repair applied to an earlier bundle.
-  // The repair must therefore follow the profile's LAST bundle add, not merely
-  // the TUI archive install.
   assert.ok(
-    patched > finalBundle,
-    'the smoke must apply the TUI repair after the final profile bundle add, '
-      + 'because a later `dsh plugin add` re-materializes the package tree',
+    installed > written,
+    'the smoke must install the verified TUI archive and runtime-kit in one profile transaction',
+  )
+  assert.ok(
+    inspected > installed && inspected < patched,
+    'the smoke must inspect the installed profile tuple before applying a package repair',
+  )
+  assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
+  assert.equal(
+    source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])"),
+    false,
+    'the TUI and runtime-kit must not be split across profile transactions',
   )
   assert.ok(startup > patched, 'the smoke must exercise the patched TUI runtime')
   assert.equal(
