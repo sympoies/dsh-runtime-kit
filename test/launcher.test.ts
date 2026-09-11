@@ -93,15 +93,24 @@ test('owner launcher derives the complete DSH isolation environment from one run
   try {
     const result = invoke(runtimeRoot)
     assert.equal(result.status, 0, result.stderr)
-    assert.deepEqual(JSON.parse(result.stdout), {
+    const fallbackEnvironment = JSON.parse(result.stdout)
+    assert.deepEqual(fallbackEnvironment, {
       root: runtimeRoot,
       hookConfig: join(runtimeRoot, 'agent-hook', 'config.toml'),
       hookPolicy: join(runtimeRoot, 'agent-hook', 'policy.toml'),
-      hookState: join(runtimeRoot, 'agent-hook', 'state'),
+      hookState: join(runtimeRoot, 'state', 'agent-hook'),
       docsHome: join(runtimeRoot, 'agent-docs'),
       docsState: join(runtimeRoot, 'agent-docs-state'),
       argument: 'argument preserved',
     })
+
+    const activated = activatedRuntimeRoot(temporary)
+    const activatedResult = invoke(activated.runtimeRoot)
+    assert.equal(activatedResult.status, 0, activatedResult.stderr)
+    const activatedEnvironment = JSON.parse(activatedResult.stdout)
+    assert.equal(activatedEnvironment.hookState, fallbackEnvironment.hookState)
+    assert.equal(activatedEnvironment.hookConfig, join(activated.hookAssets, 'config.toml'))
+    assert.equal(activatedEnvironment.hookPolicy, join(activated.hookAssets, 'policy.toml'))
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }

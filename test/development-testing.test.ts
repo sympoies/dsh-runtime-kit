@@ -68,6 +68,7 @@ test('project runtime development skill applies one canonical policy and closes 
   assert.match(workflow, /usage_limit_reached.*keep the candidate frozen.*do not switch provider or model/isu)
   assert.match(workflow, /same-digest rule.*prior run.*independent attestations/isu)
   assert.match(workflow, /generic failure.*same layer fails again.*stop and replan/isu)
+  assert.match(workflow, /unactivated fallback.*activation manifest.*DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR.*agree.*authenticated-asset transition/isu)
   assert.match(skill, /## Self-improvement loop/u)
   assert.match(skill, /does not grant/iu)
   for (const owner of ['nils-cli', 'dsh-runtime-kit', 'dsh-applications', 'sympoies-infra']) {
@@ -112,6 +113,8 @@ test('canonical policy orders independently diagnosable runtime-kit validation l
 
   const runtime = normalizedSection(policy, '### 4. Runtime and versioned DSH smoke')
   assert.match(runtime, /multiple bundles.*one profile transaction.*declared bundle tuple.*before.*repair/isu)
+  assert.match(runtime, /unactivated fallback.*activation manifest.*same canonical agent-hook state path.*DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR/isu)
+  assert.match(runtime, /Assert that exact parity in the launcher owner suite.*config and policy.*authenticated.*content-addressed assets/isu)
 
   const provider = normalizedSection(policy, '### 5. Single-scenario real-provider acceptance')
   assert.match(provider, /gpt-5\.6-luna.*do not silently replace.*DeepSeek API/isu)

@@ -55,7 +55,10 @@ prior-layer evidence cannot be proved.
    external observable-state attestation as distinct contracts. Bind a
    deliberate failure to its family's declared code and the correlated exact
    probe call; reject matching JSON from process/model output, unrelated tools,
-   or another family.
+   or another family. When a launcher has both an unactivated fallback and an
+   activation manifest, require one owner assertion that their
+   `DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR` values agree while config and policy
+   move only through their declared authenticated-asset transition.
 6. When a clean DSH profile needs multiple profile bundles, install them in one
    transaction and assert the manifest tuple before any package repair or
    configuration dump. Split transactions only when the intermediate tree is

@@ -111,6 +111,14 @@ contract under test. Read and assert the declared bundle tuple immediately
 after that transaction, before an installed-package repair or configuration
 dump can turn a missing reconciliation into a generic downstream failure.
 
+When a launcher supports both an unactivated fallback and an activation
+manifest, both paths must project the same canonical agent-hook state path in
+`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR`. Assert that exact parity in the launcher
+owner suite while separately proving the intentional transition of config and
+policy into authenticated, content-addressed assets; otherwise a stale fallback
+can override a correct smoke environment and remain invisible until a later
+native-runtime probe.
+
 Run only the smoke legs owned by the change while iterating. The complete local
 acceptance command may compose those legs after each has an independently
 diagnosable result; it must not become the first diagnostic surface.
