@@ -1878,7 +1878,7 @@ process.stdout.write('The exact fixture validation reported its typed induced fa
   assert.equal(summary.status, 'pass')
 })
 
-test('the governed family accepts the exact agent-hook default-delivery refusal', async () => {
+test('the governed family accepts the live multi-code agent-hook default-delivery refusal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-hook-refusal-'))
   const workdir = join(root, 'failure')
   const retryWorkdir = join(root, 'retry')
@@ -1920,7 +1920,7 @@ fs.mkdirSync(sessions, {recursive:true})
 const transcript = [
   {type:'session',cwd:process.cwd(),createdAt:Date.now()},
   {type:'tool/call',data:{callId:'governed-1',name:'runtime_kit_governed_commit',arguments:'{}'}},
-  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-1'},content:[{type:'tool-result',toolCallId:'governed-1',isError:true,content:[{type:'text',text:'Error: agent-hook:block-unsafe-default-delivery — Mutating the default branch directly is a governed seam.'}]}]}}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-1'},content:[{type:'tool-result',toolCallId:'governed-1',isError:true,content:[{type:'text',text:'Error: agent-hook:blocked — Mutating the default branch directly is a governed seam.\\nPolicy codes: block-unsafe-default-delivery,checkout-lease-guard'}]}]}}},
 ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
 fs.writeFileSync(path.join(sessions, 'refusal.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
 process.stdout.write('The exact governed precondition refusal was observed.\\n')

@@ -631,10 +631,25 @@ function ownedToolResultErrors(
           ...(details === undefined ? {} : { details }),
         })
       }
+      const policyCodes = toolResult.isError === true
+        && /\bagent-hook:blocked\b/iu.test(text.text)
+        ? [...text.text.matchAll(/(?:^|\n)Policy codes: ([a-z0-9][a-z0-9.-]{0,127}(?:,[a-z0-9][a-z0-9.-]{0,127})*)(?=\r?$)/gimu)]
+          .flatMap(match => match[1]!.toLowerCase().split(','))
+        : []
       for (const match of text.text.matchAll(/\bagent-hook:([a-z0-9][a-z0-9.-]{0,127})\b/giu)) {
         const observed = match[1]!.toLowerCase()
+        if (observed === 'blocked' && policyCodes.length > 0) continue
         errors.push({
           code: observed === 'blocked' ? 'policy-denied' : observed.startsWith('dsh.') ? observed : `dsh.${observed}`,
+          event: `${event}:agent-hook`,
+        })
+      }
+      // policyReason renders the primary blocking code first. Session outcome
+      // selection intentionally uses the final typed error, so retain every
+      // code while appending in reverse order to keep that primary authoritative.
+      for (const observed of policyCodes.toReversed()) {
+        errors.push({
+          code: observed.startsWith('dsh.') ? observed : `dsh.${observed}`,
           event: `${event}:agent-hook`,
         })
       }
