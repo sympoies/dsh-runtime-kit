@@ -317,7 +317,10 @@ const INFRASTRUCTURE_OUTCOME_CATEGORIES: ReadonlySet<string> = new Set([
 
 const EXPECTED_INDUCED_FAILURE_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   ['workspace-identity', new Set(['WORKSPACE_FOREIGN_ACTIVE'])],
-  ['governed-commit', new Set(['GOVERNED_COMMIT_REJECTED'])],
+  ['governed-commit', new Set([
+    'GOVERNED_COMMIT_REJECTED',
+    'dsh.block-unsafe-default-delivery',
+  ])],
   ['automatic-prerequisite', new Set(['DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'])],
   ['runtime-health', new Set(['DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'])],
   ['authoritative-acceptance', new Set(['acceptance-fixture-induced-failure'])],

@@ -1878,6 +1878,72 @@ process.stdout.write('The exact fixture validation reported its typed induced fa
   assert.equal(summary.status, 'pass')
 })
 
+test('the governed family accepts the exact agent-hook default-delivery refusal', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-hook-refusal-'))
+  const workdir = join(root, 'failure')
+  const retryWorkdir = join(root, 'retry')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(retryWorkdir)
+  mkdirSync(dshHome)
+  assert.equal(spawnSync('git', ['init', '--initial-branch=acceptance/failure'], { cwd: workdir }).status, 0)
+  assert.equal(spawnSync('git', ['init', '--initial-branch=acceptance/retry'], { cwd: retryWorkdir }).status, 0)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'governed-commit.git-repo',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  const recoverySessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'recovery')
+  fs.mkdirSync(recoverySessions, {recursive:true})
+  const recoveryTranscript = [
+    {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+    {type:'tool/call',data:{callId:'runtime-context-retry-1',name:'runtime_context',arguments:'{}'}},
+    {type:'tool/result',data:{message:{source:{kind:'tool',callId:'runtime-context-retry-1'},content:[{type:'tool-result',toolCallId:'runtime-context-retry-1',isError:false,content:[{type:'text',text:'Use runtime_kit_governed_commit for the governed delivery seam.'}]}]}}},
+    {type:'tool/call',data:{callId:'governed-retry-1',name:'runtime_kit_governed_commit',arguments:'{}'}},
+    {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-retry-1'},content:[{type:'tool-result',toolCallId:'governed-retry-1',isError:false,content:[{type:'text',text:'governed recovery validation passed'}]}]}}},
+  ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+  fs.writeFileSync(path.join(recoverySessions, 'success.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(recoveryTranscript)))
+  process.stdout.write('runtime_kit_governed_commit\\nDSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId:'governed-1',name:'runtime_kit_governed_commit',arguments:'{}'}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-1'},content:[{type:'tool-result',toolCallId:'governed-1',isError:true,content:[{type:'text',text:'Error: agent-hook:block-unsafe-default-delivery — Mutating the default branch directly is a governed seam.'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'refusal.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The exact governed precondition refusal was observed.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['governed-commit.git-repo'],
+    workdir, retryWorkdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'governed-hook-refusal',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.status, 'failed')
+  assert.equal(result.session_outcome.category, 'tool-denial')
+  assert.equal(result.session_outcome.code, 'dsh.block-unsafe-default-delivery')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
 test('a cross-family governed-tool rejection cannot satisfy prerequisite induction', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-rejection-'))
   const workdir = join(root, 'plain')
