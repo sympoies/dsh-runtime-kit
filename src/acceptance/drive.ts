@@ -246,10 +246,10 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
 // genuine defect into a pass.
 const FIXTURE_INDUCED_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 
-// The probe writes its record to the tool's own output, so by the time the driver
-// sees it the object is embedded in a larger tool-result surface rather than
-// occupying its own line. Extract the flat object and parse it, so the evidence
-// stays the fixture's machine-readable record and never the model's prose about it.
+// The caller supplies only output from a call/result-correlated registered probe.
+// Its object may be embedded in the Bash tool-result wrapper, so parse either the
+// exact runtime-kit error row or the fixture-induced schema without consulting
+// model/process output.
 function fixtureInducedFailure(surface: string) {
   for (const line of surface.split(/\r?\n/gu)) {
     let parsed: unknown
@@ -266,7 +266,7 @@ function fixtureInducedFailure(surface: string) {
       return { code: error.code }
     }
   }
-  for (const match of surface.matchAll(/\{[^{}]*"status"\s*:\s*"induced"[^{}]*\}/gu)) {
+  for (const match of surface.matchAll(/\{[^{}]*"schema_version"\s*:\s*"dsh-runtime-kit\.acceptance-fixture-induced\.v1"[^{}]*\}/gu)) {
     let parsed: unknown
     try {
       parsed = JSON.parse(match[0])
@@ -274,7 +274,9 @@ function fixtureInducedFailure(surface: string) {
       continue
     }
     const row = record(parsed)
-    if (row === undefined || row.status !== 'induced') continue
+    if (row === undefined
+      || row.schema_version !== 'dsh-runtime-kit.acceptance-fixture-induced.v1'
+      || row.status !== 'induced') continue
     if (typeof row.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
     return { code: row.code }
   }
@@ -313,10 +315,60 @@ const INFRASTRUCTURE_OUTCOME_CATEGORIES: ReadonlySet<string> = new Set([
   'unknown',
 ])
 
-const INDUCED_RUNTIME_HEALTH_CODES: ReadonlyMap<string, string> = new Map([
-  ['automatic-prerequisite', 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'],
-  ['runtime-health', 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'],
+const EXPECTED_INDUCED_FAILURE_CODES: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['workspace-identity', new Set(['WORKSPACE_FOREIGN_ACTIVE'])],
+  ['governed-commit', new Set(['GOVERNED_COMMIT_REJECTED'])],
+  ['automatic-prerequisite', new Set(['DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'])],
+  ['runtime-health', new Set(['DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'])],
+  ['authoritative-acceptance', new Set(['acceptance-fixture-induced-failure'])],
+  ['managed-subagent-workspace', new Set(['assignment-launch-cwd-unavailable'])],
+  ['data-policy', new Set(['sandbox-file-access-denied'])],
+  ['restricted-role', new Set(['restricted-role-write-unavailable'])],
+  ['session-artifact', new Set(['ARTIFACT_REF_INVALID'])],
+  ['profile-lifecycle', new Set(['native-dsh-failed'])],
+  ['deploy-dispatcher', new Set(['dispatcher-unavailable'])],
+  ['retired-surfaces', new Set(['retired-surface-unreachable'])],
 ])
+
+const FIXTURE_PROBE_BY_FAMILY: ReadonlyMap<string, string> = new Map([
+  ['authoritative-acceptance', './fixture-validation.mjs'],
+  ['restricted-role', './fixture-validation.mjs'],
+  ['profile-lifecycle', './lifecycle-probe.mjs'],
+  ['deploy-dispatcher', './deploy-probe.mjs'],
+  ['retired-surfaces', './retired-probe.mjs'],
+])
+
+function toolArguments(value: unknown) {
+  if (typeof value === 'string') {
+    try {
+      return record(JSON.parse(value))
+    } catch {
+      return undefined
+    }
+  }
+  return record(value)
+}
+
+function inducedEvidenceCall(value: unknown, family: string) {
+  const row = record(value)
+  const data = record(row?.data)
+  if (row?.type !== 'tool/call' || typeof data?.callId !== 'string' || typeof data.name !== 'string') {
+    return undefined
+  }
+  if (family === 'managed-subagent-workspace' && data.name === 'main_agent_worker_launch') {
+    return { callId: data.callId, kind: 'main-agent' as const }
+  }
+  const expectedProbe = FIXTURE_PROBE_BY_FAMILY.get(family)
+  const args = toolArguments(data.arguments)
+  if (data.name.toLowerCase() !== 'bash' || expectedProbe === undefined || args?.command !== expectedProbe) {
+    return undefined
+  }
+  return { callId: data.callId, kind: 'fixture' as const }
+}
+
+function expectedInducedCode(family: string, code: unknown) {
+  return typeof code === 'string' && EXPECTED_INDUCED_FAILURE_CODES.get(family)?.has(code) === true
+}
 
 function safeRegularFile(path: string, label: string) {
   let metadata
@@ -799,11 +851,9 @@ function transcriptDecisionSurface(value: unknown, runtimeContextCallIds: Set<st
 }
 
 // `transcriptDecisionSurface` is deliberately restricted to error content because
-// it feeds reminder and forbidden-outcome matching, where a wider surface would
-// invite false positives. The fixture's induced record needs the opposite: every
-// tool-result text, whether or not the tool reported an error. It is scanned on its
-// own pass and only ever matches an exact typed object, so it cannot disturb those
-// gates.
+// it feeds reminder and forbidden-outcome matching. The fixture parser consumes
+// non-error text only after the enclosing result has been correlated to the exact
+// registered probe call.
 function transcriptToolResultText(value: unknown, errorsOnly = false) {
   const row = record(value)
   const data = record(row?.data)
@@ -830,6 +880,7 @@ function scanTranscripts(
   transcripts: string[],
   expectedReminders: string[],
   forbiddenOutcomes: string[],
+  family: string | undefined,
 ): TranscriptScan {
   const actions = new Set<string>()
   const ruleIds = new Set<string>()
@@ -838,9 +889,10 @@ function scanTranscripts(
   const digests: ReturnType<typeof digestFile>[] = []
   let compressedBytes = 0
   let decompressedBytes = 0
-  const runtimeContextCallIds = new Set<string>()
   let inducedFailure: { code: string } | undefined
   for (const path of transcripts) {
+    const runtimeContextCallIds = new Set<string>()
+    const inducedEvidenceCallIds = new Map<string, 'fixture' | 'main-agent'>()
     try {
       const metadata = safeRegularFile(path, 'session transcript')
       compressedBytes += metadata.size
@@ -863,10 +915,22 @@ function scanTranscripts(
         if (row?.type === 'tool/call' && data?.name === 'runtime_context'
           && typeof data.callId === 'string') {
           runtimeContextCallIds.add(data.callId)
-          continue
         }
-        inducedFailure ??= fixtureInducedFailure(transcriptToolResultText(value))
-          ?? mainAgentInducedFailure(transcriptToolResultText(value, true))
+        if (family !== undefined) {
+          const evidenceCall = inducedEvidenceCall(value, family)
+          if (evidenceCall !== undefined) {
+            inducedEvidenceCallIds.set(evidenceCall.callId, evidenceCall.kind)
+          }
+          const source = record(record(data?.message)?.source)
+          const evidenceKind = source?.kind === 'tool' && typeof source.callId === 'string'
+            ? inducedEvidenceCallIds.get(source.callId)
+            : undefined
+          if (evidenceKind === 'fixture') {
+            inducedFailure ??= fixtureInducedFailure(transcriptToolResultText(value))
+          } else if (evidenceKind === 'main-agent') {
+            inducedFailure ??= mainAgentInducedFailure(transcriptToolResultText(value, true))
+          }
+        }
         if (!observedTranscriptRecord(value)) continue
         const decisionSurface = transcriptDecisionSurface(value, runtimeContextCallIds)
         for (const marker of expectedReminders) if (decisionSurface.includes(marker)) reminders.add(marker)
@@ -1131,6 +1195,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
     successMarker: string,
     captured: CapturedCommand,
     evidenceBefore: ReturnType<typeof snapshotEvidence>,
+    family: string | undefined,
   ) => {
     let changed: string[] = []
     let captureError: { code: string, message: string } | undefined
@@ -1149,6 +1214,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       transcripts,
       scenarioValue.expected_reminders,
       scenarioValue.forbidden_outcomes.filter(marker => marker !== 'silent-stop'),
+      family,
     )
     const structuredStderr = captured.stderr.split('\n').flatMap(line => {
       if (line.length === 0) return []
@@ -1425,7 +1491,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
       } finally {
         leaseHolder?.kill('SIGTERM')
       }
-      const evidence = taskEvidence(selectedScenario, expectedMarker, executed, before)
+      const evidence = taskEvidence(selectedScenario, expectedMarker, executed, before, packRow?.family)
       const commandOutput = executed.stdout + '\n' + executed.stderr
       const {
         captureError, transcripts, receipts, transcriptScan, missingReminders, forbidden, markerSeen, identityError,
@@ -1462,24 +1528,22 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         && identityError === undefined
       const inducedFailure = input.phase === 'deliberate-failure'
         ? transcriptScan.inducedFailure
-          ?? fixtureInducedFailure(`${executed.stdout}\n${executed.stderr}`)
         : undefined
-      // The controlled differential against the byte-identical clean retry is what
-      // ties the blocked leg to the staged induction, so the leg itself only has to
-      // withhold the recovery marker and end for a scenario reason: either a typed
-      // runtime failure or the fixture's own typed induced record.
-      const expectedInducedHealthFailure = packRow !== undefined
-        && diagnostic.outcome.category === 'health-failure'
-        && diagnostic.outcome.component === 'runtime-health'
-        && INDUCED_RUNTIME_HEALTH_CODES.get(packRow.family) === diagnostic.outcome.code
-      const expectedFixtureInducedFailure = diagnostic.outcome.category === 'unknown'
-        && inducedFailure?.code === 'acceptance-fixture-induced-failure'
-        && diagnostic.outcome.code === inducedFailure.code
+      // The first leg must expose this family's exact typed code. Correlated probe
+      // evidence proves where a completed-session induction came from; the
+      // byte-identical clean retry then proves recovery without replacing that
+      // identity check.
+      const expectedFamilyFailure = packRow !== undefined && (
+        expectedInducedCode(packRow.family, diagnostic.outcome.code)
+        || expectedInducedCode(packRow.family, inducedFailure?.code)
+      )
       const expectedFailureObserved = input.phase === 'deliberate-failure'
         && !markerSeen
+        && expectedFamilyFailure
         && (!INFRASTRUCTURE_OUTCOME_CATEGORIES.has(diagnostic.outcome.category)
-          || expectedInducedHealthFailure
-          || expectedFixtureInducedFailure)
+          || expectedInducedCode(packRow!.family, inducedFailure?.code)
+          || (diagnostic.outcome.category === 'health-failure'
+            && diagnostic.outcome.component === 'runtime-health'))
         && (diagnostic.outcome.status === 'failed' || inducedFailure !== undefined)
       const fixtureRecovery = fixtureBin === undefined || packRow === undefined
         || input.phase !== 'deliberate-failure' || !expectedFailureObserved ? undefined : fixtureCommand({
@@ -1542,7 +1606,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         : undefined
       const recoveryEvidence = recoveryExecuted === undefined || recoveryBefore === undefined
         ? undefined
-        : taskEvidence(selectedScenario, expectedMarker, recoveryExecuted, recoveryBefore)
+        : taskEvidence(selectedScenario, expectedMarker, recoveryExecuted, recoveryBefore, packRow?.family)
       const recoveryTaskByteIdentical = recoveryExecuted === undefined
         ? false
         : JSON.stringify(recoveryExecuted.argv) === JSON.stringify(executed.argv)

@@ -658,7 +658,11 @@ function invoke(args, env = process.env, expectedFailure = false, acceptInspecti
   try { value = JSON.parse(result.stdout) } catch { value = undefined }
   if (expectedFailure) {
     if (result.status === 0 || typeof value?.error?.code !== 'string') process.exit(70)
-    process.stderr.write(JSON.stringify({ status: 'induced', code: value.error.code }) + '\\n')
+    process.stderr.write(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+      status: 'induced',
+      code: value.error.code,
+    }) + '\\n')
     process.exit(result.status ?? 70)
   }
   if (acceptInspection && typeof value?.data === 'object') return value.data
@@ -754,6 +758,14 @@ function invoke(phase, extra = []) {
   const result = spawnSync(input.deploy_bin, ['--phase', phase, ...common, ...extra], {
     encoding: 'utf8', env: process.env, maxBuffer: 1024 * 1024,
   })
+  if (result.error) {
+    process.stderr.write(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+      status: 'induced',
+      code: 'dispatcher-unavailable',
+    }) + '\\n')
+    process.exit(70)
+  }
   let value
   try { value = JSON.parse(result.stdout) } catch { value = undefined }
   if (result.status !== 0 || value?.ok !== true || typeof value?.data !== 'object') {
@@ -823,7 +835,7 @@ for (const surface of reduced) {
   }
 }
 if (probe.expected_status === 'invoke-retired-surface') {
-  process.stderr.write(JSON.stringify({ status: 'induced', code: 'retired-surface-unreachable', surface_id: probe.surface_id }) + '\\n')
+  process.stderr.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1', status: 'induced', code: 'retired-surface-unreachable', surface_id: probe.surface_id }) + '\\n')
   process.exit(70)
 }
 process.stdout.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptance-retired-probe-result.v1', status: 'pass', removed: removed.length, reduced: reduced.length }) + '\\n')

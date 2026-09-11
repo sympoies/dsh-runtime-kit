@@ -132,6 +132,13 @@ An independent attestation then checks the actual filesystem, Git, provider,
 or other observable state. Model output and terminal markers are supporting
 evidence, never the sole proof.
 
+A deliberate-failure pass must bind the observed code to that scenario
+family's declared induction. Accept a probe record only from the correlated
+tool result for the exact registered probe command; the same JSON in model
+output, process stdout/stderr, an unrelated tool result, or another family's
+typed failure is not evidence. Attestation append and pack summary must use the
+same runtime-failure or fixture-induced diagnosis anchor.
+
 A typed provider receipt such as `usage_limit_reached` stops the run. Preserve
 the candidate and wait for the declared entitlement reset or obtain separately
 authorized credentials; the failure must not switch either provider or model.

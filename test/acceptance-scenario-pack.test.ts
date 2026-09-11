@@ -539,6 +539,13 @@ test('deliberate-failure attestation accepts a diagnosis bound to the fixture in
 
   const appended = appendAcceptanceAttestation({ outputPath: output, attestationPath })
   assert.equal(appended.diagnosis.code, 'retired-surface-unreachable')
+  const summarized = summarizeAcceptanceScenarioPack({
+    outputPath: output,
+    pack: loadAcceptanceScenarioPack(PACK, loadAcceptanceCatalog(CATALOG)),
+  })
+  assert.equal(summarized.counts.result_pass, 1)
+  assert.equal(summarized.counts.attestation_pass, 1)
+  assert.equal(summarized.counts.invalid_pairs, 0)
 
   // A diagnosis that does not name the recorded induced code must still be refused.
   const wrong = { ...attestation, run_id: 'pack-induced-1' }

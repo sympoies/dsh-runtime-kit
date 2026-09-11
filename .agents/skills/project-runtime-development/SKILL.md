@@ -52,7 +52,10 @@ prior-layer evidence cannot be proved.
    layer.
 5. Treat authenticated tool identity, role, permission mode, expected
    induction, build provenance, executable role, installed-tree identity, and
-   external observable-state attestation as distinct contracts.
+   external observable-state attestation as distinct contracts. Bind a
+   deliberate failure to its family's declared code and the correlated exact
+   probe call; reject matching JSON from process/model output, unrelated tools,
+   or another family.
 6. When a clean DSH profile needs multiple profile bundles, install them in one
    transaction and assert the manifest tuple before any package repair or
    configuration dump. Split transactions only when the intermediate tree is

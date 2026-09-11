@@ -116,6 +116,10 @@ test('canonical policy orders independently diagnosable runtime-kit validation l
   const provider = normalizedSection(policy, '### 5. Single-scenario real-provider acceptance')
   assert.match(provider, /gpt-5\.6-luna.*do not silently replace.*DeepSeek API/isu)
   assert.match(provider, /no human diagnosis hints.*independent attestation.*observable state/isu)
+  assert.match(provider, /bind the observed code.*family's declared induction/isu)
+  assert.match(provider, /correlated tool result.*exact registered probe command/isu)
+  assert.match(provider, /model output.*process stdout\/stderr.*unrelated tool result.*another family's typed failure/isu)
+  assert.match(provider, /Attestation append and pack summary.*same.*diagnosis anchor/isu)
   assert.match(provider, /usage_limit_reached.*stops the run.*Preserve the candidate.*must not switch either provider or model/isu)
 
   const matrix = normalizedSection(policy, '### 6. Full external-harness matrix')
