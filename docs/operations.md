@@ -45,14 +45,17 @@ dsh-runtime-kit-manage-dsh-tui-patch --action apply \
   --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
 ```
 
-Ordering is load-bearing on the 0.10 TUI line. `dsh plugin add` reconciles the
-profile by re-materializing its package tree from the pnpm store, so any later
-bundle add silently restores the pristine TUI bytes and discards an
-already-applied repair. This was verified by digest against 0.10.1; the
-outgoing `0.10.0-beta.4` pin retained the repair across the same step, so treat
-the behavior as a property of the current pin rather than of the command in
-general. Re-apply the repair after every profile mutation that touches the
-`dsh-tui` profile — including runtime-kit's own `update` and `rollback`, see
+Ordering is load-bearing. `dsh plugin add` reconciles the profile by
+re-materializing its package tree from the pnpm store, so a later bundle add
+can silently restore the pristine TUI bytes and discard an already-applied
+repair. This is release-independent — reproduced by digest on both
+`0.10.0-beta.4` and `0.10.1` — and depends on pnpm store state: the repair
+survived when the TUI package was already materialized in the resolved store,
+and was discarded when that add had just fetched it. Since pnpm derives its
+store from `HOME` unless `PNPM_HOME` pins it, do not treat a local run that
+preserved the repair as proof that the next one will. Re-apply the repair after
+every profile mutation that touches the `dsh-tui` profile — including
+runtime-kit's own `update` and `rollback`, see
 [Update, rollback, and remove](#update-rollback-and-remove) — and re-check the
 receipt before starting the service.
 
@@ -402,10 +405,40 @@ identity until 0.10.1 startup, profile inspection, and live smoke have passed
 on every deployed surface; rollback restores that exact prior contract without
 deleting profile homes or unrelated session state.
 
+## Doctor
+
 Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils
 executables. Missing, drifted, cross-home, unsafe, or ambiguous state fails
 closed.
+
+On the `dsh-tui` profile it also authenticates the installed TUI package's
+repair state and reports it as `agent_console_tui`. The check is read-only: it
+resolves the package from the profile home, requires the `package.json` bytes
+to match a reviewed release in `compatibility/dsh-tui-patches.json`, and then
+digests each patch target. It never invokes Git and never mutates the package.
+
+| Status | Meaning |
+| --- | --- |
+| `patched` | the reviewed repair is applied; the only healthy state |
+| `pristine` | the package is authentic but unpatched — the state a profile mutation leaves behind |
+| `absent` | the TUI package is not installed in this profile |
+| `unsupported` | package identity, manifest bytes, or a target path is outside the reviewed set |
+| `drift` | a target matches neither the reviewed before nor after digest |
+| `partially-applied` | targets disagree with each other |
+| `manifest-invalid` | the packaged patch manifest failed validation — a packaging defect, not a profile state |
+| `not-applicable` | any profile other than `dsh-tui` |
+
+Every status except `patched` and `not-applicable` makes the profile
+`needs-attention`, so a repair reverted by `update`, `rollback`, or collateral
+restore cannot pass as healthy. A symlinked package root, symlinked
+intermediate directory, or non-regular target is reported as `unsupported`
+rather than followed, matching the patch manager's refusals.
+
+Clear a failing status with the `--action apply` command above, not with
+`doctor --repair`: `--repair` is scoped to interrupted operations and
+owner-record adoption, so it reports `repair-not-required` for an unpatched
+TUI and cannot restore the repair.
 
 Management plans bind the reported DSH version to the matching exact source
 revision in `compatibility/dsh.json`. Only releases present in that reviewed
@@ -437,11 +470,9 @@ bundles, user patches, private skills, and provider configuration.
 On the `dsh-tui` profile these three commands are themselves profile
 mutations: `update`, `rollback`, and collateral restore all delegate to
 `dsh plugin --profile dsh-tui add`, which re-materializes the profile's package
-tree and therefore discards an applied TUI history-permission repair. No
-runtime-kit gate detects that revert — `doctor` verifies DSH, the installed
-runtime-kit tree, assets, and receipts, but never the TUI package's target
-digests. After any of them, re-run the repair and require `after: "patched"`
-before restarting the service:
+tree and therefore discards an applied TUI history-permission repair. After any
+of them, re-apply the repair and require `after: "patched"` before restarting
+the service:
 
 ```sh
 dsh-runtime-kit-manage-dsh-tui-patch --action check \
@@ -449,9 +480,14 @@ dsh-runtime-kit-manage-dsh-tui-patch --action check \
 ```
 
 A `pristine` receipt here is the expected post-mutation state, not a passing
-check: apply the repair again before service start. This applies to the 0.10
-TUI line; the outgoing `0.10.0-beta.4` pin retained the repair across the same
-profile mutation.
+check: apply the repair again before service start. Whether a given mutation
+actually discards the repair depends on pnpm store state rather than on the
+pinned TUI release, so check rather than predict.
+
+`doctor` enforces this rather than leaving it to operator discipline. It
+reports the repair state as `agent_console_tui` and a profile whose repair is
+missing, drifted, or reverted is `needs-attention`, so the revert cannot pass
+as healthy. See [Doctor](#doctor) for the reported states.
 
 ## Interrupted operations and repair
 

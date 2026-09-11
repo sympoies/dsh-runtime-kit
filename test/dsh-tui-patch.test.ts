@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   DshTuiPatchError,
+  inspectDshTuiRepair,
   manageDshTuiPatch,
   validateDshTuiPatchManifest,
 } from '../dist/src/compat/dsh-tui-patch.js'
@@ -205,6 +206,83 @@ test('the TUI patch entry records an optional authenticated upstream reference',
         JSON.stringify(reference),
       )
     }
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
+test('the read-only repair inspection reports each installed-package state', async () => {
+  const value = await fixture()
+  try {
+    const inspect = () => inspectDshTuiRepair({
+      packageRoot: value.packageRoot,
+      manifest: value.manifest,
+    })
+
+    const pristine = inspect()
+    assert.equal(pristine.schema_version, 'dsh-runtime-kit.dsh-tui-repair-inspection.v1')
+    assert.equal(pristine.status, 'pristine')
+    assert.equal(pristine.ok, false)
+    assert.equal(pristine.patch_id, 'nonblocking-history-lock-v1')
+    assert.equal(pristine.version, '0.9.3-test')
+
+    await writeFile(join(value.packageRoot, value.targetPath), value.after)
+    const patched = inspect()
+    assert.equal(patched.status, 'patched')
+    assert.equal(patched.ok, true)
+
+    await writeFile(join(value.packageRoot, value.targetPath), 'drifted\n')
+    const drifted = inspect()
+    assert.equal(drifted.status, 'drift')
+    assert.equal(drifted.ok, false)
+
+    await writeFile(join(value.packageRoot, 'package.json'), '{"name":"substituted"}\n')
+    const unsupported = inspect()
+    assert.equal(unsupported.status, 'unsupported')
+    assert.equal(unsupported.ok, false)
+
+    await rm(join(value.packageRoot, 'package.json'))
+    const absent = inspect()
+    assert.equal(absent.status, 'absent')
+    assert.equal(absent.ok, false)
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
+test('the repair inspection reports a non-object package manifest instead of throwing', async () => {
+  const value = await fixture()
+  try {
+    // `null` is the JSON value that makes an unguarded identity read throw a
+    // `TypeError`, which would escape a function whose whole contract is to
+    // return a status.
+    for (const body of ['null\n', '42\n', '"text"\n', '[]\n']) {
+      await writeFile(join(value.packageRoot, 'package.json'), body)
+      const result = inspectDshTuiRepair({
+        packageRoot: value.packageRoot,
+        manifest: value.manifest,
+      })
+      assert.equal(result.status, 'unsupported', body)
+      assert.equal(result.ok, false, body)
+    }
+  } finally {
+    await rm(value.root, { recursive: true, force: true })
+  }
+})
+
+test('the repair inspection refuses a symlinked target instead of following it', async () => {
+  const value = await fixture()
+  try {
+    const outside = join(value.root, 'outside.js')
+    await writeFile(outside, value.after)
+    await rm(join(value.packageRoot, value.targetPath))
+    await symlink(outside, join(value.packageRoot, value.targetPath))
+    const result = inspectDshTuiRepair({
+      packageRoot: value.packageRoot,
+      manifest: value.manifest,
+    })
+    assert.equal(result.status, 'unsupported')
+    assert.equal(result.ok, false)
   } finally {
     await rm(value.root, { recursive: true, force: true })
   }

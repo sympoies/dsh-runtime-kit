@@ -870,8 +870,19 @@ function nilsIdentity(name: 'agent-hook' | 'agent-docs', path: string | undefine
   }
 }
 
-function healthCode(doctor: JsonRecord | undefined, identities: JsonRecord) {
-  for (const name of ['agent_hook', 'agent_docs', 'activation', 'dsh', 'lifecycle']) {
+/**
+ * Logical failure code for the first unhealthy `doctor` check.
+ *
+ * Exported so the enumerated check set can be asserted directly: a check that
+ * `doctor` can fail but this list omits degrades to `doctor-unavailable`, which
+ * tells an operator the report could not be produced rather than what is wrong.
+ */
+export function healthCode(doctor: JsonRecord | undefined, identities: JsonRecord) {
+  // `agent_console_tui` belongs in this list: it is the only check that can be
+  // the sole failing conjunct in an otherwise healthy profile, so omitting it
+  // would classify a reverted TUI repair as `doctor-unavailable` and send the
+  // operator after an unrelated companion.
+  for (const name of ['agent_hook', 'agent_docs', 'activation', 'dsh', 'lifecycle', 'agent_console_tui']) {
     const part = record(doctor?.[name])
     if (part?.ok === false || typeof part?.error === 'string') {
       if ((name === 'agent_hook' || name === 'agent_docs')
