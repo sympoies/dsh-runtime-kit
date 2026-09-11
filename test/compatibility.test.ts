@@ -955,6 +955,10 @@ test('compatibility workflow keeps selected channels and every patch release blo
     /Validate patched DSH execution boundary[\s\S]{0,800}pnpm run build:lib:host/,
   )
   assert.match(
+    workflow,
+    /Build selected DSH native test prerequisite[\s\S]{0,200}if: matrix\.dsh_version == '0\.1\.5-alpha\.2'[\s\S]{0,200}pnpm run build:native-system[\s\S]{0,200}Validate patched DSH execution boundary/,
+  )
+  assert.match(
     macosJob,
     /Validate Darwin descriptor binding and patched DSH boundary[\s\S]{0,800}pnpm run build:lib:host/,
   )

@@ -177,6 +177,10 @@ jobs:
           npm run --silent dsh-patch --
           --action apply
           --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Build selected DSH native test prerequisite
+        if: matrix.dsh_version == '0.1.5-alpha.2'
+        working-directory: deepseek-harness
+        run: pnpm run build:native-system
       - name: Validate patched DSH execution boundary
         working-directory: deepseek-harness
         run: |
