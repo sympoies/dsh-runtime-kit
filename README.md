@@ -164,6 +164,28 @@ data directories and files to 0700/0600 before reading them. Unexpected or
 symlinked paths are refused. Apply, check, and reverse authenticate that one
 target difference.
 
+### Agent Console history adapter
+
+`dsh-runtime-kit-history` is the read-only boundary between DSH's native
+session store and Agent Console. `capabilities` reports the supported schema and
+session format without opening a store. `list` reads snapshot headers and file
+metadata without loading transcript bodies. `summaries` and `messages` read
+only the explicit session ids requested by `agent-session`, project visible
+user and assistant text, and exclude injected user-role events. Every response
+uses the versioned `dsh-runtime-kit.history.v1` JSON envelope.
+
+The four DSH history packages are pinned by the Agent Console DSH composition.
+Every adapter operation refuses an installed version other than the exact
+supported composition. This repository installs those versions as development
+dependencies so a reviewed source checkout can build and test the adapter
+without widening the runtime-kit's public rolling-window peer surface.
+
+The adapter never creates, resumes, mutates, or deletes a DSH session. DSH
+history remains non-resumable in Agent Console. Callers must use an absolute
+session root, invoke the executable directly without a shell, bound its process,
+time, and output, and treat an unavailable or malformed adapter as a partial
+history result rather than a DSH launch failure.
+
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball
 so `dsh-runtime-kit` and `dsh-runtime-kit-launch` are available. Replace the

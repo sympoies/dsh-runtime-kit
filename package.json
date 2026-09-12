@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "bin": {
     "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
+    "dsh-runtime-kit-history": "./dist/bin/dsh-runtime-kit-history.js",
     "dsh-runtime-kit-acceptance-fixture": "./dist/bin/dsh-runtime-kit-acceptance-fixture.js",
     "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./dist/scripts/check-rule-parity-source.js",
@@ -107,6 +108,10 @@
     "test:main-agent-e2e": "node test/main-agent-e2e.ts"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-session": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-query": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-session-title": "0.1.2-rc.1",
     "@types/node": "^24.13.3",
     "typescript": "^6.0.3"
   },
