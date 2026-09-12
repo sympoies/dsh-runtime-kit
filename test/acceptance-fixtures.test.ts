@@ -602,6 +602,73 @@ test('deploy dispatcher wrapper exposes the authenticated node toolchain', async
   assert.match(dispatcher, /export PATH/u)
 })
 
+test('deploy dispatcher probe creates its canary tree with an owner-only mask', { concurrency: false }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-umask-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  const dispatcher = join(workdir, '.agents', 'scripts', 'deploy.sh')
+  writeFileSync(dispatcher, `#!${process.execPath}
+if (process.umask() !== 0o077) {
+  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'unsafe-profile-tree' } }))
+  process.exit(65)
+}
+const args = process.argv.slice(2)
+const data = args.includes('--apply')
+  ? { mode: 'applied' }
+  : args.includes('doctor')
+    ? {}
+    : { plan_digest: 'a'.repeat(64) }
+process.stdout.write(JSON.stringify({ ok: true, data }))
+`, { mode: 0o700 })
+  writeFileSync(join(workdir, 'deploy-inputs.json'), `${JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-deploy-inputs.v1',
+    profile: 'acceptance-deploy-dispatcher-git-repo',
+    dsh_home: join(dshHome, 'acceptance-deploy', 'deploy-dispatcher.git-repo'),
+    deploy_bin: dispatcher,
+    engine_root: root,
+    runtime_root: join(dshHome, 'runtime'),
+    runtime_kit_bin: process.execPath,
+    dsh_bin: process.execPath,
+    agent_hook_bin: process.execPath,
+    agent_docs_bin: process.execPath,
+    primary_artifact: join(root, 'primary.tgz'),
+    primary_artifact_sha256: 'a'.repeat(64),
+    update_artifact: join(root, 'update.tgz'),
+    update_artifact_sha256: 'b'.repeat(64),
+  }, undefined, 2)}\n`, { mode: 0o600 })
+
+  const priorMask = process.umask(0o002)
+  const probe = (() => {
+    try {
+      return spawnSync(process.execPath, ['./deploy-probe.mjs'], {
+        cwd: workdir,
+        encoding: 'utf8',
+      })
+    } finally {
+      process.umask(priorMask)
+    }
+  })()
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
+  assert.deepEqual(JSON.parse(probe.stdout), {
+    schema_version: 'dsh-runtime-kit.acceptance-deploy-probe.v1',
+    status: 'pass',
+  })
+})
+
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-collision-'))
   const workdir = join(root, 'workdir')

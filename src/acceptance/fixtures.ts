@@ -750,6 +750,8 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
+process.umask(0o077)
+
 const input = JSON.parse(readFileSync('deploy-inputs.json', 'utf8'))
 const required = [
   'profile', 'dsh_home', 'deploy_bin', 'engine_root', 'dsh_bin', 'agent_hook_bin', 'agent_docs_bin',
