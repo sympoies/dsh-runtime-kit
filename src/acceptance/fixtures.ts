@@ -1086,6 +1086,7 @@ function guide(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
 }
 
 function projectValidationCommands(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
+  if (family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure') return []
   const commands = ['./fixture-validation.mjs']
   if (!input.scenarioId.endsWith('.non-git')) {
     if (family.id === 'automatic-prerequisite') commands.push('node fixture-source.test.mjs')
@@ -1095,7 +1096,14 @@ function projectValidationCommands(family: AcceptanceFixtureFamily, input: Accep
 }
 
 function projectCatalog(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
-  const commands = JSON.stringify(projectValidationCommands(family, input))
+  const commands = projectValidationCommands(family, input)
+  const validation = commands.length === 0 ? '' : `
+[[validation]]
+context = "project-dev"
+product = "dsh"
+commands = ${JSON.stringify(commands)}
+description = "Validate the bounded acceptance fixture state."
+`
   return `[[document]]
 context = "project-dev"
 scope = "project"
@@ -1104,13 +1112,7 @@ product = "dsh"
 phase = "edit"
 required = true
 when = "always"
-
-[[validation]]
-context = "project-dev"
-product = "dsh"
-commands = ${commands}
-description = "Validate the bounded acceptance fixture state."
-
+${validation}
 [path_classes]
 production = ["*.txt", "*.mjs", "*.json", ".agents/**", ".dsh-acceptance/**"]
 test = []
@@ -1126,15 +1128,20 @@ function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtu
   const managedController = family.id === 'managed-subagent-workspace'
     ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. Emit its exact `terminal_marker` at the finish line; do not derive either value from a workdir, phase label, or idempotency key.\n'
     : ''
-  const terminalMarker = '\nBefore the final response, read `terminal_marker` from `acceptance-fixture.json` and copy that exact value at the finish line; do not derive it from a workdir, phase label, or any other identifier.\n'
+  const inducedLifecycle = family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure'
+  const terminalMarker = inducedLifecycle
+    ? ''
+    : '\nBefore the final response, read `terminal_marker` from `acceptance-fixture.json` and copy that exact value at the finish line; do not derive it from a workdir, phase label, or any other identifier.\n'
   const validations = projectValidationCommands(family, input).map(command => `\`${command}\``).join(' and ')
+  const validationInstruction = inducedLifecycle
+    ? 'If the lifecycle probe reports a typed lifecycle interruption, stop immediately without running post-induction validation or emitting a terminal marker.'
+    : `run the exact registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation.`
   return `# Acceptance fixture development
 
 Follow the current repository instructions before any mutation.
 
 Work only in this scenario directory. Inspect acceptance-fixture.json for the
-provider-owned inputs, use the runtime's governed tools, and run the exact
-registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation. Do not edit
+provider-owned inputs and use the runtime's governed tools. ${validationInstruction} Do not edit
 the catalog task, weaken a policy denial, or treat fixture metadata as proof of
 the observable outcome.
 

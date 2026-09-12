@@ -539,6 +539,46 @@ test('profile lifecycle phases share one scenario runtime root', async () => {
   assert.equal(failureInputs.runtime_root, successInputs.runtime_root)
 })
 
+test('profile lifecycle deliberate failure leaves finish line to the induced probe', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-finish-line-'))
+  const successWorkdir = join(root, 'success')
+  const failureWorkdir = join(root, 'failure')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+
+  const successCatalog = readFileSync(join(successWorkdir, 'AGENT_DOCS.toml'), 'utf8')
+  const failureCatalog = readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8')
+  const successGuide = readFileSync(join(successWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  const failureGuide = readFileSync(join(failureWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  assert.match(successCatalog, /\[\[validation\]\][\s\S]*\.\/fixture-validation\.mjs/u)
+  assert.match(successGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.doesNotMatch(failureCatalog, /\[\[validation\]\]/u)
+  assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.match(failureGuide, /typed lifecycle interruption[\s\S]*stop immediately/iu)
+})
+
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-collision-'))
   const workdir = join(root, 'workdir')
