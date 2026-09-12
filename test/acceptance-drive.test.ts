@@ -225,6 +225,20 @@ test('profile lifecycle tasks delegate repository observation to the external ha
   }
 })
 
+test('deploy dispatcher success tasks preserve fresh validation as their finish line', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('deploy-dispatcher.'),
+  )
+
+  assert.equal(scenarios.length, 2)
+  for (const scenario of scenarios) {
+    assert.match(scenario.task, /Do not invoke Git/u, scenario.id)
+    assert.match(scenario.task, /external harness independently verifies repository state/iu, scenario.id)
+    assert.match(scenario.task, /Treat \.\/fixture-validation\.mjs as your final tool call/iu, scenario.id)
+    assert.match(scenario.task, /emit .* immediately without any other tool call/iu, scenario.id)
+  }
+})
+
 test('workspace success tasks exercise the write-tool lease boundary without a Bash mutation', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('workspace-identity.'),

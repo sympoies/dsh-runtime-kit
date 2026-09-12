@@ -443,13 +443,13 @@
       "task_bindings": [
         {
           "scenario_id": "deploy-dispatcher.git-repo",
-          "success_task_sha256": "ed23a039ba226a9b9adbd3dba9fea2c940bd5bc3705dbc2c8df2ecb0d14dc1bc",
+          "success_task_sha256": "5ac7df1e1ac7b02f66c81468b0af22e5c75a09a2efecdbe35b3bd5a054c56303",
       "deliberate_failure_task_sha256": "704429f825e1bbdf84af052be81c0c048f89414d3b654766d9ea3ce301ed0d91",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.git-repo"
         },
         {
           "scenario_id": "deploy-dispatcher.managed-worktree",
-          "success_task_sha256": "47cc1c1c3c800be62b8157829ff6a77edd754f514a23da3e09b40954a878eb85",
+          "success_task_sha256": "68deae6c1cfdaf73e10cde1026c059ae114547a1474dccef947599afccc6b8ce",
       "deliberate_failure_task_sha256": "4b24dccef5abf9d8f3696e9e272363b71b2033cd00db5550b181fed0b9af9f76",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:deploy-dispatcher.managed-worktree"
         }
