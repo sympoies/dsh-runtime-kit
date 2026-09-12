@@ -8,6 +8,7 @@ import {
   DSH_HISTORY_PACKAGES,
   dshHistoryCapabilities,
   listDshHistorySessions,
+  readDshHistorySummarySnapshots,
   readDshHistoryMessages,
   summarizeDshHistorySessions,
   type DshHistoryBackend,
@@ -37,9 +38,9 @@ async function createBackend(root: string, compression: string): Promise<{ backe
   const load = (specifier: string) => import(specifier)
   const [
     { Context },
-    { SessionStore },
+    { SessionStore, foldSurface },
     { JsonlSessionPersistence },
-    { SessionQueryEngine, buildSessionEventRecords },
+    { SessionQueryEngine },
     { foldSessionTitle },
   ] = await Promise.all([
     load('@deepseek-ai/cordis'),
@@ -82,46 +83,11 @@ async function createBackend(root: string, compression: string): Promise<{ backe
         }
         return listed
       },
-      readSummarySnapshots: async (ids, signal) => {
-        const uniqueIds = [...new Set(ids)]
-        type SummaryObservation = Awaited<ReturnType<
-          DshHistoryBackend['readSummarySnapshots']
-        >>[number]
-        const results = new Map<string, SummaryObservation>()
-        let cursor = 0
-        const worker = async () => {
-          for (;;) {
-            signal?.throwIfAborted()
-            const index = cursor
-            if (index >= uniqueIds.length) return
-            cursor += 1
-            const sessionId = uniqueIds[index]
-            try {
-              const inspection = await persistence.inspect(sessionId, signal)
-              signal?.throwIfAborted()
-              const current = new Set(buildSessionEventRecords(sessionId, inspection.events)
-                .filter((record: { surface: string }) => record.surface === 'current')
-                .map((record: { seq: number }) => record.seq))
-              const title = foldSessionTitle(inspection.events)?.title
-              results.set(sessionId, {
-                sessionId,
-                status: 'fulfilled',
-                value: {
-                  ...(typeof title === 'string' ? { title } : {}),
-                  events: inspection.events.filter((event: { seq: number }) => current.has(event.seq)),
-                },
-              })
-            } catch {
-              if (signal?.aborted) signal.throwIfAborted()
-              results.set(sessionId, { sessionId, status: 'rejected' })
-            }
-          }
-        }
-        const workerCount = Math.min(4, uniqueIds.length)
-        await Promise.all(Array.from({ length: workerCount }, () => worker()))
-        signal?.throwIfAborted()
-        return uniqueIds.map(sessionId => results.get(sessionId)!)
-      },
+      readSummarySnapshots: (ids, signal) => readDshHistorySummarySnapshots(ids, {
+        inspect: (sessionId, inspectSignal) => persistence.inspect(sessionId, inspectSignal),
+        foldSurface: events => foldSurface(events).nodes,
+        foldTitle: events => foldSessionTitle(events)?.title,
+      }, signal),
       readSurface: id => query.readSurface(id),
     },
     dispose: () => ctx.fiber.dispose(),

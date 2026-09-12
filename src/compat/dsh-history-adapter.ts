@@ -18,11 +18,25 @@ type DshHeader = {
   delegationDepth?: number
 }
 
-type DshEvent = {
+export type DshEvent = {
   type?: string
   seq?: number
   time?: number
   data?: unknown
+}
+
+export type DshHistorySummary = {
+  provider_session_id: string
+  title?: string
+  first_user_prompt_preview?: string
+  last_user_prompt_preview?: string
+  updated_at?: string
+}
+
+export type DshHistorySummaryProjection = {
+  inspect(sessionId: string, signal?: AbortSignal): Promise<{ events: DshEvent[] }>
+  foldSurface(events: readonly DshEvent[]): readonly number[]
+  foldTitle(events: readonly DshEvent[]): string | undefined
 }
 
 export interface DshHistoryBackend {
@@ -34,7 +48,7 @@ export interface DshHistoryBackend {
   readSummarySnapshots(sessionIds: readonly string[], signal?: AbortSignal): Promise<Array<{
     sessionId: string
     status: 'fulfilled' | 'rejected'
-    value?: { title?: string, events: DshEvent[] }
+    value?: DshHistorySummary
   }>>
   readSurface(sessionId: string): Promise<{
     capturedThroughSeq: number | null
@@ -148,24 +162,76 @@ export async function summarizeDshHistorySessions(
   const projected = await backend.readSummarySnapshots(uniqueIds, signal)
   return projected.flatMap(result => {
     if (result.status !== 'fulfilled' || result.value === undefined) return []
-    const messages = result.value.events.map(messageOf).filter(message => message !== undefined)
-    const userMessages = messages.filter(message => message.role === 'user')
-    const updatedAt = result.value.events.findLast(event => Number.isSafeInteger(event.time))?.time
-    const title = typeof result.value.title === 'string'
-      ? cleanText(result.value.title, PREVIEW_CHARS)
-      : ''
-    return [{
-      provider_session_id: result.sessionId,
-      ...(title.length > 0 ? { title } : {}),
-      ...(userMessages[0] !== undefined
-        ? { first_user_prompt_preview: cleanText(userMessages[0].text, PREVIEW_CHARS) }
-        : {}),
-      ...(userMessages.at(-1) !== undefined
-        ? { last_user_prompt_preview: cleanText(userMessages.at(-1)!.text, PREVIEW_CHARS) }
-        : {}),
-      ...(updatedAt !== undefined ? { updated_at: isoDate(updatedAt) } : {}),
-    }]
+    return [result.value]
   })
+}
+
+export function projectDshHistorySummary(
+  providerSessionId: string,
+  title: string | undefined,
+  events: readonly DshEvent[],
+): DshHistorySummary {
+  const messages = events.map(messageOf).filter(message => message !== undefined)
+  const userMessages = messages.filter(message => message.role === 'user')
+  const updatedAt = events.findLast(event => Number.isSafeInteger(event.time))?.time
+  const cleanedTitle = typeof title === 'string' ? cleanText(title, PREVIEW_CHARS) : ''
+  return {
+    provider_session_id: providerSessionId,
+    ...(cleanedTitle.length > 0 ? { title: cleanedTitle } : {}),
+    ...(userMessages[0] !== undefined
+      ? { first_user_prompt_preview: cleanText(userMessages[0].text, PREVIEW_CHARS) }
+      : {}),
+    ...(userMessages.at(-1) !== undefined
+      ? { last_user_prompt_preview: cleanText(userMessages.at(-1)!.text, PREVIEW_CHARS) }
+      : {}),
+    ...(updatedAt !== undefined ? { updated_at: isoDate(updatedAt) } : {}),
+  }
+}
+
+export async function readDshHistorySummarySnapshots(
+  sessionIds: readonly string[],
+  projection: DshHistorySummaryProjection,
+  signal?: AbortSignal,
+) {
+  const uniqueIds = [...new Set(sessionIds)]
+  type Observation = Awaited<ReturnType<DshHistoryBackend['readSummarySnapshots']>>[number]
+  const results = new Map<string, Observation>()
+  let cursor = 0
+  const worker = async () => {
+    for (;;) {
+      signal?.throwIfAborted()
+      const index = cursor
+      if (index >= uniqueIds.length) return
+      cursor += 1
+      const sessionId = uniqueIds[index]
+      try {
+        const inspection = await projection.inspect(sessionId, signal)
+        signal?.throwIfAborted()
+        const eventsBySeq = new Map(inspection.events.map(event => [event.seq, event]))
+        const currentEvents = projection.foldSurface(inspection.events).map(seq => {
+          const event = eventsBySeq.get(seq)
+          if (event === undefined) throw new Error('DSH surface projection referenced a missing event')
+          return event
+        })
+        results.set(sessionId, {
+          sessionId,
+          status: 'fulfilled',
+          value: projectDshHistorySummary(
+            sessionId,
+            projection.foldTitle(inspection.events),
+            currentEvents,
+          ),
+        })
+      } catch {
+        if (signal?.aborted) signal.throwIfAborted()
+        results.set(sessionId, { sessionId, status: 'rejected' })
+      }
+    }
+  }
+  const workerCount = Math.min(4, uniqueIds.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  signal?.throwIfAborted()
+  return uniqueIds.map(sessionId => results.get(sessionId)!)
 }
 
 export async function readDshHistoryMessages(
