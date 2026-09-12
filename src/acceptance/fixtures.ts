@@ -809,7 +809,7 @@ process.stdout.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptanc
 `
   if (path === '.agents/scripts/deploy.sh') {
     const entry = packageAsset('dist', 'scripts', 'deploy.js')
-    return `#!/bin/sh\nset -eu\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`
+    return `#!/bin/sh\nset -eu\nPATH=${JSON.stringify(dirname(process.execPath))}:$PATH\nexport PATH\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`
   }
   if (path === 'retired-surfaces.json') {
     return readFileSync(packageAsset('compatibility', 'retired-surfaces.json'), 'utf8')

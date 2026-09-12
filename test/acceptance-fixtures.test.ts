@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -577,6 +577,29 @@ test('profile lifecycle deliberate failure leaves finish line to the induced pro
   assert.doesNotMatch(failureCatalog, /\[\[validation\]\]/u)
   assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
   assert.match(failureGuide, /typed lifecycle interruption[\s\S]*stop immediately/iu)
+})
+
+test('deploy dispatcher wrapper exposes the authenticated node toolchain', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-toolchain-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  const dispatcher = readFileSync(join(workdir, '.agents', 'scripts', 'deploy.sh'), 'utf8')
+  assert.match(dispatcher, new RegExp(`PATH=${JSON.stringify(dirname(process.execPath))}:\\$PATH`, 'u'))
+  assert.match(dispatcher, /export PATH/u)
 })
 
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
