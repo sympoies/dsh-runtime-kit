@@ -118,10 +118,12 @@ parent-session IDs, the immutable session anchor, the session-start source, and
 exact DSH tool correlation. `resolve` and `begin` also receive DSH's
 already-frozen tool arguments so the same-process provider can classify the
 call; it must project only the bounded facts required by nils-cli and must not
-log or persist arbitrary payloads. A model-supplied `workspaceRef`, cwd-like
-argument, target object, or copied object never selects authority: the runtime
-only ever echoes back the exact frozen target the provider itself
-authenticated.
+log or persist arbitrary payloads. Each resolved target also carries an opaque,
+provider-minted token bound to the exact call facts and anchor. The runtime
+keeps that token beside the current execution, strips it from durable `bind`,
+and returns it only through the matching `begin`; it is never reusable across
+calls or projected into tool output. A model-supplied `workspaceRef`, cwd-like
+argument, target object, token, or copied object never selects authority.
 
 One live runtime lineage shares one authority set. Each Agent still receives a
 distinct process-local reference and exact tool correlation, while the provider
@@ -164,10 +166,11 @@ it mutates — not whether it happens to be a shell.
   fence is defeated by `cd` inside the command string, so honouring one would
   claim coverage the boundary cannot enforce. It does mean shell mutations lose
   the v1 cross-session exclusivity, dirty and uncertain-outcome gates.
-- The fence lands on the workspace the runtime **names** for an operation. The
-  boundary authenticates that target against the durable binding, but does not
-  prove it is the target this call's own arguments would resolve to; binding it
-  to the exact call facts is tracked as `sympoies/nils-cli#1606`.
+- The fence lands on the workspace `resolve` classified for the exact operation.
+  Its opaque target token binds the call id, root call id, tool name, canonical
+  arguments, anchor, nesting state, and workspace identity. `begin` returns that
+  same call's token and anchor, so a caller cannot name another workspace it
+  legitimately holds while executing against a different target.
 - The wire admits multiple canonical targets per operation, acquired in the
   provider's deterministic order before any fence is granted, with every
   already-granted sibling receiving a terminal outcome if a protected target is

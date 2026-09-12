@@ -16,6 +16,7 @@ import {
 export type Context = import('@deepseek-ai/cordis').Context
 export type SubprocessHandle = import('@deepseek-ai/dsh-subprocess').SubprocessHandle
 export type WorkspaceLeaseProvider = import('./index.js').WorkspaceLeaseProvider
+export type WorkspaceLeaseResolvedTarget = import('./index.js').WorkspaceLeaseResolvedTarget
 export type WorkspaceLeaseTarget = import('./index.js').WorkspaceLeaseTarget
 
 const DEFAULT_TIMEOUT_MS = 5_000
@@ -161,10 +162,16 @@ function bindWire(request: import('./index.js').WorkspaceLeaseBindRequest) {
 function beginWire(request: import('./index.js').WorkspaceLeaseBeginRequest) {
   if (!['owned', 'unmanaged'].includes(request.bindingState)
     || typeof request.nested !== 'boolean') throw unavailable()
+  if (request.anchorCwd !== undefined
+    && (typeof request.anchorCwd !== 'string'
+      || !isAbsolute(request.anchorCwd)
+      || request.anchorCwd.includes('\0'))) throw unavailable()
   return {
     schema_version: 'agent-hook.workspace-lease.begin.v2',
     ...bindingWire(request),
     target: targetWire(request.target),
+    target_token: requiredWireText(request.targetToken, 'target token'),
+    ...(request.anchorCwd === undefined ? {} : { anchor_cwd: request.anchorCwd }),
     binding_id: requiredWireText(request.bindingId, 'binding id'),
     workspace_id: requiredWireText(request.workspaceId, 'workspace id'),
     generation: requiredWireText(request.generation, 'generation'),
@@ -257,16 +264,23 @@ function denial(data: Record<string, any>, schema: string) {
   }
 }
 
-function target(value: unknown): WorkspaceLeaseTarget  {
+function target(value: unknown, withToken: true): WorkspaceLeaseResolvedTarget
+function target(value: unknown, withToken?: false): WorkspaceLeaseTarget
+function target(value: unknown, withToken = false): WorkspaceLeaseResolvedTarget  {
   const data = record(value)
   if (data === undefined
-    || !exactKeys(data, ['workspace_key', 'root'])
+    || !exactKeys(data, withToken ? ['workspace_key', 'root', 'token'] : ['workspace_key', 'root'])
     || !text(data.workspace_key)
+    || (withToken && !text(data.token))
     || typeof data.root !== 'string'
     || !isAbsolute(data.root)
     || data.root.includes('\0')
     || Buffer.byteLength(data.root, 'utf8') > MAX_TARGET_PATH_BYTES) throw unavailable()
-  return { workspaceKey: data.workspace_key, root: data.root }
+  return {
+    workspaceKey: data.workspace_key,
+    root: data.root,
+    ...(withToken ? { token: data.token } : {}),
+  }
 }
 
 function resolveResult(raw: unknown) {
@@ -284,7 +298,7 @@ function resolveResult(raw: unknown) {
     || !Array.isArray(data.targets)
     || data.targets.length === 0
     || data.targets.length > MAX_TARGETS) throw unavailable()
-  const targets = data.targets.map(target)
+  const targets = data.targets.map(value => target(value, true))
   if (new Set(targets.map(entry => entry.workspaceKey)).size !== targets.length) {
     throw unavailable()
   }
