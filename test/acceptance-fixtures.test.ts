@@ -944,7 +944,10 @@ test('managed subagent assignment uses the exact registered child validation com
       },
     })
     assert.equal(exactValidation.status, 0, exactValidation.stderr)
-    assert.equal(exactValidation.stdout, 'acceptance-fixture-ok\n')
+    assert.equal(
+      exactValidation.stdout,
+      'acceptance-fixture-ok\nDSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo\n',
+    )
     assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
     assert.equal(existsSync(join(childWorktree, 'AGENT_DOCS.toml')), true)
     assert.equal(existsSync(join(childWorktree, 'fixture-validation.mjs')), true)
@@ -1034,7 +1037,10 @@ test('managed subagent distinct retry workdir selects its own host-issued topolo
       env: { ...process.env },
     })
     assert.equal(retryValidation.status, 0, retryValidation.stderr)
-    assert.equal(retryValidation.stdout, 'acceptance-fixture-ok\n')
+    assert.equal(
+      retryValidation.stdout,
+      'acceptance-fixture-ok\nDSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree\n',
+    )
   } finally {
     for (const name of names) {
       const value = prior.get(name)

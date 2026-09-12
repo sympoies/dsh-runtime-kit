@@ -1133,7 +1133,7 @@ function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtu
     ? '\nFor the plain-directory scenario, read `prerequisite-marker.txt` and create `prerequisite.txt` with exactly that marker. For source scenarios, repair `plusOne` so the prepared focused test passes.\n'
     : ''
   const managedController = family.id === 'managed-subagent-workspace'
-    ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. Emit its exact `terminal_marker` at the finish line; do not derive either value from a workdir, phase label, or idempotency key.\n'
+    ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. The final registered primary validation prints its exact `terminal_marker` immediately after `acceptance-fixture-ok`; copy that second output line verbatim as the entire finish line, and do not derive either value from a workdir, phase label, or idempotency key.\n'
     : ''
   const inducedLifecycle = family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure'
   const terminalMarker = inducedLifecycle
@@ -1164,6 +1164,7 @@ function fixtureValidation() {
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 const fixture = JSON.parse(readFileSync('acceptance-fixture.json', 'utf8'))
+let terminalMarker
 if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance/failure.json')) {
   process.stderr.write(JSON.stringify({
     schema_version: 'cli.dsh-runtime-kit.acceptance-fixture.v1',
@@ -1203,6 +1204,11 @@ if (fixture.family === 'managed-subagent-workspace') {
         matched = true
         assert.equal(readFileSync('subagent-target.txt', 'utf8'), 'subagent-before\\n')
         assert.equal(readFileSync('controller-review.txt', 'utf8'), 'review-complete\\n')
+        assert.equal([
+          \`DSH_ACCEPTANCE_PASS:\${fixture.scenario_id}\`,
+          \`DSH_ACCEPTANCE_RECOVERED:\${fixture.scenario_id}\`,
+        ].includes(fixture.terminal_marker), true)
+        terminalMarker = fixture.terminal_marker
         break
       }
       if (cwd === realpathSync(child)) {
@@ -1215,6 +1221,7 @@ if (fixture.family === 'managed-subagent-workspace') {
   }
 }
 process.stdout.write('acceptance-fixture-ok\\n')
+if (terminalMarker) process.stdout.write(terminalMarker + '\\n')
 `
 }
 
