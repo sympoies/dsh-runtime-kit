@@ -160,6 +160,17 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Wait for or release the authenticated owning session, then retry the unchanged task in the same workspace.',
     }
   }
+  if (observation.error_code === 'ARTIFACT_REF_INVALID') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Retry retrieval with the recorded valid artifact id; do not copy the artifact into the workdir as a workaround.',
+    }
+  }
   if (observation.finish_line !== undefined) {
     return {
       schema_version: SESSION_OUTCOME_SCHEMA,
@@ -240,17 +251,6 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       component: 'session',
       receipt: observation.error_receipt ?? 'session.typed_errors[0]',
       next_action: 'Restore the declared assignment workspace, then retry the unchanged managed-lane launch.',
-    }
-  }
-  if (explicitCode === 'ARTIFACT_REF_INVALID') {
-    return {
-      schema_version: SESSION_OUTCOME_SCHEMA,
-      status: 'failed',
-      category: 'tool-denial',
-      code: explicitCode,
-      component: 'session',
-      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
-      next_action: 'Retry retrieval with the recorded valid artifact id; do not copy the artifact into the workdir as a workaround.',
     }
   }
   if (observation.error_component === 'operations'

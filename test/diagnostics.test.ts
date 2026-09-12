@@ -103,6 +103,19 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
   assert.equal(unrelatedWorkspaceError.component, 'session')
 })
 
+test('typed artifact refusal outranks a generic finish-line stop', () => {
+  const outcome = classifySessionOutcome({
+    error_code: 'ARTIFACT_REF_INVALID',
+    error_receipt: 'session.typed_errors[0]',
+    finish_line: { code: 'validation-missing' },
+  })
+
+  assert.equal(outcome.category, 'tool-denial')
+  assert.equal(outcome.component, 'session')
+  assert.equal(outcome.code, 'ARTIFACT_REF_INVALID')
+  assert.equal(outcome.receipt, 'session.typed_errors[0]')
+})
+
 test('a reverted Agent Console TUI repair is classified as itself, not as an unavailable doctor', () => {
   // The designed-for case: a profile mutation reverted the TUI repair and every
   // other check is healthy. If `agent_console_tui` were absent from the
