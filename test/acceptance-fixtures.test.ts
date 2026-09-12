@@ -505,6 +505,40 @@ test('profile lifecycle fixture creates its isolated runtime root before executi
   assert.equal(runtimeRoot.mode & 0o077, 0)
 })
 
+test('profile lifecycle phases share one scenario runtime root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-phases-'))
+  const successWorkdir = join(root, 'success')
+  const failureWorkdir = join(root, 'failure')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+
+  const successInputs = JSON.parse(readFileSync(join(successWorkdir, 'lifecycle-inputs.json'), 'utf8'))
+  const failureInputs = JSON.parse(readFileSync(join(failureWorkdir, 'lifecycle-inputs.json'), 'utf8'))
+  assert.equal(failureInputs.runtime_root, successInputs.runtime_root)
+})
+
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-collision-'))
   const workdir = join(root, 'workdir')

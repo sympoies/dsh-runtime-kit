@@ -517,7 +517,6 @@ function lifecycleRuntimeRoot(input: AcceptanceFixtureInput) {
     'acceptance-fixtures',
     input.profile,
     input.scenarioId,
-    sha256(input.workdir),
     'lifecycle-runtime',
   )
 }
