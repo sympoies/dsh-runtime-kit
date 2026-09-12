@@ -620,6 +620,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
     profile: `acceptance-${scenario.replaceAll('.', '-')}`,
     runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
+    dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
     primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
     update_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE ?? null,
     operation: 'full-lifecycle',
@@ -646,11 +647,12 @@ import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
 const input = JSON.parse(readFileSync('lifecycle-inputs.json', 'utf8'))
-const required = ['profile', 'runtime_kit_bin', 'primary_package', 'update_package', 'operation']
+const required = ['profile', 'runtime_kit_bin', 'dsh_bin', 'primary_package', 'update_package', 'operation']
 if (input.schema_version !== 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1'
   || required.some(key => typeof input[key] !== 'string' || input[key].length === 0)) process.exit(65)
+const lifecycleEnv = { ...process.env, DSH_RUNTIME_KIT_DSH_BIN: input.dsh_bin }
 
-function invoke(args, env = process.env, expectedFailure = false, acceptInspection = false) {
+function invoke(args, env = lifecycleEnv, expectedFailure = false, acceptInspection = false) {
   const result = spawnSync(input.runtime_kit_bin, [...args, '--format', 'json'], {
     encoding: 'utf8', env, maxBuffer: 1024 * 1024,
   })
@@ -673,19 +675,19 @@ function invoke(args, env = process.env, expectedFailure = false, acceptInspecti
   return value.data
 }
 
-function apply(args, env = process.env) {
+function apply(args, env = lifecycleEnv) {
   const preview = invoke(args, env)
   if (typeof preview.plan_digest !== 'string') process.exit(70)
   return invoke([...args, '--apply', '--expected-plan-digest', preview.plan_digest], env)
 }
 
 function normalize() {
-  const doctor = invoke(['doctor', '--profile', input.profile], process.env, false, true)
+  const doctor = invoke(['doctor', '--profile', input.profile], lifecycleEnv, false, true)
   if (doctor.recovery !== null) {
     const repaired = apply(['doctor', '--profile', input.profile, '--repair'])
     if (repaired.mode !== 'applied') process.exit(70)
   }
-  const current = invoke(['doctor', '--profile', input.profile], process.env, false, true)
+  const current = invoke(['doctor', '--profile', input.profile], lifecycleEnv, false, true)
   if (typeof current.observed?.installed_version === 'string') {
     apply(['remove', '--profile', input.profile])
   }
@@ -695,7 +697,7 @@ normalize()
 apply(['setup', '--profile', input.profile, '--package', input.primary_package])
 invoke(['doctor', '--profile', input.profile])
 if (input.operation === 'interrupt-update') {
-  const env = { ...process.env, DSH_RUNTIME_KIT_DSH_BIN: new URL('./lifecycle-failing-dsh.mjs', import.meta.url).pathname }
+  const env = { ...lifecycleEnv, DSH_RUNTIME_KIT_DSH_BIN: new URL('./lifecycle-failing-dsh.mjs', import.meta.url).pathname }
   const preview = invoke(['update', '--profile', input.profile, '--package', input.update_package], env)
   invoke([
     'update', '--profile', input.profile, '--package', input.update_package,
@@ -1636,6 +1638,7 @@ function fileFailureInput(family: AcceptanceFixtureFamily, input: AcceptanceFixt
         schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
         profile: `acceptance-${input.scenarioId.replaceAll('.', '-')}`,
         runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
+        dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
         primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
         update_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE ?? null,
         operation: 'interrupt-update',
