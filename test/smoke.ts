@@ -76,16 +76,16 @@ assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
-  '@deepseek-ai/cordis': '4.0.1 || 4.0.2',
-  '@deepseek-ai/dsh-agent': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-bash-local': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-fs': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-llm': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-sandbox': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-subagent': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-subprocess': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
-  '@deepseek-ai/dsh-tools': '0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1',
+  '@deepseek-ai/cordis': '4.0.2',
+  '@deepseek-ai/dsh-agent': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-bash-local': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-fs': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-llm': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-sandbox': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-subagent': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-subprocess': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-tools': '0.1.2-rc.1 || 0.1.5-alpha.2',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -162,7 +162,7 @@ const runtimeRoot = join(temporaryRoot, 'dsh-runtime')
 const agentHookRoot = join(runtimeRoot, 'agent-hook')
 const agentHookConfig = join(agentHookRoot, 'config.toml')
 const agentHookPolicy = join(agentHookRoot, 'policy.toml')
-const agentHookStateDir = join(agentHookRoot, 'state')
+const agentHookStateDir = join(runtimeRoot, 'state', 'agent-hook')
 const agentHookWrapper = join(temporaryRoot, 'agent-hook-isolation-wrapper')
 const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed')
 const agentDocsHome = join(runtimeRoot, 'agent-docs')
@@ -1674,9 +1674,8 @@ try {
     'src/compat/package-artifact.ts',
     'src/compat/performance.ts',
     'src/compat/upstream-reference.ts',
-    'patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch',
-    'patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch',
     'patches/dsh-tui/legacy-history-permissions.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
@@ -2086,6 +2085,19 @@ function artifactSequence(serialized) {
   ]
 }
 
+/**
+ * The composed system prompt for one request, on either supported contract.
+ * 0.1.2-rc.1 renders it into the request's system field; 0.1.5-alpha.2
+ * removed that field and projects the same text into session history. The
+ * supported window spans both, so the harness reads both surfaces rather than
+ * binding to one release's delivery shape.
+ * @param options - the adapter request under inspection.
+ * @returns every byte the release could have used to carry the prompt.
+ */
+function composedSystemPrompt(options) {
+  return String(options.system ?? '') + ' ' + JSON.stringify(options.messages ?? [])
+}
+
 class SmokeAdapter extends LlmAdapter {
   totalCalls = 0
   sessionCalls = 0
@@ -2114,7 +2126,13 @@ class SmokeAdapter extends LlmAdapter {
       === String(process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID ?? '')) {
       this.sessionCalls += 1
     }
-    const isReviewer = String(options.system ?? '')
+    // The supported releases deliver the composed system prompt differently:
+    // 0.1.2-rc.1 passes it as the request's system field, while
+    // 0.1.5-alpha.2 projects it into session history instead. Search both
+    // surfaces so one harness identifies the child on either contract; a
+    // release-specific read silently stops matching and the scripted child
+    // then answers as an ordinary agent.
+    const isReviewer = composedSystemPrompt(options)
       .includes('read-only quick-pass reviewer')
     if (isReviewer) {
       const call = this.reviewerCalls++
@@ -3993,8 +4011,13 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.ok(codeModeReceipt.contextVisibility.length >= 2)
   assert.ok(codeModeReceipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(codeModeReceipt.healthContextVisibility.every(value => value === false))
-  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch-start'))
-  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch'))
+  // 0.1.5-alpha.2 renamed the PTC sub-dispatch events from tool/code-dispatch*
+  // to tool/ptc-dispatch*. The supported window spans both names, so accept
+  // either rather than binding the assertion to one release's vocabulary.
+  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch-start')
+    || codeModeReceipt.sessionEvents.includes('tool/ptc-dispatch-start'))
+  assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch')
+    || codeModeReceipt.sessionEvents.includes('tool/ptc-dispatch'))
   assert.equal(codeModeReceipt.pendingPrerequisites, 0)
   assert.equal(codeModeReceipt.pendingPolicyMarkers, 0)
   assert.equal(codeModeReceipt.pendingCorrelations, 0)

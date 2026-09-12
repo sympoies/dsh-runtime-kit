@@ -73,15 +73,15 @@ compatibility, acceptance, and delivery procedures are in the
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
-| Cordis | `4.0.1` or `4.0.2` |
+| DeepSeek Harness | `0.1.2-rc.1` or `0.1.5-alpha.2` |
+| Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.23` |
 
-The package deliberately supports a rolling window of exactly three reviewed
+The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;
-unlisted releases are unsupported. The exact dependency pairs are rc.2/4.0.1,
-alpha.4/4.0.2, and rc.1/4.0.2; cross-version DSH/Cordis combinations are not
+unlisted releases are unsupported. Both retained releases pair with Cordis
+4.0.2; cross-version DSH/Cordis combinations are not
 admitted. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.

@@ -51,6 +51,23 @@ even when the binary digest is correct. Put the environment in an owner-only
 shell wrapper and invoke that wrapper by absolute path; do not rely on an
 opaque `export PATH=... && npm run ...` command.
 
+The same rule reaches further than the companions. The driver authenticates the
+DSH wrapper, the runtime-kit executable and the fixture executable, and it walks
+each one's whole ancestor chain with symlinks resolved. A shared evidence root
+is usually group-writable, so the candidate package and the wrappers belong
+under the owner-only state root, not beside the retained results; a symlink from
+one into the other does not help. Each condition only appears once the previous
+one is fixed, which makes a first attempt look like several unrelated setup
+bugs:
+
+| Refusal | Cause |
+| --- | --- |
+| `unsafe-output`: result parent must be an owner-only real directory | the result directory's immediate parent is not `0700` |
+| `invalid-path`: DSH executable has an unsafe containing directory | a wrapper ancestor is group- or other-writable |
+| `invalid-path`: runtime-kit executable has an unsafe containing directory | a candidate-package ancestor is group- or other-writable |
+
+Keep only the result JSONL and its artifacts in the evidence directory.
+
 ## Build before packing or setup
 
 The npm package ships TypeScript build output under `dist/`. `npm pack` does
@@ -110,6 +127,19 @@ selector before boot. Forwarding an ordinary managed Codex or Claude principal
 into nested DSH makes DSH lifecycle events target the wrong provider runtime;
 the authenticated activity boundary rejects that mismatch.
 
+The `managed-subagent-workspace` family is the exception that deliberately
+needs a controller identity. Create a fresh dedicated Agent Console controller
+principal for each DSH invocation, then forward exactly its seven
+`AGENT_SESSION_*` principal fields through the contained DSH wrapper. Do not
+reuse the external harness principal or a principal from another scenario. The
+runtime-kit keeps that principal allowlist exact for Main Agent operations. For
+the nested capability check only, it derives `XDG_CONFIG_HOME` and
+`XDG_STATE_HOME` from the already authenticated
+`DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG` and
+`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR` activation paths. This lets the sibling
+`agent-hook doctor` resolve the installed DSH activation without broadening the
+environment received by run initialization or lane commands.
+
 One-shot DSH checkout leases intentionally outlive the process that acquired
 them. Therefore each `git-repo` and `managed-worktree` DSH process uses a
 different physical scratch checkout: one for success, one for the induced
@@ -117,6 +147,10 @@ failure, and one for the clean retry. Pass the third path as
 `--retry-workdir`. The driver verifies its folder kind, prepares and recovers
 the same family fixture there, records the distinct cwd, and proves that the
 induced run and retry received byte-identical `deliberate_failure_task` argv.
+Repeated matrix attempts must also use a new canonical checkout path or a
+fresh owner-only `DSH_HOME` whose agent-hook state has been reinitialized.
+Deleting and recreating a worktree at the same path while retaining that state
+does not release its prior one-shot lease and must remain refused.
 Do not delete a lease, weaken the guard, or present unrelated
 `WORKSPACE_FOREIGN_ACTIVE` contention as family-specific recovery evidence.
 For `managed-subagent-workspace` rows, provision a distinct host-issued child
@@ -201,6 +235,35 @@ staging itself dirties the lease anchor before DSH can exercise the scenario.
 Do not reuse a developer checkout whose unrelated tracked files or local
 changes can affect repository policy or attestation.
 
+Configure a deterministic repository-local test identity and the accepted
+signing identity in every scratch primary before creating its seed commit or
+linked worktrees. The governed commit tool deliberately inherits no ambient
+user identity or Git configuration, so leaving these values to the model makes
+an otherwise clean retry fail its Git author precondition or create an unsigned
+commit. Do not use a human author identity or depend on mutable global Git
+configuration:
+
+```sh
+git config user.name 'DSH Acceptance Fixture'
+git config user.email dsh-acceptance-fixture@example.invalid
+git config commit.gpgSign true
+git config gpg.format '<accepted-signing-format>'
+git config user.signingkey '<accepted-signing-key>'
+```
+
+Make only the selected signing mechanism available inside the outer sandbox.
+For OpenPGP, expose the selected host `GNUPGHOME` through an ephemeral tmp
+overlay at the same path. The host keyring remains unchanged, while GnuPG can
+create its namespace-local locks and agent socket; set the overlay root to mode
+`0700` before launching DSH. For SSH signing, expose only the selected key or
+agent socket and the matching Git configuration. Never copy private key bytes
+into the family root, result artifacts, profile, issue, or logs. Probe signing
+inside the sandbox before launching DSH and retain only the probe status and
+public digest. After DSH exits, the external harness must independently verify the resulting commit signature,
+its single parent, changed paths, clean status, feature ref, and unchanged
+primary/default ref. A semantic-commit receipt or terminal marker alone is
+insufficient.
+
 Git-writing tasks need the DSH process to update Git metadata. A linked managed
 worktree keeps that metadata outside the worktree directory, so the default
 `workspace-write` sandbox cannot create its index lock. Do not solve that by
@@ -219,15 +282,36 @@ following `bwrap` shape. Replace every placeholder with a canonical absolute
 path, keep the environment allowlist explicit, and pass the DSH arguments
 through unchanged:
 
+An unprivileged user namespace maps the invoking host user to namespace UID 0;
+host-root-owned executables exposed by the broad root bind then appear as the
+unmapped UID 65534. The finish-line containment probe correctly rejects those
+identities with `finish-line-containment-untrusted`. Before entering the
+namespace, copy `systemd-run`, `systemctl`, Git, Bash, and Bash's platform loader
+into an owner-only directory beneath `<family-root>`. Bind those staged
+identities over their canonical paths as shown below. Git is required even when
+the task does not invoke it directly: nils policy resolves `/usr/bin/git` to
+inventory built-in subcommands and project default-branch state before admitting
+a Git-writing shell action. Do not relax the trusted-executable check or reuse
+the unmapped host identities.
+
 ```sh
 exec /usr/bin/bwrap \
-  --die-with-parent --new-session \
+  --die-with-parent --new-session --unshare-user --uid 0 --gid 0 \
   --ro-bind / / \
+  --overlay-src <signing-home> \
+  --tmp-overlay <signing-home> \
+  --chmod 0700 <signing-home> \
   --bind <family-root> <family-root> \
+  --ro-bind <staged-systemd-run> /usr/bin/systemd-run \
+  --ro-bind <staged-systemctl> /usr/bin/systemctl \
+  --ro-bind <staged-git> /usr/bin/git \
+  --ro-bind <staged-bash> /bin/bash \
+  --ro-bind <staged-loader> /usr/lib/<platform-loader> \
   --tmpfs /tmp --dev /dev --proc /proc \
   --chdir <scenario-workdir> \
   --clearenv \
   --setenv HOME <family-root>/home \
+  --setenv GNUPGHOME <signing-home> \
   --setenv PATH <node-24-toolchain>:/usr/bin:/bin \
   --setenv DSH_HOME <family-root>/dsh-home \
   --setenv DSH_RUNTIME_KIT_RUNTIME_ROOT <family-root>/runtime \

@@ -507,6 +507,26 @@ function resultTaskBindingMatches(
   return pack.success_marker === marker
 }
 
+function deliberateFailureAnchor(result: JsonRecord) {
+  const outcome = record(result.session_outcome)
+  const bundle = record(result.diagnostic_bundle)
+  const induced = record(record(result.observed)?.induced_failure)
+  if (typeof bundle?.name !== 'string') return undefined
+  if (outcome?.status === 'failed' && typeof outcome.code === 'string'
+    && typeof outcome.component === 'string' && typeof outcome.next_action === 'string') {
+    return {
+      code: outcome.code,
+      component: outcome.component,
+      nextAction: outcome.next_action,
+      bundleName: bundle.name,
+    }
+  }
+  if (outcome?.status === 'completed' && typeof induced?.code === 'string') {
+    return { code: induced.code, bundleName: bundle.name }
+  }
+  return undefined
+}
+
 export function appendAcceptanceAttestation(input: { outputPath: string, attestationPath: string }) {
   const outputPath = ownedOutput(input.outputPath)
   if (!existsSync(outputPath)) {
@@ -553,18 +573,21 @@ export function appendAcceptanceAttestation(input: { outputPath: string, attesta
   }
   const normalizedDiagnosis = phase === 'deliberate-failure' ? diagnosis(row.diagnosis) : undefined
   if (phase === 'deliberate-failure') {
-    const outcome = record(result.session_outcome)
-    const bundle = record(result.diagnostic_bundle)
-    if (outcome?.status !== 'failed' || typeof outcome.code !== 'string'
-      || typeof outcome.component !== 'string' || typeof outcome.next_action !== 'string'
-      || typeof bundle?.name !== 'string' || normalizedDiagnosis === undefined
-      || normalizedDiagnosis.code !== outcome.code
-      || normalizedDiagnosis.component !== outcome.component
-      || normalizedDiagnosis.next_action !== outcome.next_action
-      || normalizedDiagnosis.evidence_reference !== bundle.name) {
+    // An induction is not always a runtime fault. Where the fixture stages a
+    // condition the runtime then handles correctly, the session legitimately
+    // completes and the machine-readable evidence is the fixture probe's own typed
+    // induced record, which the driver retains on the result row. Both anchors bind
+    // the diagnosis to recorded evidence; neither accepts harness narration alone.
+    const anchor = deliberateFailureAnchor(result)
+    if (anchor === undefined || normalizedDiagnosis === undefined
+      || normalizedDiagnosis.code !== anchor.code
+      || normalizedDiagnosis.evidence_reference !== anchor.bundleName
+      || (anchor.component !== undefined
+        && (normalizedDiagnosis.component !== anchor.component
+          || normalizedDiagnosis.next_action !== anchor.nextAction))) {
       throw new ScenarioPackError(
         'attestation-diagnosis-mismatch',
-        'deliberate-failure diagnosis must match the result outcome and diagnostic bundle',
+        'deliberate-failure diagnosis must match the result outcome or its retained induced record',
       )
     }
   }
@@ -630,11 +653,7 @@ export function summarizeAcceptanceScenarioPack(input: {
     })) return false
     if (!fixtureChainMatches(item, pack.phase, expectedFamily, item.scenario_id, expectedTask.taskSha256)) return false
     if (pack.phase === 'deliberate-failure') {
-      const outcome = record(item.session_outcome)
-      const bundle = record(item.diagnostic_bundle)
-      return outcome?.status === 'failed' && typeof outcome.code === 'string'
-        && typeof outcome.component === 'string' && typeof outcome.next_action === 'string'
-        && typeof bundle?.name === 'string'
+      return deliberateFailureAnchor(item) !== undefined
     }
     return true
   })
@@ -654,12 +673,13 @@ export function summarizeAcceptanceScenarioPack(input: {
       if (pack.phase === 'success') return true
       const normalizedDiagnosis = diagnosis(item.diagnosis)
       recovery(item.recovery)
-      const outcome = record(result.session_outcome)!
-      const bundle = record(result.diagnostic_bundle)!
-      return normalizedDiagnosis.code === outcome.code
-        && normalizedDiagnosis.component === outcome.component
-        && normalizedDiagnosis.next_action === outcome.next_action
-        && normalizedDiagnosis.evidence_reference === bundle.name
+      const anchor = deliberateFailureAnchor(result)
+      return anchor !== undefined
+        && normalizedDiagnosis.code === anchor.code
+        && normalizedDiagnosis.evidence_reference === anchor.bundleName
+        && (anchor.component === undefined
+          || (normalizedDiagnosis.component === anchor.component
+            && normalizedDiagnosis.next_action === anchor.nextAction))
     } catch {
       return false
     }

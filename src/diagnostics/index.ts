@@ -134,6 +134,21 @@ function logicalCode(value: unknown, fallback: string) {
     : fallback
 }
 
+function typedSessionError(code: string, event: string, name?: string): TypedSessionError {
+  if (code === 'FS_SANDBOX_DENIED') {
+    return {
+      code: 'sandbox-file-access-denied',
+      ...(name === undefined ? {} : { name: sanitizedString(name) }),
+      event: `${event}:sandbox-policy`,
+    }
+  }
+  return {
+    code: logicalCode(code, 'session-error'),
+    ...(name === undefined ? {} : { name: sanitizedString(name) }),
+    event,
+  }
+}
+
 export function classifySessionOutcome(observation: OutcomeObservation): SessionOutcome {
   const decisions = observation.policy_decisions ?? []
   if (observation.doctor_status !== undefined
@@ -158,6 +173,29 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       component: 'policy',
       receipt: observation.error_receipt ?? 'session.typed_errors[0]',
       next_action: 'Wait for or release the authenticated owning session, then retry the unchanged task in the same workspace.',
+    }
+  }
+  if (observation.error_code === 'ARTIFACT_REF_INVALID') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Retry retrieval with the recorded valid artifact id; do not copy the artifact into the workdir as a workaround.',
+    }
+  }
+  if (observation.error_code === 'dsh.block-unsafe-default-delivery'
+    && observation.policy_code === observation.error_code) {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'policy',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Inspect the named policy rule and the denied operation; change authority or inputs, not the policy record.',
     }
   }
   if (observation.finish_line !== undefined) {
@@ -218,6 +256,28 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       component: 'policy',
       receipt: observation.error_receipt ?? 'session.typed_errors[0]',
       next_action: 'Preserve user changes, clean the intended anchor or move the task to an owned managed worktree, then retry.',
+    }
+  }
+  if (explicitCode === 'GOVERNED_COMMIT_REJECTED') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: explicitCode,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Inspect the governed commit precondition or semantic-commit refusal, then retry the unchanged governed request.',
+    }
+  }
+  if (explicitCode === 'assignment-launch-cwd-unavailable') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: explicitCode,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Restore the declared assignment workspace, then retry the unchanged managed-lane launch.',
     }
   }
   if (observation.error_component === 'operations'
@@ -285,7 +345,9 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
 
 export function runtimeHealthCodeFromCommandOutput(output: string) {
   if (typeof output !== 'string' || output.length === 0 || output.length > 2 * MAX_TEXT_BYTES) return undefined
-  const matches = [...output.matchAll(/(?:^|\n)HealthProbeFailure:\s*(DSH_RUNTIME_HEALTH_[A-Z0-9_]+)(?:\r?\n|$)/gu)]
+  const matches = [...output.matchAll(
+    /(?:^|\n)(?:HealthProbeFailure:\s*|dsh:\s*)(DSH_RUNTIME_HEALTH_[A-Z0-9_]+)(?::[^\r\n]*)?(?:\r?\n|$)/gu,
+  )]
     .map(match => match[1]!)
     .filter(code => RUNTIME_HEALTH_COMMAND_CODES.has(code))
   const unique = [...new Set(matches)]
@@ -607,10 +669,25 @@ function ownedToolResultErrors(
           ...(details === undefined ? {} : { details }),
         })
       }
+      const policyCodes = toolResult.isError === true
+        && /\bagent-hook:blocked\b/iu.test(text.text)
+        ? [...text.text.matchAll(/(?:^|\n)Policy codes: ([a-z0-9][a-z0-9.-]{0,127}(?:,[a-z0-9][a-z0-9.-]{0,127})*)(?=\r?$)/gimu)]
+          .flatMap(match => match[1]!.toLowerCase().split(','))
+        : []
       for (const match of text.text.matchAll(/\bagent-hook:([a-z0-9][a-z0-9.-]{0,127})\b/giu)) {
         const observed = match[1]!.toLowerCase()
+        if (observed === 'blocked' && policyCodes.length > 0) continue
         errors.push({
           code: observed === 'blocked' ? 'policy-denied' : observed.startsWith('dsh.') ? observed : `dsh.${observed}`,
+          event: `${event}:agent-hook`,
+        })
+      }
+      // policyReason renders the primary blocking code first. Session outcome
+      // selection intentionally uses the final typed error, so retain every
+      // code while appending in reverse order to keep that primary authoritative.
+      for (const observed of policyCodes.toReversed()) {
+        errors.push({
+          code: observed.startsWith('dsh.') ? observed : `dsh.${observed}`,
           event: `${event}:agent-hook`,
         })
       }
@@ -765,18 +842,16 @@ function latestSession(
       }
       const error = record(data?.error)
       if (typeof error?.code === 'string') {
-        appendTypedErrors([{ code: logicalCode(error.code, 'session-error'), ...(typeof error.name === 'string' ? { name: sanitizedString(error.name) } : {}), event: type }])
+        appendTypedErrors([typedSessionError(error.code, type,
+          typeof error.name === 'string' ? error.name : undefined)])
         if (/finish-line/iu.test(error.code)) {
           finishLine = { code: logicalCode(error.code, 'finish-line-refused'), event: type }
         }
       }
       const terminalError = record(record(data?.reason)?.error)
       if (typeof terminalError?.code === 'string') {
-        appendTypedErrors([{
-          code: logicalCode(terminalError.code, 'session-error'),
-          ...(typeof terminalError.name === 'string' ? { name: sanitizedString(terminalError.name) } : {}),
-          event: type,
-        }])
+        appendTypedErrors([typedSessionError(terminalError.code, type,
+          typeof terminalError.name === 'string' ? terminalError.name : undefined)])
       }
       const message = record(data?.message)
       const messageSource = record(message?.source)

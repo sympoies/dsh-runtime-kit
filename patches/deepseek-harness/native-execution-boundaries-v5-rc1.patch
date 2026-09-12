@@ -1,5 +1,5 @@
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
-index 1b8448e69..0b76b4bd5 100644
+index 1b8448e693..0b76b4bd5e 100644
 --- a/packages/core/agent-loop/src/agent.ts
 +++ b/packages/core/agent-loop/src/agent.ts
 @@ -16,7 +16,7 @@ import type {
@@ -112,7 +112,7 @@ index 1b8448e69..0b76b4bd5 100644
        )
        return concluded ? { kind: 'completed' } : null
 diff --git a/packages/core/agent-loop/src/tool-calls.ts b/packages/core/agent-loop/src/tool-calls.ts
-index e6aca31f5..5a4887dce 100644
+index e6aca31f56..5a4887dcef 100644
 --- a/packages/core/agent-loop/src/tool-calls.ts
 +++ b/packages/core/agent-loop/src/tool-calls.ts
 @@ -20,6 +20,7 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -191,7 +191,7 @@ index e6aca31f5..5a4887dce 100644
    }
    /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 6c1711df3..b0a08ad01 100644
+index 6c1711df30..b0a08ad014 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
 @@ -132,6 +132,17 @@ declare module '@deepseek-ai/cordis' {
@@ -1103,7 +1103,7 @@ index 6c1711df3..b0a08ad01 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/src/ptc.ts b/packages/core/tools/src/ptc.ts
-index 8af4f8730..1e3cb0c15 100644
+index 8af4f87303..1e3cb0c15c 100644
 --- a/packages/core/tools/src/ptc.ts
 +++ b/packages/core/tools/src/ptc.ts
 @@ -557,7 +557,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
@@ -1116,7 +1116,7 @@ index 8af4f8730..1e3cb0c15 100644
                  exec.deferContext(createUserMessage({
                    content: result.content,
 diff --git a/packages/fs/fs-sandbox/src/index.ts b/packages/fs/fs-sandbox/src/index.ts
-index 60dd6b3ba..014c2e03d 100644
+index 60dd6b3bad..014c2e03d3 100644
 --- a/packages/fs/fs-sandbox/src/index.ts
 +++ b/packages/fs/fs-sandbox/src/index.ts
 @@ -31,7 +31,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -1141,7 +1141,7 @@ index 60dd6b3ba..014c2e03d 100644
      for (const root of writableRoots(policy)) {
        if (await isPathUnder(fresh.targetKey, root)) {
 diff --git a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
-index 435086a30..9278923b9 100644
+index 435086a301..9278923b93 100644
 --- a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 +++ b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 @@ -237,3 +237,27 @@ describe('FsError identity', () => {
@@ -1173,7 +1173,7 @@ index 435086a30..9278923b9 100644
 +  })
 +})
 diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
-index 695a9fdfc..73fabfcc2 100644
+index 695a9fdfc9..73fabfcc2f 100644
 --- a/packages/fs/tool-fs/src/sandbox.ts
 +++ b/packages/fs/tool-fs/src/sandbox.ts
 @@ -13,7 +13,7 @@
@@ -1211,7 +1211,7 @@ index 695a9fdfc..73fabfcc2 100644
          approver: this.ctx.get('approval'),
          agent: exec.agent,
 diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
-index 8f75a0b51..65132139e 100644
+index 8f75a0b513..65132139e8 100644
 --- a/packages/fs/tool-fs/tests/tools.spec.ts
 +++ b/packages/fs/tool-fs/tests/tools.spec.ts
 @@ -902,6 +902,25 @@ describe('sandbox escalation API (write/edit)', () => {
@@ -1241,7 +1241,7 @@ index 8f75a0b51..65132139e 100644
      const { ctx, fs } = await setupConfining()
      fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
 diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
-index 77a8a2495..ff61cbbab 100644
+index 77a8a2495e..ff61cbbabd 100644
 --- a/packages/goal/goal/src/index.ts
 +++ b/packages/goal/goal/src/index.ts
 @@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
@@ -1270,7 +1270,7 @@ index 77a8a2495..ff61cbbab 100644
        agent,
        ref,
 diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
-index d72ac7c75..0c730a1f0 100644
+index d72ac7c751..0c730a1f0a 100644
 --- a/packages/goal/goal/tests/goal.spec.ts
 +++ b/packages/goal/goal/tests/goal.spec.ts
 @@ -314,6 +314,44 @@ describe('GoalService mutations', () => {
@@ -1319,7 +1319,7 @@ index d72ac7c75..0c730a1f0 100644
      const phases = ['paused', 'blocked'] as const
      for (const phase of phases) {
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index cdecc4c96..44013c831 100644
+index cdecc4c96e..44013c831e 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
 @@ -184,6 +184,12 @@ export interface PreparedAdapterCall {
@@ -1415,7 +1415,7 @@ index cdecc4c96..44013c831 100644
  }
  
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 47309daea..b1374a6ab 100644
+index 47309daea1..b1374a6ab6 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
 @@ -459,6 +459,87 @@ describe('LlmRuntime', () => {
@@ -1507,7 +1507,7 @@ index 47309daea..b1374a6ab 100644
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
 diff --git a/packages/sandbox/sandbox-local/src/index.ts b/packages/sandbox/sandbox-local/src/index.ts
-index f9415d59d..422ea9e62 100644
+index f9415d59d4..422ea9e628 100644
 --- a/packages/sandbox/sandbox-local/src/index.ts
 +++ b/packages/sandbox/sandbox-local/src/index.ts
 @@ -323,6 +323,13 @@ export class LocalSandboxProvider extends SandboxProvider {
@@ -1525,7 +1525,7 @@ index f9415d59d..422ea9e62 100644
      return {
        argv: [...runnerArgv, '--', ...argv],
 diff --git a/packages/sandbox/sandbox-local/src/profiles.ts b/packages/sandbox/sandbox-local/src/profiles.ts
-index 4d647580c..cb1491e2c 100644
+index 4d647580c5..cb1491e2c8 100644
 --- a/packages/sandbox/sandbox-local/src/profiles.ts
 +++ b/packages/sandbox/sandbox-local/src/profiles.ts
 @@ -5,7 +5,7 @@
@@ -1556,7 +1556,7 @@ index 4d647580c..cb1491e2c 100644
    return ['-p', forms.join(' ')]
  }
 diff --git a/packages/sandbox/sandbox-local/tests/local.spec.ts b/packages/sandbox/sandbox-local/tests/local.spec.ts
-index 285afb865..21903a429 100644
+index 285afb865b..21903a4290 100644
 --- a/packages/sandbox/sandbox-local/tests/local.spec.ts
 +++ b/packages/sandbox/sandbox-local/tests/local.spec.ts
 @@ -73,6 +73,13 @@ describe('profile dialects', () => {
@@ -1615,7 +1615,7 @@ index 285afb865..21903a429 100644
      // The safety property moves to execution time: an unusable sandbox-exec
      // refuses to run the command, and the wrap's runnerFailureRules let
 diff --git a/packages/sandbox/sandbox-policy/src/index.ts b/packages/sandbox/sandbox-policy/src/index.ts
-index ba688c975..d02eff192 100644
+index ba688c9759..d02eff192d 100644
 --- a/packages/sandbox/sandbox-policy/src/index.ts
 +++ b/packages/sandbox/sandbox-policy/src/index.ts
 @@ -20,7 +20,7 @@
@@ -1702,7 +1702,7 @@ index ba688c975..d02eff192 100644
     * Read the session override without applying the deployment default.
     * @param session - session whose log supplies the override.
 diff --git a/packages/sandbox/sandbox-policy/tests/policy.spec.ts b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
-index 7ba166354..68fb67e9a 100644
+index 7ba166354b..68fb67e9a2 100644
 --- a/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 +++ b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 @@ -15,7 +15,7 @@ import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-a
@@ -1754,7 +1754,7 @@ index 7ba166354..68fb67e9a 100644
      const root = mkdtempSync(join(tmpdir(), 'dsh-policy-cwd-'))
      try {
 diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
-index 5cc180fe2..f051ed47b 100644
+index 5cc180fe2b..f051ed47b7 100644
 --- a/packages/sandbox/sandbox/src/escalation.ts
 +++ b/packages/sandbox/sandbox/src/escalation.ts
 @@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
@@ -1804,7 +1804,7 @@ index 5cc180fe2..f051ed47b 100644
   * The model-facing denial marker — the one vocabulary both enforcing families
   * teach and report, so the model recognizes a policy denial identically
 diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
-index 2d9ee5b91..dc138f2c4 100644
+index 2d9ee5b91b..dc138f2c47 100644
 --- a/packages/sandbox/sandbox/src/index.ts
 +++ b/packages/sandbox/sandbox/src/index.ts
 @@ -14,11 +14,13 @@ export {
@@ -1837,7 +1837,7 @@ index 2d9ee5b91..dc138f2c4 100644
     * Opaque identity of the calling session (the branded `dsh-session`
     * SessionId). Backends key per-session state off it (e.g. windows-acl gives
 diff --git a/packages/sandbox/sandbox/src/roots.ts b/packages/sandbox/sandbox/src/roots.ts
-index 1215f3dac..556fad85e 100644
+index 1215f3dac1..556fad85ec 100644
 --- a/packages/sandbox/sandbox/src/roots.ts
 +++ b/packages/sandbox/sandbox/src/roots.ts
 @@ -15,6 +15,7 @@
@@ -1860,7 +1860,7 @@ index 1215f3dac..556fad85e 100644
 +  )))]
 +}
 diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
-index 15810d09d..6073180ef 100644
+index 15810d09d5..6073180efc 100644
 --- a/packages/sandbox/sandbox/tests/escalation.spec.ts
 +++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
 @@ -12,6 +12,8 @@ import {
@@ -1897,7 +1897,7 @@ index 15810d09d..6073180ef 100644
    it('the denial marker names the mode', () => {
      expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
 diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
-index 278d64391..6c1432678 100644
+index 278d643910..6c14326782 100644
 --- a/packages/shell/tool-bash/src/index.ts
 +++ b/packages/shell/tool-bash/src/index.ts
 @@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
@@ -1936,7 +1936,7 @@ index 278d64391..6c1432678 100644
        const policy = approvedMode === undefined
          ? standingPolicy
 diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
-index ca8ce99c8..53cd9a29f 100644
+index ca8ce99c89..53cd9a29f9 100644
 --- a/packages/shell/tool-bash/tests/tools.spec.ts
 +++ b/packages/shell/tool-bash/tests/tools.spec.ts
 @@ -651,6 +651,19 @@ describe('sandbox escalation through the generic task producer', () => {
@@ -1960,7 +1960,7 @@ index ca8ce99c8..53cd9a29f 100644
      const withoutService = await setupSandboxed()
      expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
 diff --git a/packages/subagent/subagent-in-process-driver/src/index.ts b/packages/subagent/subagent-in-process-driver/src/index.ts
-index 4ca07b843..927cbccc9 100644
+index 4ca07b8436..927cbccc9d 100644
 --- a/packages/subagent/subagent-in-process-driver/src/index.ts
 +++ b/packages/subagent/subagent-in-process-driver/src/index.ts
 @@ -121,13 +121,14 @@ export async function startInProcessRun(
@@ -1982,7 +1982,7 @@ index 4ca07b843..927cbccc9 100644
    }
  
 diff --git a/packages/subagent/subagent-spawn-in-process/src/index.ts b/packages/subagent/subagent-spawn-in-process/src/index.ts
-index 73811155c..f0d13e2e2 100644
+index 73811155c1..f0d13e2e23 100644
 --- a/packages/subagent/subagent-spawn-in-process/src/index.ts
 +++ b/packages/subagent/subagent-spawn-in-process/src/index.ts
 @@ -46,6 +46,7 @@ class SpawnInProcessProvider implements SubagentProvider {
@@ -1994,7 +1994,7 @@ index 73811155c..f0d13e2e2 100644
    readonly inheritsParentContext = false
  
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 228b9de2f..f793e1082 100644
+index 228b9de2f2..f793e10828 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
 @@ -8,12 +8,14 @@
@@ -2202,7 +2202,7 @@ index 228b9de2f..f793e1082 100644
  
  /** Policy seeded onto a child session's log at the delegation boundary. */
 diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index 2103ce227..4fe9f9096 100644
+index 2103ce2270..2267a29c94 100644
 --- a/packages/subagent/subagent/src/continuation.ts
 +++ b/packages/subagent/subagent/src/continuation.ts
 @@ -28,6 +28,7 @@ import type {
@@ -2234,7 +2234,7 @@ index 2103ce227..4fe9f9096 100644
  import { isAdjacentAgentSendMessageTool } from './internal.ts'
  
 +/** One deployment capability installed into a continuable child's unpublished context. */
-+export type ContinuableSetupContribution = (childCtx: Context) => () => void
++export type ContinuableSetupContribution = (childCtx: Context, child: Agent) => () => void
 +
 +interface SetupRegistration {
 +  readonly contribution: ContinuableSetupContribution
@@ -2271,7 +2271,7 @@ index 2103ce227..4fe9f9096 100644
 +    }
 +  }
 +
-+  apply(childCtx: Context): AgentSetupCommit {
++  apply(childCtx: Context, child: Agent): AgentSetupCommit {
 +    const state: SetupTransaction = { installations: [], invalidated: false }
 +    try {
 +      for (const registration of [...this.registrations]) {
@@ -2279,7 +2279,7 @@ index 2103ce227..4fe9f9096 100644
 +        const installation: SetupInstallation = {
 +          registration,
 +          childCtx,
-+          dispose: registration.contribution(childCtx),
++          dispose: registration.contribution(childCtx, child),
 +          released: false,
 +          transaction: state,
 +        }
@@ -2623,24 +2623,26 @@ index 2103ce227..4fe9f9096 100644
          signal: options.signal,
        })
      } catch (error: unknown) {
-@@ -1126,7 +1421,7 @@ export class SubagentContinuationManager {
+@@ -1126,14 +1421,16 @@ export class SubagentContinuationManager {
      // `AgentRegistry.enter()` is the authoritative collision boundary for an id
      // some other owner holds — a duplicate would reject there with rollback.
      inputs.signal.throwIfAborted()
 -    const setup = (childCtx: Context): void => {
 +    const setup = (childCtx: Context) => {
++      const child = childCtx.agent as Agent
        // Only fresh creation seeds the delegation policy onto the child's own
        // log (after any fork seed, so fresh policy wins stale seed state); a
        // cold resume replays those persisted events instead.
-@@ -1134,6 +1429,7 @@ export class SubagentContinuationManager {
-         appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
+       if (create !== undefined) {
+-        appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, create.delegatedPolicies)
++        appendDelegatedPolicyOverrides(child.session, create.delegatedPolicies)
        }
        applyChildComposition(childCtx, parent, inputs.composition)
-+      return this.setupRegistry.apply(childCtx)
++      return this.setupRegistry.apply(childCtx, child)
      }
      const observer = this.host.observeActivation(provider, childId, parent)
      // Agent creation owns rollback before handle transfer. A rejection leaves
-@@ -1155,6 +1451,19 @@ export class SubagentContinuationManager {
+@@ -1155,6 +1452,19 @@ export class SubagentContinuationManager {
          setup,
        })
  
@@ -2661,7 +2663,7 @@ index 2103ce227..4fe9f9096 100644
        childId,
        // The durable lineage, not merely the caller: creation stamps this same
 diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
-index de9191cc5..95b873ccf 100644
+index de9191cc50..95b873ccf1 100644
 --- a/packages/subagent/subagent/src/descriptor.ts
 +++ b/packages/subagent/subagent/src/descriptor.ts
 @@ -25,6 +25,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -2795,7 +2797,7 @@ index de9191cc5..95b873ccf 100644
    const snapshot = snapshotJsonValue(candidate)
    if (snapshot === undefined) {
 diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index 28e50930c..2271623c9 100644
+index 28e50930cd..2271623c9c 100644
 --- a/packages/subagent/subagent/src/index.ts
 +++ b/packages/subagent/subagent/src/index.ts
 @@ -29,11 +29,14 @@
@@ -3575,7 +3577,7 @@ index 28e50930c..2271623c9 100644
      this.assertCapabilities(provider, request)
      assertSubagentMaxDepth(request.maxDepth)
 diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
-index 9ee1e09ae..a8e8a6e4f 100644
+index 9ee1e09aef..a8e8a6e4fb 100644
 --- a/packages/subagent/subagent/src/types.ts
 +++ b/packages/subagent/subagent/src/types.ts
 @@ -163,6 +163,63 @@ export interface SubagentStartRequest {
@@ -3709,13 +3711,28 @@ index 9ee1e09ae..a8e8a6e4f 100644
     * Optional static provider-owned provider/model route for one-shot Agent
     * options. Consumers merge tool/model overrides over these values before
 diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index 851720f22..77b5d32b9 100644
+index 851720f228..87c400e983 100644
 --- a/packages/subagent/subagent/tests/continuation.spec.ts
 +++ b/packages/subagent/subagent/tests/continuation.spec.ts
-@@ -201,6 +201,143 @@ function observeCancel(agent: Agent, callback: () => void): void {
+@@ -201,6 +201,158 @@ function observeCancel(agent: Agent, callback: () => void): void {
  }
  
  describe('SubagentRuntime.startContinuable', () => {
++  it('supplies each setup contribution the exact unpublished child Agent', async () => {
++    const { ctx, parent } = await setup([textResponse('done')])
++    let observed: Agent | undefined
++    ctx.subagents.registerContinuableSetup((childCtx, child) => {
++      expect(child.ctx).toBe(childCtx)
++      expect(ctx.agents.get(child.id)).toBeUndefined()
++      observed = child
++      return () => {}
++    })
++
++    const started = await ctx.subagents.startContinuable(startSpec(parent))
++    expect(observed?.id).toBe(started.childId)
++    await waitNoActivation(ctx, started.childId)
++  })
++
 +  it('binds and cold-resumes one host-issued workspace without exposing its opaque ref', async () => {
 +    const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
 +    parkParent(ctx, parent)
@@ -3856,7 +3873,7 @@ index 851720f22..77b5d32b9 100644
    it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
      const { ctx, parent, adapter } = await setup([textResponse('first answer')])
      const enqueued: { id: MessageId; loggedYet: boolean }[] = []
-@@ -290,7 +427,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -290,7 +442,7 @@ describe('SubagentRuntime.startContinuable', () => {
      expect(descriptorIndex).toBeLessThan(turnStartIndex)
      const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
      expect(descriptor.data).toEqual({
@@ -3865,7 +3882,7 @@ index 851720f22..77b5d32b9 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -420,7 +557,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -420,7 +572,7 @@ describe('SubagentRuntime.startContinuable', () => {
      const descriptor = child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')
  
      expect(descriptor?.data).toEqual({
@@ -3874,7 +3891,7 @@ index 851720f22..77b5d32b9 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -454,7 +591,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -454,7 +606,7 @@ describe('SubagentRuntime.startContinuable', () => {
  
      expect(child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')?.data)
        .toEqual({
@@ -3884,7 +3901,7 @@ index 851720f22..77b5d32b9 100644
          provider: 'spawn',
          label: 'child task',
 diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
-index 261f614fb..2686bec75 100644
+index 261f614fba..2686bec756 100644
 --- a/packages/subprocess/subprocess-local/src/index.ts
 +++ b/packages/subprocess/subprocess-local/src/index.ts
 @@ -35,6 +35,11 @@ import { LocalTerminalHandle } from './terminal.ts'
@@ -3916,7 +3933,7 @@ index 261f614fb..2686bec75 100644
      // Release ownership only once the whole TREE is gone, not at direct-child
      // settlement — a TERM-trapping helper that outlives the leader must stay
 diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
-index 433ba0179..b7d93c297 100644
+index 433ba01791..b7d93c2973 100644
 --- a/packages/subprocess/subprocess-local/src/spawn.ts
 +++ b/packages/subprocess/subprocess-local/src/spawn.ts
 @@ -7,12 +7,27 @@
@@ -4278,7 +4295,7 @@ index 433ba0179..b7d93c297 100644
      })
      child.on('exit', (exitCode, signal) => {
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index 1f21dfaaa..02b497797 100644
+index 1f21dfaaa1..02b4977972 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 @@ -1,4 +1,5 @@
@@ -4641,7 +4658,7 @@ index 1f21dfaaa..02b497797 100644
      const result = await finish(spawnSubprocess(spec('echo oops >&2')))
      expect(result.exitCode).toBe(0)
 diff --git a/packages/subprocess/subprocess/src/index.ts b/packages/subprocess/subprocess/src/index.ts
-index a7413159f..08d9319f5 100644
+index a7413159f9..08d9319f5b 100644
 --- a/packages/subprocess/subprocess/src/index.ts
 +++ b/packages/subprocess/subprocess/src/index.ts
 @@ -100,6 +100,14 @@ declare module '@deepseek-ai/cordis' {

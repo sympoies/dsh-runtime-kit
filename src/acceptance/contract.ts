@@ -73,6 +73,7 @@ const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
   'activation-asset-retention-limit',
   'activation-drift',
   'activation-health-failed',
+  'activation-invalid',
   'activation-staging-failed',
   'agent-hook-isolation-invalid',
   'already-managed',

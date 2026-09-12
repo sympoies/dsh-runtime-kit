@@ -44,6 +44,9 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
     [{ error_code: 'plan-drift' }, 'operations-failure', 'operations'],
     [{ exit_code: 1, error_code: 'provider-unavailable' }, 'provider-failure', 'provider'],
     [{ error_code: 'WORKSPACE_DIRTY', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'policy'],
+    [{ error_code: 'GOVERNED_COMMIT_REJECTED', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'session'],
+    [{ error_code: 'assignment-launch-cwd-unavailable', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'session'],
+    [{ error_code: 'ARTIFACT_REF_INVALID', error_receipt: 'session.typed_errors[0]' }, 'tool-denial', 'session'],
     [{ finish_line: { code: 'finish-line-refused' } }, 'finish-line-stop', 'finish-line'],
   ] as const
 
@@ -100,6 +103,33 @@ test('session outcome classifies every Gate 0 failure family with an actionable 
   assert.equal(unrelatedWorkspaceError.component, 'session')
 })
 
+test('typed artifact refusal outranks a generic finish-line stop', () => {
+  const outcome = classifySessionOutcome({
+    error_code: 'ARTIFACT_REF_INVALID',
+    error_receipt: 'session.typed_errors[0]',
+    finish_line: { code: 'validation-missing' },
+  })
+
+  assert.equal(outcome.category, 'tool-denial')
+  assert.equal(outcome.component, 'session')
+  assert.equal(outcome.code, 'ARTIFACT_REF_INVALID')
+  assert.equal(outcome.receipt, 'session.typed_errors[0]')
+})
+
+test('typed governed refusal outranks a follow-up finish-line stop', () => {
+  const outcome = classifySessionOutcome({
+    error_code: 'dsh.block-unsafe-default-delivery',
+    error_receipt: 'session.typed_errors[0]',
+    policy_code: 'dsh.block-unsafe-default-delivery',
+    finish_line: { code: 'validation-missing' },
+  })
+
+  assert.equal(outcome.category, 'tool-denial')
+  assert.equal(outcome.component, 'policy')
+  assert.equal(outcome.code, 'dsh.block-unsafe-default-delivery')
+  assert.equal(outcome.receipt, 'session.typed_errors[0]')
+})
+
 test('a reverted Agent Console TUI repair is classified as itself, not as an unavailable doctor', () => {
   // The designed-for case: a profile mutation reverted the TUI repair and every
   // other check is healthy. If `agent_console_tui` were absent from the
@@ -148,6 +178,9 @@ test('pre-model runtime-health failure keeps its allowlisted typed code', () => 
   assert.equal(runtimeHealthCodeFromCommandOutput(
     'HealthProbeFailure: DSH_RUNTIME_HEALTH_NOT_A_REAL_CODE',
   ), undefined)
+  assert.equal(runtimeHealthCodeFromCommandOutput(
+    'dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID: LLM call denied by a monotonic guard\n',
+  ), 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
   const outcome = classifySessionOutcome({
     exit_code: 1,
     error_code: runtimeHealthCodeFromCommandOutput(stderr),
@@ -533,6 +566,41 @@ test('collector projects a shell sandbox denial but ignores the same text from a
   })
   assert.deepEqual(bundle.session.typed_errors, [{
     code: 'sandbox-file-access-denied',
+    event: 'tool/result:sandbox-policy',
+  }])
+  assert.equal(bundle.session_outcome.status, 'failed')
+  assert.equal(bundle.session_outcome.category, 'tool-denial')
+  assert.equal(bundle.session_outcome.component, 'policy')
+  assert.equal(bundle.session_outcome.code, 'sandbox-file-access-denied')
+  assert.equal(bundle.session_outcome.receipt, 'session.typed_errors[0]')
+})
+
+test('collector normalizes the DSH FS_SANDBOX_DENIED typed error', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'diagnostic-typed-sandbox-denial-'))
+  chmodSync(root, 0o700)
+  const dshHome = join(root, 'home')
+  const sessions = join(dshHome, 'sessions', 'fixture')
+  mkdirSync(sessions, { recursive: true, mode: 0o700 })
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh.mjs')
+  writeFileSync(runtimeKit, `process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')`)
+  writeFileSync(dsh, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify([])+'\\n')\n`)
+  chmodSync(runtimeKit, 0o700)
+  chmodSync(dsh, 0o700)
+  const transcript = [
+    { type: 'session', cwd: root, createdAt: Date.now() },
+    { type: 'tool/result', data: { error: { name: 'FsError', code: 'FS_SANDBOX_DENIED' } } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  writeFileSync(join(sessions, 'session.jsonl.zstd'), zstdCompressSync(Buffer.from(transcript)), { mode: 0o600 })
+
+  const { collectDiagnosticBundle } = await import('../dist/src/diagnostics/index.js')
+  const bundle = collectDiagnosticBundle({
+    profile: 'headless', dshHome, workdir: root, runtimeKitEntry: runtimeKit, dshBin: dsh,
+    environment: { PATH: process.env.PATH },
+  })
+  assert.deepEqual(bundle.session.typed_errors, [{
+    code: 'sandbox-file-access-denied',
+    name: 'FsError',
     event: 'tool/result:sandbox-policy',
   }])
   assert.equal(bundle.session_outcome.status, 'failed')

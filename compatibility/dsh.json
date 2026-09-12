@@ -15,25 +15,20 @@
     }
   },
   "validated_releases": {
-    "0.1.1-rc.2": {
-      "ref": "refs/tags/dsh-v0.1.1-rc.2",
-      "revision": "b150a551b8d465e31e418e1b2eaf5e79bbb7d28e",
-      "cordis": "4.0.1"
-    },
-    "0.1.2-alpha.4": {
-      "ref": "refs/tags/dsh-v0.1.2-alpha.4",
-      "revision": "4e84901e6471b79ec0338099867ebb4606d12bb5",
-      "cordis": "4.0.2"
-    },
     "0.1.2-rc.1": {
       "ref": "refs/tags/dsh-v0.1.2-rc.1",
       "revision": "a66e4702047846cdaa10c66c9d3df3951f5ea70d",
+      "cordis": "4.0.2"
+    },
+    "0.1.5-alpha.2": {
+      "ref": "refs/tags/dsh-v0.1.5-alpha.2",
+      "revision": "b2e3b2a0125854567a4a5fcba75782e42fe84901",
       "cordis": "4.0.2"
     }
   },
   "public_packages": {
     "@deepseek-ai/cordis": {
-      "peer": "4.0.1 || 4.0.2",
+      "peer": "4.0.2",
       "version": "4.0.2",
       "path": "vendor/cordis",
       "entrypoint_sha256": "1729cdbf8ee40b17c8839e06bf96491490548559e11ef7e411271e0754e751c5",
@@ -41,14 +36,14 @@
       "exports": {}
     },
     "@deepseek-ai/dsh-agent": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/core/agent",
       "entrypoint_sha256": "941c1df630c5ac12fcc416acee068f9986aab959e020dc15e8c000fbd708674f",
       "types_sha256": "cab0cbb1e8672b46df15d0080f4ae9ebababe34408f3e41f1a2b8b5550b40f24",
       "exports": {}
     },
     "@deepseek-ai/dsh-bash-local": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/shell/bash-local",
       "entrypoint_sha256": "97d2552973bd7b06b2551872369ba5ad5cdaa489cd7e6e2b54a5bd275aab817a",
       "types_sha256": "68e89d3f9f25186443d6042c892615aa76c5119da92d52fd78384619eeb26a18",
@@ -57,14 +52,14 @@
       }
     },
     "@deepseek-ai/dsh-fs": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/fs/fs",
       "entrypoint_sha256": "f0a026c44d8025880dc4dc357522fff10c1194f2df28f46838204da16aec35dd",
       "types_sha256": "ba80039209107f04b5f4f45f8faeb54b14430b5df4df766e72ffc63a7ef50062",
       "exports": {}
     },
     "@deepseek-ai/dsh-llm": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/llm/llm",
       "entrypoint_sha256": "bde337804d68e095b174abc6c7fad604296a13474d6ee84f6ecf943adcbe60db",
       "types_sha256": "81445e709cce76d477976f2640560f608eac8f2fc3e7337303ecfefcb3e7e0ae",
@@ -74,7 +69,7 @@
       }
     },
     "@deepseek-ai/dsh-sandbox": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/sandbox/sandbox",
       "entrypoint_sha256": "8994b3e497b0673eddd3640392de4671621aa8972846f4a66d0b1219decf3c03",
       "types_sha256": "8e5fca22b53e76511c25d56482b9baaf24bfefdc6f05948f8264f653a983b3c1",
@@ -86,7 +81,7 @@
       }
     },
     "@deepseek-ai/dsh-skill-filesystem": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/skill/skill-filesystem",
       "entrypoint_sha256": "1aea87781ba5b4d44c7cfd6184d933a1c171a3fd2791456b65ebfc8b255f1221",
       "types_sha256": "ffb2583081a93b7ec6cdf3e7e4accfa4c96c8e516ee2514130f2181d35cc7138",
@@ -95,21 +90,21 @@
       }
     },
     "@deepseek-ai/dsh-subagent": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/subagent/subagent",
       "entrypoint_sha256": "14346bc6470e7bdb35f08e364c0dee70a76cf94a3e1a3f851a07c68ca5c15348",
       "types_sha256": "844097a57492f872ae6f2a31decfd9879de43c585d0688dd6abaaa1888210c92",
       "exports": {}
     },
     "@deepseek-ai/dsh-subprocess": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/subprocess/subprocess",
       "entrypoint_sha256": "679e514028454cdef67adeb362e99a18e8efb7ca281857cf7868fc26d4821f6c",
       "types_sha256": "ffb02f0f6f0eda800e5c74e85cff341456e178c42d441e4979d72d4500f3db4d",
       "exports": {}
     },
     "@deepseek-ai/dsh-tools": {
-      "peer": "0.1.1-rc.2 || 0.1.2-alpha.4 || 0.1.2-rc.1",
+      "peer": "0.1.2-rc.1 || 0.1.5-alpha.2",
       "path": "packages/core/tools",
       "entrypoint_sha256": "598d5a54cfed9fdc497b8504aefb464efe97ff6c6918e68888481bb6e3dfbda9",
       "types_sha256": "3a542bc4390320dd3460091adf7f6967a447e811e13af84963306929ab0c5f86",
@@ -403,7 +398,7 @@
   },
   "support_policy": {
     "kind": "rolling-latest-releases",
-    "maximum_releases": 3,
+    "maximum_releases": 2,
     "promotion": "add newest release and retire the oldest release in the same change"
   }
 }

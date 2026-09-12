@@ -140,8 +140,55 @@ test('acceptance-harness is a Codex and Claude project intent', () => {
   assert.match(runbook, /disposable\s+scratch repositories/u)
   assert.match(runbook, /outer OS sandbox/u)
   assert.match(runbook, /--ro-bind \/ \/[\s\S]*--bind <family-root> <family-root>/u)
+  assert.match(runbook, /--unshare-user --uid 0 --gid 0/u)
+  assert.match(runbook, /finish-line-containment-untrusted/u)
+  assert.match(runbook, /--ro-bind <staged-systemd-run> \/usr\/bin\/systemd-run/u)
+  assert.match(runbook, /--ro-bind <staged-git> \/usr\/bin\/git/u)
+  assert.match(runbook, /--ro-bind <staged-loader> \/usr\/lib\/<platform-loader>/u)
+  assert.match(runbook, /git config user\.name 'DSH Acceptance Fixture'/u)
+  assert.match(runbook, /git config user\.email dsh-acceptance-fixture@example\.invalid/u)
+  assert.match(runbook, /commit\.gpgSign true/u)
+  assert.match(runbook, /--overlay-src <signing-home>[\s\S]*--tmp-overlay <signing-home>/u)
+  assert.match(runbook, /--chmod 0700 <signing-home>/u)
+  assert.match(runbook, /independently verify the resulting commit signature/iu)
+  assert.match(runbook, /repository-local test identity/u)
+  assert.match(runbook, /fresh dedicated Agent Console controller\s+principal/iu)
+  assert.match(runbook, /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u)
+  assert.match(runbook, /XDG_CONFIG_HOME/u)
   assert.match(runbook, /precondition-unmet/u)
   assert.doesNotMatch(runbook, /set `DSH_PERMISSION_MODE=danger-full-access` in the\s+owner-only DSH wrapper before boot/u)
+})
+
+test('#D tasks run fixture commands in the current session without launching nested DSH', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.owner.program_child === '#D',
+  )
+
+  assert.equal(scenarios.length, 33)
+  for (const scenario of scenarios) {
+    for (const task of [scenario.task, scenario.deliberate_failure_task]) {
+      assert.equal(typeof task, 'string', `${scenario.id} must declare both phases`)
+      assert.doesNotMatch(task!, /through DSH/u, scenario.id)
+      assert.match(task!, /executable command ending in \.mjs[\s\S]*Bash tool in the current DSH session/u, scenario.id)
+      assert.match(task!, /Bash calls?[\s\S]*do not include sandbox_permissions or justification/iu, scenario.id)
+      assert.match(task!, /do not launch dsh, dsh-host, or another nested agent session/iu, scenario.id)
+      assert.doesNotMatch(task!, /Bash tool[\s\S]*every command/u, scenario.id)
+    }
+  }
+})
+
+test('governed commit tasks omit escalation fields from every Bash call', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id === 'governed-commit.managed-worktree',
+  )
+
+  assert.equal(scenarios.length, 1)
+  for (const task of [scenarios[0]!.task, scenarios[0]!.deliberate_failure_task]) {
+    assert.match(
+      task!,
+      /For every Bash call in this task, do not include sandbox_permissions or justification/iu,
+    )
+  }
 })
 
 test('DSH project guidance names the governed commit surface and keeps direct default delivery refused', () => {
@@ -149,6 +196,76 @@ test('DSH project guidance names the governed commit surface and keeps direct de
   assert.match(guidance, /runtime_kit_governed_commit/u)
   assert.match(guidance, /default branch/u)
   assert.match(guidance, /refus/u)
+})
+
+test('workspace recovery tasks distinguish the absolute request target from the literal write argument', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('workspace-identity.'),
+  )
+  for (const scenario of scenarios) {
+    assert.match(scenario.deliberate_failure_task!, /target field is an absolute path/u)
+    assert.match(scenario.deliberate_failure_task!, /scenario workdir's child named leased\.txt/u)
+    assert.match(scenario.deliberate_failure_task!, /file_path=leased\.txt/u)
+    assert.doesNotMatch(scenario.deliberate_failure_task!, /require its target resolves exactly to \.\/leased\.txt/u)
+  }
+})
+
+test('profile lifecycle tasks delegate repository observation to the external harness', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('profile-lifecycle.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    for (const task of [scenario.task, scenario.deliberate_failure_task]) {
+      assert.equal(typeof task, 'string', `${scenario.id} must declare both phases`)
+      assert.match(task!, /Do not invoke Git/u, scenario.id)
+      assert.match(task!, /external harness independently verifies repository state/iu, scenario.id)
+    }
+  }
+})
+
+test('deploy dispatcher success tasks preserve fresh validation as their finish line', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('deploy-dispatcher.'),
+  )
+
+  assert.equal(scenarios.length, 2)
+  for (const scenario of scenarios) {
+    assert.match(scenario.task, /Do not invoke Git/u, scenario.id)
+    assert.match(scenario.task, /external harness independently verifies repository state/iu, scenario.id)
+    assert.match(scenario.task, /Treat \.\/fixture-validation\.mjs as your final tool call/iu, scenario.id)
+    assert.match(scenario.task, /emit .* immediately without any other tool call/iu, scenario.id)
+  }
+})
+
+test('deploy dispatcher deliberate-failure tasks use the typed fixture probe', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('deploy-dispatcher.'),
+  )
+
+  assert.equal(scenarios.length, 2)
+  for (const scenario of scenarios) {
+    assert.match(scenario.deliberate_failure_task!, /Run exactly \.\/deploy-probe\.mjs/u, scenario.id)
+    assert.match(scenario.deliberate_failure_task!, /typed dispatcher-unavailable/u, scenario.id)
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /Do not invoke agent-run, \.agents\/scripts\/deploy\.sh directly/u,
+      scenario.id,
+    )
+  }
+})
+
+test('workspace success tasks exercise the write-tool lease boundary without a Bash mutation', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('workspace-identity.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    assert.match(scenario.task, /Call write exactly once/u)
+    assert.match(scenario.task, /Do not use Bash for the mutation/u)
+  }
 })
 
 test('governed failure tasks bind exact request actions to each folder kind', () => {
@@ -165,7 +282,15 @@ test('governed failure tasks bind exact request actions to each folder kind', ()
   }
   assert.match(git.deliberate_failure_task!, /typed-default-branch-refusal/u)
   assert.doesNotMatch(git.deliberate_failure_task!, /signed commit are verified/u)
+  assert.match(git.deliberate_failure_task!, /choose exactly one mutually exclusive branch/u)
+  assert.match(git.deliberate_failure_task!, /do not edit, stage, inspect Git, or execute any action from the other branch/u)
+  assert.match(git.deliberate_failure_task!, /must not contain any DSH_ACCEPTANCE_ token/u)
+  assert.match(git.deliberate_failure_task!, /Only the typed-default-branch-refusal branch may emit the recovery marker/u)
   assert.match(managed.deliberate_failure_task!, /signed-feature-commit/u)
+  assert.match(managed.deliberate_failure_task!, /choose exactly one mutually exclusive branch/u)
+  assert.match(managed.deliberate_failure_task!, /do not edit, stage, inspect Git, or execute any action from the other branch/u)
+  assert.match(managed.deliberate_failure_task!, /must not contain any DSH_ACCEPTANCE_ token/u)
+  assert.match(managed.deliberate_failure_task!, /Only the signed-feature-commit branch may emit the recovery marker/u)
   assert.match(managed.task, /Read governed-request\.json/u)
   assert.match(managed.task, /exact ordered sequence/u)
   assert.match(managed.task, /stage action/u)
@@ -176,6 +301,41 @@ test('governed failure tasks bind exact request actions to each folder kind', ()
   for (const task of [managed.task, managed.deliberate_failure_task!]) {
     assert.match(task, /no backticks, prefix, suffix, or sentence around it/u)
     assert.match(task, /after any finish-line steering/iu)
+  }
+})
+
+test('governed read-only task permits its required fixture validation command', () => {
+  const scenario = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'governed-commit.git-repo',
+  )!
+
+  assert.doesNotMatch(scenario.task, /do not invoke Git, Bash, or any commit tool/u)
+  assert.match(
+    scenario.task,
+    /Do not invoke Bash except for the exact registered \.\/fixture-validation\.mjs command/u,
+  )
+})
+
+test('workspace recovery tasks satisfy read-before-write before their single mutation', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('workspace-identity.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /Read the target's current bytes from \.\/leased\.txt, then make exactly one write attempt/u,
+    )
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /Call write with only file_path and content; do not include sandbox_permissions or justification/u,
+    )
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /Use exactly the two literal arguments file_path=leased\.txt and content=lease-recovered/u,
+    )
+    assert.match(scenario.deliberate_failure_task!, /Do not reconstruct the absolute target path/u)
   }
 })
 
@@ -197,6 +357,27 @@ test('authoritative acceptance failure tasks make request array order explicit',
   assert.match(nonGit.deliberate_failure_task!, /Do not run acceptance-validation\.mjs/u)
   for (const scenario of scenarios.filter(row => row.folder_kind !== 'non-git')) {
     assert.match(scenario.deliberate_failure_task!, /validate means run exactly node acceptance-validation\.mjs/u)
+  }
+})
+
+test('restricted-role scenarios invoke the authenticated reviewer surface instead of an ordinary child', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('restricted-role.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    for (const task of [scenario.task, scenario.deliberate_failure_task!]) {
+      assert.match(task, /Call review_specialists/u)
+      assert.match(task, /roles exactly \["reviewer-quick"\]/u)
+      assert.match(task, /Do not use the ordinary subagent tool/u)
+    }
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /run exactly \.\/fixture-validation\.mjs once to surface the typed induced failure/u,
+    )
+    assert.match(scenario.deliberate_failure_task!, /typed status induced record[\s\S]*command exits zero/u)
+    assert.match(scenario.deliberate_failure_task!, /Only acceptance-fixture-ok permits the recovery marker/u)
   }
 })
 
@@ -231,6 +412,7 @@ test('managed subagent controller records reviewed child state before validating
       assert.match(task, /primary implementation target/u)
       assert.match(task, /final tool call/u)
       assert.match(task, /without any other tool call/u)
+      assert.match(task, /do not append a phase or workdir suffix/iu)
       assert.ok(task.indexOf('Do not run Bash in child_worktree') < task.indexOf('Accept the submitted current revision'))
       assert.ok(task.indexOf('Accept the submitted current revision') < task.indexOf('controller-review.txt'))
       assert.ok(task.indexOf('after the run closeout') < task.indexOf('once from primary_worktree'))
@@ -398,10 +580,10 @@ const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session
 fs.mkdirSync(sessions, {recursive:true})
 const transcript = [
   {type:'session',cwd:process.cwd(),createdAt:Date.now()},
-  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'runtime-root-drift'}})}]}]}}},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'}})}]}]}}},
 ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
 fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
-process.stderr.write('The unchanged task stopped at the typed runtime boundary.\\n')
+process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID\\n')
 `)
 
   const summary = runAcceptanceDrive({
@@ -422,7 +604,7 @@ process.stderr.write('The unchanged task stopped at the typed runtime boundary.\
   assert.equal(result.expected.success_marker, 'DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git')
   assert.equal(result.observed.success_marker_seen, false)
   assert.equal(result.session_outcome.status, 'failed')
-  assert.equal(result.session_outcome.code, 'runtime-root-drift')
+  assert.equal(result.session_outcome.code, 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
   assert.match(result.scenario_pack.isolation_key, /^[a-f0-9]{64}$/u)
   assert.equal(result.scenario_pack.family, 'automatic-prerequisite')
   assert.equal(result.scenario_pack.phase, 'deliberate-failure')
@@ -453,10 +635,10 @@ if (fs.readFileSync(calls, 'utf8').trim().split('\\n').length === 1) {
   fs.mkdirSync(sessions, {recursive:true})
   const transcript = [
     {type:'session',cwd:process.cwd(),createdAt:Date.now()},
-    {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'runtime-root-drift'}})}]}]}}},
+    {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'}})}]}]}}},
   ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
   fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
-  process.stderr.write('The unchanged task stopped at the typed runtime boundary.\\n')
+  process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID\\n')
   process.exit(1)
 }
 const recoverySessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'recovery')
@@ -513,10 +695,10 @@ const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session
 fs.mkdirSync(sessions, {recursive:true})
 const transcript = [
   {type:'session',cwd:process.cwd(),createdAt:Date.now()},
-  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'runtime-root-drift'}})}]}]}}},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'}})}]}]}}},
 ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
 fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
-process.stderr.write('The unchanged task stopped at the typed runtime boundary.\\n')
+process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID\\n')
 `)
 
   const summary = runAcceptanceDrive({
@@ -1055,6 +1237,88 @@ process.exit(1)
   assert.equal(result.session_outcome.component, 'session')
 })
 
+test('automatic-prerequisite accepts its induced pre-model project-audit refusal and clean retry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-project-audit-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+if (!fs.existsSync('.fixture-recovered')) {
+  process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID: LLM call denied by a monotonic guard\\n')
+  process.exit(70)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'recovery')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'tool/call',data:{callId:'runtime-context-1',name:'runtime_context',arguments:'{"intent":"project-dev"}'}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'runtime-context-1'},content:[{type:'tool-result',isError:false,content:[{type:'text',text:'Follow the current repository instructions'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'success.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'project-audit-refusal',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  assert.equal(summary.status, 'pass')
+  const [result] = rows(output)
+  assert.equal(result.status, 'pass')
+  assert.equal(result.session_outcome.category, 'health-failure')
+  assert.equal(result.session_outcome.component, 'runtime-health')
+  assert.equal(result.session_outcome.code, 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+})
+
+test('runtime-health accepts only its induced companion-identity refusal and clean retry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-companion-health-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+if (!fs.existsSync('.fixture-recovered')) {
+  process.stderr.write('HealthProbeFailure: DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID\\n')
+  process.exit(1)
+}
+process.stdout.write('DSH_ACCEPTANCE_RECOVERED:runtime-health.non-git\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['runtime-health.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'companion-health-refusal',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  assert.equal(summary.status, 'pass')
+  const [result] = rows(output)
+  assert.equal(result.status, 'pass')
+  assert.equal(result.session_outcome.category, 'health-failure')
+  assert.equal(result.session_outcome.code, 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+})
+
 test('evidence traversal fails the row on an aggregate tree budget', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-evidence-budget-'))
   const workdir = join(root, 'plain')
@@ -1225,4 +1489,613 @@ process.exit(1)
   } finally {
     process.env.PATH = previousPath
   }
+})
+
+test('success marker is recognised as a line token and not as a substring of another marker', async () => {
+  const scenario = 'scripted-provider.non-git'
+  const marker = `DSH_ACCEPTANCE_PASS:${scenario}`
+  for (const [trailer, expected] of [[' immediately', true], ['-success', false]] as const) {
+    const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-marker-'))
+    const workdir = join(root, 'plain')
+    const dshHome = join(root, 'dsh-home')
+    const output = join(root, 'results.jsonl')
+    const catalog = join(root, 'catalog.json')
+    mkdirSync(workdir)
+    mkdirSync(dshHome)
+    fixtureCatalog(catalog, 'non-git')
+    const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+    const dsh = executable(join(root, 'dsh.mjs'), `
+process.stdout.write(${JSON.stringify(`${marker}${trailer}\n`)})
+`)
+    const summary = runAcceptanceDrive({
+      profile: 'headless', catalogPath: catalog, scenarioIds: [scenario],
+      workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+      runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: `marker-${expected}`,
+    })
+    const [result] = rows(output)
+    assert.equal(
+      result.observed.success_marker_seen,
+      expected,
+      `trailer ${JSON.stringify(trailer)} must ${expected ? 'satisfy' : 'not satisfy'} the marker`,
+    )
+    assert.equal(summary.status, expected ? 'pass' : 'fail')
+  }
+})
+
+// A clean retry is necessary but not sufficient evidence: process output is
+// model-controlled and cannot prove which fixture induction the first leg saw.
+function reportAndStopDsh(root: string, failureTask: string) {
+  return executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+// Exactly what the packaged probe writes when it reaches the staged condition.
+process.stderr.write(JSON.stringify({status:'induced',code:'retired-surface-unreachable',surface_id:'workspace-lease-quarantine-registry'})+'\\n')
+process.stdout.write('The staged probe reported retired-surface-unreachable; stopping without the recovery marker.\\n')
+`)
+}
+
+test('model-authored induced JSON in process output cannot satisfy deliberate failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-report-and-stop-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'),
+    dshBin: reportAndStopDsh(root, failureTask),
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'report-and-stop',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.status, 'completed', 'a complying session exits cleanly')
+  assert.equal(result.observed.success_marker_seen, false, 'the induced leg must not claim recovery')
+  assert.equal(result.observed.induced_failure, undefined)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.observed.fixture.clean_retry, undefined)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('an infrastructure failure in the induced leg is not an observed induced failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-infra-leg-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  // The provider, not the staged induction, ended this leg. Recovering and
+  // passing a clean retry must not launder that into an accepted row.
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+process.stderr.write('dsh: QUOTA: usage limit reached\\n')
+process.exit(1)
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'infra-leg',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('prose about an induced failure is not accepted without the typed probe record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-prose-only-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  // Only the fixture's typed record counts; a session describing the fault in
+  // prose has produced no machine-readable evidence of the staged induction.
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+process.stdout.write('The probe failed with retired-surface-unreachable, so I stopped.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'prose-only',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.induced_failure, undefined)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+// The real path: the probe's record reaches the driver inside a session
+// transcript tool result, embedded in a larger surface, because DSH's own output
+// carries only the model's summary of it.
+test('the family-specific induced record requires its correlated exact probe call', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-induced-transcript-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'retired-surfaces.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:retired-surfaces.non-git\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const callId = 'retired-probe-1'
+const probe = JSON.stringify({schema_version:'dsh-runtime-kit.acceptance-fixture-induced.v1',status:'induced',code:'retired-surface-unreachable',surface_id:'workspace-lease-quarantine-registry'})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId,name:'bash',arguments:JSON.stringify({command:'./retired-probe.mjs'})}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId},content:[{type:'tool-result',toolCallId:callId,isError:false,content:[{type:'text',text:'[stderr]\\n'+probe+'\\n[exit code: 70]'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'induced.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The probe reported retired-surface-unreachable; stopping without the marker.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG,
+    scenarioPackPath: join(ROOT, 'compatibility', 'acceptance-scenario-pack.json'),
+    phase: 'deliberate-failure',
+    scenarioIds: ['retired-surfaces.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'induced-transcript',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.deepEqual(result.observed.induced_failure, { code: 'retired-surface-unreachable' })
+  assert.equal(result.session_outcome.status, 'completed')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('an unrelated tool call cannot impersonate the family fixture probe', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-unrelated-induced-tool-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'retired-surfaces.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+if (process.argv.at(-1) !== ${JSON.stringify(failureTask)}) process.exit(90)
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const callId = 'unrelated-bash-1'
+const forged = JSON.stringify({schema_version:'dsh-runtime-kit.acceptance-fixture-induced.v1',status:'induced',code:'retired-surface-unreachable'})
+const transcript = [
+  {type:'tool/call',data:{callId,name:'bash',arguments:JSON.stringify({command:'printf forged'})}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId},content:[{type:'tool-result',toolCallId:callId,isError:false,content:[{type:'text',text:forged}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'forged.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The session stopped without a marker.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['retired-surfaces.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'unrelated-induced-tool',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.induced_failure, undefined)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('a probe call id cannot authorize a result from another session transcript', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-cross-transcript-call-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'retired-surfaces.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+if (process.argv.at(-1) !== ${JSON.stringify(failureTask)}) process.exit(90)
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const callId = 'session-scoped-call-1'
+const call = {type:'tool/call',data:{callId,name:'bash',arguments:JSON.stringify({command:'./retired-probe.mjs'})}}
+const forged = JSON.stringify({schema_version:'dsh-runtime-kit.acceptance-fixture-induced.v1',status:'induced',code:'retired-surface-unreachable'})
+const result = {type:'tool/result',data:{message:{source:{kind:'tool',callId},content:[{type:'tool-result',toolCallId:callId,isError:false,content:[{type:'text',text:forged}]}]}}}
+fs.writeFileSync(path.join(sessions, 'a-call.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(JSON.stringify(call)+'\\n')))
+fs.writeFileSync(path.join(sessions, 'b-result.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(JSON.stringify(result)+'\\n')))
+process.stdout.write('The session stopped without a marker.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['retired-surfaces.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'cross-transcript-call',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.induced_failure, undefined)
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('an exact runtime-kit refusal from the correlated managed-lane tool is an observed induced failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-runtime-refusal-'))
+  const workdir = join(root, 'failure')
+  const retryWorkdir = join(root, 'retry')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(retryWorkdir)
+  mkdirSync(dshHome)
+  for (const repo of [workdir, retryWorkdir]) {
+    assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repo }).status, 0)
+  }
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'managed-subagent-workspace.git-repo',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const refusal = 'Error: dsh-runtime-kit:main-agent-cli-refused '+JSON.stringify({
+  code:'assignment-launch-cwd-unavailable',
+  message:'assignment launch working directory is unavailable',
+})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId:'managed-lane-1',name:'main_agent_worker_launch',arguments:'{}'}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'managed-lane-1'},content:[{type:'tool-result',toolCallId:'managed-lane-1',isError:true,content:[{type:'text',text:refusal}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'refusal.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('Typed refusal: assignment-launch-cwd-unavailable\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['managed-subagent-workspace.git-repo'],
+    workdir, retryWorkdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'runtime-refusal',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.deepEqual(result.observed.induced_failure, { code: 'assignment-launch-cwd-unavailable' })
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('the fixture typed error is accepted only when the diagnostic code matches it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-fixture-typed-error-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'authoritative-acceptance.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:authoritative-acceptance.non-git\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const fixtureError = JSON.stringify({
+  schema_version:'cli.dsh-runtime-kit.acceptance-fixture.v1',
+  ok:false,
+  error:{code:'acceptance-fixture-induced-failure',message:'The authenticated fixture fault is active.'},
+})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId:'fixture-validation-1',name:'bash',arguments:JSON.stringify({command:'./fixture-validation.mjs'})}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'fixture-validation-1'},content:[{type:'tool-result',toolCallId:'fixture-validation-1',isError:false,content:[{type:'text',text:'[stderr]\\n'+fixtureError+'\\n[exit code: 1]'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'fixture-error.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The exact fixture validation reported its typed induced failure.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['authoritative-acceptance.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'fixture-typed-error',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.deepEqual(result.observed.induced_failure, { code: 'acceptance-fixture-induced-failure' })
+  assert.equal(result.session_outcome.category, 'unknown')
+  assert.equal(result.session_outcome.code, result.observed.induced_failure.code)
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('the governed family accepts the live multi-code agent-hook default-delivery refusal', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-hook-refusal-'))
+  const workdir = join(root, 'failure')
+  const retryWorkdir = join(root, 'retry')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(retryWorkdir)
+  mkdirSync(dshHome)
+  assert.equal(spawnSync('git', ['init', '--initial-branch=acceptance/failure'], { cwd: workdir }).status, 0)
+  assert.equal(spawnSync('git', ['init', '--initial-branch=acceptance/retry'], { cwd: retryWorkdir }).status, 0)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'governed-commit.git-repo',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  const recoverySessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'recovery')
+  fs.mkdirSync(recoverySessions, {recursive:true})
+  const recoveryTranscript = [
+    {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+    {type:'tool/call',data:{callId:'runtime-context-retry-1',name:'runtime_context',arguments:'{}'}},
+    {type:'tool/result',data:{message:{source:{kind:'tool',callId:'runtime-context-retry-1'},content:[{type:'tool-result',toolCallId:'runtime-context-retry-1',isError:false,content:[{type:'text',text:'Use runtime_kit_governed_commit for the governed delivery seam.'}]}]}}},
+    {type:'tool/call',data:{callId:'governed-retry-1',name:'runtime_kit_governed_commit',arguments:'{}'}},
+    {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-retry-1'},content:[{type:'tool-result',toolCallId:'governed-retry-1',isError:false,content:[{type:'text',text:'governed recovery validation passed'}]}]}}},
+  ].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+  fs.writeFileSync(path.join(recoverySessions, 'success.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(recoveryTranscript)))
+  process.stdout.write('runtime_kit_governed_commit\\nDSH_ACCEPTANCE_RECOVERED:governed-commit.git-repo\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId:'governed-1',name:'runtime_kit_governed_commit',arguments:'{}'}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'governed-1'},content:[{type:'tool-result',toolCallId:'governed-1',isError:true,content:[{type:'text',text:'Error: agent-hook:blocked — Mutating the default branch directly is a governed seam.\\nPolicy codes: block-unsafe-default-delivery,checkout-lease-guard'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'refusal.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The exact governed precondition refusal was observed.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['governed-commit.git-repo'],
+    workdir, retryWorkdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'governed-hook-refusal',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.status, 'failed')
+  assert.equal(result.session_outcome.category, 'tool-denial')
+  assert.equal(result.session_outcome.code, 'dsh.block-unsafe-default-delivery')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('a cross-family governed-tool rejection cannot satisfy prerequisite induction', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-rejection-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'automatic-prerequisite.non-git',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/result',data:{error:{name:'HarnessError',code:'GOVERNED_COMMIT_REJECTED'},message:{content:[{type:'tool-result',isError:true,content:[{type:'text',text:'Error: semantic-commit rejected the governed commit'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The governed tool refused the operation, so I stopped without a marker.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'governed-rejection',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.status, 'failed')
+  assert.equal(result.session_outcome.category, 'tool-denial')
+  assert.equal(result.session_outcome.code, 'GOVERNED_COMMIT_REJECTED')
+  assert.equal(result.observed.expected_failure_observed, false)
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
+})
+
+test('a governed success marker cannot hide a rejected governed commit', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-governed-false-pass-'))
+  const repo = join(root, 'repo')
+  const workdir = join(root, 'worktree')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  const catalog = join(root, 'catalog.json')
+  mkdirSync(repo)
+  mkdirSync(dshHome)
+  assert.equal(spawnSync('git', ['init', '--initial-branch=main'], { cwd: repo }).status, 0)
+  writeFileSync(join(repo, 'seed.txt'), 'seed\n')
+  assert.equal(spawnSync('git', ['add', 'seed.txt'], { cwd: repo }).status, 0)
+  assert.equal(spawnSync('git', [
+    '-c', 'user.name=Acceptance Fixture',
+    '-c', 'user.email=acceptance@example.invalid',
+    'commit', '--no-gpg-sign', '-m', 'test: seed fixture',
+  ], { cwd: repo }).status, 0)
+  assert.equal(spawnSync('git', [
+    'worktree', 'add', '-b', 'acceptance/feature', workdir,
+  ], { cwd: repo }).status, 0)
+  fixtureCatalog(catalog, 'managed-worktree', {
+    id: 'governed-commit.managed-worktree',
+    task: 'Create a governed commit and finish with DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree.',
+    success_marker: 'DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree',
+    deliberate_failure_task: 'Recover and finish with DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree.',
+    deliberate_failure_success_marker: 'DSH_ACCEPTANCE_RECOVERED:governed-commit.managed-worktree',
+    expected_reminders: [],
+    forbidden_outcomes: ['silent-stop'],
+  })
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/result',data:{error:{name:'HarnessError',code:'GOVERNED_COMMIT_REJECTED'},message:{content:[{type:'tool-result',isError:true,content:[{type:'text',text:'Error: semantic-commit rejected the governed commit'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('DSH_ACCEPTANCE_PASS:governed-commit.managed-worktree\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: catalog,
+    scenarioIds: ['governed-commit.managed-worktree'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'governed-false-pass',
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.observed.success_marker_seen, true)
+  assert.equal(result.session_outcome.code, 'GOVERNED_COMMIT_REJECTED')
+  assert.equal(result.status, 'fail')
+  assert.equal(summary.status, 'fail')
 })

@@ -510,6 +510,17 @@ function mainAgentFixtureContext(input: AcceptanceFixtureInput) {
   }
 }
 
+function lifecycleRuntimeRoot(input: AcceptanceFixtureInput) {
+  return ensurePrivateDescendant(
+    input.dshHome,
+    'runtime-kit',
+    'acceptance-fixtures',
+    input.profile,
+    input.scenarioId,
+    'lifecycle-runtime',
+  )
+}
+
 function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: AcceptanceFixtureInput) {
   const scenario = input.scenarioId
   const mainAgent = family.id === 'managed-subagent-workspace'
@@ -538,7 +549,10 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     sequence: ['edit', 'validate', 'finish'],
   }, undefined, 2)}\n`
   if (path === 'subagent-target.txt') return 'subagent-before\n'
-  if (path === 'controller-review.txt') return 'review-pending\n'
+  // The controller task replaces this token with `review-complete\n`. Leaving
+  // the seed token unterminated prevents line-oriented edit tools from retaining
+  // the old newline and accidentally producing a double-newline final state.
+  if (path === 'controller-review.txt') return 'review-pending'
   if (path === 'subagent-request.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-subagent-request.v1',
     workspace: 'new-host-issued-worktree',
@@ -548,6 +562,13 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     child_worktree: mainAgent!.worktree,
     target: 'subagent-target.txt',
     content: 'subagent-after',
+    controller_review: {
+      file_path: join(mainAgent!.primary, 'controller-review.txt'),
+      content: 'review-complete\n',
+    },
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${scenario}`
+      : `DSH_ACCEPTANCE_RECOVERED:${scenario}`,
   }, undefined, 2)}\n`
   if (path === 'main-agent-objective.json') return `${JSON.stringify({
     schema_version: 'main-agent.objective-packet.v1',
@@ -576,7 +597,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     assignment_id: `lane-${sha256(input.workdir).slice(0, 16)}`,
     task_summary: 'edit and validate subagent-target.txt in the host-issued child worktree',
     task: {
-      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline, run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command, then call main_agent_checkpoint with state submitted and report the validated result.',
+      objective: 'Call main_agent_bootstrap, load project-dev through runtime_context, replace subagent-target.txt with exactly subagent-after followed by a newline. For the write call, do not include sandbox_permissions or justification, then run the exact command ./fixture-validation.mjs without a wrapper, prefix, suffix, or compound command. Call main_agent_checkpoint with state submitted and report the validated result.',
     },
     launch: {
       agent: 'dsh',
@@ -609,7 +630,9 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
   if (path === 'lifecycle-inputs.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
     profile: `acceptance-${scenario.replaceAll('.', '-')}`,
+    runtime_root: lifecycleRuntimeRoot(input),
     runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
+    dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
     primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
     update_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE ?? null,
     operation: 'full-lifecycle',
@@ -635,12 +658,18 @@ process.exit(result.status ?? 70)
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
+process.umask(0o077)
 const input = JSON.parse(readFileSync('lifecycle-inputs.json', 'utf8'))
-const required = ['profile', 'runtime_kit_bin', 'primary_package', 'update_package', 'operation']
+const required = ['profile', 'runtime_root', 'runtime_kit_bin', 'dsh_bin', 'primary_package', 'update_package', 'operation']
 if (input.schema_version !== 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1'
   || required.some(key => typeof input[key] !== 'string' || input[key].length === 0)) process.exit(65)
+const lifecycleEnv = {
+  ...process.env,
+  DSH_RUNTIME_KIT_RUNTIME_ROOT: input.runtime_root,
+  DSH_RUNTIME_KIT_DSH_BIN: input.dsh_bin,
+}
 
-function invoke(args, env = process.env, expectedFailure = false, acceptInspection = false) {
+function invoke(args, env = lifecycleEnv, expectedFailure = false, acceptInspection = false) {
   const result = spawnSync(input.runtime_kit_bin, [...args, '--format', 'json'], {
     encoding: 'utf8', env, maxBuffer: 1024 * 1024,
   })
@@ -648,7 +677,11 @@ function invoke(args, env = process.env, expectedFailure = false, acceptInspecti
   try { value = JSON.parse(result.stdout) } catch { value = undefined }
   if (expectedFailure) {
     if (result.status === 0 || typeof value?.error?.code !== 'string') process.exit(70)
-    process.stderr.write(JSON.stringify({ status: 'induced', code: value.error.code }) + '\\n')
+    process.stderr.write(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+      status: 'induced',
+      code: value.error.code,
+    }) + '\\n')
     process.exit(result.status ?? 70)
   }
   if (acceptInspection && typeof value?.data === 'object') return value.data
@@ -659,19 +692,19 @@ function invoke(args, env = process.env, expectedFailure = false, acceptInspecti
   return value.data
 }
 
-function apply(args, env = process.env) {
+function apply(args, env = lifecycleEnv) {
   const preview = invoke(args, env)
   if (typeof preview.plan_digest !== 'string') process.exit(70)
   return invoke([...args, '--apply', '--expected-plan-digest', preview.plan_digest], env)
 }
 
 function normalize() {
-  const doctor = invoke(['doctor', '--profile', input.profile], process.env, false, true)
+  const doctor = invoke(['doctor', '--profile', input.profile], lifecycleEnv, false, true)
   if (doctor.recovery !== null) {
     const repaired = apply(['doctor', '--profile', input.profile, '--repair'])
     if (repaired.mode !== 'applied') process.exit(70)
   }
-  const current = invoke(['doctor', '--profile', input.profile], process.env, false, true)
+  const current = invoke(['doctor', '--profile', input.profile], lifecycleEnv, false, true)
   if (typeof current.observed?.installed_version === 'string') {
     apply(['remove', '--profile', input.profile])
   }
@@ -681,7 +714,7 @@ normalize()
 apply(['setup', '--profile', input.profile, '--package', input.primary_package])
 invoke(['doctor', '--profile', input.profile])
 if (input.operation === 'interrupt-update') {
-  const env = { ...process.env, DSH_RUNTIME_KIT_DSH_BIN: new URL('./lifecycle-failing-dsh.mjs', import.meta.url).pathname }
+  const env = { ...lifecycleEnv, DSH_RUNTIME_KIT_DSH_BIN: new URL('./lifecycle-failing-dsh.mjs', import.meta.url).pathname }
   const preview = invoke(['update', '--profile', input.profile, '--package', input.update_package], env)
   invoke([
     'update', '--profile', input.profile, '--package', input.update_package,
@@ -717,6 +750,8 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
+process.umask(0o077)
+
 const input = JSON.parse(readFileSync('deploy-inputs.json', 'utf8'))
 const required = [
   'profile', 'dsh_home', 'deploy_bin', 'engine_root', 'dsh_bin', 'agent_hook_bin', 'agent_docs_bin',
@@ -744,6 +779,14 @@ function invoke(phase, extra = []) {
   const result = spawnSync(input.deploy_bin, ['--phase', phase, ...common, ...extra], {
     encoding: 'utf8', env: process.env, maxBuffer: 1024 * 1024,
   })
+  if (result.error) {
+    process.stderr.write(JSON.stringify({
+      schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+      status: 'induced',
+      code: 'dispatcher-unavailable',
+    }) + '\\n')
+    process.exit(70)
+  }
   let value
   try { value = JSON.parse(result.stdout) } catch { value = undefined }
   if (result.status !== 0 || value?.ok !== true || typeof value?.data !== 'object') {
@@ -768,7 +811,7 @@ process.stdout.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptanc
 `
   if (path === '.agents/scripts/deploy.sh') {
     const entry = packageAsset('dist', 'scripts', 'deploy.js')
-    return `#!/bin/sh\nset -eu\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`
+    return `#!/bin/sh\nset -eu\nPATH=${JSON.stringify(dirname(process.execPath))}:$PATH\nexport PATH\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(entry)} "$@"\n`
   }
   if (path === 'retired-surfaces.json') {
     return readFileSync(packageAsset('compatibility', 'retired-surfaces.json'), 'utf8')
@@ -813,7 +856,7 @@ for (const surface of reduced) {
   }
 }
 if (probe.expected_status === 'invoke-retired-surface') {
-  process.stderr.write(JSON.stringify({ status: 'induced', code: 'retired-surface-unreachable', surface_id: probe.surface_id }) + '\\n')
+  process.stderr.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1', status: 'induced', code: 'retired-surface-unreachable', surface_id: probe.surface_id }) + '\\n')
   process.exit(70)
 }
 process.stdout.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptance-retired-probe-result.v1', status: 'pass', removed: removed.length, reduced: reduced.length }) + '\\n')
@@ -1045,7 +1088,13 @@ function guide(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
 }
 
 function projectValidationCommands(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
-  const commands = ['./fixture-validation.mjs']
+  if (input.phase === 'deliberate-failure'
+    && (family.id === 'profile-lifecycle'
+      || family.id === 'deploy-dispatcher'
+      || family.id === 'retired-surfaces')) return []
+  const commands = family.id === 'deploy-dispatcher' && input.phase === 'success'
+    ? ['./deploy-probe.mjs', './fixture-validation.mjs']
+    : ['./fixture-validation.mjs']
   if (!input.scenarioId.endsWith('.non-git')) {
     if (family.id === 'automatic-prerequisite') commands.push('node fixture-source.test.mjs')
     if (family.id === 'authoritative-acceptance') commands.push('node acceptance-validation.mjs')
@@ -1054,7 +1103,14 @@ function projectValidationCommands(family: AcceptanceFixtureFamily, input: Accep
 }
 
 function projectCatalog(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
-  const commands = JSON.stringify(projectValidationCommands(family, input))
+  const commands = projectValidationCommands(family, input)
+  const validation = commands.length === 0 ? '' : `
+[[validation]]
+context = "project-dev"
+product = "dsh"
+commands = ${JSON.stringify(commands)}
+description = "Validate the bounded acceptance fixture state."
+`
   return `[[document]]
 context = "project-dev"
 scope = "project"
@@ -1063,13 +1119,7 @@ product = "dsh"
 phase = "edit"
 required = true
 when = "always"
-
-[[validation]]
-context = "project-dev"
-product = "dsh"
-commands = ${commands}
-description = "Validate the bounded acceptance fixture state."
-
+${validation}
 [path_classes]
 production = ["*.txt", "*.mjs", "*.json", ".agents/**", ".dsh-acceptance/**"]
 test = []
@@ -1082,17 +1132,28 @@ function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtu
   const prerequisite = family.id === 'automatic-prerequisite'
     ? '\nFor the plain-directory scenario, read `prerequisite-marker.txt` and create `prerequisite.txt` with exactly that marker. For source scenarios, repair `plusOne` so the prepared focused test passes.\n'
     : ''
+  const managedController = family.id === 'managed-subagent-workspace'
+    ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. The final registered primary validation prints its exact `terminal_marker` immediately after `acceptance-fixture-ok`; copy that second output line verbatim as the entire finish line, and do not derive either value from a workdir, phase label, or idempotency key.\n'
+    : ''
+  const inducedLifecycle = family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure'
+  const terminalMarker = inducedLifecycle
+    ? ''
+    : '\nBefore the final response, read `terminal_marker` from `acceptance-fixture.json` and copy that exact value at the finish line; do not derive it from a workdir, phase label, or any other identifier.\n'
   const validations = projectValidationCommands(family, input).map(command => `\`${command}\``).join(' and ')
+  const validationInstruction = inducedLifecycle
+    ? 'If the lifecycle probe reports a typed lifecycle interruption, stop immediately without running post-induction validation or emitting a terminal marker.'
+    : `run the exact registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation.`
   return `# Acceptance fixture development
 
 Follow the current repository instructions before any mutation.
 
 Work only in this scenario directory. Inspect acceptance-fixture.json for the
-provider-owned inputs, use the runtime's governed tools, and run the exact
-registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation. Do not edit
+provider-owned inputs and use the runtime's governed tools. ${validationInstruction} Do not edit
 the catalog task, weaken a policy denial, or treat fixture metadata as proof of
 the observable outcome.
-${prerequisite}
+
+When the catalog task says to run a command through DSH, use the current DSH session's Bash tool from this scenario directory. Never launch dsh, dsh-host, or another nested agent session to satisfy that instruction.
+${prerequisite}${terminalMarker}${managedController}
 
 Capability family: ${family.id}
 `
@@ -1103,6 +1164,7 @@ function fixtureValidation() {
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 const fixture = JSON.parse(readFileSync('acceptance-fixture.json', 'utf8'))
+let terminalMarker
 if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance/failure.json')) {
   process.stderr.write(JSON.stringify({
     schema_version: 'cli.dsh-runtime-kit.acceptance-fixture.v1',
@@ -1113,6 +1175,17 @@ if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance
     },
   }) + '\\n')
   process.exit(1)
+}
+if (fixture.family === 'restricted-role' && existsSync('.dsh-acceptance/failure.json')) {
+  assert.equal(readFileSync('review-target.txt', 'utf8'), 'review-target-unchanged\\n')
+  assert.match(readFileSync('review-instruction.txt', 'utf8'), /^Replace /u)
+  process.stdout.write(JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+    status: 'induced',
+    code: 'restricted-role-write-unavailable',
+    observable_state: 'review-target-unchanged',
+  }) + '\\n')
+  process.exit(0)
 }
 assert.equal(fixture.schema_version, 'dsh-runtime-kit.acceptance-fixture.v1')
 assert.equal(typeof fixture.scenario_id, 'string')
@@ -1131,6 +1204,11 @@ if (fixture.family === 'managed-subagent-workspace') {
         matched = true
         assert.equal(readFileSync('subagent-target.txt', 'utf8'), 'subagent-before\\n')
         assert.equal(readFileSync('controller-review.txt', 'utf8'), 'review-complete\\n')
+        assert.equal([
+          \`DSH_ACCEPTANCE_PASS:\${fixture.scenario_id}\`,
+          \`DSH_ACCEPTANCE_RECOVERED:\${fixture.scenario_id}\`,
+        ].includes(fixture.terminal_marker), true)
+        terminalMarker = fixture.terminal_marker
         break
       }
       if (cwd === realpathSync(child)) {
@@ -1143,6 +1221,7 @@ if (fixture.family === 'managed-subagent-workspace') {
   }
 }
 process.stdout.write('acceptance-fixture-ok\\n')
+if (terminalMarker) process.stdout.write(terminalMarker + '\\n')
 `
 }
 
@@ -1160,6 +1239,9 @@ function stageManagedChildFixture(
     family: family.id,
     scenario_id: input.scenarioId,
     profile: input.profile,
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${input.scenarioId}`
+      : `DSH_ACCEPTANCE_RECOVERED:${input.scenarioId}`,
     failure_kind: family.failure_kind,
     fixture_files: ['subagent-target.txt'],
     validation: { source_test: null, acceptance_test: null },
@@ -1246,6 +1328,9 @@ function stageFixture(
     family: family.id,
     scenario_id: input.scenarioId,
     profile: input.profile,
+    terminal_marker: input.phase === 'success'
+      ? `DSH_ACCEPTANCE_PASS:${input.scenarioId}`
+      : `DSH_ACCEPTANCE_RECOVERED:${input.scenarioId}`,
     failure_kind: family.failure_kind,
     fixture_files: family.fixture_files,
     validation: {
@@ -1390,7 +1475,16 @@ function initializeLeaseRepository(root: string, includeAll: boolean = false) {
   const config = join(git, 'config')
   const head = join(git, 'HEAD')
   const target = join(root, 'leased.txt')
-  if (!existsSync(config)) writeFileSync(config, '[core]\n\trepositoryformatversion = 0\n\tbare = false\n', { mode: 0o600, flag: 'wx' })
+  if (!existsSync(config)) writeFileSync(config, [
+    '[core]',
+    '\trepositoryformatversion = 0',
+    '\tbare = false',
+    '[maintenance]',
+    '\tauto = false',
+    '[gc]',
+    '\tauto = 0',
+    '',
+  ].join('\n'), { mode: 0o600, flag: 'wx' })
   if (!existsSync(head)) writeFileSync(head, 'ref: refs/heads/main\n', { mode: 0o600, flag: 'wx' })
   if (!existsSync(target)) writeFileSync(target, 'leased-fixture\n', { mode: 0o600, flag: 'wx' })
   safeFile(config, 'workspace lease repository config', true)
@@ -1581,7 +1675,9 @@ function fileFailureInput(family: AcceptanceFixtureFamily, input: AcceptanceFixt
       replacement: json({
         schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
         profile: `acceptance-${input.scenarioId.replaceAll('.', '-')}`,
+        runtime_root: lifecycleRuntimeRoot(input),
         runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
+        dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
         primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
         update_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE ?? null,
         operation: 'interrupt-update',
@@ -1865,6 +1961,90 @@ function recoverFailure(family: AcceptanceFixtureFamily, input: AcceptanceFixtur
   state.status = 'recovered'
 }
 
+const EXCLUDE_BEGIN = '# >>> dsh-runtime-kit acceptance fixture'
+const EXCLUDE_END = '# <<< dsh-runtime-kit acceptance fixture'
+
+// A scenario checkout must stay clean while fixture scaffolding is staged, otherwise the
+// caller's own checkout-lease guard correctly refuses every command in the workdir before
+// the capability under test ever runs. Only fixture-owned paths are excluded; genuine
+// session mutations still dirty the checkout as their scenarios require.
+function checkoutExcludeFile(checkout: string) {
+  const result = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
+    cwd: checkout,
+    encoding: 'utf8',
+    timeout: 10_000,
+    maxBuffer: 256 * 1024,
+    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+  })
+  if (result.status !== 0 || result.signal !== null || result.error !== undefined) return undefined
+  const value = result.stdout.trim()
+  if (value === '') return undefined
+  return isAbsolute(value) ? value : resolve(checkout, value)
+}
+
+function excludePattern(relativePath: string) {
+  if (relativePath === '' || /[\r\n\\[\]*?!#]/u.test(relativePath)) {
+    throw new FixtureError('unsafe-fixture-path', `fixture path is not representable as an exclude pattern: ${relativePath}`)
+  }
+  return `/${relativePath}`
+}
+
+function writeExcludeBlock(excludeFile: string, patterns: string[]) {
+  const existing = existsSync(excludeFile) ? readFileSync(excludeFile, 'utf8') : ''
+  const lines = existing === '' ? [] : existing.split('\n')
+  const begin = lines.indexOf(EXCLUDE_BEGIN)
+  const end = lines.indexOf(EXCLUDE_END)
+  const retained = begin >= 0 && end > begin
+    ? [...lines.slice(0, begin), ...lines.slice(end + 1)]
+    : lines
+  while (retained.length > 0 && retained.at(-1) === '') retained.pop()
+  const block = patterns.length === 0 ? [] : [EXCLUDE_BEGIN, ...patterns, EXCLUDE_END]
+  const next = [...retained, ...block]
+  if (next.length === 0) {
+    if (existsSync(excludeFile)) rmSync(excludeFile)
+    return
+  }
+  mkdirSync(dirname(excludeFile), { recursive: true, mode: 0o700 })
+  writeFileSync(excludeFile, `${next.join('\n')}\n`, { mode: 0o600 })
+}
+
+function syncCheckoutExcludes(checkout: string, relativePaths: string[]) {
+  const excludeFile = checkoutExcludeFile(checkout)
+  if (excludeFile === undefined) return
+  writeExcludeBlock(excludeFile, relativePaths.map(excludePattern).sort())
+}
+
+function syncFixtureExcludes(input: AcceptanceFixtureInput, state: FixtureState) {
+  // A fixture-created temporary lease repository is digest-pinned so its own reversal can
+  // prove nothing changed; it is scaffolding rather than a caller checkout and must never
+  // receive an exclude block.
+  const snapshot = state.external_snapshot
+  if (snapshot !== null && snapshot.kind === 'workspace-lease'
+    && snapshot.temporary_git_dir_sha256 !== null) {
+    return
+  }
+  // Linked worktrees share one info/exclude in the common git directory, so patterns are
+  // merged per exclude file instead of written once per checkout.
+  const pending = new Map<string, string[]>()
+  const collect = (checkout: string, relativePaths: string[]) => {
+    const excludeFile = checkoutExcludeFile(checkout)
+    if (excludeFile === undefined) return
+    const patterns = pending.get(excludeFile) ?? []
+    patterns.push(...relativePaths.map(excludePattern))
+    pending.set(excludeFile, patterns)
+  }
+  // Retained attestation files stay excluded after cleanup because they are declared
+  // scenario state; the block empties only once no fixture-owned path remains.
+  collect(input.workdir, state.owned_files.map(row => row.path))
+  const child = state.managed_child
+  if (child !== null && existsSync(child.worktree)) {
+    collect(child.worktree, child.owned_files.map(row => row.path))
+  }
+  for (const [excludeFile, patterns] of pending) {
+    writeExcludeBlock(excludeFile, [...new Set(patterns)].sort())
+  }
+}
+
 function cleanupFixture(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput, state: FixtureState) {
   recoverFailure(family, input, state)
   for (const row of [...state.owned_files].reverse()) {
@@ -2006,6 +2186,7 @@ export function runAcceptanceFixture(input: AcceptanceFixtureInput): AcceptanceF
   if (input.stage === 'induce') induceFailure(family, normalized, state)
   if (input.stage === 'recover') recoverFailure(family, normalized, state)
   if (input.stage === 'cleanup') cleanupFixture(family, normalized, state)
+  syncFixtureExcludes(normalized, state)
   const evidence = receipt(stateRoot, state, normalized, family)
   atomicJson(statePath, state)
   return {

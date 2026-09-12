@@ -472,3 +472,90 @@ test('pack summary requires distinct successful result and attestation pairs for
   assert.equal(shared.status, 'fail')
   assert.equal(shared.counts.invalid_isolation_families, 12)
 })
+
+// A fixture-induced deliberate failure leaves the runtime correctly completing,
+// so its diagnosis is anchored to the fixture's own typed probe record instead of
+// a session outcome. The attestation validator must bind to that record with the
+// same strictness it applies to a runtime-level failure.
+test('deliberate-failure attestation accepts a diagnosis bound to the fixture induced record', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-pack-induced-'))
+  const output = join(root, 'results.jsonl')
+  const observed = fixtureObserved('deliberate-failure', 'retired-surfaces', 'retired-surfaces.non-git')
+  observed.induced_failure = { code: 'retired-surface-unreachable' }
+  appendFileSync(output, `${JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
+    run_id: 'pack-induced-1',
+    scenario_id: 'retired-surfaces.non-git',
+    folder_kind: 'non-git',
+    status: 'pass',
+    scenario_pack: {
+      schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
+      phase: 'deliberate-failure',
+      family: 'retired-surfaces',
+      case_id: 'retired-surfaces.non-git.deliberate-failure',
+      isolation_key: '1'.repeat(64),
+      ...taskMetadata('retired-surfaces.non-git', 'deliberate-failure'),
+    },
+    diagnostic_bundle: { name: 'retired-surfaces.non-git.diagnostic.json', sha256: '2'.repeat(64), bytes: 128 },
+    session_outcome: {
+      schema_version: 'dsh-runtime-kit.session-outcome.v1',
+      status: 'completed',
+      category: 'success',
+      code: 'completed',
+      component: 'session',
+      receipt: 'session.latest',
+      next_action: 'No diagnostic action is required.',
+    },
+    observed,
+  })}\n`)
+
+  const attestationPath = join(root, 'attestation.json')
+  const attestation = {
+    schema_version: 'dsh-runtime-kit.acceptance-harness-attestation.v1',
+    run_id: 'pack-induced-1',
+    scenario_id: 'retired-surfaces.non-git',
+    phase: 'deliberate-failure',
+    status: 'pass',
+    observable_state: {
+      kind: 'external-workdir-observation',
+      reference: 'observations/retired-surfaces.non-git.deliberate-failure.json',
+      sha256: 'b'.repeat(64),
+      summary: 'The harness hashed the observable workdir and both retained output streams.',
+    },
+    diagnosis: {
+      code: 'retired-surface-unreachable',
+      component: 'acceptance-fixture',
+      evidence_reference: 'retired-surfaces.non-git.diagnostic.json',
+      next_action: 'Reverse the staged retired surface and retry the unchanged task.',
+      observable_state_check: 'The harness verified the byte-identical clean retry after recovery.',
+    },
+    recovery: {
+      status: 'pass',
+      evidence_reference: 'retired-surfaces.non-git.recover.json',
+      summary: 'The authenticated inverse transition completed.',
+    },
+  }
+  writeFileSync(attestationPath, `${JSON.stringify(attestation, undefined, 2)}\n`)
+
+  const appended = appendAcceptanceAttestation({ outputPath: output, attestationPath })
+  assert.equal(appended.diagnosis.code, 'retired-surface-unreachable')
+  const summarized = summarizeAcceptanceScenarioPack({
+    outputPath: output,
+    pack: loadAcceptanceScenarioPack(PACK, loadAcceptanceCatalog(CATALOG)),
+  })
+  assert.equal(summarized.counts.result_pass, 1)
+  assert.equal(summarized.counts.attestation_pass, 1)
+  assert.equal(summarized.counts.invalid_pairs, 0)
+
+  // A diagnosis that does not name the recorded induced code must still be refused.
+  const wrong = { ...attestation, run_id: 'pack-induced-1' }
+  wrong.diagnosis = { ...attestation.diagnosis, code: 'some-other-code' }
+  const secondOutput = join(root, 'results-2.jsonl')
+  writeFileSync(secondOutput, readFileSync(output, 'utf8').split('\n')[0] + '\n')
+  const wrongPath = join(root, 'attestation-wrong.json')
+  writeFileSync(wrongPath, `${JSON.stringify(wrong, undefined, 2)}\n`)
+  assert.throws(
+    () => appendAcceptanceAttestation({ outputPath: secondOutput, attestationPath: wrongPath }),
+    /diagnosis must match/u,
+  )
+})

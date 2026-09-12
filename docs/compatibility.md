@@ -4,20 +4,21 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` |
+| DeepSeek Harness | `0.1.2-rc.1` or `0.1.5-alpha.2` |
 | Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.1` |
-| Cordis | `4.0.1` or `4.0.2` |
+| Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.23` |
 
-The package retains exactly the latest three reviewed DSH releases. A promotion
+The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
 and its CI row in the same change; the validation count therefore remains
 bounded while DSH is immature. Runtime startup requires one homogeneous
-`0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1` public peer set and validates the consumed public exports and
+`0.1.2-rc.1` or `0.1.5-alpha.2` public peer set and validates the consumed public exports and
 service methods before registering a listener, tool, service, or skill. The
-reviewed compositions are exact: rc.2 requires Cordis 4.0.1, while alpha.4
-and rc.1 require Cordis 4.0.2. Mixed, cross-composed, or unknown peer versions
+reviewed compositions are exact: both retained releases require Cordis 4.0.2,
+so a checkout composed against 4.0.1 is no longer supported. Mixed,
+cross-composed, or unknown peer versions
 fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
 `DSH_RUNTIME_KIT_INCOMPATIBLE_DSH`; plugin activation also requires the native
@@ -27,15 +28,15 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.1-rc.2`,
-`0.1.2-alpha.4`, and `0.1.2-rc.1` release identities, the enforced three-release support policy, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.2-rc.1`
+and `0.1.5-alpha.2` release identities, the enforced two-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets. Each `validated_releases` row also declares its exact
 Cordis composition so the public contract and runtime admission stay aligned.
 
 [`compatibility/dsh-patches.json`](../compatibility/dsh-patches.json) is
 authoritative for the only logical downstream DSH patch: each reviewed
-release's artifact digest, its exact target before/after hashes, and the three
+release's artifact digest, its exact target before/after hashes, and the two
 reviewed release revisions. The
 package does not fork, vendor, or propose this integration upstream, which the
 entry records as an explicit `upstream_reference` state of `not-reported`
@@ -50,11 +51,34 @@ materialization, preserves model-order persistence projection, and adds the
 dynamic protected-root sandbox contract. It also adds DSH-owned restricted
 one-shot roles: immutable host registration, caller-minimal starts, exact-live
 classification and receipts, atomic unpublished-child authority mounting,
-bounded global/per-role admission, and quiescent teardown. Runtime-kit selects the candidate
+bounded global/per-role admission, and quiescent teardown. The authenticated
+continuation setup seam passes the exact unpublished child `Agent` alongside
+its context. Runtime-kit therefore never tries to rediscover that identity
+through a module-private DSH scope tag, which is not portable across separate
+host and installed-package module instances. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for rc.2, alpha.4, and rc.1; an
+target hashes bind those seams independently for rc.1 and 0.1.5-alpha.2; an
 unknown or locally drifted checkout remains ineligible.
+
+The two retained releases do not select the same target set. 0.1.5-alpha.2
+extracted the continuable Activation registry and its materialization inputs
+into `packages/subagent/subagent/src/continuation-activation.ts`, so the
+deployment-setup and workspace-activation seams bind there for that release and
+in `continuation.ts` for rc.1. 0.1.5-alpha.2 also removed durable
+`assistant/chunk` persistence from the agent loop and adopted
+`AgentSetupCommit` natively, so the patch no longer carries the raw-chunk
+argument scrub or that type for it; the durable persistence projection is still
+downstream in both.
+
+Two authentication rules follow the newer release rather than the patch.
+Checkout authentication lists the complete index and HEAD tree, so its output
+bound scales with DSH's tracked file count; at 0.1.5-alpha.2 each listing is
+already about 1.1 MB. And 0.1.5-alpha.2 declares `*.cmd text eol=crlf`, the one
+sanctioned smudge boundary between an authenticated blob and its working-tree
+form, so byte-level attestation accepts a working tree that is the exact
+canonical CRLF form of the authenticated LF bytes and still refuses every other
+difference.
 
 [`compatibility/dsh-tui-patches.json`](../compatibility/dsh-tui-patches.json)
 owns the narrowed installed-package repair for the exact 0.10.1 TUI
@@ -163,11 +187,11 @@ matters more than the guidance precisely because the discard is store-state
 dependent and therefore not reliably reproducible by an operator.
 
 0.10.1 also *widens* its DSH peer ranges to admit `0.1.3-alpha.2` and the
-`0.1.5` line alongside the releases 0.10.0 accepted. That widening is additive:
-the pinned `0.1.2-rc.1` composition remains inside every range, so the Agent
-Console DSH pin and the three-release headless window are unchanged by this
-promotion. Admitting a `0.1.5` DSH is a separate promotion with its own patch
-artifacts and host rebuild, and this contract does not authorize it.
+`0.1.5` line alongside the releases 0.10.0 accepted. Both retained runtime-kit
+compositions, `0.1.2-rc.1` and `0.1.5-alpha.2`, remain inside every range. The
+runtime-kit admission of alpha.2 is independently bound to its reviewed patch
+artifact and rebuilt host evidence; the TUI range alone does not authorize a
+DSH release.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.
@@ -188,7 +212,7 @@ It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
 and authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
-The retained alpha.4 and rc.2 releases are independently pinned and receive the same local
+The retained non-pinned release is independently pinned and receives the same local
 patch apply/reverse and packed-smoke acceptance before their peer range is
 advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.

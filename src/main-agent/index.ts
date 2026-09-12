@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import {
   dshRc7AgentRoute,
+  dshRc7ContextAgent,
+  dshRc7ContextService,
   dshRc7RunInfo,
   dshRc7SessionHeader,
 } from '../compat/dsh-rc7.js'
@@ -45,6 +47,7 @@ const LANE_SCHEMA = 'dsh-runtime-kit.main-agent-lane.v2'
 const LANE_CHECKPOINT_TOOL = 'main_agent_checkpoint'
 const LANE_BOOTSTRAP_TOOL = 'main_agent_bootstrap'
 const QUEUE_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.queuePrompt')
+const DELIVER_SUBAGENT_PROMPT = Symbol.for('dsh.subagent.deliverPrompt')
 const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
   runInitialize: 'main_agent_run_initialize',
   workerLaunch: 'main_agent_worker_launch',
@@ -57,11 +60,16 @@ const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
 })
 
 /**
- * Queue one host-authored revision prompt across the legacy service method and
- * the alpha.4 symbol-keyed host capability.
+ * Queue one host-authored revision prompt across the versioned host-only
+ * capabilities and the legacy service method.
  */
 async function queueRevisionPrompt(subagents: SubagentRuntime, parent: any, childId: any, content: any[], signal: AbortSignal) {
   const source = { kind: (('plugin') as const), plugin: 'dsh-runtime-kit' }
+  const deliverPrompt = ((subagents) as any)[DELIVER_SUBAGENT_PROMPT]
+  if (typeof deliverPrompt === 'function') {
+    await deliverPrompt.call(subagents, parent, childId, content, source, signal, 'queue')
+    return
+  }
   const queuePrompt = ((subagents) as any)[QUEUE_SUBAGENT_PROMPT]
   if (typeof queuePrompt === 'function') {
     await queuePrompt.call(subagents, parent, childId, content, source, signal)
@@ -106,6 +114,7 @@ const DEFAULT_LANE_DENIED_TOOLS = Object.freeze([
  * other session can reach another lane's checkpoint authority.
  */
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{8,128}$/
+const ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_ID',
   'AGENT_SESSION_RUNTIME_ID',
@@ -116,9 +125,13 @@ const CONTROLLER_PRINCIPAL_ENV_KEYS = Object.freeze([
   'AGENT_SESSION_BIN',
 ])
 
-function laneError(code: string, details?: unknown) {
+function laneError(code: string, details?: unknown, surfacedCode: unknown = code) {
   const suffix = details === undefined ? '' : ` ${JSON.stringify(details)}`
-  return new Error(`dsh-runtime-kit:${code}${suffix}`)
+  return Object.assign(new Error(`dsh-runtime-kit:${code}${suffix}`), {
+    code: typeof surfacedCode === 'string' && ERROR_CODE.test(surfacedCode)
+      ? surfacedCode
+      : code,
+  })
 }
 
 function requireNonEmptyString(value: unknown, code: string) {
@@ -739,8 +752,10 @@ export function applyMainAgentMode(ctx: Context, config: {
   if (typeof registerContinuableSetup !== 'function') {
     throw new TypeError('subagent continuable setup registry is unavailable')
   }
-  registerContinuableSetup.call(ctx.subagents, (childCtx: Context) => {
-    const agent = ((childCtx) as any).agent
+  registerContinuableSetup.call(ctx.subagents, (childCtx: Context, suppliedAgent: unknown) => {
+    const agent = dshRc7ContextAgent(childCtx, suppliedAgent)
+    const childTools = dshRc7ContextService(childCtx, 'tools') as any
+    const childSystemPrompt = dshRc7ContextService(childCtx, 'systemPrompt') as any
     const childHeader = dshRc7SessionHeader(agent)
     const parentSession = childHeader.parentSession
     // Lane membership is transitive: the host-bound root child and every
@@ -759,7 +774,10 @@ export function applyMainAgentMode(ctx: Context, config: {
     if (typeof childSession === 'string' && childSession.length > 0) {
       disposers.push(() => { lanes.unbindMember(childSession) })
     }
-    disposers.push(childCtx.tools.guard(
+    if (childTools === undefined || typeof childTools.guard !== 'function') {
+      throw new TypeError('child tool runtime is unavailable')
+    }
+    disposers.push(childTools.guard(
       (exec: { name: string }) => (laneDeniedTools.has(exec.name)
         ? 'dsh-runtime-kit:main-agent-lane-tool-denied'
         : undefined),
@@ -768,21 +786,20 @@ export function applyMainAgentMode(ctx: Context, config: {
     // ever checkpoint its own assignment: there is no argument through which it
     // could name another lane.
     const checkpointFile = laneCheckpointFile(lane)
-    if (typeof childCtx.tools.register === 'function') {
-      const disposeBootstrap = childCtx.tools.register(
+    if (typeof childTools.register === 'function') {
+      const disposeBootstrap = childTools.register(
         Object.freeze(laneBootstrapTool(lane)),
       )
       if (typeof disposeBootstrap === 'function') disposers.push(disposeBootstrap)
     }
-    if (checkpointFile !== undefined && typeof childCtx.tools.register === 'function') {
-      const disposeCheckpoint = childCtx.tools.register(
+    if (checkpointFile !== undefined && typeof childTools.register === 'function') {
+      const disposeCheckpoint = childTools.register(
         Object.freeze(laneCheckpointTool(lane, checkpointFile)),
       )
       if (typeof disposeCheckpoint === 'function') disposers.push(disposeCheckpoint)
     }
-    const systemPrompt = ((childCtx) as any).systemPrompt
-    if (systemPrompt !== undefined && typeof systemPrompt.section === 'function') {
-      const disposeSection = systemPrompt.section({
+    if (childSystemPrompt !== undefined && typeof childSystemPrompt.section === 'function') {
+      const disposeSection = childSystemPrompt.section({
         name: 'dsh-runtime-kit:main-agent-lane',
         order: LANE_SECTION_ORDER,
         text: laneEnvironmentSection(lane),
@@ -963,6 +980,32 @@ export function applyMainAgentMode(ctx: Context, config: {
     return selectControllerEnvironment(process.env)
   }
 
+  /**
+ * nils-cli proves DSH external-runtime compatibility by invoking its sibling
+ * `agent-hook doctor` without explicit path flags. The controller principal
+ * must otherwise remain the exact seven-field capability, so project only the
+ * XDG parents of this launcher's already-validated DSH activation into that
+ * one probe instead of widening every Main Agent subprocess environment.
+ */
+
+  const capabilityProbeEnvironment = (principal: Readonly<Record<string, string>>) => {
+    const configPath = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
+    const stateDir = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
+    if (configPath === undefined || stateDir === undefined) return principal
+    if (!isAbsolute(configPath)
+      || basename(configPath) !== 'config.toml'
+      || basename(dirname(configPath)) !== 'agent-hook'
+      || !isAbsolute(stateDir)
+      || basename(stateDir) !== 'agent-hook') {
+      throw laneError('main-agent-agent-hook-runtime-invalid')
+    }
+    return Object.freeze({
+      ...principal,
+      XDG_CONFIG_HOME: dirname(dirname(configPath)),
+      XDG_STATE_HOME: dirname(stateDir),
+    })
+  }
+
   const controllerExecutionEnvironment = (exec: any) => {
     requireControllerCaller(exec)
     const exact = exactControllerEnvironment(exec)
@@ -1119,10 +1162,11 @@ export function applyMainAgentMode(ctx: Context, config: {
     const result = await client.run(argv, { cwd, signal: exec.signal, env })
     if (!result.ok) throw laneError('main-agent-cli-failed', { code: result.code })
     if (result.envelope.ok !== true) {
+      const refusalCode = result.envelope?.error?.code
       throw laneError('main-agent-cli-refused', {
-        code: result.envelope?.error?.code,
+        code: refusalCode,
         message: result.envelope?.error?.message,
-      })
+      }, refusalCode)
     }
     return result.envelope.data
   }
@@ -1176,7 +1220,7 @@ export function applyMainAgentMode(ctx: Context, config: {
         'dsh',
         '--format',
         'json',
-      ], exec, cwd, candidateEnvironment)
+      ], exec, cwd, capabilityProbeEnvironment(candidateEnvironment))
       if (capabilities?.schema_version !== CAPABILITIES_SCHEMA
         || capabilities.compatible !== true
         || capabilities.capabilities?.external_runtime !== EXTERNAL_RUNTIME_CAPABILITY) {

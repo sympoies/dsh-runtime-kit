@@ -111,6 +111,14 @@ contract under test. Read and assert the declared bundle tuple immediately
 after that transaction, before an installed-package repair or configuration
 dump can turn a missing reconciliation into a generic downstream failure.
 
+When a launcher supports both an unactivated fallback and an activation
+manifest, both paths must project the same canonical agent-hook state path in
+`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR`. Assert that exact parity in the launcher
+owner suite while separately proving the intentional transition of config and
+policy into authenticated, content-addressed assets; otherwise a stale fallback
+can override a correct smoke environment and remain invisible until a later
+native-runtime probe.
+
 Run only the smoke legs owned by the change while iterating. The complete local
 acceptance command may compose those legs after each has an independently
 diagnosable result; it must not become the first diagnostic surface.
@@ -132,9 +140,26 @@ An independent attestation then checks the actual filesystem, Git, provider,
 or other observable state. Model output and terminal markers are supporting
 evidence, never the sole proof.
 
-A typed provider receipt such as `usage_limit_reached` stops the run. Preserve
-the candidate and wait for the declared entitlement reset or obtain separately
-authorized credentials; the failure must not switch either provider or model.
+A deliberate-failure pass must bind the observed code to that scenario
+family's declared induction. Accept a probe record only from the correlated
+tool result for the exact registered probe command; the same JSON in model
+output, process stdout/stderr, an unrelated tool result, or another family's
+typed failure is not evidence. Attestation append and pack summary must use the
+same runtime-failure or fixture-induced diagnosis anchor.
+
+Before a provider batch, when the environment provides an authorized,
+capacity-aware subscription selector, consult it and synchronize the selected
+account's access-only projection through its owner. Record only the secret-safe
+selector receipt and subscription class, then keep that exact projection fixed
+within the batch; credentials and account nicknames do not enter evidence.
+
+A typed provider receipt such as `usage_limit_reached` from one account stops
+the current batch, but does not by itself prove that the configured account pool
+is exhausted. Between batches, the selector may choose another account with
+confirmed available capacity without changing the provider or model. Only when
+the entire configured pool has no confirmed usable capacity should the harness
+preserve the candidate and wait for a declared entitlement reset or separately
+authorized access; the failure must not switch either provider or model.
 
 ### 6. Full external-harness matrix
 

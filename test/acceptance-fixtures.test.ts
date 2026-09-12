@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -186,10 +186,26 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
   assert.equal(induced.data.status, 'pass')
   assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
   assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), true)
+  assert.equal(
+    JSON.parse(readFileSync(join(workdir, 'acceptance-fixture.json'), 'utf8')).terminal_marker,
+    'DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git',
+  )
   assert.equal(statSync(join(workdir, 'fixture-validation.mjs')).mode & 0o777, 0o700)
   assert.match(
     readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
     /Follow the current repository instructions/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /use the current DSH session's Bash tool/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /Never launch dsh, dsh-host, or another nested agent session/u,
+  )
+  assert.match(
+    readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
+    /terminal_marker[\s\S]*do not derive it from a workdir/iu,
   )
   assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
   assert.equal(readFileSync(join(workdir, 'prerequisite-marker.txt'), 'utf8'), 'project-dev-prerequisite-ready\n')
@@ -268,6 +284,469 @@ test('authoritative fixture validation emits a typed failure only while its faul
   })
   assert.equal(recovered.status, 0, recovered.stderr)
   assert.equal(recovered.stdout, 'acceptance-fixture-ok\n')
+})
+
+test('restricted-role fixture validation reports the induced unavailable write while preserving the target', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-restricted-role-failure-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const input = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    phase: 'deliberate-failure' as const,
+    family: 'restricted-role',
+    scenarioId: 'restricted-role.non-git',
+    profile: 'headless-restricted-role',
+    workdir,
+    dshHome,
+  }
+
+  runAcceptanceFixture({ ...input, stage: 'induce' })
+  const induced = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+    cwd: workdir,
+    encoding: 'utf8',
+  })
+  assert.equal(induced.status, 0, induced.stderr)
+  assert.equal(induced.stderr, '')
+  assert.deepEqual(JSON.parse(induced.stdout), {
+    schema_version: 'dsh-runtime-kit.acceptance-fixture-induced.v1',
+    status: 'induced',
+    code: 'restricted-role-write-unavailable',
+    observable_state: 'review-target-unchanged',
+  })
+  assert.equal(readFileSync(join(workdir, 'review-target.txt'), 'utf8'), 'review-target-unchanged\n')
+
+  runAcceptanceFixture({ ...input, stage: 'recover' })
+  const recovered = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+    cwd: workdir,
+    encoding: 'utf8',
+  })
+  assert.equal(recovered.status, 0, recovered.stderr)
+  assert.equal(recovered.stdout, 'acceptance-fixture-ok\n')
+  assert.equal(readFileSync(join(workdir, 'review-target.txt'), 'utf8'), 'review-target-unchanged\n')
+})
+
+test('profile lifecycle probe projects the authenticated DSH host', { concurrency: false }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-host-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh-host')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  writeFileSync(dsh, `#!${process.execPath}
+process.stdout.write('0.1.2-rc.1\\n')
+`, { mode: 0o700 })
+  writeFileSync(runtimeKit, `#!${process.execPath}
+const expectedDsh = ${JSON.stringify(dsh)}
+if (process.env.DSH_RUNTIME_KIT_DSH_BIN !== expectedDsh) {
+  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'command-unavailable' } }))
+  process.exit(70)
+}
+if (process.umask() !== 0o077) {
+  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'unsafe-profile-tree' } }))
+  process.exit(65)
+}
+const args = process.argv.slice(2)
+const data = args[0] === 'doctor'
+  ? { recovery: null, observed: { installed_version: null } }
+  : args.includes('--apply')
+    ? { mode: 'applied' }
+    : { plan_digest: 'a'.repeat(64) }
+process.stdout.write(JSON.stringify({ ok: true, data }))
+`, { mode: 0o700 })
+
+  const names = [
+    'DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN',
+  ] as const
+  const prior = new Map(names.map(name => [name, process.env[name]]))
+  Object.assign(process.env, {
+    DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN: runtimeKit,
+    DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE: join(root, 'primary'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE: join(root, 'candidate'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN: dsh,
+  })
+
+  try {
+    runAcceptanceFixture({
+      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+      stage: 'prepare',
+      phase: 'success',
+      family: 'profile-lifecycle',
+      scenarioId: 'profile-lifecycle.git-repo',
+      profile: 'headless-profile-lifecycle',
+      workdir,
+      dshHome,
+    })
+    const priorMask = process.umask(0o002)
+    const probe = (() => {
+      try {
+        return spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
+          cwd: workdir,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: root },
+        })
+      } finally {
+        process.umask(priorMask)
+      }
+    })()
+    assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
+    assert.deepEqual(JSON.parse(probe.stdout), {
+      schema_version: 'dsh-runtime-kit.acceptance-lifecycle-probe.v1',
+      status: 'pass',
+    })
+    assert.equal(JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8')).dsh_bin, dsh)
+  } finally {
+    for (const name of names) {
+      const value = prior.get(name)
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('profile lifecycle probe isolates its activation from the controller profile', { concurrency: false }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-runtime-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  const controllerRuntime = join(dshHome, 'runtime')
+  const controllerActivation = join(controllerRuntime, 'activation.json')
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh-host')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(controllerRuntime, { recursive: true, mode: 0o700 })
+  writeFileSync(controllerActivation, '{}\n', { mode: 0o600 })
+  writeFileSync(dsh, `#!${process.execPath}\n`, { mode: 0o700 })
+  writeFileSync(runtimeKit, `#!${process.execPath}
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
+const args = process.argv.slice(2)
+if (args[0] === 'remove' && args.includes('--apply')) {
+  rmSync(join(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT, 'activation.json'), { force: true })
+}
+const data = args[0] === 'doctor'
+  ? { recovery: null, observed: { installed_version: null } }
+  : args.includes('--apply')
+    ? { mode: 'applied' }
+    : { plan_digest: 'a'.repeat(64) }
+process.stdout.write(JSON.stringify({ ok: true, data }))
+`, { mode: 0o700 })
+
+  const names = [
+    'DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN',
+    'DSH_RUNTIME_KIT_RUNTIME_ROOT',
+  ] as const
+  const prior = new Map(names.map(name => [name, process.env[name]]))
+  Object.assign(process.env, {
+    DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN: runtimeKit,
+    DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE: join(root, 'primary'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE: join(root, 'candidate'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN: dsh,
+    DSH_RUNTIME_KIT_RUNTIME_ROOT: controllerRuntime,
+  })
+
+  try {
+    runAcceptanceFixture({
+      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+      stage: 'prepare',
+      phase: 'success',
+      family: 'profile-lifecycle',
+      scenarioId: 'profile-lifecycle.git-repo',
+      profile: 'headless-profile-lifecycle',
+      workdir,
+      dshHome,
+    })
+    const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
+    const probe = spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
+      cwd: workdir,
+      encoding: 'utf8',
+      env: process.env,
+    })
+    assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
+    assert.equal(existsSync(controllerActivation), true)
+    assert.notEqual(inputs.runtime_root, controllerRuntime)
+  } finally {
+    for (const name of names) {
+      const value = prior.get(name)
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('profile lifecycle fixture creates its isolated runtime root before execution', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-root-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    workdir,
+    dshHome,
+  })
+
+  const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
+  const runtimeRoot = statSync(inputs.runtime_root)
+  assert.equal(runtimeRoot.isDirectory(), true)
+  assert.equal(runtimeRoot.mode & 0o077, 0)
+})
+
+test('profile lifecycle phases share one scenario runtime root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-phases-'))
+  const successWorkdir = join(root, 'success')
+  const failureWorkdir = join(root, 'failure')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+
+  const successInputs = JSON.parse(readFileSync(join(successWorkdir, 'lifecycle-inputs.json'), 'utf8'))
+  const failureInputs = JSON.parse(readFileSync(join(failureWorkdir, 'lifecycle-inputs.json'), 'utf8'))
+  assert.equal(failureInputs.runtime_root, successInputs.runtime_root)
+})
+
+test('profile lifecycle deliberate failure leaves finish line to the induced probe', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-finish-line-'))
+  const successWorkdir = join(root, 'success')
+  const failureWorkdir = join(root, 'failure')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+
+  const successCatalog = readFileSync(join(successWorkdir, 'AGENT_DOCS.toml'), 'utf8')
+  const failureCatalog = readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8')
+  const successGuide = readFileSync(join(successWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  const failureGuide = readFileSync(join(failureWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  assert.match(successCatalog, /\[\[validation\]\][\s\S]*\.\/fixture-validation\.mjs/u)
+  assert.match(successGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.doesNotMatch(failureCatalog, /\[\[validation\]\]/u)
+  assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.match(failureGuide, /typed lifecycle interruption[\s\S]*stop immediately/iu)
+})
+
+test('deploy dispatcher wrapper exposes the authenticated node toolchain', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-toolchain-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  const dispatcher = readFileSync(join(workdir, '.agents', 'scripts', 'deploy.sh'), 'utf8')
+  assert.match(dispatcher, new RegExp(`PATH=${JSON.stringify(dirname(process.execPath))}:\\$PATH`, 'u'))
+  assert.match(dispatcher, /export PATH/u)
+})
+
+test('deploy dispatcher validations are phase-specific', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-validation-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  assert.match(
+    readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /commands = \["\.\/deploy-probe\.mjs","\.\/fixture-validation\.mjs"\]/u,
+  )
+
+  const failureWorkdir = join(root, 'failure-workdir')
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir: failureWorkdir,
+    dshHome,
+  })
+  assert.doesNotMatch(
+    readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /\[\[validation\]\]/u,
+  )
+})
+
+test('retired surface validations are phase-specific', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-retired-validation-'))
+  const successWorkdir = join(root, 'success-workdir')
+  const failureWorkdir = join(root, 'failure-workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'retired-surfaces' as const,
+    scenarioId: 'retired-surfaces.managed-worktree',
+    profile: 'headless-retired-surfaces',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  assert.match(
+    readFileSync(join(successWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /\[\[validation\]\][\s\S]*\.\/fixture-validation\.mjs/u,
+  )
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+  assert.doesNotMatch(
+    readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /\[\[validation\]\]/u,
+  )
+})
+
+test('deploy dispatcher probe creates its canary tree with an owner-only mask', { concurrency: false }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-umask-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  const dispatcher = join(workdir, '.agents', 'scripts', 'deploy.sh')
+  writeFileSync(dispatcher, `#!${process.execPath}
+if (process.umask() !== 0o077) {
+  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'unsafe-profile-tree' } }))
+  process.exit(65)
+}
+const args = process.argv.slice(2)
+const data = args.includes('--apply')
+  ? { mode: 'applied' }
+  : args.includes('doctor')
+    ? {}
+    : { plan_digest: 'a'.repeat(64) }
+process.stdout.write(JSON.stringify({ ok: true, data }))
+`, { mode: 0o700 })
+  writeFileSync(join(workdir, 'deploy-inputs.json'), `${JSON.stringify({
+    schema_version: 'dsh-runtime-kit.acceptance-deploy-inputs.v1',
+    profile: 'acceptance-deploy-dispatcher-git-repo',
+    dsh_home: join(dshHome, 'acceptance-deploy', 'deploy-dispatcher.git-repo'),
+    deploy_bin: dispatcher,
+    engine_root: root,
+    runtime_root: join(dshHome, 'runtime'),
+    runtime_kit_bin: process.execPath,
+    dsh_bin: process.execPath,
+    agent_hook_bin: process.execPath,
+    agent_docs_bin: process.execPath,
+    primary_artifact: join(root, 'primary.tgz'),
+    primary_artifact_sha256: 'a'.repeat(64),
+    update_artifact: join(root, 'update.tgz'),
+    update_artifact_sha256: 'b'.repeat(64),
+  }, undefined, 2)}\n`, { mode: 0o600 })
+
+  const priorMask = process.umask(0o002)
+  const probe = (() => {
+    try {
+      return spawnSync(process.execPath, ['./deploy-probe.mjs'], {
+        cwd: workdir,
+        encoding: 'utf8',
+      })
+    } finally {
+      process.umask(priorMask)
+    }
+  })()
+  assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
+  assert.deepEqual(JSON.parse(probe.stdout), {
+    schema_version: 'dsh-runtime-kit.acceptance-deploy-probe.v1',
+    status: 'pass',
+  })
 })
 
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
@@ -406,8 +885,19 @@ test('managed subagent assignment uses the exact registered child validation com
 
     const assignment = JSON.parse(readFileSync(join(workdir, 'main-agent-assignment.json'), 'utf8'))
     const objective = JSON.parse(readFileSync(join(workdir, 'main-agent-objective.json'), 'utf8'))
+    const request = JSON.parse(readFileSync(join(workdir, 'subagent-request.json'), 'utf8'))
+    const projectGuide = readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
     assert.match(assignment.task.objective, /run the exact command \.\/fixture-validation\.mjs/u)
     assert.match(assignment.task.objective, /without a wrapper, prefix, suffix, or compound command/u)
+    assert.match(assignment.task.objective, /write call, do not include sandbox_permissions or justification/iu)
+    assert.deepEqual(request.controller_review, {
+      file_path: join(workdir, 'controller-review.txt'),
+      content: 'review-complete\n',
+    })
+    assert.equal(request.terminal_marker, 'DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo')
+    assert.match(projectGuide, /controller_review/u)
+    assert.match(projectGuide, /terminal_marker/u)
+    assert.match(projectGuide, /do not derive either value from a workdir/u)
     assert.doesNotMatch(assignment.task.objective, /run node fixture-validation\.mjs/u)
     assert.deepEqual(objective.done_criteria, [
       'child worktree differs from the primary',
@@ -420,7 +910,7 @@ test('managed subagent assignment uses the exact registered child validation com
       'no delivery',
       'leave the primary implementation target unchanged',
     ])
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending\n')
+    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
 
     const primaryValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
       cwd: workdir,
@@ -454,7 +944,10 @@ test('managed subagent assignment uses the exact registered child validation com
       },
     })
     assert.equal(exactValidation.status, 0, exactValidation.stderr)
-    assert.equal(exactValidation.stdout, 'acceptance-fixture-ok\n')
+    assert.equal(
+      exactValidation.stdout,
+      'acceptance-fixture-ok\nDSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo\n',
+    )
     assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
     assert.equal(existsSync(join(childWorktree, 'AGENT_DOCS.toml')), true)
     assert.equal(existsSync(join(childWorktree, 'fixture-validation.mjs')), true)
@@ -481,7 +974,7 @@ test('managed subagent assignment uses the exact registered child validation com
       workdir,
       dshHome,
     })
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending\n')
+    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
     assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
   } finally {
     for (const name of names) {
@@ -544,7 +1037,10 @@ test('managed subagent distinct retry workdir selects its own host-issued topolo
       env: { ...process.env },
     })
     assert.equal(retryValidation.status, 0, retryValidation.stderr)
-    assert.equal(retryValidation.stdout, 'acceptance-fixture-ok\n')
+    assert.equal(
+      retryValidation.stdout,
+      'acceptance-fixture-ok\nDSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree\n',
+    )
   } finally {
     for (const name of names) {
       const value = prior.get(name)
@@ -721,6 +1217,9 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
       }
       if (family.id === 'workspace-identity') {
         assert.equal(existsSync(join(workdir, '.git')), true)
+        const temporaryRepositoryConfig = readFileSync(join(workdir, '.git', 'config'), 'utf8')
+        assert.match(temporaryRepositoryConfig, /\[maintenance\]\s+auto = false/u)
+        assert.match(temporaryRepositoryConfig, /\[gc\]\s+auto = 0/u)
         assert.equal(renewAcceptanceFixtureLease(input), 10_000)
       }
       if (family.id === 'governed-commit') {
@@ -955,4 +1454,131 @@ test('fixture staging rejects descendant symlinks before creating outside direct
     dshHome,
   }), /fixture parent is unsafe/u)
   assert.equal(existsSync(join(external, 'scripts')), false)
+})
+
+function seededCheckout(root: string) {
+  mkdirSync(root, { recursive: true, mode: 0o700 })
+  git(root, ['init', '--initial-branch', 'main'])
+  writeFileSync(join(root, 'seed.txt'), 'seed\n', { mode: 0o600 })
+  git(root, ['add', '--', 'seed.txt'])
+  git(root, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'acceptance fixture seed'])
+  return root
+}
+
+function porcelain(checkout: string) {
+  return git(checkout, ['status', '--porcelain=v1', '--untracked-files=all'])
+}
+
+test('fixture staging leaves a git-backed scenario checkout clean', { concurrency: false }, async () => {
+  const manifest = loadAcceptanceFixtureManifest()
+  const names = [
+    'DSH_RUNTIME_KIT_AGENT_HOOK_BIN',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_POLICY',
+    'DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR',
+  ]
+  const prior = new Map(names.map(name => [name, process.env[name]]))
+  try {
+    for (const family of manifest.families) {
+      if (family.id === 'managed-subagent-workspace') continue
+      const scenarioId = family.scenario_ids.find(id => id.endsWith('.git-repo'))
+      if (scenarioId === undefined) continue
+      const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-clean-${family.id}-`))
+      const workdir = seededCheckout(join(root, 'workdir'))
+      const dshHome = join(root, 'dsh-home')
+      const companions = join(dshHome, 'companions')
+      const hookState = join(dshHome, 'hook-state')
+      for (const directory of [dshHome, companions, hookState]) mkdirSync(directory, { mode: 0o700 })
+      const hook = join(companions, 'agent-hook')
+      writeFileSync(hook, `#!${process.execPath}
+let input = ''
+for await (const chunk of process.stdin) input += chunk
+const request = JSON.parse(input)
+const action = process.argv.at(-3)
+process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
+  schema_version: 'agent-hook.workspace-lease.release-result.v2', status: 'released'
+} : action === 'renew' ? {
+  schema_version: 'agent-hook.workspace-lease.renew-result.v2', kind: 'renewed', renew_after_ms: 10000
+} : {
+  schema_version: 'agent-hook.workspace-lease.bind-result.v2',
+  binding_id: 'fixture-binding', workspace_id: 'fixture-workspace', generation: 'fixture-generation',
+  session_id: request.session_id
+} }) + '\\n')
+`, { mode: 0o700 })
+      const hookConfig = join(companions, 'config.toml')
+      const hookPolicy = join(companions, 'policy.toml')
+      writeFileSync(hookConfig, 'fixture = true\n', { mode: 0o600 })
+      writeFileSync(hookPolicy, 'fixture = true\n', { mode: 0o600 })
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN = hook
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG = hookConfig
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY = hookPolicy
+      process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR = hookState
+      const input = {
+        schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+        phase: 'success' as const,
+        family: family.id,
+        scenarioId,
+        profile: `headless-clean-${family.id}`,
+        workdir,
+        dshHome,
+      }
+      assert.equal(porcelain(workdir), '', `${family.id}: seeded checkout must start clean`)
+      const prepared = runAcceptanceFixture({ ...input, stage: 'prepare' })
+      assert.equal(prepared.data.status, 'pass', family.id)
+      assert.equal(
+        porcelain(workdir),
+        '',
+        `${family.id}: fixture staging must not dirty the scenario checkout`,
+      )
+      runAcceptanceFixture({ ...input, stage: 'cleanup' })
+      assert.equal(porcelain(workdir), '', `${family.id}: cleanup must leave the checkout clean`)
+      assert.equal(
+        readFileSync(join(workdir, 'seed.txt'), 'utf8'),
+        'seed\n',
+        `${family.id}: cleanup must preserve caller-owned tracked content`,
+      )
+    }
+  } finally {
+    for (const name of names) {
+      const value = prior.get(name)
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('fixture exclude registration preserves caller exclude content and reverses fully', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-exclude-'))
+  const workdir = seededCheckout(join(root, 'workdir'))
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(dshHome, { mode: 0o700 })
+  const excludeFile = join(workdir, '.git', 'info', 'exclude')
+  mkdirSync(join(workdir, '.git', 'info'), { recursive: true, mode: 0o700 })
+  writeFileSync(excludeFile, '# caller owned\ncaller-pattern\n', { mode: 0o600 })
+  const input = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    phase: 'success' as const,
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-exclude',
+    workdir,
+    dshHome,
+  }
+  runAcceptanceFixture({ ...input, stage: 'prepare' })
+  const staged = readFileSync(excludeFile, 'utf8')
+  assert.match(staged, /^# caller owned\ncaller-pattern\n/u, 'caller exclude content must be preserved')
+  assert.match(staged, /\/fixture-validation\.mjs/u, 'fixture paths must be excluded while staged')
+  assert.equal(porcelain(workdir), '')
+
+  runAcceptanceFixture({ ...input, stage: 'cleanup' })
+  const cleaned = readFileSync(excludeFile, 'utf8')
+  assert.match(cleaned, /^# caller owned\ncaller-pattern\n/u)
+  assert.doesNotMatch(cleaned, /fixture-validation\.mjs/u, 'cleanup must drop cleanup-owned exclude patterns')
+  // Retained attestation files are declared scenario state, so they stay excluded to keep
+  // the checkout clean; only they may remain in the block after cleanup.
+  assert.deepEqual(
+    cleaned.split('\n').slice(3, -2),
+    ['/.agents/scripts/deploy.sh', '/deploy-inputs.json', '/deploy-probe.mjs'],
+  )
+  assert.equal(porcelain(workdir), '', 'cleanup must leave the checkout clean')
 })
