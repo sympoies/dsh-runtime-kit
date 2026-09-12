@@ -517,6 +517,55 @@ test('the runtime echoes only the exact provider target and freezes it', async (
   assert.equal(Object.isFrozen(request.target), true)
 })
 
+test('each begin echoes its own resolved target token and anchor', async () => {
+  const { selected, calls } = provider({
+    resolve: request => ({
+      kind: 'targets',
+      targets: [{
+        ...REPO_A,
+        token: `token:${request.callId}`,
+      }],
+    }),
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('owner', '/workspace/repo-a')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool())
+
+  assert.equal((await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/one.js' },
+    'call:one',
+  )).isError, false)
+  assert.equal((await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-a/two.js' },
+    'call:two',
+  )).isError, false)
+
+  assert.equal(calls.bind.filter(([request]) => request.target !== undefined).length, 0)
+  assert.deepEqual(calls.begin.map(([request]) => ({
+    target: request.target,
+    targetToken: request.targetToken,
+    anchorCwd: request.anchorCwd,
+  })), [
+    {
+      target: REPO_A,
+      targetToken: 'token:call:one',
+      anchorCwd: '/workspace/repo-a',
+    },
+    {
+      target: REPO_A,
+      targetToken: 'token:call:two',
+      anchorCwd: '/workspace/repo-a',
+    },
+  ])
+})
+
 test('a malformed resolve projection fails closed before any acquisition', async () => {
   for (const projection of [
     { kind: 'targets', targets: [] },
