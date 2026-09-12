@@ -602,6 +602,47 @@ test('deploy dispatcher wrapper exposes the authenticated node toolchain', async
   assert.match(dispatcher, /export PATH/u)
 })
 
+test('deploy dispatcher probe is registered before fixture validation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-validation-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir,
+    dshHome,
+  })
+
+  assert.match(
+    readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /commands = \["\.\/deploy-probe\.mjs","\.\/fixture-validation\.mjs"\]/u,
+  )
+
+  const failureWorkdir = join(root, 'failure-workdir')
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    family: 'deploy-dispatcher',
+    scenarioId: 'deploy-dispatcher.git-repo',
+    profile: 'headless-deploy-dispatcher',
+    workdir: failureWorkdir,
+    dshHome,
+  })
+  assert.match(
+    readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /commands = \["\.\/fixture-validation\.mjs"\]/u,
+  )
+})
+
 test('deploy dispatcher probe creates its canary tree with an owner-only mask', { concurrency: false }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-umask-'))
   const workdir = join(root, 'workdir')

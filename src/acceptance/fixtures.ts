@@ -1089,7 +1089,9 @@ function guide(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
 
 function projectValidationCommands(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
   if (family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure') return []
-  const commands = ['./fixture-validation.mjs']
+  const commands = family.id === 'deploy-dispatcher' && input.phase === 'success'
+    ? ['./deploy-probe.mjs', './fixture-validation.mjs']
+    : ['./fixture-validation.mjs']
   if (!input.scenarioId.endsWith('.non-git')) {
     if (family.id === 'automatic-prerequisite') commands.push('node fixture-source.test.mjs')
     if (family.id === 'authoritative-acceptance') commands.push('node acceptance-validation.mjs')
