@@ -523,6 +523,14 @@ export function createGovernedCommitTool(ctx: Context, config: {
           Promise.resolve(handle.done).then(value => value, () => undefined),
           interrupted.then(() => undefined),
         ])
+        // `done` covers the direct semantic-commit process. Once it has closed,
+        // reap any helper that still belongs to the managed process tree before
+        // checking quiescence; otherwise a completed signed commit can be
+        // reported as transport-unavailable solely because its helper lingered.
+        if (outcome !== undefined && !exec.signal.aborted
+          && operation.cause === undefined && !timedOut) {
+          try { handle.terminate() } catch {}
+        }
         const quiescent = await boundedQuiescence(handle)
         if (!quiescent) {
           degrade()

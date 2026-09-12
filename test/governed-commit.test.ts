@@ -57,6 +57,7 @@ function harness({
   quiescent = true,
   waitPending = false,
   waitError,
+  quiescentAfterTerminate = false,
   resolveError,
   resolvePending = false,
   spawnError,
@@ -100,7 +101,7 @@ function harness({
             if (waitError !== undefined) throw waitError
             return waitPending
               ? new Promise(resolve => { settleWait = resolve })
-              : Promise.resolve(quiescent)
+              : Promise.resolve(quiescent || (quiescentAfterTerminate && terminateCount > 0))
           },
         }
       },
@@ -308,6 +309,21 @@ test('governed commit cancellation terminates and joins the subprocess before re
   controller.abort(new Error('caller cancelled'))
 
   await assert.rejects(running, error => error.code === 'TOOL_ABORTED')
+  assert.equal(subject.terminateCount, 1)
+})
+
+test('governed commit reaps a lingering helper after a completed signed commit', async () => {
+  const subject = harness({ quiescent: false, quiescentAfterTerminate: true })
+  const tool = createGovernedCommitTool(subject.ctx, {
+    semanticCommit: '/tools/semantic-commit',
+    canonicalPath: value => value,
+    hasRepository: () => true,
+    governedCommitTeardownTimeoutMs: 5,
+  })
+
+  const result = await tool.execute(validArgs(), execution())
+
+  assert.equal(result.status, 'committed')
   assert.equal(subject.terminateCount, 1)
 })
 
