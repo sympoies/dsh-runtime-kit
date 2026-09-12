@@ -176,9 +176,10 @@ uses the versioned `dsh-runtime-kit.history.v1` JSON envelope.
 
 The four DSH history packages are pinned by the Agent Console DSH composition.
 Every adapter operation refuses an installed version other than the exact
-supported composition. This repository installs those versions as development
-dependencies so a reviewed source checkout can build and test the adapter
-without widening the runtime-kit's public rolling-window peer surface.
+supported composition. They are supplied by the outer DSH installation rather
+than declared as runtime-kit dependencies, so the adapter does not widen the
+runtime-kit's public rolling-window peer surface or pre-populate the
+authenticated compatibility staging targets.
 
 The adapter never creates, resumes, mutates, or deletes a DSH session. DSH
 history remains non-resumable in Agent Console. Callers must use an absolute
