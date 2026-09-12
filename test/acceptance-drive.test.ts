@@ -210,6 +210,21 @@ test('workspace recovery tasks distinguish the absolute request target from the 
   }
 })
 
+test('profile lifecycle tasks delegate repository observation to the external harness', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('profile-lifecycle.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    for (const task of [scenario.task, scenario.deliberate_failure_task]) {
+      assert.equal(typeof task, 'string', `${scenario.id} must declare both phases`)
+      assert.match(task!, /Do not invoke Git/u, scenario.id)
+      assert.match(task!, /external harness independently verifies repository state/iu, scenario.id)
+    }
+  }
+})
+
 test('workspace success tasks exercise the write-tool lease boundary without a Bash mutation', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('workspace-identity.'),
