@@ -646,6 +646,7 @@ process.exit(result.status ?? 70)
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
+process.umask(0o077)
 const input = JSON.parse(readFileSync('lifecycle-inputs.json', 'utf8'))
 const required = ['profile', 'runtime_kit_bin', 'dsh_bin', 'primary_package', 'update_package', 'operation']
 if (input.schema_version !== 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1'

@@ -344,6 +344,10 @@ if (process.env.DSH_RUNTIME_KIT_DSH_BIN !== expectedDsh) {
   process.stdout.write(JSON.stringify({ ok: false, error: { code: 'command-unavailable' } }))
   process.exit(70)
 }
+if (process.umask() !== 0o077) {
+  process.stdout.write(JSON.stringify({ ok: false, error: { code: 'unsafe-profile-tree' } }))
+  process.exit(65)
+}
 const args = process.argv.slice(2)
 const data = args[0] === 'doctor'
   ? { recovery: null, observed: { installed_version: null } }
@@ -378,11 +382,18 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
       workdir,
       dshHome,
     })
-    const probe = spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
-      cwd: workdir,
-      encoding: 'utf8',
-      env: { ...process.env, PATH: root },
-    })
+    const priorMask = process.umask(0o002)
+    const probe = (() => {
+      try {
+        return spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
+          cwd: workdir,
+          encoding: 'utf8',
+          env: { ...process.env, PATH: root },
+        })
+      } finally {
+        process.umask(priorMask)
+      }
+    })()
     assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
     assert.deepEqual(JSON.parse(probe.stdout), {
       schema_version: 'dsh-runtime-kit.acceptance-lifecycle-probe.v1',
