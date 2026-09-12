@@ -23,13 +23,14 @@ function agentHookArgs(...args) {
 }
 
 const TARGET = { workspace_key: 'wlk1.opaque', root: '/workspace/project' }
+const RESOLVED_TARGET = { ...TARGET, token: 'wlt1.call-bound' }
 
 function responseFor(action, request, overrides = {}) {
   const data = {
     resolve: {
       schema_version: 'agent-hook.workspace-lease.resolve-result.v2',
       kind: 'targets',
-      targets: [TARGET],
+      targets: [RESOLVED_TARGET],
     },
     bind: {
       schema_version: 'agent-hook.workspace-lease.bind-result.v2',
@@ -160,6 +161,7 @@ function fixture({
 }
 
 const target = { workspaceKey: 'wlk1.opaque', root: '/workspace/project' }
+const resolvedTarget = { ...target, token: 'wlt1.call-bound' }
 
 const binding = {
   version: 2,
@@ -185,7 +187,7 @@ test('the nils provider projects every exact WorkspaceLease v2 lifecycle call', 
     toolName: 'edit',
     arguments: { path: '/workspace/project/private.txt', replacement: 'secret' },
     nested: false,
-  }, new AbortController().signal), { kind: 'targets', targets: [target] })
+  }, new AbortController().signal), { kind: 'targets', targets: [resolvedTarget] })
   assert.deepEqual(await subject.provider.bind({
     version: 2,
     requestId: 'bind-request',
@@ -207,6 +209,8 @@ test('the nils provider projects every exact WorkspaceLease v2 lifecycle call', 
     requestId: 'begin-request',
     bindingState: 'owned',
     target,
+    targetToken: resolvedTarget.token,
+    anchorCwd: '/workspace/project',
     callId: 'call-1',
     rootCallId: 'root-1',
     toolName: 'edit',
@@ -274,6 +278,8 @@ test('the nils provider projects every exact WorkspaceLease v2 lifecycle call', 
     session_id: 'session-1',
     parent_session_id: 'parent-1',
     target: { workspace_key: 'wlk1.opaque', root: '/workspace/project' },
+    target_token: 'wlt1.call-bound',
+    anchor_cwd: '/workspace/project',
     binding_id: 'wlb1.opaque',
     workspace_id: 'wlw1.opaque',
     generation: 'wlg1.opaque',
@@ -333,6 +339,28 @@ test('provider denial and lost responses preserve only stable bounded facts', as
     code: 'WORKSPACE_LEASE_EXPIRED',
     reason: 'workspace lease generation expired and must be rebound',
   })
+})
+
+test('resolve rejects a target without its per-call token', async () => {
+  const subject = fixture({
+    responder(action, request) {
+      if (action !== 'resolve') return responseFor(action, request)
+      return responseFor(action, request, { targets: [TARGET] })
+    },
+  })
+
+  await assert.rejects(subject.provider.resolve({
+    version: 2,
+    requestId: 'resolve-request',
+    sessionId: 'session-1',
+    anchorCwd: '/workspace/project',
+    callId: 'call-1',
+    rootCallId: 'root-1',
+    toolName: 'edit',
+    arguments: { path: '/workspace/project/private.txt' },
+    nested: false,
+  }, new AbortController().signal), error => error instanceof WorkspaceLeaseError
+    && error.code === WORKSPACE_LEASE_UNAVAILABLE)
 })
 
 test('malformed, lossy, exit-mismatched, and unquiescent children fail closed', async () => {

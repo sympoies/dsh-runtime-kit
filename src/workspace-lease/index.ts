@@ -36,10 +36,12 @@ export type WorkspaceRef = Readonly<Record<never, never>>
  */
 
 export type WorkspaceLeaseTarget = { workspaceKey: string, root: string }
+export type WorkspaceLeaseResolvedTarget = WorkspaceLeaseTarget & { token?: string }
 /**
  * Exact canonical repository target authenticated by the provider. The runtime
- * never constructs one from a model-supplied path: it only echoes back what
- * the provider returned for this exact operation.
+ * never constructs one from a model-supplied path. A provider may attach an
+ * opaque per-call token which is returned only to `begin` for this exact
+ * operation and is never projected into tool output.
  */
 
 export type WorkspaceLeaseBindingFacts = { version: typeof WORKSPACE_LEASE_PROTOCOL_VERSION, requestId: string, sessionId: Agent['id'], parentSessionId?: Agent['id'] }
@@ -54,7 +56,7 @@ export type WorkspaceLeaseResolveRequest = WorkspaceLeaseBindingFacts & {
   }
 
 export type WorkspaceLeaseResolveResult = {kind: 'not-required'}
-    | {kind: 'targets', targets: readonly WorkspaceLeaseTarget[]}
+    | {kind: 'targets', targets: readonly WorkspaceLeaseResolvedTarget[]}
 
 export type WorkspaceLeaseBindRequest = WorkspaceLeaseBindingFacts & {
     target?: WorkspaceLeaseTarget,
@@ -80,6 +82,8 @@ export type WorkspaceLeaseBeginRequest = WorkspaceLeaseBindingFacts & {
     generation: string,
     bindingState: 'owned' | 'unmanaged',
     target: WorkspaceLeaseTarget,
+    targetToken?: string,
+    anchorCwd?: string,
     callId: ToolExecution['callId'],
     rootCallId: ToolExecution['rootCallId'],
     toolName: string,
@@ -300,11 +304,11 @@ function nonEmpty(value: unknown, field: string) {
  * an opaque selector: it is echoed back to the provider and never parsed,
  * joined, compared to a model argument, or projected into tool output.
  */
-function frozenTarget(value: unknown): WorkspaceLeaseTarget  {
+function frozenTarget(value: unknown): WorkspaceLeaseResolvedTarget  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw unavailable('workspace lease provider returned an invalid target')
   }
-  const candidate = ((value) as Partial<WorkspaceLeaseTarget>)
+  const candidate = ((value) as Partial<WorkspaceLeaseResolvedTarget>)
   const root = candidate.root
   if (typeof root !== 'string'
     || !printableProviderText.test(root)
@@ -315,6 +319,9 @@ function frozenTarget(value: unknown): WorkspaceLeaseTarget  {
   return Object.freeze({
     workspaceKey: nonEmpty(candidate.workspaceKey, 'target workspace key'),
     root,
+    ...(candidate.token === undefined
+      ? {}
+      : { token: nonEmpty(candidate.token, 'target token') }),
   })
 }
 
@@ -1030,23 +1037,36 @@ export class WorkspaceLease extends Service {
       // Canonical targets are acquired in the provider's deterministic order
       // before any fence is granted, so a denied target cannot leave an
       // already-fenced sibling free to dispatch.
-      const bindings: BoundWorkspace[] = []
+      const resolved: { binding: BoundWorkspace, target: WorkspaceLeaseResolvedTarget }[] = []
       for (const target of targets) {
-        const binding = await this.#acquire(slot, provider, target, admissionSignal.signal)
+        // The per-call token authenticates `begin`, not the durable binding.
+        // Keep it beside the resolved operation while bind sees only the
+        // canonical workspace identity.
+        const binding = await this.#acquire(slot, provider, Object.freeze({
+          workspaceKey: target.workspaceKey,
+          root: target.root,
+        }), admissionSignal.signal)
         if (binding === undefined) continue
         if (binding.failure !== undefined) throw binding.failure
-        bindings.push(binding)
+        resolved.push({ binding, target })
         binding.admissions.add(admission.promise)
         admitted.add(binding)
         this.#syncRenewalTimerRef(binding)
       }
+      const bindings = resolved.map(candidate => candidate.binding)
       if (bindings.length === 0) {
         this.#admit(exec, identity, slot, epoch, [])
         return downstream
       }
 
-      for (const binding of bindings) {
-        const granted = await this.#begin(binding, identity, admissionSignal.signal)
+      for (const { binding, target } of resolved) {
+        const granted = await this.#begin(
+          binding,
+          target,
+          slot.session.header.cwd,
+          identity,
+          admissionSignal.signal,
+        )
         if (granted !== undefined) operations.push(granted)
       }
       for (const operation of operations) operation.binding.operations.add(operation)
@@ -1082,7 +1102,7 @@ export class WorkspaceLease extends Service {
     this.#authorizations.set(exec, { ...identity, slot, epoch, operations })
   }
 
-  async #resolveTargets(provider: ProviderSlot, slot: AgentSlot, identity: ExecutionIdentity, signal: AbortSignal): Promise<readonly WorkspaceLeaseTarget[]>  {
+  async #resolveTargets(provider: ProviderSlot, slot: AgentSlot, identity: ExecutionIdentity, signal: AbortSignal): Promise<readonly WorkspaceLeaseResolvedTarget[]>  {
     const cwd = slot.session.header.cwd
     let result: WorkspaceLeaseResolveResult
     try {
@@ -1109,7 +1129,7 @@ export class WorkspaceLease extends Service {
     if (result.targets.length === 0 || result.targets.length > WORKSPACE_LEASE_MAX_TARGETS) {
       throw unavailable('workspace lease provider returned an invalid target count')
     }
-    const targets: WorkspaceLeaseTarget[] = []
+    const targets: WorkspaceLeaseResolvedTarget[] = []
     const seen = new Set()
     for (const candidate of result.targets) {
       const target = frozenTarget(candidate)
@@ -1122,7 +1142,13 @@ export class WorkspaceLease extends Service {
     return targets
   }
 
-  async #begin(binding: BoundWorkspace, identity: ExecutionIdentity, signal: AbortSignal): Promise<LeaseOperation | undefined>  {
+  async #begin(
+    binding: BoundWorkspace,
+    resolvedTarget: WorkspaceLeaseResolvedTarget,
+    anchorCwd: string | undefined,
+    identity: ExecutionIdentity,
+    signal: AbortSignal,
+  ): Promise<LeaseOperation | undefined>  {
     let result: WorkspaceLeaseBeginResult
     try {
       result = await binding.provider.provider.begin({
@@ -1132,7 +1158,12 @@ export class WorkspaceLease extends Service {
         workspaceId: binding.workspaceId,
         generation: binding.generation,
         bindingState: binding.initialState,
-        target: binding.target,
+        target: Object.freeze({
+          workspaceKey: resolvedTarget.workspaceKey,
+          root: resolvedTarget.root,
+        }),
+        ...(resolvedTarget.token === undefined ? {} : { targetToken: resolvedTarget.token }),
+        ...(anchorCwd === undefined ? {} : { anchorCwd }),
         callId: identity.callId,
         rootCallId: identity.rootCallId,
         toolName: identity.toolName,
