@@ -1088,7 +1088,8 @@ function guide(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
 }
 
 function projectValidationCommands(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
-  if (family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure') return []
+  if (input.phase === 'deliberate-failure'
+    && (family.id === 'profile-lifecycle' || family.id === 'deploy-dispatcher')) return []
   const commands = family.id === 'deploy-dispatcher' && input.phase === 'success'
     ? ['./deploy-probe.mjs', './fixture-validation.mjs']
     : ['./fixture-validation.mjs']

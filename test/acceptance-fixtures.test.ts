@@ -602,7 +602,7 @@ test('deploy dispatcher wrapper exposes the authenticated node toolchain', async
   assert.match(dispatcher, /export PATH/u)
 })
 
-test('deploy dispatcher probe is registered before fixture validation', async () => {
+test('deploy dispatcher validations are phase-specific', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-validation-'))
   const workdir = join(root, 'workdir')
   const dshHome = join(root, 'dsh-home')
@@ -637,9 +637,9 @@ test('deploy dispatcher probe is registered before fixture validation', async ()
     workdir: failureWorkdir,
     dshHome,
   })
-  assert.match(
+  assert.doesNotMatch(
     readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
-    /commands = \["\.\/fixture-validation\.mjs"\]/u,
+    /\[\[validation\]\]/u,
   )
 })
 
