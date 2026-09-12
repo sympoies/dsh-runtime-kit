@@ -35,11 +35,18 @@ function option(args: string[], name: string, required = false) {
 
 async function createBackend(root: string, compression: string): Promise<{ backend: DshHistoryBackend, dispose(): Promise<void> }> {
   const load = (specifier: string) => import(specifier)
-  const [{ Context }, { SessionStore }, { JsonlSessionPersistence }, { SessionQueryEngine }] = await Promise.all([
+  const [
+    { Context },
+    { SessionStore },
+    { JsonlSessionPersistence },
+    { SessionQueryEngine, buildSessionEventRecords },
+    { foldSessionTitle },
+  ] = await Promise.all([
     load('@deepseek-ai/cordis'),
     load('@deepseek-ai/dsh-session'),
     load('@deepseek-ai/dsh-session-persistence-jsonl'),
     load('@deepseek-ai/dsh-session-query'),
+    load('@deepseek-ai/dsh-session-title'),
   ])
   class ReadOnlySessionQuery extends SessionQueryEngine {
     async searchSessions() { throw new Error('full-text search is not supported by the history adapter') }
@@ -75,7 +82,46 @@ async function createBackend(root: string, compression: string): Promise<{ backe
         }
         return listed
       },
-      readTitleSnapshots: (ids, signal) => query.readTitleSnapshots(ids, signal),
+      readSummarySnapshots: async (ids, signal) => {
+        const uniqueIds = [...new Set(ids)]
+        type SummaryObservation = Awaited<ReturnType<
+          DshHistoryBackend['readSummarySnapshots']
+        >>[number]
+        const results = new Map<string, SummaryObservation>()
+        let cursor = 0
+        const worker = async () => {
+          for (;;) {
+            signal?.throwIfAborted()
+            const index = cursor
+            if (index >= uniqueIds.length) return
+            cursor += 1
+            const sessionId = uniqueIds[index]
+            try {
+              const inspection = await persistence.inspect(sessionId, signal)
+              signal?.throwIfAborted()
+              const current = new Set(buildSessionEventRecords(sessionId, inspection.events)
+                .filter((record: { surface: string }) => record.surface === 'current')
+                .map((record: { seq: number }) => record.seq))
+              const title = foldSessionTitle(inspection.events)?.title
+              results.set(sessionId, {
+                sessionId,
+                status: 'fulfilled',
+                value: {
+                  ...(typeof title === 'string' ? { title } : {}),
+                  events: inspection.events.filter((event: { seq: number }) => current.has(event.seq)),
+                },
+              })
+            } catch {
+              if (signal?.aborted) signal.throwIfAborted()
+              results.set(sessionId, { sessionId, status: 'rejected' })
+            }
+          }
+        }
+        const workerCount = Math.min(4, uniqueIds.length)
+        await Promise.all(Array.from({ length: workerCount }, () => worker()))
+        signal?.throwIfAborted()
+        return uniqueIds.map(sessionId => results.get(sessionId)!)
+      },
       readSurface: id => query.readSurface(id),
     },
     dispose: () => ctx.fiber.dispose(),

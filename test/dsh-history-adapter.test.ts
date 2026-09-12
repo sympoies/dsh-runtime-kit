@@ -70,10 +70,13 @@ function backend(): DshHistoryBackend {
   ]
   return {
     listSnapshots: async () => headers,
-    readTitleSnapshots: async (ids) => ids.map((sessionId) => ({
+    readSummarySnapshots: async (ids) => ids.map((sessionId) => ({
       sessionId,
       status: 'fulfilled' as const,
-      value: { title: sessionId === 'top' ? { title: 'Reviewed title' } : undefined },
+      value: {
+        title: sessionId === 'top' ? 'Reviewed title' : undefined,
+        events,
+      },
     })),
     readSurface: async () => ({ capturedThroughSeq: 9, events }),
   }
@@ -128,13 +131,44 @@ test('summarizes only requested sessions and excludes injected user-role events'
 
 test('isolates a failed surface read from healthy requested summaries', async () => {
   const subject = backend()
-  const original = subject.readSurface
-  subject.readSurface = async (id) => {
-    if (id === 'broken') throw new Error('corrupt session')
-    return original(id)
-  }
+  const original = subject.readSummarySnapshots
+  subject.readSummarySnapshots = async (ids) => [
+    { sessionId: 'broken', status: 'rejected' },
+    ...(await original(ids.filter(id => id !== 'broken'))),
+  ]
 
   assert.deepEqual(await summarizeDshHistorySessions(subject, ['broken', 'top']), [{
+    provider_session_id: 'top',
+    title: 'Reviewed title',
+    first_user_prompt_preview: 'first prompt',
+    last_user_prompt_preview: 'latest prompt',
+    updated_at: '1970-01-01T00:00:00.028Z',
+  }])
+})
+
+test('summarizes a selected page through one bounded backend projection', async () => {
+  const subject = backend()
+  let projectionCalls = 0
+  subject.readSummarySnapshots = async (ids) => {
+    projectionCalls += 1
+    const events = (await backend().readSurface('top')).events
+    return ids.map(sessionId => ({
+      sessionId,
+      status: 'fulfilled',
+      value: {
+        title: sessionId === 'top' ? 'Reviewed title' : undefined,
+        events,
+      },
+    }))
+  }
+  subject.readSurface = async () => {
+    throw new Error('legacy duplicate surface read should not run')
+  }
+
+  const summaries = await summarizeDshHistorySessions(subject, ['top', 'top'])
+
+  assert.equal(projectionCalls, 1)
+  assert.deepEqual(summaries, [{
     provider_session_id: 'top',
     title: 'Reviewed title',
     first_user_prompt_preview: 'first prompt',

@@ -31,10 +31,10 @@ export interface DshHistoryBackend {
     revision: string
     updatedAt: number
   }>>
-  readTitleSnapshots(sessionIds: readonly string[], signal?: AbortSignal): Promise<Array<{
+  readSummarySnapshots(sessionIds: readonly string[], signal?: AbortSignal): Promise<Array<{
     sessionId: string
     status: 'fulfilled' | 'rejected'
-    value?: { title?: { title?: string } }
+    value?: { title?: string, events: DshEvent[] }
   }>>
   readSurface(sessionId: string): Promise<{
     capturedThroughSeq: number | null
@@ -145,38 +145,27 @@ export async function summarizeDshHistorySessions(
   signal?: AbortSignal,
 ) {
   const uniqueIds = [...new Set(sessionIds)]
-  const titles = new Map((await backend.readTitleSnapshots(uniqueIds, signal)).flatMap(result => {
-    const title = result.status === 'fulfilled' && typeof result.value?.title?.title === 'string'
-      ? cleanText(result.value.title.title, PREVIEW_CHARS)
+  const projected = await backend.readSummarySnapshots(uniqueIds, signal)
+  return projected.flatMap(result => {
+    if (result.status !== 'fulfilled' || result.value === undefined) return []
+    const messages = result.value.events.map(messageOf).filter(message => message !== undefined)
+    const userMessages = messages.filter(message => message.role === 'user')
+    const updatedAt = result.value.events.findLast(event => Number.isSafeInteger(event.time))?.time
+    const title = typeof result.value.title === 'string'
+      ? cleanText(result.value.title, PREVIEW_CHARS)
       : ''
-    return title.length > 0 ? [[result.sessionId, title] as const] : []
-  }))
-  const summaries = []
-  for (let index = 0; index < uniqueIds.length; index += 4) {
-    const batch = await Promise.all(uniqueIds.slice(index, index + 4).map(async providerSessionId => {
-      try {
-        const surface = await backend.readSurface(providerSessionId)
-        const messages = surface.events.map(messageOf).filter(message => message !== undefined)
-        const userMessages = messages.filter(message => message.role === 'user')
-        const updatedAt = surface.events.findLast(event => Number.isSafeInteger(event.time))?.time
-        return {
-          provider_session_id: providerSessionId,
-          ...(titles.has(providerSessionId) ? { title: titles.get(providerSessionId) } : {}),
-          ...(userMessages[0] !== undefined
-            ? { first_user_prompt_preview: cleanText(userMessages[0].text, PREVIEW_CHARS) }
-            : {}),
-          ...(userMessages.at(-1) !== undefined
-            ? { last_user_prompt_preview: cleanText(userMessages.at(-1)!.text, PREVIEW_CHARS) }
-            : {}),
-          ...(updatedAt !== undefined ? { updated_at: isoDate(updatedAt) } : {}),
-        }
-      } catch {
-        return undefined
-      }
-    }))
-    summaries.push(...batch.filter(summary => summary !== undefined))
-  }
-  return summaries
+    return [{
+      provider_session_id: result.sessionId,
+      ...(title.length > 0 ? { title } : {}),
+      ...(userMessages[0] !== undefined
+        ? { first_user_prompt_preview: cleanText(userMessages[0].text, PREVIEW_CHARS) }
+        : {}),
+      ...(userMessages.at(-1) !== undefined
+        ? { last_user_prompt_preview: cleanText(userMessages.at(-1)!.text, PREVIEW_CHARS) }
+        : {}),
+      ...(updatedAt !== undefined ? { updated_at: isoDate(updatedAt) } : {}),
+    }]
+  })
 }
 
 export async function readDshHistoryMessages(
