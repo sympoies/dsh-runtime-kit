@@ -4,6 +4,8 @@ import test from 'node:test'
 import {
   dshHistoryCapabilities,
   listDshHistorySessions,
+  projectDshHistorySummary,
+  readDshHistorySummarySnapshots,
   readDshHistoryMessages,
   summarizeDshHistorySessions,
   type DshHistoryBackend,
@@ -70,10 +72,14 @@ function backend(): DshHistoryBackend {
   ]
   return {
     listSnapshots: async () => headers,
-    readTitleSnapshots: async (ids) => ids.map((sessionId) => ({
+    readSummarySnapshots: async (ids) => ids.map((sessionId) => ({
       sessionId,
       status: 'fulfilled' as const,
-      value: { title: sessionId === 'top' ? { title: 'Reviewed title' } : undefined },
+      value: projectDshHistorySummary(
+        sessionId,
+        sessionId === 'top' ? 'Reviewed title' : undefined,
+        events,
+      ),
     })),
     readSurface: async () => ({ capturedThroughSeq: 9, events }),
   }
@@ -128,11 +134,11 @@ test('summarizes only requested sessions and excludes injected user-role events'
 
 test('isolates a failed surface read from healthy requested summaries', async () => {
   const subject = backend()
-  const original = subject.readSurface
-  subject.readSurface = async (id) => {
-    if (id === 'broken') throw new Error('corrupt session')
-    return original(id)
-  }
+  const original = subject.readSummarySnapshots
+  subject.readSummarySnapshots = async (ids) => [
+    { sessionId: 'broken', status: 'rejected' },
+    ...(await original(ids.filter(id => id !== 'broken'))),
+  ]
 
   assert.deepEqual(await summarizeDshHistorySessions(subject, ['broken', 'top']), [{
     provider_session_id: 'top',
@@ -141,6 +147,111 @@ test('isolates a failed surface read from healthy requested summaries', async ()
     last_user_prompt_preview: 'latest prompt',
     updated_at: '1970-01-01T00:00:00.028Z',
   }])
+})
+
+test('summarizes a selected page through one bounded backend projection', async () => {
+  const subject = backend()
+  let projectionCalls = 0
+  subject.readSummarySnapshots = async (ids) => {
+    projectionCalls += 1
+    const events = (await backend().readSurface('top')).events
+    return ids.map(sessionId => ({
+      sessionId,
+      status: 'fulfilled',
+      value: projectDshHistorySummary(
+        sessionId,
+        sessionId === 'top' ? 'Reviewed title' : undefined,
+        events,
+      ),
+    }))
+  }
+  subject.readSurface = async () => {
+    throw new Error('legacy duplicate surface read should not run')
+  }
+
+  const summaries = await summarizeDshHistorySessions(subject, ['top', 'top'])
+
+  assert.equal(projectionCalls, 1)
+  assert.deepEqual(summaries, [{
+    provider_session_id: 'top',
+    title: 'Reviewed title',
+    first_user_prompt_preview: 'first prompt',
+    last_user_prompt_preview: 'latest prompt',
+    updated_at: '1970-01-01T00:00:00.028Z',
+  }])
+})
+
+test('production summary workers preserve fold order with bounded compact observations', async () => {
+  const sessionIds = Array.from({ length: 50 }, (_, index) => `session-${index}`)
+  sessionIds.splice(7, 0, 'session-2')
+  sessionIds.splice(19, 0, 'broken')
+  const calls: string[] = []
+  let active = 0
+  let maximumActive = 0
+  const observations = await readDshHistorySummarySnapshots(sessionIds, {
+    inspect: async (sessionId) => {
+      calls.push(sessionId)
+      active += 1
+      maximumActive = Math.max(maximumActive, active)
+      await new Promise(resolve => setImmediate(resolve))
+      active -= 1
+      if (sessionId === 'broken') throw new Error('corrupt session')
+      return {
+        events: [
+          {
+            type: 'user/message', seq: 0, time: 10,
+            data: { source: { kind: 'user' }, content: [{ type: 'text', text: `${sessionId} shadowed` }] },
+          },
+          {
+            type: 'user/message', seq: 1, time: 20,
+            data: { source: { kind: 'user' }, content: [{ type: 'text', text: `${sessionId} tail` }] },
+          },
+          {
+            type: 'user/message', seq: 2, time: 30,
+            data: { source: { kind: 'user' }, content: [{ type: 'text', text: `${sessionId} replacement` }] },
+          },
+        ],
+      }
+    },
+    foldSurface: () => [2, 1],
+    foldTitle: events => `${events.length}-event title`,
+  }, AbortSignal.timeout(2_000))
+
+  assert.equal(maximumActive, 4)
+  assert.equal(calls.length, 51)
+  assert.equal(new Set(calls).size, 51)
+  assert.deepEqual(observations.map(result => result.sessionId), [...new Set(sessionIds)])
+  assert.deepEqual(observations[0], {
+    sessionId: 'session-0',
+    status: 'fulfilled',
+    value: {
+      provider_session_id: 'session-0',
+      title: '3-event title',
+      first_user_prompt_preview: 'session-0 replacement',
+      last_user_prompt_preview: 'session-0 tail',
+      updated_at: '1970-01-01T00:00:00.020Z',
+    },
+  })
+  assert.equal(observations.find(result => result.sessionId === 'broken')?.status, 'rejected')
+  assert.equal('events' in observations[0].value!, false)
+})
+
+test('production summary workers reject the whole operation when aborted', async () => {
+  const controller = new AbortController()
+  let started = 0
+  const summaries = readDshHistorySummarySnapshots(['a', 'b', 'c', 'd', 'e'], {
+    inspect: (_sessionId, signal) => new Promise((_resolve, reject) => {
+      started += 1
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+    }),
+    foldSurface: () => [],
+    foldTitle: () => undefined,
+  }, controller.signal)
+
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(started, 4)
+  controller.abort()
+  await assert.rejects(summaries, { name: 'AbortError' })
 })
 
 test('pages the visible conversation newest-first and returns an older cursor', async () => {

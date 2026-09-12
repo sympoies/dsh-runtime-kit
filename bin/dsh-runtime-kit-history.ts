@@ -8,6 +8,7 @@ import {
   DSH_HISTORY_PACKAGES,
   dshHistoryCapabilities,
   listDshHistorySessions,
+  readDshHistorySummarySnapshots,
   readDshHistoryMessages,
   summarizeDshHistorySessions,
   type DshHistoryBackend,
@@ -35,11 +36,18 @@ function option(args: string[], name: string, required = false) {
 
 async function createBackend(root: string, compression: string): Promise<{ backend: DshHistoryBackend, dispose(): Promise<void> }> {
   const load = (specifier: string) => import(specifier)
-  const [{ Context }, { SessionStore }, { JsonlSessionPersistence }, { SessionQueryEngine }] = await Promise.all([
+  const [
+    { Context },
+    { SessionStore, foldSurface },
+    { JsonlSessionPersistence },
+    { SessionQueryEngine },
+    { foldSessionTitle },
+  ] = await Promise.all([
     load('@deepseek-ai/cordis'),
     load('@deepseek-ai/dsh-session'),
     load('@deepseek-ai/dsh-session-persistence-jsonl'),
     load('@deepseek-ai/dsh-session-query'),
+    load('@deepseek-ai/dsh-session-title'),
   ])
   class ReadOnlySessionQuery extends SessionQueryEngine {
     async searchSessions() { throw new Error('full-text search is not supported by the history adapter') }
@@ -75,7 +83,11 @@ async function createBackend(root: string, compression: string): Promise<{ backe
         }
         return listed
       },
-      readTitleSnapshots: (ids, signal) => query.readTitleSnapshots(ids, signal),
+      readSummarySnapshots: (ids, signal) => readDshHistorySummarySnapshots(ids, {
+        inspect: (sessionId, inspectSignal) => persistence.inspect(sessionId, inspectSignal),
+        foldSurface: events => foldSurface(events).nodes,
+        foldTitle: events => foldSessionTitle(events)?.title,
+      }, signal),
       readSurface: id => query.readSurface(id),
     },
     dispose: () => ctx.fiber.dispose(),
