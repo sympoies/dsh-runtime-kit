@@ -239,6 +239,23 @@ test('deploy dispatcher success tasks preserve fresh validation as their finish 
   }
 })
 
+test('deploy dispatcher deliberate-failure tasks use the typed fixture probe', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('deploy-dispatcher.'),
+  )
+
+  assert.equal(scenarios.length, 2)
+  for (const scenario of scenarios) {
+    assert.match(scenario.deliberate_failure_task!, /Run exactly \.\/deploy-probe\.mjs/u, scenario.id)
+    assert.match(scenario.deliberate_failure_task!, /typed dispatcher-unavailable/u, scenario.id)
+    assert.match(
+      scenario.deliberate_failure_task!,
+      /Do not invoke agent-run, \.agents\/scripts\/deploy\.sh directly/u,
+      scenario.id,
+    )
+  }
+})
+
 test('workspace success tasks exercise the write-tool lease boundary without a Bash mutation', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('workspace-identity.'),
