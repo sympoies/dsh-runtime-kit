@@ -186,6 +186,18 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Retry retrieval with the recorded valid artifact id; do not copy the artifact into the workdir as a workaround.',
     }
   }
+  if (observation.error_code === 'dsh.block-unsafe-default-delivery'
+    && observation.policy_code === observation.error_code) {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'policy',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Inspect the named policy rule and the denied operation; change authority or inputs, not the policy record.',
+    }
+  }
   if (observation.finish_line !== undefined) {
     return {
       schema_version: SESSION_OUTCOME_SCHEMA,
