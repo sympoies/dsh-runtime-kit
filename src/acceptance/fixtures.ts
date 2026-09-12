@@ -619,6 +619,15 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
   if (path === 'lifecycle-inputs.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
     profile: `acceptance-${scenario.replaceAll('.', '-')}`,
+    runtime_root: join(
+      input.dshHome,
+      'runtime-kit',
+      'acceptance-fixtures',
+      input.profile,
+      input.scenarioId,
+      sha256(input.workdir),
+      'lifecycle-runtime',
+    ),
     runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
     dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
     primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
@@ -648,10 +657,14 @@ import { spawnSync } from 'node:child_process'
 
 process.umask(0o077)
 const input = JSON.parse(readFileSync('lifecycle-inputs.json', 'utf8'))
-const required = ['profile', 'runtime_kit_bin', 'dsh_bin', 'primary_package', 'update_package', 'operation']
+const required = ['profile', 'runtime_root', 'runtime_kit_bin', 'dsh_bin', 'primary_package', 'update_package', 'operation']
 if (input.schema_version !== 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1'
   || required.some(key => typeof input[key] !== 'string' || input[key].length === 0)) process.exit(65)
-const lifecycleEnv = { ...process.env, DSH_RUNTIME_KIT_DSH_BIN: input.dsh_bin }
+const lifecycleEnv = {
+  ...process.env,
+  DSH_RUNTIME_KIT_RUNTIME_ROOT: input.runtime_root,
+  DSH_RUNTIME_KIT_DSH_BIN: input.dsh_bin,
+}
 
 function invoke(args, env = lifecycleEnv, expectedFailure = false, acceptInspection = false) {
   const result = spawnSync(input.runtime_kit_bin, [...args, '--format', 'json'], {
@@ -1638,6 +1651,15 @@ function fileFailureInput(family: AcceptanceFixtureFamily, input: AcceptanceFixt
       replacement: json({
         schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
         profile: `acceptance-${input.scenarioId.replaceAll('.', '-')}`,
+        runtime_root: join(
+          input.dshHome,
+          'runtime-kit',
+          'acceptance-fixtures',
+          input.profile,
+          input.scenarioId,
+          sha256(input.workdir),
+          'lifecycle-runtime',
+        ),
         runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
         dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
         primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,

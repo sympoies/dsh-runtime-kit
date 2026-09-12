@@ -409,6 +409,78 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
   }
 })
 
+test('profile lifecycle probe isolates its activation from the controller profile', { concurrency: false }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-runtime-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  const controllerRuntime = join(dshHome, 'runtime')
+  const controllerActivation = join(controllerRuntime, 'activation.json')
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh-host')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(controllerRuntime, { recursive: true, mode: 0o700 })
+  writeFileSync(controllerActivation, '{}\n', { mode: 0o600 })
+  writeFileSync(dsh, `#!${process.execPath}\n`, { mode: 0o700 })
+  writeFileSync(runtimeKit, `#!${process.execPath}
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
+const args = process.argv.slice(2)
+if (args[0] === 'remove' && args.includes('--apply')) {
+  rmSync(join(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT, 'activation.json'), { force: true })
+}
+const data = args[0] === 'doctor'
+  ? { recovery: null, observed: { installed_version: null } }
+  : args.includes('--apply')
+    ? { mode: 'applied' }
+    : { plan_digest: 'a'.repeat(64) }
+process.stdout.write(JSON.stringify({ ok: true, data }))
+`, { mode: 0o700 })
+
+  const names = [
+    'DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE',
+    'DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN',
+    'DSH_RUNTIME_KIT_RUNTIME_ROOT',
+  ] as const
+  const prior = new Map(names.map(name => [name, process.env[name]]))
+  Object.assign(process.env, {
+    DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN: runtimeKit,
+    DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE: join(root, 'primary'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_PACKAGE: join(root, 'candidate'),
+    DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN: dsh,
+    DSH_RUNTIME_KIT_RUNTIME_ROOT: controllerRuntime,
+  })
+
+  try {
+    runAcceptanceFixture({
+      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+      stage: 'prepare',
+      phase: 'success',
+      family: 'profile-lifecycle',
+      scenarioId: 'profile-lifecycle.git-repo',
+      profile: 'headless-profile-lifecycle',
+      workdir,
+      dshHome,
+    })
+    const probe = spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
+      cwd: workdir,
+      encoding: 'utf8',
+      env: process.env,
+    })
+    assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
+    assert.equal(existsSync(controllerActivation), true)
+    const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
+    assert.notEqual(inputs.runtime_root, controllerRuntime)
+  } finally {
+    for (const name of names) {
+      const value = prior.get(name)
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-collision-'))
   const workdir = join(root, 'workdir')
