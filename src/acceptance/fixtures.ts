@@ -510,6 +510,18 @@ function mainAgentFixtureContext(input: AcceptanceFixtureInput) {
   }
 }
 
+function lifecycleRuntimeRoot(input: AcceptanceFixtureInput) {
+  return ensurePrivateDescendant(
+    input.dshHome,
+    'runtime-kit',
+    'acceptance-fixtures',
+    input.profile,
+    input.scenarioId,
+    sha256(input.workdir),
+    'lifecycle-runtime',
+  )
+}
+
 function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: AcceptanceFixtureInput) {
   const scenario = input.scenarioId
   const mainAgent = family.id === 'managed-subagent-workspace'
@@ -619,15 +631,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
   if (path === 'lifecycle-inputs.json') return `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
     profile: `acceptance-${scenario.replaceAll('.', '-')}`,
-    runtime_root: join(
-      input.dshHome,
-      'runtime-kit',
-      'acceptance-fixtures',
-      input.profile,
-      input.scenarioId,
-      sha256(input.workdir),
-      'lifecycle-runtime',
-    ),
+    runtime_root: lifecycleRuntimeRoot(input),
     runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
     dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
     primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,
@@ -1651,15 +1655,7 @@ function fileFailureInput(family: AcceptanceFixtureFamily, input: AcceptanceFixt
       replacement: json({
         schema_version: 'dsh-runtime-kit.acceptance-lifecycle-inputs.v1',
         profile: `acceptance-${input.scenarioId.replaceAll('.', '-')}`,
-        runtime_root: join(
-          input.dshHome,
-          'runtime-kit',
-          'acceptance-fixtures',
-          input.profile,
-          input.scenarioId,
-          sha256(input.workdir),
-          'lifecycle-runtime',
-        ),
+        runtime_root: lifecycleRuntimeRoot(input),
         runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
         dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
         primary_package: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_PACKAGE ?? null,

@@ -463,6 +463,7 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
       workdir,
       dshHome,
     })
+    const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
     const probe = spawnSync(process.execPath, ['./lifecycle-probe.mjs'], {
       cwd: workdir,
       encoding: 'utf8',
@@ -470,7 +471,6 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
     })
     assert.equal(probe.status, 0, `${probe.stdout}\n${probe.stderr}`)
     assert.equal(existsSync(controllerActivation), true)
-    const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
     assert.notEqual(inputs.runtime_root, controllerRuntime)
   } finally {
     for (const name of names) {
@@ -479,6 +479,30 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
       else process.env[name] = value
     }
   }
+})
+
+test('profile lifecycle fixture creates its isolated runtime root before execution', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-profile-lifecycle-root-'))
+  const workdir = join(root, 'workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(workdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+
+  runAcceptanceFixture({
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+    stage: 'prepare',
+    phase: 'success',
+    family: 'profile-lifecycle',
+    scenarioId: 'profile-lifecycle.git-repo',
+    profile: 'headless-profile-lifecycle',
+    workdir,
+    dshHome,
+  })
+
+  const inputs = JSON.parse(readFileSync(join(workdir, 'lifecycle-inputs.json'), 'utf8'))
+  const runtimeRoot = statSync(inputs.runtime_root)
+  assert.equal(runtimeRoot.isDirectory(), true)
+  assert.equal(runtimeRoot.mode & 0o077, 0)
 })
 
 test('provider refuses to replace caller-owned fixture paths and symlinked roots', async () => {
