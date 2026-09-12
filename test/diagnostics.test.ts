@@ -561,6 +561,41 @@ test('collector projects a shell sandbox denial but ignores the same text from a
   assert.equal(bundle.session_outcome.receipt, 'session.typed_errors[0]')
 })
 
+test('collector normalizes the DSH FS_SANDBOX_DENIED typed error', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'diagnostic-typed-sandbox-denial-'))
+  chmodSync(root, 0o700)
+  const dshHome = join(root, 'home')
+  const sessions = join(dshHome, 'sessions', 'fixture')
+  mkdirSync(sessions, { recursive: true, mode: 0o700 })
+  const runtimeKit = join(root, 'runtime-kit.mjs')
+  const dsh = join(root, 'dsh.mjs')
+  writeFileSync(runtimeKit, `process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')`)
+  writeFileSync(dsh, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify([])+'\\n')\n`)
+  chmodSync(runtimeKit, 0o700)
+  chmodSync(dsh, 0o700)
+  const transcript = [
+    { type: 'session', cwd: root, createdAt: Date.now() },
+    { type: 'tool/result', data: { error: { name: 'FsError', code: 'FS_SANDBOX_DENIED' } } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  writeFileSync(join(sessions, 'session.jsonl.zstd'), zstdCompressSync(Buffer.from(transcript)), { mode: 0o600 })
+
+  const { collectDiagnosticBundle } = await import('../dist/src/diagnostics/index.js')
+  const bundle = collectDiagnosticBundle({
+    profile: 'headless', dshHome, workdir: root, runtimeKitEntry: runtimeKit, dshBin: dsh,
+    environment: { PATH: process.env.PATH },
+  })
+  assert.deepEqual(bundle.session.typed_errors, [{
+    code: 'sandbox-file-access-denied',
+    name: 'FsError',
+    event: 'tool/result:sandbox-policy',
+  }])
+  assert.equal(bundle.session_outcome.status, 'failed')
+  assert.equal(bundle.session_outcome.category, 'tool-denial')
+  assert.equal(bundle.session_outcome.component, 'policy')
+  assert.equal(bundle.session_outcome.code, 'sandbox-file-access-denied')
+  assert.equal(bundle.session_outcome.receipt, 'session.typed_errors[0]')
+})
+
 test('collector never executes an agent-hook whose identity is not pinned', async () => {
   const root = await mkdtemp(join(tmpdir(), 'diagnostic-hook-identity-'))
   chmodSync(root, 0o700)

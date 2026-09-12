@@ -134,6 +134,21 @@ function logicalCode(value: unknown, fallback: string) {
     : fallback
 }
 
+function typedSessionError(code: string, event: string, name?: string): TypedSessionError {
+  if (code === 'FS_SANDBOX_DENIED') {
+    return {
+      code: 'sandbox-file-access-denied',
+      ...(name === undefined ? {} : { name: sanitizedString(name) }),
+      event: `${event}:sandbox-policy`,
+    }
+  }
+  return {
+    code: logicalCode(code, 'session-error'),
+    ...(name === undefined ? {} : { name: sanitizedString(name) }),
+    event,
+  }
+}
+
 export function classifySessionOutcome(observation: OutcomeObservation): SessionOutcome {
   const decisions = observation.policy_decisions ?? []
   if (observation.doctor_status !== undefined
@@ -815,18 +830,16 @@ function latestSession(
       }
       const error = record(data?.error)
       if (typeof error?.code === 'string') {
-        appendTypedErrors([{ code: logicalCode(error.code, 'session-error'), ...(typeof error.name === 'string' ? { name: sanitizedString(error.name) } : {}), event: type }])
+        appendTypedErrors([typedSessionError(error.code, type,
+          typeof error.name === 'string' ? error.name : undefined)])
         if (/finish-line/iu.test(error.code)) {
           finishLine = { code: logicalCode(error.code, 'finish-line-refused'), event: type }
         }
       }
       const terminalError = record(record(data?.reason)?.error)
       if (typeof terminalError?.code === 'string') {
-        appendTypedErrors([{
-          code: logicalCode(terminalError.code, 'session-error'),
-          ...(typeof terminalError.name === 'string' ? { name: sanitizedString(terminalError.name) } : {}),
-          event: type,
-        }])
+        appendTypedErrors([typedSessionError(terminalError.code, type,
+          typeof terminalError.name === 'string' ? terminalError.name : undefined)])
       }
       const message = record(data?.message)
       const messageSource = record(message?.source)
