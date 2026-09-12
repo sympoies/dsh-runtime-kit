@@ -643,6 +643,45 @@ test('deploy dispatcher validations are phase-specific', async () => {
   )
 })
 
+test('retired surface validations are phase-specific', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-retired-validation-'))
+  const successWorkdir = join(root, 'success-workdir')
+  const failureWorkdir = join(root, 'failure-workdir')
+  const dshHome = join(root, 'dsh-home')
+  mkdirSync(successWorkdir, { mode: 0o700 })
+  mkdirSync(failureWorkdir, { mode: 0o700 })
+  mkdirSync(dshHome, { mode: 0o700 })
+  const common = {
+    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+    family: 'retired-surfaces' as const,
+    scenarioId: 'retired-surfaces.managed-worktree',
+    profile: 'headless-retired-surfaces',
+    dshHome,
+  }
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'prepare',
+    phase: 'success',
+    workdir: successWorkdir,
+  })
+  assert.match(
+    readFileSync(join(successWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /\[\[validation\]\][\s\S]*\.\/fixture-validation\.mjs/u,
+  )
+
+  runAcceptanceFixture({
+    ...common,
+    stage: 'induce',
+    phase: 'deliberate-failure',
+    workdir: failureWorkdir,
+  })
+  assert.doesNotMatch(
+    readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
+    /\[\[validation\]\]/u,
+  )
+})
+
 test('deploy dispatcher probe creates its canary tree with an owner-only mask', { concurrency: false }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-umask-'))
   const workdir = join(root, 'workdir')
