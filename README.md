@@ -47,7 +47,8 @@ compatibility, acceptance, and delivery procedures are in the
   signed admission, lifecycle/reconcile state, authenticated control frames,
   and broker-only mediated GitHub effects.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
-  reviewer personas and deterministic structured findings.
+  reviewer personas and deterministic structured findings. Reviews inherit the
+  parent model route unless `reviewerAgentOptions` pins one.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
   DSH tool pipeline is live.
 - Session-owned artifacts (`artifact_write`, `artifact_present`,

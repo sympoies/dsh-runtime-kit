@@ -72,7 +72,7 @@ function parentAgent() {
   }
 }
 
-function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutputBytes, start } = {}) {
+function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutputBytes, start, config = {} } = {}) {
   const listeners = new Map()
   const tools = new Map()
   const agents = new Map()
@@ -223,6 +223,7 @@ function reviewHarness({ maxParallel = 4, maxQueued = 16, maxTaskBytes, maxOutpu
     maxQueuedReviewers: maxQueued,
     ...(maxTaskBytes === undefined ? {} : { reviewerTaskMaxBytes: maxTaskBytes }),
     ...(maxOutputBytes === undefined ? {} : { reviewerOutputMaxBytes: maxOutputBytes }),
+    ...config,
   })
   return {
     ctx,
@@ -741,4 +742,69 @@ test('ordinary and forged agent-created events cannot claim reviewer identity', 
 
   subject.emit('agent/created', { agent: forged })
   assert.equal(subject.service.roleOf(forged), undefined)
+})
+
+test('reviewer roles inherit the parent route when no reviewer route is configured', () => {
+  const subject = reviewHarness()
+
+  assert.equal(subject.roleDefinitions.size, EXPECTED_ROLES.length)
+  for (const role of EXPECTED_ROLES) {
+    assert.equal(
+      Object.hasOwn(subject.roleDefinitions.get(role), 'agentOptions'),
+      false,
+      role,
+    )
+  }
+})
+
+test('a configured reviewer route is registered as the fixed child route of every role', () => {
+  const subject = reviewHarness({
+    config: {
+      reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', maxTokens: 128000 },
+    },
+  })
+
+  for (const role of EXPECTED_ROLES) {
+    assert.deepEqual(
+      subject.roleDefinitions.get(role).agentOptions,
+      { provider: 'codex-proxy', model: 'gpt-5.6-sol', maxTokens: 128000 },
+      role,
+    )
+  }
+})
+
+test('a configured reviewer route omits the keys the role service does not accept', () => {
+  const subject = reviewHarness({
+    config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol' } },
+  })
+
+  const definition = subject.roleDefinitions.get('reviewer-quick')
+  assert.deepEqual(Object.keys(definition.agentOptions), ['provider', 'model'])
+})
+
+test('a reviewer route rejects unsupported and malformed fields at mount', () => {
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'medium' } } }),
+    /reasoningEffort/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy' } } }),
+    /provider and model/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { model: 'gpt-5.6-sol' } } }),
+    /provider and model/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: '', model: 'gpt-5.6-sol' } } }),
+    /non-empty/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', maxTokens: 0 } } }),
+    /maxTokens/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: 'codex-proxy/gpt-5.6-sol' } }),
+    /reviewerAgentOptions/,
+  )
 })
