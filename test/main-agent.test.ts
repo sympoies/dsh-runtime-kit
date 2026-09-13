@@ -2168,6 +2168,43 @@ test('the lane checkpoint tool owns the private write and runs as the worker pri
   )
 })
 
+test('the lane checkpoint tool omits empty optional summaries advertised as non-empty', async (t) => {
+  const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
+  t.after(async () => { await rm(scratch, { recursive: true, force: true }) })
+  const start = workerStartEnvelope(laneSidecarPath(scratch, 'worker-one'))
+  const { harness, laneTools } = await launchedLane(scratch, {
+    envelope: (spec) => (spec.argv.includes('checkpoint')
+      ? {
+        schema_version: 'cli.main-agent.checkpoint.v1',
+        ok: true,
+        data: { schema_version: 'main-agent.checkpoint-result.v1', assignment: { revision: 4 } },
+      }
+      : start),
+  })
+
+  const checkpoint = laneTools.get('main_agent_checkpoint')
+  const before = harness.spawned.length
+  await checkpoint.execute({
+    summary: 'implemented the lane runtime',
+    next_action: 'run the gates',
+    state: 'working',
+    result_summary: '',
+    blocker_summary: '',
+    if_revision: 3,
+    idempotency_key: 'checkpoint-empty-optionals',
+  }, { signal: new AbortController().signal })
+
+  const call = harness.spawned[before]
+  const written = JSON.parse(readFileSync(
+    call.spec.argv[call.spec.argv.indexOf('--file') + 1],
+    'utf8',
+  ))
+  assert.equal(written.result_summary, undefined)
+  assert.equal(written.blocker_summary, undefined)
+  assert.equal(checkpoint.parameters.properties.result_summary.minLength, 1)
+  assert.equal(checkpoint.parameters.properties.blocker_summary.minLength, 1)
+})
+
 test('a lane whose payload names no contained checkpoint file gets no checkpoint tool', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'dsh-runtime-kit-main-agent-test-'))
   t.after(async () => { await rm(scratch, { recursive: true, force: true }) })

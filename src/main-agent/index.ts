@@ -139,6 +139,10 @@ function requireNonEmptyString(value: unknown, code: string) {
   return value
 }
 
+function optionalSummary(value: unknown) {
+  return value === '' ? undefined : value as string | undefined
+}
+
 const LIVENESS_FILE_NAME = 'dsh-runtime-liveness.json'
 const AGENT_SESSION_BASENAME = 'agent-session'
 const WORKER_ENV_KEY = /^[A-Z][A-Z0-9_]*$/
@@ -1059,8 +1063,16 @@ export function applyMainAgentMode(ctx: Context, config: {
           enum: ['working', 'blocked', 'submitted'],
           description: 'Assignment state this checkpoint declares.',
         },
-        result_summary: { type: 'string', description: 'One-line result summary when submitting.' },
-        blocker_summary: { type: 'string', description: 'One-line blocker summary when blocked.' },
+        result_summary: {
+          type: 'string',
+          minLength: 1,
+          description: 'One-line result summary when submitting.',
+        },
+        blocker_summary: {
+          type: 'string',
+          minLength: 1,
+          description: 'One-line blocker summary when blocked.',
+        },
         if_revision: { type: 'integer', minimum: 0, description: 'Expected current assignment revision.' },
         idempotency_key: { type: 'string', description: 'Stable key for this checkpoint write.' },
       },
@@ -1089,8 +1101,8 @@ export function applyMainAgentMode(ctx: Context, config: {
         summary: ((record.summary) as string),
         nextAction: ((record.next_action) as string),
         state: ((record.state) as string | undefined),
-        resultSummary: ((record.result_summary) as string | undefined),
-        blockerSummary: ((record.blocker_summary) as string | undefined),
+        resultSummary: optionalSummary(record.result_summary),
+        blockerSummary: optionalSummary(record.blocker_summary),
       })
       await writePrivateJson(checkpointFile, document)
       // The worker principal is established by its own environment, so the
