@@ -198,6 +198,17 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       next_action: 'Inspect the named policy rule and the denied operation; change authority or inputs, not the policy record.',
     }
   }
+  if (observation.error_code === 'GOVERNED_COMMIT_REJECTED') {
+    return {
+      schema_version: SESSION_OUTCOME_SCHEMA,
+      status: 'failed',
+      category: 'tool-denial',
+      code: observation.error_code,
+      component: 'session',
+      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
+      next_action: 'Inspect the governed commit precondition or semantic-commit refusal, then retry the unchanged governed request.',
+    }
+  }
   if (observation.finish_line !== undefined) {
     return {
       schema_version: SESSION_OUTCOME_SCHEMA,
@@ -256,17 +267,6 @@ export function classifySessionOutcome(observation: OutcomeObservation): Session
       component: 'policy',
       receipt: observation.error_receipt ?? 'session.typed_errors[0]',
       next_action: 'Preserve user changes, clean the intended anchor or move the task to an owned managed worktree, then retry.',
-    }
-  }
-  if (explicitCode === 'GOVERNED_COMMIT_REJECTED') {
-    return {
-      schema_version: SESSION_OUTCOME_SCHEMA,
-      status: 'failed',
-      category: 'tool-denial',
-      code: explicitCode,
-      component: 'session',
-      receipt: observation.error_receipt ?? 'session.typed_errors[0]',
-      next_action: 'Inspect the governed commit precondition or semantic-commit refusal, then retry the unchanged governed request.',
     }
   }
   if (explicitCode === 'assignment-launch-cwd-unavailable') {
