@@ -880,17 +880,17 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.28\.23-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /a3b6031267ef950fc67aa3c690dfc5b857001bfb9036d9daa1ccf46ed22d0e5c/)
-  assert.match(workflow, /nils-cli-v1\.28\.23-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /30c87e9728ed2181fdcfe8bcc9b448f7b20fdfc418dcffc82fdba68a77a5c970/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=fb92b0d8ad51c9809172ae5dd5a59dcc7c8d3d6e/)
+  assert.match(workflow, /nils-cli-v1\.28\.25-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /92f996f9bec38d8c5edfd52cc0966ae6cfb24fef193dbc6c5a6c26a5d22e69e8/)
+  assert.match(workflow, /nils-cli-v1\.28\.25-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /b1ce704be35a3ff2d62cc405d779fb7999deabfca4e8dccd5b8587890f38ea49/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // `rollback_validation` keeps the frozen #63 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=fb92b0d8ad51c9809172ae5dd5a59dcc7c8d3d6e/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.23-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.25-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
   // every env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
