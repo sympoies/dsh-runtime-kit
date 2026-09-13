@@ -225,6 +225,37 @@ test('profile lifecycle tasks delegate repository observation to the external ha
   }
 })
 
+test('profile lifecycle deliberate tasks make interrupted failure marker-free', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('profile-lifecycle.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    const task = scenario.deliberate_failure_task!
+    assert.match(task, /Choose exactly one mutually exclusive branch/iu, scenario.id)
+    assert.match(
+      task,
+      /typed interrupted lifecycle failure[\s\S]*end your response immediately/iu,
+      scenario.id,
+    )
+    assert.match(task, /must not contain any DSH_ACCEPTANCE_ token/iu, scenario.id)
+    assert.match(
+      task,
+      /Do not run \.\/fixture-validation\.mjs or continue to any later instruction/iu,
+      scenario.id,
+    )
+    assert.match(task, /Only if it returns the .* pass receipt/iu, scenario.id)
+    assert.match(task, /Only the pass-and-validation branch may emit the recovery marker/iu, scenario.id)
+    assert.match(
+      task,
+      new RegExp(`final output line must be exactly ${scenario.deliberate_failure_success_marker}`),
+      scenario.id,
+    )
+    assert.doesNotMatch(task, /Then end with DSH_ACCEPTANCE_RECOVERED/iu, scenario.id)
+  }
+})
+
 test('deploy dispatcher success tasks preserve fresh validation as their finish line', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('deploy-dispatcher.'),

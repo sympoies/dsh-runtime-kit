@@ -402,19 +402,19 @@
         {
           "scenario_id": "profile-lifecycle.git-repo",
           "success_task_sha256": "d78788f042233c03e94d90861b54c251eb4cae5e71134d40cb47c2666e737174",
-          "deliberate_failure_task_sha256": "4fd2e1f9758bff0d84851b05aa89b57eff49c46b695743bb8c94d86ea10e9729",
+          "deliberate_failure_task_sha256": "7543252940c413f1478498daf56198148d239ceefffdf61ee4f8caa48d4ae181",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.git-repo"
         },
         {
           "scenario_id": "profile-lifecycle.non-git",
           "success_task_sha256": "6e44a0c8d454b8bb94f6d5dc6ff114933a30ee0d47985b2ea889d3083a52cf96",
-          "deliberate_failure_task_sha256": "9e502d9836dc9d1fae75f82725b6f380ea378c3ce024c78b42e36c17e21d93c8",
+          "deliberate_failure_task_sha256": "c821d4042eccd9d542555cd1d33fc58e60d006c9e1d5dda386d93de838754e1a",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.non-git"
         },
         {
           "scenario_id": "profile-lifecycle.managed-worktree",
           "success_task_sha256": "6f76411c1d9519d272426ded44a7079608ce6abf0b1c1b475dd13eb2b9e60ee9",
-          "deliberate_failure_task_sha256": "9c4d66a0f85a102003d708c54223d97beee299ffbcabd30f463980dc735178d7",
+          "deliberate_failure_task_sha256": "14b045be177db14e14794783a14646b6293344e20610d48d4e62ac8374fc35ab",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:profile-lifecycle.managed-worktree"
         }
       ]
