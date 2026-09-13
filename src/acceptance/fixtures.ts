@@ -1129,19 +1129,21 @@ unmatched = "unknown"
 }
 
 function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
+  const validationCommands = projectValidationCommands(family, input)
   const prerequisite = family.id === 'automatic-prerequisite'
     ? '\nFor the plain-directory scenario, read `prerequisite-marker.txt` and create `prerequisite.txt` with exactly that marker. For source scenarios, repair `plusOne` so the prepared focused test passes.\n'
     : ''
   const managedController = family.id === 'managed-subagent-workspace'
     ? '\nFor the controller edit, use the exact `controller_review.file_path` and `controller_review.content` from `subagent-request.json` in one write call without `sandbox_permissions` or `justification`. The final registered primary validation prints its exact `terminal_marker` immediately after `acceptance-fixture-ok`; copy that second output line verbatim as the entire finish line, and do not derive either value from a workdir, phase label, or idempotency key.\n'
     : ''
-  const inducedLifecycle = family.id === 'profile-lifecycle' && input.phase === 'deliberate-failure'
-  const terminalMarker = inducedLifecycle
+  const inducedTerminalFailure = input.phase === 'deliberate-failure'
+    && validationCommands.length === 0
+  const terminalMarker = inducedTerminalFailure
     ? ''
     : '\nBefore the final response, read `terminal_marker` from `acceptance-fixture.json` and copy that exact value at the finish line; do not derive it from a workdir, phase label, or any other identifier.\n'
-  const validations = projectValidationCommands(family, input).map(command => `\`${command}\``).join(' and ')
-  const validationInstruction = inducedLifecycle
-    ? 'If the lifecycle probe reports a typed lifecycle interruption, stop immediately without running post-induction validation or emitting a terminal marker.'
+  const validations = validationCommands.map(command => `\`${command}\``).join(' and ')
+  const validationInstruction = inducedTerminalFailure
+    ? 'If the required probe reports its typed induced failure, stop immediately without running post-induction validation or emitting a terminal marker.'
     : `run the exact registered validation command${validations.includes(' and ') ? 's' : ''} ${validations} after a requested mutation.`
   return `# Acceptance fixture development
 

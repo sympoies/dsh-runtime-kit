@@ -576,7 +576,7 @@ test('profile lifecycle deliberate failure leaves finish line to the induced pro
   assert.match(successGuide, /Before the final response[\s\S]*terminal_marker/u)
   assert.doesNotMatch(failureCatalog, /\[\[validation\]\]/u)
   assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
-  assert.match(failureGuide, /typed lifecycle interruption[\s\S]*stop immediately/iu)
+  assert.match(failureGuide, /typed induced failure[\s\S]*stop immediately/iu)
 })
 
 test('deploy dispatcher wrapper exposes the authenticated node toolchain', async () => {
@@ -641,6 +641,10 @@ test('deploy dispatcher validations are phase-specific', async () => {
     readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
     /\[\[validation\]\]/u,
   )
+  const failureGuide = readFileSync(join(failureWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  assert.doesNotMatch(failureGuide, /registered validation command/u)
+  assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.match(failureGuide, /typed induced failure[\s\S]*stop immediately[\s\S]*terminal marker/iu)
 })
 
 test('retired surface validations are phase-specific', async () => {
@@ -680,6 +684,10 @@ test('retired surface validations are phase-specific', async () => {
     readFileSync(join(failureWorkdir, 'AGENT_DOCS.toml'), 'utf8'),
     /\[\[validation\]\]/u,
   )
+  const failureGuide = readFileSync(join(failureWorkdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
+  assert.doesNotMatch(failureGuide, /registered validation command/u)
+  assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
+  assert.match(failureGuide, /typed induced failure[\s\S]*stop immediately[\s\S]*terminal marker/iu)
 })
 
 test('deploy dispatcher probe creates its canary tree with an owner-only mask', { concurrency: false }, async () => {
