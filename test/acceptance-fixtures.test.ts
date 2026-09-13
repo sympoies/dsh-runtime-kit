@@ -579,6 +579,66 @@ test('profile lifecycle deliberate failure leaves finish line to the induced pro
   assert.match(failureGuide, /typed induced failure[\s\S]*stop immediately/iu)
 })
 
+test('terminal-induction final validation prints the fixture-bound marker', async () => {
+  for (const family of ['profile-lifecycle', 'deploy-dispatcher', 'retired-surfaces'] as const) {
+    const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-${family}-terminal-marker-`))
+    const successWorkdir = join(root, 'success')
+    const failureWorkdir = join(root, 'failure-retry')
+    const dshHome = join(root, 'dsh-home')
+    const scenarioId = `${family}.git-repo`
+    mkdirSync(successWorkdir, { mode: 0o700 })
+    mkdirSync(failureWorkdir, { mode: 0o700 })
+    mkdirSync(dshHome, { mode: 0o700 })
+
+    runAcceptanceFixture({
+      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
+      stage: 'prepare',
+      phase: 'success',
+      family,
+      scenarioId,
+      profile: `headless-${family}-terminal-marker`,
+      workdir: successWorkdir,
+      dshHome,
+    })
+    const successValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+      cwd: successWorkdir,
+      encoding: 'utf8',
+    })
+    assert.equal(successValidation.status, 0, successValidation.stderr)
+    assert.equal(
+      successValidation.stdout,
+      `acceptance-fixture-ok\nDSH_ACCEPTANCE_PASS:${scenarioId}\n`,
+    )
+
+    const failureInput = {
+      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
+      phase: 'deliberate-failure' as const,
+      family,
+      scenarioId,
+      profile: `headless-${family}-terminal-marker`,
+      workdir: failureWorkdir,
+      dshHome,
+    }
+    runAcceptanceFixture({ ...failureInput, stage: 'induce' })
+    const inducedValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+      cwd: failureWorkdir,
+      encoding: 'utf8',
+    })
+    assert.equal(inducedValidation.status, 0, inducedValidation.stderr)
+    assert.doesNotMatch(inducedValidation.stdout, /DSH_ACCEPTANCE_/u)
+    runAcceptanceFixture({ ...failureInput, stage: 'recover' })
+    const recoveredValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
+      cwd: failureWorkdir,
+      encoding: 'utf8',
+    })
+    assert.equal(recoveredValidation.status, 0, recoveredValidation.stderr)
+    assert.equal(
+      recoveredValidation.stdout,
+      `acceptance-fixture-ok\nDSH_ACCEPTANCE_RECOVERED:${scenarioId}\n`,
+    )
+  }
+})
+
 test('deploy dispatcher wrapper exposes the authenticated node toolchain', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-deploy-toolchain-'))
   const workdir = join(root, 'workdir')

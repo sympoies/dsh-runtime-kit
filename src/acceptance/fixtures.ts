@@ -1166,7 +1166,14 @@ function fixtureValidation() {
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 const fixture = JSON.parse(readFileSync('acceptance-fixture.json', 'utf8'))
-let terminalMarker
+const terminalInductionFamily = [
+  'profile-lifecycle',
+  'deploy-dispatcher',
+  'retired-surfaces',
+].includes(fixture.family)
+let terminalMarker = terminalInductionFamily && !existsSync('.dsh-acceptance/failure.json')
+  ? fixture.terminal_marker
+  : undefined
 if (fixture.family === 'authoritative-acceptance' && existsSync('.dsh-acceptance/failure.json')) {
   process.stderr.write(JSON.stringify({
     schema_version: 'cli.dsh-runtime-kit.acceptance-fixture.v1',
