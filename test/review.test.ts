@@ -782,10 +782,34 @@ test('a configured reviewer route omits the keys the role service does not accep
   assert.deepEqual(Object.keys(definition.agentOptions), ['provider', 'model'])
 })
 
+test('a configured reviewer route carries its reasoning effort into every role', () => {
+  const subject = reviewHarness({
+    config: {
+      reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'medium' },
+    },
+  })
+
+  for (const role of EXPECTED_ROLES) {
+    assert.deepEqual(
+      subject.roleDefinitions.get(role).agentOptions,
+      { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'medium' },
+      role,
+    )
+  }
+})
+
 test('a reviewer route rejects unsupported and malformed fields at mount', () => {
   assert.throws(
-    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'medium' } } }),
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: '' } } }),
     /reasoningEffort/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 3 } } }),
+    /reasoningEffort/,
+  )
+  assert.throws(
+    () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', temperature: 0.2 } } }),
+    /temperature/,
   )
   assert.throws(
     () => reviewHarness({ config: { reviewerAgentOptions: { provider: 'codex-proxy' } } }),

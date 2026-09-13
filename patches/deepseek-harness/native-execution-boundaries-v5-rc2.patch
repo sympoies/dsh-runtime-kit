@@ -5015,7 +5015,7 @@ index 45b96a2311..ab794e93a0 100644
    ResolvedSubagentStartRequest,
    SubagentCapabilities,
    SubagentProvider,
-@@ -167,9 +192,211 @@ declare module '@deepseek-ai/cordis' {
+@@ -167,9 +192,213 @@ declare module '@deepseek-ai/cordis' {
    }
  }
  
@@ -5192,9 +5192,11 @@ index 45b96a2311..ab794e93a0 100644
 +    || !boundedInteger(value.maxActive, ROLE_MAX_ACTIVE)
 +    || !boundedInteger(value.maxQueued, ROLE_MAX_QUEUED)
 +    || (value.agentOptions !== undefined && (!record(value.agentOptions)
-+      || !exactKeys(value.agentOptions, ['provider', 'model', 'maxTokens'])
++      || !exactKeys(value.agentOptions, ['provider', 'model', 'maxTokens', 'reasoningEffort'])
 +      || (value.agentOptions.provider !== undefined && typeof value.agentOptions.provider !== 'string')
 +      || (value.agentOptions.model !== undefined && typeof value.agentOptions.model !== 'string')
++      || (value.agentOptions.reasoningEffort !== undefined
++        && typeof value.agentOptions.reasoningEffort !== 'string')
 +      || (value.agentOptions.maxTokens !== undefined
 +        && !boundedInteger(value.agentOptions.maxTokens, Number.MAX_SAFE_INTEGER))))) {
 +    throw new SubagentError('restricted-role definition is invalid', 'INVALID_ROLE_DEFINITION')

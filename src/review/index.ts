@@ -32,7 +32,7 @@ const HARD_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_MAX_DEPTH = 2
 
 /** The only route fields a restricted-role definition accepts. */
-const ROLE_ROUTE_FIELDS = Object.freeze(['provider', 'model', 'maxTokens'])
+const ROLE_ROUTE_FIELDS = Object.freeze(['provider', 'model', 'reasoningEffort', 'maxTokens'])
 
 const READ_ONLY_TOOLS = new Set([
   'glob',
@@ -127,10 +127,19 @@ function plainRecord(value: unknown): value is Record<string, unknown>  {
 /**
  * Normalize the configured reviewer child route.
  *
- * The restricted-role service accepts exactly `provider`, `model`, and
- * `maxTokens` on a role's fixed route, so a field it would reject — notably
- * `reasoningEffort` — fails here with the reason instead of failing closed as
- * an opaque invalid role definition on the first registration.
+ * The restricted-role service accepts exactly the fields in
+ * {@link ROLE_ROUTE_FIELDS} on a role's fixed route, so a field it would
+ * reject fails here with the reason instead of failing closed as an opaque
+ * invalid role definition on the first registration.
+ *
+ * `reasoningEffort` is not optional decoration on a pinned route. A pinned
+ * route differs from the parent's by construction, and DSH's own child-route
+ * resolution drops an inherited effort whenever the provider or model changes
+ * and the request names no effort of its own. Leaving it unset therefore does
+ * not keep the reviewer's inherited depth — it silently returns every reviewer
+ * to the adapter default. Its value stays unvalidated here beyond being a
+ * non-empty string: the LLM layer owns which efforts a route supports and
+ * rejects the rest with `UNSUPPORTED_REASONING_EFFORT`.
  */
 function reviewerAgentOptions(value: unknown) {
   if (value === undefined) return undefined
@@ -152,6 +161,12 @@ function reviewerAgentOptions(value: unknown) {
     throw new TypeError('dsh-runtime-kit: reviewerAgentOptions provider and model must be non-empty')
   }
   const route: Record<string, unknown> = { provider: value.provider, model: value.model }
+  if (value.reasoningEffort !== undefined) {
+    if (typeof value.reasoningEffort !== 'string' || value.reasoningEffort.length === 0) {
+      throw new TypeError('dsh-runtime-kit: reviewerAgentOptions reasoningEffort must be a non-empty string')
+    }
+    route.reasoningEffort = value.reasoningEffort
+  }
   if (value.maxTokens !== undefined) {
     route.maxTokens = boundedInteger(value.maxTokens, 1, Number.MAX_SAFE_INTEGER, 'reviewerAgentOptions maxTokens')
   }
