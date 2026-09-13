@@ -760,14 +760,24 @@ test('reviewer roles inherit the parent route when no reviewer route is configur
 test('a configured reviewer route is registered as the fixed child route of every role', () => {
   const subject = reviewHarness({
     config: {
-      reviewerAgentOptions: { provider: 'codex-proxy', model: 'gpt-5.6-sol', maxTokens: 128000 },
+      reviewerAgentOptions: {
+        provider: 'codex-proxy',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'medium',
+        maxTokens: 128000,
+      },
     },
   })
 
   for (const role of EXPECTED_ROLES) {
     assert.deepEqual(
       subject.roleDefinitions.get(role).agentOptions,
-      { provider: 'codex-proxy', model: 'gpt-5.6-sol', maxTokens: 128000 },
+      {
+        provider: 'codex-proxy',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'medium',
+        maxTokens: 128000,
+      },
       role,
     )
   }
