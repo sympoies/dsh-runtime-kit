@@ -1039,10 +1039,12 @@ test('managed subagent distinct retry workdir selects its own host-issued topolo
     assert.equal(assignment.launch.cwd, resolve(retryChild))
     assert.equal(assignment.worktree, resolve(retryChild))
     writeFileSync(join(retryWorkdir, 'controller-review.txt'), 'review-complete\n', { mode: 0o600 })
+    const containedEnv = { ...process.env }
+    for (const name of names) delete containedEnv[name]
     const retryValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
       cwd: retryWorkdir,
       encoding: 'utf8',
-      env: { ...process.env },
+      env: containedEnv,
     })
     assert.equal(retryValidation.status, 0, retryValidation.stderr)
     assert.equal(

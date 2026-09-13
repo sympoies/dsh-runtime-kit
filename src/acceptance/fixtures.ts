@@ -1193,7 +1193,11 @@ assert.equal(fixture.schema_version, 'dsh-runtime-kit.acceptance-fixture.v1')
 assert.equal(typeof fixture.scenario_id, 'string')
 assert.equal(Array.isArray(fixture.fixture_files), true)
 if (fixture.family === 'managed-subagent-workspace') {
+  const request = existsSync('subagent-request.json')
+    ? JSON.parse(readFileSync('subagent-request.json', 'utf8'))
+    : null
   const pairs = [
+    ...(request === null ? [] : [[request.primary_worktree, request.child_worktree]]),
     [process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY, process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE],
     [process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY, process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE],
   ]
@@ -1210,6 +1214,7 @@ if (fixture.family === 'managed-subagent-workspace') {
           \`DSH_ACCEPTANCE_PASS:\${fixture.scenario_id}\`,
           \`DSH_ACCEPTANCE_RECOVERED:\${fixture.scenario_id}\`,
         ].includes(fixture.terminal_marker), true)
+        if (request !== null) assert.equal(request.terminal_marker, fixture.terminal_marker)
         terminalMarker = fixture.terminal_marker
         break
       }
