@@ -521,8 +521,14 @@ function deliberateFailureAnchor(result: JsonRecord) {
       bundleName: bundle.name,
     }
   }
-  if (outcome?.status === 'completed' && typeof induced?.code === 'string') {
-    return { code: induced.code, bundleName: bundle.name }
+  if (outcome?.status === 'completed' && typeof induced?.code === 'string'
+    && typeof induced.component === 'string' && typeof induced.next_action === 'string') {
+    return {
+      code: induced.code,
+      component: induced.component,
+      nextAction: induced.next_action,
+      bundleName: bundle.name,
+    }
   }
   return undefined
 }
@@ -582,9 +588,8 @@ export function appendAcceptanceAttestation(input: { outputPath: string, attesta
     if (anchor === undefined || normalizedDiagnosis === undefined
       || normalizedDiagnosis.code !== anchor.code
       || normalizedDiagnosis.evidence_reference !== anchor.bundleName
-      || (anchor.component !== undefined
-        && (normalizedDiagnosis.component !== anchor.component
-          || normalizedDiagnosis.next_action !== anchor.nextAction))) {
+      || normalizedDiagnosis.component !== anchor.component
+      || normalizedDiagnosis.next_action !== anchor.nextAction) {
       throw new ScenarioPackError(
         'attestation-diagnosis-mismatch',
         'deliberate-failure diagnosis must match the result outcome or its retained induced record',
@@ -677,9 +682,8 @@ export function summarizeAcceptanceScenarioPack(input: {
       return anchor !== undefined
         && normalizedDiagnosis.code === anchor.code
         && normalizedDiagnosis.evidence_reference === anchor.bundleName
-        && (anchor.component === undefined
-          || (normalizedDiagnosis.component === anchor.component
-            && normalizedDiagnosis.next_action === anchor.nextAction))
+        && normalizedDiagnosis.component === anchor.component
+        && normalizedDiagnosis.next_action === anchor.nextAction
     } catch {
       return false
     }

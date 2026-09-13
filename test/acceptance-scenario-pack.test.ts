@@ -481,7 +481,11 @@ test('deliberate-failure attestation accepts a diagnosis bound to the fixture in
   const root = await mkdtemp(join(tmpdir(), 'acceptance-pack-induced-'))
   const output = join(root, 'results.jsonl')
   const observed = fixtureObserved('deliberate-failure', 'retired-surfaces', 'retired-surfaces.non-git')
-  observed.induced_failure = { code: 'retired-surface-unreachable' }
+  observed.induced_failure = {
+    code: 'retired-surface-unreachable',
+    component: 'acceptance-fixture',
+    next_action: 'Reverse the staged retired surface and retry the unchanged task.',
+  }
   appendFileSync(output, `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
     run_id: 'pack-induced-1',
@@ -547,6 +551,22 @@ test('deliberate-failure attestation accepts a diagnosis bound to the fixture in
   assert.equal(summarized.counts.attestation_pass, 1)
   assert.equal(summarized.counts.invalid_pairs, 0)
 
+  for (const [field, value] of [
+    ['component', 'unrelated-component'],
+    ['next_action', 'Trust the unverified harness narration.'],
+  ] as const) {
+    const mismatchedRows = readFileSync(output, 'utf8').trimEnd().split('\n').map(line => JSON.parse(line))
+    mismatchedRows[1].diagnosis[field] = value
+    const mismatchSummaryOutput = join(root, `summary-wrong-${field}.jsonl`)
+    writeFileSync(mismatchSummaryOutput, `${mismatchedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
+    const mismatchSummary = summarizeAcceptanceScenarioPack({
+      outputPath: mismatchSummaryOutput,
+      pack: loadAcceptanceScenarioPack(PACK, loadAcceptanceCatalog(CATALOG)),
+    })
+    assert.equal(mismatchSummary.counts.attestation_pass, 0)
+    assert.equal(mismatchSummary.counts.invalid_pairs, 1)
+  }
+
   // A diagnosis that does not name the recorded induced code must still be refused.
   const wrong = { ...attestation, run_id: 'pack-induced-1' }
   wrong.diagnosis = { ...attestation.diagnosis, code: 'some-other-code' }
@@ -558,4 +578,22 @@ test('deliberate-failure attestation accepts a diagnosis bound to the fixture in
     () => appendAcceptanceAttestation({ outputPath: secondOutput, attestationPath: wrongPath }),
     /diagnosis must match/u,
   )
+
+  for (const [field, value] of [
+    ['component', 'unrelated-component'],
+    ['next_action', 'Trust the unverified harness narration.'],
+  ] as const) {
+    const mismatchOutput = join(root, `results-wrong-${field}.jsonl`)
+    writeFileSync(mismatchOutput, readFileSync(output, 'utf8').split('\n')[0] + '\n')
+    const mismatchPath = join(root, `attestation-wrong-${field}.json`)
+    const mismatch = {
+      ...attestation,
+      diagnosis: { ...attestation.diagnosis, [field]: value },
+    }
+    writeFileSync(mismatchPath, `${JSON.stringify(mismatch, undefined, 2)}\n`)
+    assert.throws(
+      () => appendAcceptanceAttestation({ outputPath: mismatchOutput, attestationPath: mismatchPath }),
+      /diagnosis must match/u,
+    )
+  }
 })

@@ -1746,7 +1746,11 @@ process.stdout.write('The probe reported retired-surface-unreachable; stopping w
   })
 
   const [result] = rows(output)
-  assert.deepEqual(result.observed.induced_failure, { code: 'retired-surface-unreachable' })
+  assert.deepEqual(result.observed.induced_failure, {
+    code: 'retired-surface-unreachable',
+    component: 'acceptance-fixture',
+    next_action: 'Reverse the staged fixture induction through its authenticated inverse transition, then retry the unchanged task.',
+  })
   assert.equal(result.session_outcome.status, 'completed')
   assert.equal(result.observed.expected_failure_observed, true)
   assert.equal(result.status, 'pass')
@@ -1894,7 +1898,11 @@ process.stdout.write('Typed refusal: assignment-launch-cwd-unavailable\\n')
   })
 
   const [result] = rows(output)
-  assert.deepEqual(result.observed.induced_failure, { code: 'assignment-launch-cwd-unavailable' })
+  assert.deepEqual(result.observed.induced_failure, {
+    code: 'assignment-launch-cwd-unavailable',
+    component: 'acceptance-fixture',
+    next_action: 'Reverse the staged fixture induction through its authenticated inverse transition, then retry the unchanged task.',
+  })
   assert.equal(result.observed.expected_failure_observed, true)
   assert.equal(result.observed.fixture.clean_retry.status, 'pass')
   assert.equal(result.status, 'pass')
@@ -1949,7 +1957,11 @@ process.stdout.write('The exact fixture validation reported its typed induced fa
   })
 
   const [result] = rows(output)
-  assert.deepEqual(result.observed.induced_failure, { code: 'acceptance-fixture-induced-failure' })
+  assert.deepEqual(result.observed.induced_failure, {
+    code: 'acceptance-fixture-induced-failure',
+    component: 'acceptance-fixture',
+    next_action: 'Reverse the staged fixture induction through its authenticated inverse transition, then retry the unchanged task.',
+  })
   assert.equal(result.session_outcome.category, 'unknown')
   assert.equal(result.session_outcome.code, result.observed.induced_failure.code)
   assert.equal(result.observed.expected_failure_observed, true)

@@ -111,6 +111,12 @@ type FileIdentity = {
   inode: number
 }
 
+type InducedFailure = {
+  code: string
+  component: 'acceptance-fixture'
+  next_action: string
+}
+
 type TranscriptScan = {
   digests: ReturnType<typeof digestFile>[]
   missingReminders: string[]
@@ -120,7 +126,7 @@ type TranscriptScan = {
     actions: string[]
     rule_ids: string[]
   }
-  inducedFailure?: { code: string }
+  inducedFailure?: InducedFailure
   error?: { code: string, message: string, path: string }
 }
 
@@ -245,6 +251,17 @@ function scenario(value: unknown, index: number): AcceptanceScenario {
 // violation, and laundering that into an accepted induced failure would turn a
 // genuine defect into a pass.
 const FIXTURE_INDUCED_CODE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
+const INDUCED_FAILURE_COMPONENT = 'acceptance-fixture' as const
+const INDUCED_FAILURE_NEXT_ACTION =
+  'Reverse the staged fixture induction through its authenticated inverse transition, then retry the unchanged task.'
+
+function inducedFailure(code: string): InducedFailure {
+  return {
+    code,
+    component: INDUCED_FAILURE_COMPONENT,
+    next_action: INDUCED_FAILURE_NEXT_ACTION,
+  }
+}
 
 // The caller supplies only output from a call/result-correlated registered probe.
 // Its object may be embedded in the Bash tool-result wrapper, so parse either the
@@ -263,7 +280,7 @@ function fixtureInducedFailure(surface: string) {
     if (row?.schema_version === 'cli.dsh-runtime-kit.acceptance-fixture.v1'
       && row.ok === false
       && error?.code === 'acceptance-fixture-induced-failure') {
-      return { code: error.code }
+      return inducedFailure(error.code)
     }
   }
   for (const match of surface.matchAll(/\{[^{}]*"schema_version"\s*:\s*"dsh-runtime-kit\.acceptance-fixture-induced\.v1"[^{}]*\}/gu)) {
@@ -278,7 +295,7 @@ function fixtureInducedFailure(surface: string) {
       || row.schema_version !== 'dsh-runtime-kit.acceptance-fixture-induced.v1'
       || row.status !== 'induced') continue
     if (typeof row.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
-    return { code: row.code }
+    return inducedFailure(row.code)
   }
   return undefined
 }
@@ -301,7 +318,7 @@ function mainAgentInducedFailure(surface: string) {
     }
     const row = record(parsed)
     if (typeof row?.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
-    return { code: row.code }
+    return inducedFailure(row.code)
   }
   return undefined
 }
@@ -892,7 +909,7 @@ function scanTranscripts(
   const digests: ReturnType<typeof digestFile>[] = []
   let compressedBytes = 0
   let decompressedBytes = 0
-  let inducedFailure: { code: string } | undefined
+  let inducedFailure: InducedFailure | undefined
   for (const path of transcripts) {
     const runtimeContextCallIds = new Set<string>()
     const inducedEvidenceCallIds = new Map<string, 'fixture' | 'main-agent'>()
