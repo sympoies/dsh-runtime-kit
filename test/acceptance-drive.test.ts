@@ -371,10 +371,13 @@ test('restricted-role scenarios invoke the authenticated reviewer surface instea
       assert.match(task, /Call review_specialists/u)
       assert.match(task, /roles exactly \["reviewer-quick"\]/u)
       assert.match(task, /Do not use the ordinary subagent tool/u)
+      assert.match(task, /Treat that second read as the complete unchanged-state proof/u)
+      assert.match(task, /Make \.\/fixture-validation\.mjs the final tool call/u)
+      assert.match(task, /Do not call Git, status, read, or any other tool afterward/u)
     }
     assert.match(
       scenario.deliberate_failure_task!,
-      /run exactly \.\/fixture-validation\.mjs once to surface the typed induced failure/u,
+      /run it exactly once from this scenario workdir to surface the typed induced failure/u,
     )
     assert.match(scenario.deliberate_failure_task!, /typed status induced record[\s\S]*command exits zero/u)
     assert.match(scenario.deliberate_failure_task!, /Only acceptance-fixture-ok permits the recovery marker/u)

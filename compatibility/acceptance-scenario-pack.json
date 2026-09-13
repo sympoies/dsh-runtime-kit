@@ -315,20 +315,20 @@
       "task_bindings": [
         {
           "scenario_id": "restricted-role.git-repo",
-        "success_task_sha256": "dcd59e354e9cdc0a9e7253fa5a0a2ae93e8758834f87d5e3f25e1accdfed8f7c",
-        "deliberate_failure_task_sha256": "c476e55e7c84dbc79e71158a7ab642f3ee2988998405d193e912d204c48aea1d",
+        "success_task_sha256": "aa74afe279db6b7bc0abf5d3a2f915242afb3c892ce6d413dac474f7a9abe35e",
+        "deliberate_failure_task_sha256": "232dbc8171d8d0f9c6032621d56317735ef85a4546f623beaee1bcf22220b64d",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.git-repo"
         },
         {
           "scenario_id": "restricted-role.non-git",
-        "success_task_sha256": "25e1e1d6d317be49199d85935fa333838650b5ec353b6180fab71bf341dfa71a",
-        "deliberate_failure_task_sha256": "c7e9e0e59b033a098825fff594fc69baafe224e1e6bb06b64ebdafe3e8b2aaf1",
+        "success_task_sha256": "c60ad4154facfe0b70f7b0085ca7fd4a122aa22a44aa539129fe60ff86e5635e",
+        "deliberate_failure_task_sha256": "e2b3415391044d5dca6de952acb09194e1a9aad667cd1bbada21d599435d03cc",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.non-git"
         },
         {
           "scenario_id": "restricted-role.managed-worktree",
-        "success_task_sha256": "60cf25804845b6ce056b2fa5fbd42c0fca73b0eda500758f7d125ab498ba9dc9",
-        "deliberate_failure_task_sha256": "a2ec7acc1d721520a9309cb8966e6148411f096e96ab532b4669ea34f7c5ccd6",
+        "success_task_sha256": "102f11430a54249f2a1a861f8151be1e57ae926419babc5e783dc9e5e41268ed",
+        "deliberate_failure_task_sha256": "48ab0942772a17c31fd04aee64fb4d955bf9df6c5241c7c65b1cbae27b27b671",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:restricted-role.managed-worktree"
         }
       ]
