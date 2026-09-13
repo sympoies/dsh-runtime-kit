@@ -153,7 +153,7 @@ function reviewerAgentOptions(value: unknown) {
   }
   const route: Record<string, unknown> = { provider: value.provider, model: value.model }
   if (value.maxTokens !== undefined) {
-    route.maxTokens = boundedInteger(value.maxTokens, 0, Number.MAX_SAFE_INTEGER, 'reviewerAgentOptions maxTokens')
+    route.maxTokens = boundedInteger(value.maxTokens, 1, Number.MAX_SAFE_INTEGER, 'reviewerAgentOptions maxTokens')
   }
   return Object.freeze(route)
 }
