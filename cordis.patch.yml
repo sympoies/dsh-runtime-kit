@@ -45,3 +45,4 @@
         reviewerRedTeamContextMaxBytes: 131072
         reviewerTimeoutMs: 600000
         reviewerMaxDepth: 2
+        reviewerAgentOptions: !!js JSON.parse(process.env.DSH_RUNTIME_KIT_REVIEWER_AGENT_OPTIONS ?? 'null') ?? undefined

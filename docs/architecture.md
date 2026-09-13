@@ -255,6 +255,18 @@ The reviewer runtime is a child plugin gated on `agents`, `subagents`, and
 `tools`. An absent or role-incapable subagent provider leaves that optional
 surface unavailable while the parent policy, skills, context, and finish-line
 runtime continue to load.
+
+The reviewer child route is configuration, not a caller decision.
+`reviewerAgentOptions` accepts `provider` and `model` together plus an optional
+positive `maxTokens`, and is registered as the fixed route of every reviewer
+role. Left unset, the key is omitted from the role definition and each child
+inherits the exact parent route, so reviews follow whatever model the parent
+session resolved. The restricted-role service accepts no other route field, so
+a rejected key — `reasoningEffort` in particular — fails at mount with the
+reason instead of failing closed on the first delegation. A profile patch layer
+replaces a targeted row's whole `config` rather than merging into it, so the
+shipped composition carries the key and a deployment supplies
+`DSH_RUNTIME_KIT_REVIEWER_AGENT_OPTIONS` as JSON.
 The runtime service exposes a bounded snapshot for both optional children so a
 caller can distinguish pending activation from active service and a rejected
 activation. Failed snapshots retain only the stable reason and exception name;

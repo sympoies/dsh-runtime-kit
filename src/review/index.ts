@@ -31,6 +31,9 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 const HARD_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_MAX_DEPTH = 2
 
+/** The only route fields a restricted-role definition accepts. */
+const ROLE_ROUTE_FIELDS = Object.freeze(['provider', 'model', 'maxTokens'])
+
 const READ_ONLY_TOOLS = new Set([
   'glob',
   'grep',
@@ -119,6 +122,40 @@ function plainRecord(value: unknown): value is Record<string, unknown>  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * Normalize the configured reviewer child route.
+ *
+ * The restricted-role service accepts exactly `provider`, `model`, and
+ * `maxTokens` on a role's fixed route, so a field it would reject — notably
+ * `reasoningEffort` — fails here with the reason instead of failing closed as
+ * an opaque invalid role definition on the first registration.
+ */
+function reviewerAgentOptions(value: unknown) {
+  if (value === undefined) return undefined
+  if (!plainRecord(value)) {
+    throw new TypeError('dsh-runtime-kit: reviewerAgentOptions must be an object naming provider and model')
+  }
+  for (const field of Object.keys(value)) {
+    if (!ROLE_ROUTE_FIELDS.includes(field)) {
+      throw new TypeError(
+        `dsh-runtime-kit: reviewerAgentOptions does not accept ${field}; `
+        + `the restricted-role service accepts only ${ROLE_ROUTE_FIELDS.join(', ')}`,
+      )
+    }
+  }
+  if (typeof value.provider !== 'string' || typeof value.model !== 'string') {
+    throw new TypeError('dsh-runtime-kit: reviewerAgentOptions requires provider and model together')
+  }
+  if (value.provider.length === 0 || value.model.length === 0) {
+    throw new TypeError('dsh-runtime-kit: reviewerAgentOptions provider and model must be non-empty')
+  }
+  const route: Record<string, unknown> = { provider: value.provider, model: value.model }
+  if (value.maxTokens !== undefined) {
+    route.maxTokens = boundedInteger(value.maxTokens, 0, Number.MAX_SAFE_INTEGER, 'reviewerAgentOptions maxTokens')
+  }
+  return Object.freeze(route)
 }
 
 export function reviewerPersona(role: unknown) {
@@ -337,6 +374,8 @@ export function installReviewSpecialists(ctx: any, config: Record<string, unknow
     'reviewerMaxDepth',
   )
 
+  const agentOptions = reviewerAgentOptions(config.reviewerAgentOptions)
+
   ctx.subagents.configureRoleCapacity({ maxActive: maxParallel, maxQueued })
   const protectedRoots = [...new Set([
     ...REVIEWER_PROTECTED_ROOTS,
@@ -347,6 +386,9 @@ export function installReviewSpecialists(ctx: any, config: Record<string, unknow
       id: role,
       provider: 'spawn',
       persona: reviewerPersona(role),
+      // Omitted when unconfigured so the child keeps inheriting the exact
+      // parent route, which is what the role service does with no route.
+      ...(agentOptions === undefined ? {} : { agentOptions }),
       toolFilter: { allow: [...READ_ONLY_TOOLS] },
       sandbox: { mode: 'read-only', protectedRoots },
       approval: 'never',
