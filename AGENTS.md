@@ -65,13 +65,11 @@ uses the same repository policy.
   detailed maintenance procedures in `docs/development-reference.md`, and
   architecture, operations, compatibility, and acceptance facts in their
   existing `docs/` owners.
-- Record non-trivial durable outcomes through the project-local
-  `project-devlog` skill after current documentation is updated. Entries are
-  English, newest-first, public-safe, and contain no credentials, private
-  topology, personal identifiers, or machine-local paths.
+- This repository's log is `docs/devlog/`; its conventions and month index live
+  in `docs/devlog/README.md`. When to read it, when to append, what the
+  mechanism is, and what must never go into it belong to the `project-dev`
+  devlog capability in the agent home, not to this file.
 
 ## Project skills
 
 - Project-local skills live under `.agents/skills/<name>/`.
-- Search existing history with `scripts/devlog-search.sh <term> [YYYY-MM]`
-  before adding a devlog entry.
