@@ -406,14 +406,35 @@ test('authoritative acceptance failure tasks make request array order explicit',
     assert.match(scenario.deliberate_failure_task!, /exactly edit, validate, finish/u)
     assert.match(scenario.deliberate_failure_task!, /acceptance-target\.txt/u)
     assert.match(scenario.deliberate_failure_task!, /acceptance-after followed by one newline/u)
-    assert.match(scenario.deliberate_failure_task!, /stop without editing and without a recovery marker/u)
-    assert.match(scenario.deliberate_failure_task!, /run exactly \.\/fixture-validation\.mjs once to surface the induced failure/u)
+    assert.match(scenario.deliberate_failure_task!, /\.\/fixture-validation\.mjs the final tool call/u)
+    assert.match(scenario.deliberate_failure_task!, /run it exactly once to surface the induced failure/u)
   }
   const nonGit = scenarios.find(row => row.folder_kind === 'non-git')!
   assert.match(nonGit.deliberate_failure_task!, /validate means run exactly \.\/fixture-validation\.mjs/u)
   assert.match(nonGit.deliberate_failure_task!, /Do not run acceptance-validation\.mjs/u)
   for (const scenario of scenarios.filter(row => row.folder_kind !== 'non-git')) {
     assert.match(scenario.deliberate_failure_task!, /validate means run exactly node acceptance-validation\.mjs/u)
+  }
+})
+
+test('authoritative acceptance induced failures make validation the terminal branch', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('authoritative-acceptance.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    const task = scenario.deliberate_failure_task!
+    assert.match(task, /choose exactly one mutually exclusive branch/u)
+    assert.match(
+      task,
+      /When the sequence is not exact, make \.\/fixture-validation\.mjs the final tool call/u,
+    )
+    assert.match(
+      task,
+      /After it returns the typed induced failure, do not inspect, edit, call another tool, or emit any DSH_ACCEPTANCE_ token/u,
+    )
+    assert.match(task, /Only the exact edit, validate, finish branch may emit the recovery marker/u)
   }
 })
 
