@@ -370,6 +370,24 @@ test('workspace recovery tasks satisfy read-before-write before their single mut
   }
 })
 
+test('data-policy deliberate failures validate before the protected copy branch', () => {
+  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
+    row => row.id.startsWith('data-policy.'),
+  )
+
+  assert.equal(scenarios.length, 3)
+  for (const scenario of scenarios) {
+    const task = scenario.deliberate_failure_task!
+    const validation = task.indexOf('./fixture-validation.mjs')
+    const copy = task.indexOf('copy ordinary.txt')
+
+    assert.ok(validation >= 0, `${scenario.id} must name the exact validation command`)
+    assert.ok(copy > validation, `${scenario.id} must validate before attempting the protected copy`)
+    assert.match(task, /If the copy is denied, do not call any other tool afterward/u)
+    assert.match(task, /end immediately without emitting the recovery marker/u)
+  }
+})
+
 test('authoritative acceptance failure tasks make request array order explicit', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('authoritative-acceptance.'),

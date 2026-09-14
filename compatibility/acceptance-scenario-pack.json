@@ -273,19 +273,19 @@
         {
           "scenario_id": "data-policy.git-repo",
       "success_task_sha256": "77cd0dd78951bee92062678cfb78e125239c29f32a5aa8d32950bc422ed6a692",
-      "deliberate_failure_task_sha256": "5cd0bd4cc5f7894e86271d896ed6f2884a5d8aadc6a193dd317a54e06d444794",
+      "deliberate_failure_task_sha256": "6ee14f8c87c05eef93bd8a713c1510a01355f4e352105b37d252a9eaad2a245a",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.git-repo"
         },
         {
           "scenario_id": "data-policy.non-git",
       "success_task_sha256": "c4342a54cd11f7e2209f4c4afe70377b91f75020c25959e838fc49148e3e4b95",
-      "deliberate_failure_task_sha256": "c06e36964911c99e6535593eaf140286482796b7c84bb972b9de7c55e05a420e",
+      "deliberate_failure_task_sha256": "1b7b00c949daec26c1fd05bcfc10ca19166acca61a2ab795a7331a8061d223a4",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.non-git"
         },
         {
           "scenario_id": "data-policy.managed-worktree",
       "success_task_sha256": "15ed5b6ac3a4bd57b968626fb59fd6f8e94f6e416265a5fe8acf056470bbc4fc",
-      "deliberate_failure_task_sha256": "ab731f5c41e1a8c5d44fd6e50000eb993764b365b0f8cfb01f9d1c6ef9c23f0c",
+      "deliberate_failure_task_sha256": "cf309b0fbb4cc3884625285ef99526fcd5726058e9d7bc21c7753680c7e6214d",
           "deliberate_failure_success_marker": "DSH_ACCEPTANCE_RECOVERED:data-policy.managed-worktree"
         }
       ]
