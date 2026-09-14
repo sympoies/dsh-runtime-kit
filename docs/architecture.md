@@ -272,7 +272,10 @@ the request names none of its own. Pinning only a model therefore does not
 preserve the reviewer's inherited depth — it returns every reviewer to the
 adapter default. Which efforts a route supports is the LLM layer's contract,
 enforced per request as `UNSUPPORTED_REASONING_EFFORT`, so neither the
-runtime-kit nor the patched role service enumerates them. A profile patch layer
+runtime-kit nor the patched role service enumerates them; both do require a
+non-empty string, so the one shape that could never name an effort is refused
+at mount by either side rather than only at the first delegation.
+A profile patch layer
 replaces a targeted row's whole `config` rather than merging into it, so the
 shipped composition carries the key and a deployment supplies
 `DSH_RUNTIME_KIT_REVIEWER_AGENT_OPTIONS` as JSON.

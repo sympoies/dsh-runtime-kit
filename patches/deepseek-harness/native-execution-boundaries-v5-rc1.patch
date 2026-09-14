@@ -3057,7 +3057,7 @@ index 28e50930c..2271623c9 100644
 +      || (value.agentOptions.provider !== undefined && typeof value.agentOptions.provider !== 'string')
 +      || (value.agentOptions.model !== undefined && typeof value.agentOptions.model !== 'string')
 +      || (value.agentOptions.reasoningEffort !== undefined
-+        && typeof value.agentOptions.reasoningEffort !== 'string')
++        && (typeof value.agentOptions.reasoningEffort !== 'string' || value.agentOptions.reasoningEffort.length === 0))
 +      || (value.agentOptions.maxTokens !== undefined
 +        && !boundedInteger(value.agentOptions.maxTokens, Number.MAX_SAFE_INTEGER))))) {
 +    throw new SubagentError('restricted-role definition is invalid', 'INVALID_ROLE_DEFINITION')
