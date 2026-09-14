@@ -9,11 +9,11 @@
       "release_artifacts": {
         "0.1.2-rc.1": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch",
-          "sha256": "8a42fc38f829bcbfe7dad0e8ed1e13b9eb2ced9a4ee345a68b183f8e53f8e3d6"
+          "sha256": "ae0056284473413c92e6326b2ce69656ac98857c983e23d91ab77076a7da60db"
         },
         "0.1.5-alpha.2": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch",
-          "sha256": "084d7a42af15b26bab575f82fa3645048033d5caf7b94722fa95d3263cbd7197"
+          "sha256": "8918b291ecedb942e14d4ed94bd12d3133b5b10afa8b9dc89ac6a2c0241f55fc"
         }
       },
       "targets": {
@@ -425,11 +425,11 @@
           "release_hashes": {
             "0.1.2-rc.1": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "after_sha256": "2c4084bb1c54841e81b5c4aecd3b57717872cb98707d2e7c2391ce7f21fb54f2"
             },
             "0.1.5-alpha.2": {
               "before_sha256": "11bc5e505de1e5e7aff41af8a58fe54d2df151b940b36afcf1d12cbcade7ad4e",
-              "after_sha256": "f420c64b2c4713606818e9b882f515dd8f3ebf1a86295e0420449126f119af3a"
+              "after_sha256": "12008564b0eeb4f2dcabb6d25e924a5e6aac9a40b8e359f2930908fcb5c7da6a"
             }
           }
         },
