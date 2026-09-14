@@ -4347,7 +4347,7 @@ index 1f21dfaaa..02b497797 100644
        if (failNextUnlink.value) {
          failNextUnlink.value = false
          throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
-@@ -179,6 +206,294 @@ describe('spawnSubprocess', () => {
+@@ -179,6 +206,305 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
@@ -4401,6 +4401,12 @@ index 1f21dfaaa..02b497797 100644
 +    },
 +  )
 +
++  // Each of these materializes a whole executable — up to the node binary —
++  // and compares it byte for byte, so they sit far above vitest's 5s default
++  // on a cold or loaded runner. Budget them explicitly instead of letting a
++  // real cost read as a flake.
++  const DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS = 30_000
++
 +  it.skipIf(process.platform === 'win32')(
 +    'executes descriptor bytes through a private transient file on Darwin',
 +    async () => {
@@ -4428,6 +4434,7 @@ index 1f21dfaaa..02b497797 100644
 +        closeSync(executableFd)
 +      }
 +    },
++    DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS,
 +  )
 +
 +  it.skipIf(process.platform === 'win32')(
@@ -4457,6 +4464,7 @@ index 1f21dfaaa..02b497797 100644
 +        if (existsSync(descriptorExecDir)) rmdirSync(descriptorExecDir)
 +      }
 +    },
++    DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS,
 +  )
 +
 +  it.skipIf(process.platform === 'win32')(
@@ -4493,6 +4501,7 @@ index 1f21dfaaa..02b497797 100644
 +        if (existsSync(descriptorExecDir)) rmdirSync(descriptorExecDir)
 +      }
 +    },
++    DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS,
 +  )
 +
 +  it.skipIf(process.platform === 'win32')(
@@ -4583,6 +4592,7 @@ index 1f21dfaaa..02b497797 100644
 +        if (existsSync(descriptorExecDir)) rmdirSync(descriptorExecDir)
 +      }
 +    },
++    DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS,
 +  )
 +
 +  it.skipIf(process.platform === 'win32')(
@@ -4620,6 +4630,7 @@ index 1f21dfaaa..02b497797 100644
 +        if (existsSync(descriptorExecDir)) rmdirSync(descriptorExecDir)
 +      }
 +    },
++    DESCRIPTOR_MATERIALIZATION_TIMEOUT_MS,
 +  )
 +
 +  it.skipIf(process.platform === 'win32')(

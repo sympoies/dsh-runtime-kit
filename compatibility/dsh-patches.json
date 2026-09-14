@@ -9,15 +9,15 @@
       "release_artifacts": {
         "0.1.1-rc.2": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc2.patch",
-          "sha256": "515606609f3c438ef83631aed6120a0cc50baefd024bb16e538a5dfd5e7f9713"
+          "sha256": "c7b362d5ac53862b2f0ca141232b86d3baa08254af92e119c6c7bc97cb34016e"
         },
         "0.1.2-alpha.4": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-alpha4.patch",
-          "sha256": "0b8d239a364b56c02dc11325aeb24651e4fe2ca9a79101263113258a31e98d96"
+          "sha256": "128fcb3cae8d767d9efd73140b1745d38fcff4bbc0269cccf24469b28f410342"
         },
         "0.1.2-rc.1": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch",
-          "sha256": "0b8d239a364b56c02dc11325aeb24651e4fe2ca9a79101263113258a31e98d96"
+          "sha256": "128fcb3cae8d767d9efd73140b1745d38fcff4bbc0269cccf24469b28f410342"
         }
       },
       "targets": {
@@ -781,15 +781,15 @@
           "release_hashes": {
             "0.1.1-rc.2": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "after_sha256": "2c4084bb1c54841e81b5c4aecd3b57717872cb98707d2e7c2391ce7f21fb54f2"
             },
             "0.1.2-alpha.4": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "after_sha256": "2c4084bb1c54841e81b5c4aecd3b57717872cb98707d2e7c2391ce7f21fb54f2"
             },
             "0.1.2-rc.1": {
               "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "0169fdada6d38ccd1ca11d8114306a001ea236d29d01386d5f028f56b7ad659f"
+              "after_sha256": "2c4084bb1c54841e81b5c4aecd3b57717872cb98707d2e7c2391ce7f21fb54f2"
             }
           }
         },
