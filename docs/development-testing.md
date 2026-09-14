@@ -83,6 +83,19 @@ dependency pins, executable roles for every `package.json#bin`, and a
 reproducible package SHA-256. Do not treat source presence as emitted-runtime
 proof.
 
+The artifact-construction environment is part of the reproducibility contract
+whenever it can change package metadata. Fix it before the source checkout,
+build, and pack begin; in particular, use the canonical builder's declared
+`umask` so file modes do not depend on the invoking shell. A reproduction
+receipt binds the raw npm archive SHA-256 and extracted `packageTreeDigest`.
+The archive digest proves the distributed bytes; the tree digest proves the
+installed entries and executable roles. Neither substitutes for the other.
+
+Matrix and hosted promotion should consume artifacts produced by the canonical
+builder and require the same raw archive SHA-256. If raw archive digests differ,
+the same Git tree or even the same extracted tree is not sufficient proof of
+artifact equality. Fail closed and rebuild through the canonical builder.
+
 Also exercise installed-tree identity. The operations engine compares the
 declared `installed_sha256` with the extracted artifact tree using
 `packageTreeDigest`, which binds relative path, entry kind, executable role,
@@ -218,6 +231,20 @@ so an old package digest cannot be reused. A documentation-only delivery still
 stops after deterministic owner checks, whitespace/link validation, package
 inventory inspection, and the routine gate unless package admission, runtime
 behavior, real-provider acceptance, or promotion is explicitly in scope.
+
+### Review invalidation
+
+Reviews bind to an exact head, but a new head does not automatically make every
+unchanged line a new review target. After a repair, re-review the changed delta,
+its direct callers, earlier findings, and the invariants that the repair could
+invalidate. Evidence-only or documentation-only follow-ups review the claims
+and identity bindings they change.
+
+Repeat a full pull-request review when the new delta is cross-cutting, the base
+moved materially, or a core assumption, trust boundary, or risk classification
+changed. Otherwise preserve the completed review coverage and record the
+bounded invalidation scope for the new head instead of rescanning unrelated
+history.
 
 `rollback_baseline` is not an independent pin. A control manifest's rollback
 digest must equal the candidate's own

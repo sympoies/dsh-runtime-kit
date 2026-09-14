@@ -520,6 +520,31 @@ absolute/home path, a mismatched or non-passing result, an incomplete diagnosis,
 and a second attestation for the same run/scenario/phase. It never edits an
 earlier row.
 
+### Resume an interrupted matrix
+
+Resume from the append-only result and attestation records; do not infer state
+from family position or rerun the whole matrix by default. Classify every case
+at the exact frozen identities before the next Provider call:
+
+- `complete`: a passing result and matching passing attestation exist; skip it;
+- `pass-unattested`: a passing result exists but its attestation does not;
+  independently inspect the retained observable state and append only the
+  attestation, without calling the Provider again;
+- `failed`: retain the failed row, repair and prove its canonical owner, then
+  re-freeze and reclassify the matrix. Rerun only that case under a new,
+  monotonically advancing run id when every identity required by the
+  same-digest rule remains unchanged; otherwise restart the affected matrix
+  portion;
+- `pending`: execute only the missing phase or case.
+
+Before the first Provider call in each family, preflight every pending phase as
+one set: validate its run id and length, output and artifact paths, case
+identity, frozen package and catalog identities, DSH revision and patch,
+provider/model/effort, harness contract, and projected scenario inputs. Keep
+the selected capacity projection fixed for that family. If a newly executed
+row fails, stop the family immediately, preserve its evidence, and return to
+the owner regression; do not run the remaining cases in that family.
+
 After all families and folder kinds finish, append the aggregate proof:
 
 ```sh
