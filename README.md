@@ -48,7 +48,9 @@ compatibility, acceptance, and delivery procedures are in the
   and broker-only mediated GitHub effects.
 - `review_specialists({ task, roles })`, backed by eight fixed, read-only
   reviewer personas and deterministic structured findings. Reviews inherit the
-  parent model route unless `reviewerAgentOptions` pins one.
+  parent model route unless `reviewerAgentOptions` pins one, which takes a
+  provider and model together plus an optional reasoning effort and output
+  token ceiling.
 - `runtime_kit_plus_one`, a small native tool used to prove that the composed
   DSH tool pipeline is live.
 - Session-owned artifacts (`artifact_write`, `artifact_present`,

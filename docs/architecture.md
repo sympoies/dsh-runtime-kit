@@ -258,12 +258,24 @@ runtime continue to load.
 
 The reviewer child route is configuration, not a caller decision.
 `reviewerAgentOptions` accepts `provider` and `model` together plus an optional
-positive `maxTokens`, and is registered as the fixed route of every reviewer
-role. Left unset, the key is omitted from the role definition and each child
-inherits the exact parent route, so reviews follow whatever model the parent
-session resolved. The restricted-role service accepts no other route field, so
-a rejected key — `reasoningEffort` in particular — fails at mount with the
-reason instead of failing closed on the first delegation. A profile patch layer
+non-empty `reasoningEffort` and an optional positive `maxTokens`, and is
+registered as the fixed route of every reviewer role. Left unset, the key is
+omitted from the role definition and each child inherits the exact parent
+route, so reviews follow whatever model the parent session resolved. The
+restricted-role service accepts no other route field, so a rejected key fails
+at mount with the reason instead of failing closed on the first delegation.
+
+`reasoningEffort` belongs on a pinned route rather than beside it. A pinned
+route differs from the parent's by construction, and DSH's child-route
+resolution drops an inherited effort whenever the provider or model changes and
+the request names none of its own. Pinning only a model therefore does not
+preserve the reviewer's inherited depth — it returns every reviewer to the
+adapter default. Which efforts a route supports is the LLM layer's contract,
+enforced per request as `UNSUPPORTED_REASONING_EFFORT`, so neither the
+runtime-kit nor the patched role service enumerates them; both do require a
+non-empty string, so the one shape that could never name an effort is refused
+at mount by either side rather than only at the first delegation.
+A profile patch layer
 replaces a targeted row's whole `config` rather than merging into it, so the
 shipped composition carries the key and a deployment supplies
 `DSH_RUNTIME_KIT_REVIEWER_AGENT_OPTIONS` as JSON.
