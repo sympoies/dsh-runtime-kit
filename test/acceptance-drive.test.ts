@@ -793,6 +793,56 @@ process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID\\n')
   const [result] = rows(output)
   assert.equal(result.status, 'fail')
   assert.deepEqual(result.observed.fixture.clean_retry.forbidden_outcomes_seen, ['policy-unavailable'])
+  assert.deepEqual(result.observed.fixture.clean_retry.error, {
+    code: 'clean-retry-outcome-mismatch',
+    message: 'The clean retry exited successfully but did not satisfy its complete expected outcome.',
+  })
+  assert.deepEqual(result.error, result.observed.fixture.clean_retry.error)
+})
+
+test('deliberate-failure clean retry distinguishes execution failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-pack-retry-execution-'))
+  const workdir = join(root, 'plain')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  mkdirSync(workdir)
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+if (fs.existsSync('.fixture-recovered')) {
+  process.stderr.write('clean retry command failed\\n')
+  process.exit(71)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'assistant/message',data:{message:{content:[{type:'tool-result',content:[{type:'text',text:JSON.stringify({schema_version:'cli.dsh-runtime-kit.operations.v1',ok:false,error:{code:'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'}})}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'failure.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stderr.write('dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['automatic-prerequisite.non-git'],
+    workdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'pack-retry-execution',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  assert.equal(summary.status, 'fail')
+  const [result] = rows(output)
+  assert.deepEqual(result.observed.fixture.clean_retry.error, {
+    code: 'clean-retry-execution-failed',
+    message: 'The clean retry did not exit successfully.',
+  })
+  assert.deepEqual(result.error, result.observed.fixture.clean_retry.error)
 })
 
 test('deliberate-failure rejects marker-only and ordinary-success output', async () => {

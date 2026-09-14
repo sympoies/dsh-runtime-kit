@@ -1635,6 +1635,16 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         && recoveryExecuted.signal === null && recoveryEvidence?.markerSeen === true
         && recoveryEvidence.pass && recoveryTaskByteIdentical
       )
+      const cleanRetryError = input.phase !== 'deliberate-failure' || recoveryPass
+        ? undefined
+        : recoveryCaptureError ?? (recoveryExecuted === undefined ? undefined : {
+            code: recoveryExecuted.exit_code !== 0 || recoveryExecuted.signal !== null
+              ? 'clean-retry-execution-failed'
+              : 'clean-retry-outcome-mismatch',
+            message: recoveryExecuted.exit_code !== 0 || recoveryExecuted.signal !== null
+              ? 'The clean retry did not exit successfully.'
+              : 'The clean retry exited successfully but did not satisfy its complete expected outcome.',
+          })
       const fixtureCleanup = fixtureBin === undefined || packRow === undefined ? undefined : fixtureCommand({
         executablePath: fixtureBin,
         expectedIdentity: fixtureIdentity!,
@@ -1722,6 +1732,7 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
                   success_gate_passed: recoveryEvidence?.pass === true,
                   task_byte_identical: recoveryTaskByteIdentical,
                   workdir: cleanRetryWorkdir,
+                  ...(cleanRetryError === undefined ? {} : { error: cleanRetryError }),
                   ...(fixtureRetryInduce === undefined ? {} : {
                     fixture_induce: fixtureRetryInduce.ok ? {
                       receipt: fixtureRetryInduce.data,
@@ -1798,19 +1809,20 @@ export function runAcceptanceDrive(input: AcceptanceDriveInput) {
         diagnostic_bundle: diagnostic.identity,
         session_outcome: diagnostic.outcome,
         ...(status === 'pass' ? {} : {
-          error: identityError ?? transcriptScan.error ?? captureError ?? {
-            code: fixtureCleanup?.ok === false
-              ? 'fixture-cleanup-failed'
-              : input.phase === 'deliberate-failure' && expectedFailureObserved && !recoveryPass
-                ? 'fixture-recovery-failed'
-                : input.phase === 'deliberate-failure' && !expectedFailureObserved
-              ? 'expected-failure-not-observed'
-              : executionCode,
+          error: identityError ?? transcriptScan.error ?? captureError ?? (fixtureCleanup?.ok === false ? {
+            code: 'fixture-cleanup-failed',
+            message: 'DSH did not produce the complete expected observable outcome',
+          } : cleanRetryError ?? {
+            code: input.phase === 'deliberate-failure' && expectedFailureObserved && !recoveryPass
+              ? 'fixture-recovery-failed'
+              : input.phase === 'deliberate-failure' && !expectedFailureObserved
+                ? 'expected-failure-not-observed'
+                : executionCode,
             message: executed.error
               ?? (executed.exit_code !== 0 || executed.signal !== null
                 ? 'DSH did not exit successfully'
                 : 'DSH did not produce the complete expected observable outcome'),
-          },
+          }),
         }),
       }
       appendRow(outputPath, row)
