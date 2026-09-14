@@ -31,7 +31,9 @@ value.
   personal identifiers, internal hostnames, private deployment topology,
   machine-local paths, or credentials. Use public references and neutral
   descriptions.
-- Search past entries with `scripts/devlog-search.sh <term> [YYYY-MM]`.
+- Search past entries with `devlog search <term> [--month YYYY-MM]`. The
+  `devlog` binary ships with `nils-cli`; without it, `grep -ri <term>` over
+  the month files does the same job.
 - When an entry is committed separately, use
   `docs(devlog): <YYYY-MM> - <subject>`.
 
