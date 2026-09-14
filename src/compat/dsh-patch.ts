@@ -268,7 +268,13 @@ async function git(gitBin: string, cwd: string, args: string[], input?: Buffer):
     ]
     const options: import('node:child_process').ExecFileOptionsWithStringEncoding = {
       encoding: 'utf8',
-      maxBuffer: 1024 * 1024,
+      // Checkout authentication lists the complete index and HEAD tree, so the
+      // bound scales with DSH's tracked file count, not with the patch. At
+      // 0.1.5-alpha.2 each listing is already ~1.1 MB across ~10k files, and
+      // 0.1.2-rc.1 sat at ~0.97 MB — a 1 MB bound truncates the next release
+      // rather than reporting drift, so keep an order of magnitude of headroom
+      // while still refusing an unbounded read.
+      maxBuffer: 16 * 1024 * 1024,
       timeout: 30_000,
       env: {
         GIT_CONFIG_NOSYSTEM: '1',
@@ -345,6 +351,36 @@ function gitBlobDigest(bytes: Buffer, algorithm: 'sha1'|'sha256') {
     .update(`blob ${bytes.length}\0`, 'utf8')
     .update(bytes)
     .digest('hex')
+}
+
+const CR = 0x0d
+const LF = 0x0a
+
+/** Drop every CR that terminates a line, recovering LF-canonical bytes. */
+function lfCollapse(bytes: Buffer) {
+  const out = Buffer.allocUnsafe(bytes.length)
+  let length = 0
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] === CR && bytes[index + 1] === LF) continue
+    out[length] = ((bytes[index]) as number)
+    length += 1
+  }
+  return out.subarray(0, length)
+}
+
+/** Git's `eol=crlf` checkout form: every bare LF becomes CRLF. */
+function crlfExpand(bytes: Buffer) {
+  const out = Buffer.allocUnsafe(bytes.length * 2)
+  let length = 0
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] === LF && bytes[index - 1] !== CR) {
+      out[length] = CR
+      length += 1
+    }
+    out[length] = ((bytes[index]) as number)
+    length += 1
+  }
+  return out.subarray(0, length)
 }
 
 /**
@@ -427,7 +463,19 @@ async function verifyRawCheckout(gitBin: string, sourceRoot: string, expectedMod
     if (expectedSha256 !== undefined
       ? digest(bytes) !== expectedSha256
       : gitBlobDigest(bytes, format) !== entry.hash) {
-      driftCount += 1
+      // A declared `eol=crlf` attribute is the one sanctioned smudge boundary
+      // between an authenticated blob and its working-tree form; DSH declares
+      // it for `*.cmd`. Accept the working tree only when it is the exact
+      // canonical CRLF form of the authenticated LF bytes, which no other
+      // content difference can satisfy. Patch targets are authenticated
+      // against their own bytes and never take this path.
+      const canonical = expectedSha256 === undefined ? lfCollapse(bytes) : undefined
+      if (canonical === undefined
+        || canonical.length === bytes.length
+        || !crlfExpand(canonical).equals(bytes)
+        || gitBlobDigest(canonical, format) !== entry.hash) {
+        driftCount += 1
+      }
     }
   }
   if (driftCount > 0) {

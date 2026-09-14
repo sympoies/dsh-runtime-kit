@@ -18,6 +18,25 @@ export function dshRc7SessionHeader(agent: unknown): Readonly<{id?: string, pare
   })
 }
 
+/**
+ * Resolve the child-local Agent from the exact value supplied by the
+ * authenticated continuation setup seam. Older patched releases supplied
+ * only the context and retain the legacy direct property as a fallback.
+ */
+export function dshRc7ContextAgent(context: unknown, supplied?: unknown): unknown {
+  if (supplied !== undefined) return supplied
+  if (context === null || typeof context !== 'object') return undefined
+  return ((context) as any).agent
+}
+
+/** Resolve one named child-context service through Cordis reflection. */
+export function dshRc7ContextService(context: unknown, name: string): unknown {
+  if (context === null || typeof context !== 'object') return undefined
+  const get = ((context) as any).get
+  if (typeof get === 'function') return get.call(context, name)
+  return ((context) as any)[name]
+}
+
 export function dshRc7AgentRoute(agent: unknown): Readonly<{provider?: string, model?: string, reasoningEffort?: string}>  {
   const options = ((agent) as any)?.options
   if (options === null || typeof options !== 'object') return Object.freeze({})

@@ -91,12 +91,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dsh_version: 0.1.1-rc.2
-            revision: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
-            public_contract: false
-            node: 24
-          - dsh_version: 0.1.2-alpha.4
-            revision: 4e84901e6471b79ec0338099867ebb4606d12bb5
+          - dsh_version: 0.1.5-alpha.2
+            revision: b2e3b2a0125854567a4a5fcba75782e42fe84901
             public_contract: false
             node: 24
           - channel: pinned
@@ -181,6 +177,10 @@ jobs:
           npm run --silent dsh-patch --
           --action apply
           --source-root "$GITHUB_WORKSPACE/deepseek-harness"
+      - name: Build selected DSH native test prerequisite
+        if: matrix.dsh_version == '0.1.5-alpha.2'
+        working-directory: deepseek-harness
+        run: pnpm run build:native-system
       - name: Validate patched DSH execution boundary
         working-directory: deepseek-harness
         run: |

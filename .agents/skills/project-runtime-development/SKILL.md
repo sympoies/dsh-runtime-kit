@@ -52,7 +52,13 @@ prior-layer evidence cannot be proved.
    layer.
 5. Treat authenticated tool identity, role, permission mode, expected
    induction, build provenance, executable role, installed-tree identity, and
-   external observable-state attestation as distinct contracts.
+   external observable-state attestation as distinct contracts. Bind a
+   deliberate failure to its family's declared code and the correlated exact
+   probe call; reject matching JSON from process/model output, unrelated tools,
+   or another family. When a launcher has both an unactivated fallback and an
+   activation manifest, require one owner assertion that their
+   `DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR` values agree while config and policy
+   move only through their declared authenticated-asset transition.
 6. When a clean DSH profile needs multiple profile bundles, install them in one
    transaction and assert the manifest tuple before any package repair or
    configuration dump. Split transactions only when the intermediate tree is
@@ -60,9 +66,13 @@ prior-layer evidence cannot be proved.
 7. Before real-provider work, bind the exact package and catalog SHA-256, DSH
    and patch revision, provider/model/effort, harness contract, profile, and
    approved side effects. Give the external harness no human diagnosis hint.
-8. On `usage_limit_reached` or another typed entitlement failure, keep the
-   candidate frozen and stop. Wait for reset or separately authorized access;
-   do not switch provider or model.
+8. Before each provider batch, when the environment declares an authorized
+   capacity-aware subscription selector, use it to select and synchronize an
+   account with confirmed capacity, then keep that exact access-only projection
+   fixed within the batch. On `usage_limit_reached` from one account, consult
+   the selector only between batches. If it reports that the entire configured
+   pool has no confirmed capacity, keep the candidate frozen and stop. Wait for
+   reset or separately authorized access; do not switch provider or model.
 9. Reuse a matrix prefix only under the canonical same-digest rule. Cite the
    prior run and independent attestations; otherwise restart the invalidated
    portion.

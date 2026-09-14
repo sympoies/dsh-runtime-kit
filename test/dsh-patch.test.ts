@@ -65,15 +65,16 @@ test('the consolidated native patch adds goal, workspace, and restricted-role bo
   assert.deepEqual(
     Object.keys(patch.targets).filter(path => path.startsWith('packages/subagent/subagent/')).sort(),
     [
-      'packages/subagent/subagent/README.md',
-      'packages/subagent/subagent/README.zh.md',
       'packages/subagent/subagent/src/child-agent.ts',
+      // 0.1.5-alpha.2 extracted the Activation registry and its
+      // materialization inputs out of `continuation.ts`, so the setup and
+      // workspace-activation seams land in that file for that release.
+      'packages/subagent/subagent/src/continuation-activation.ts',
       'packages/subagent/subagent/src/continuation.ts',
       'packages/subagent/subagent/src/descriptor.ts',
       'packages/subagent/subagent/src/index.ts',
       'packages/subagent/subagent/src/types.ts',
       'packages/subagent/subagent/tests/continuation.spec.ts',
-      'packages/subagent/subagent/tests/service.spec.ts',
     ],
   )
   for (const selected of patchArtifacts(patch)) {

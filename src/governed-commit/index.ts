@@ -1,7 +1,11 @@
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 
-import { isolatedNilsEnvironment } from '../nils/session-environment.js'
+import {
+  authenticatedNilsEnvironment,
+  isolatedNilsEnvironment,
+  resolveManagedSessionPrincipal,
+} from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
 export type Context = import('@deepseek-ai/cordis').Context
@@ -38,6 +42,15 @@ function boundedMs(value: unknown, fallback: number, maximum: number) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
     ? Math.min(Math.floor(value), maximum)
     : fallback
+}
+
+function signingEnvironment(environment: Readonly<NodeJS.ProcessEnv>) {
+  const selected = (({}) as NodeJS.ProcessEnv)
+  for (const name of ['GNUPGHOME', 'GPG_TTY', 'SSH_AUTH_SOCK'] as const) {
+    const value = environment[name]
+    if (typeof value === 'string' && value.length > 0) selected[name] = value
+  }
+  return selected
 }
 
 function record(value: unknown): value is Record<string, unknown>  {
@@ -229,6 +242,9 @@ export function createGovernedCommitTool(ctx: Context, config: {
     governedCommitTeardownTimeoutMs?: number,
     canonicalPath: (path: string) => string,
     hasRepository?: (cwd: string) => boolean,
+    environment?: Readonly<NodeJS.ProcessEnv>,
+    runtime?: { uid?: number, platform?: NodeJS.Platform },
+    managedSessionBridge?: { resolve?: (id: string) => unknown },
     HarnessError?: new (message: string, code: string) => Error,
     TOOL_ABORTED?: string,
   }): ToolDefinition  {
@@ -237,6 +253,8 @@ export function createGovernedCommitTool(ctx: Context, config: {
   }
   const semanticCommit = config.semanticCommit ?? 'semantic-commit'
   const hasRepository = config.hasRepository ?? insideRepository
+  const environment = config.environment ?? process.env
+  const runtime = config.runtime ?? { uid: process.getuid?.(), platform: process.platform }
   if (typeof semanticCommit !== 'string'
     || semanticCommit.length === 0
     || semanticCommit !== semanticCommit.trim()
@@ -391,6 +409,10 @@ export function createGovernedCommitTool(ctx: Context, config: {
       if (!open) {
         throw failure(config, 'governed commit transport is disposed', 'GOVERNED_COMMIT_DISPOSED')
       }
+      const sessionId = String(exec.agent?.id ?? '')
+      const principal = sessionId.length === 0
+        ? undefined
+        : resolveManagedSessionPrincipal(ctx, sessionId, config.managedSessionBridge)
       const headerCwd = exec.agent?.session?.header?.cwd
       if (typeof headerCwd !== 'string' || !isAbsolute(headerCwd)) {
         throw failure(config, 'authenticated session worktree is unavailable', 'GOVERNED_COMMIT_WORKTREE_UNAVAILABLE')
@@ -470,7 +492,12 @@ export function createGovernedCommitTool(ctx: Context, config: {
           handle = ctx.subprocess.spawn({
             argv,
             cwd,
-            env: isolatedNilsEnvironment(undefined),
+            env: principal === undefined
+              ? isolatedNilsEnvironment(signingEnvironment(environment), environment, runtime)
+              : authenticatedNilsEnvironment({
+                  ...signingEnvironment(environment),
+                  ...principal.environment,
+                }, environment, runtime),
             stdio: {
               stdin: 'ignore',
               stdout: { maxBytes: MAX_OUTPUT_BYTES },
@@ -496,6 +523,14 @@ export function createGovernedCommitTool(ctx: Context, config: {
           Promise.resolve(handle.done).then(value => value, () => undefined),
           interrupted.then(() => undefined),
         ])
+        // `done` covers the direct semantic-commit process. Once it has closed,
+        // reap any helper that still belongs to the managed process tree before
+        // checking quiescence; otherwise a completed signed commit can be
+        // reported as transport-unavailable solely because its helper lingered.
+        if (outcome !== undefined && !exec.signal.aborted
+          && operation.cause === undefined && !timedOut) {
+          try { handle.terminate() } catch {}
+        }
         const quiescent = await boundedQuiescence(handle)
         if (!quiescent) {
           degrade()

@@ -38,7 +38,7 @@ const environment: NodeJS.ProcessEnv = {
   ...activatedEnvironment ?? {
     DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(runtimeRoot, 'agent-hook', 'config.toml'),
     DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(runtimeRoot, 'agent-hook', 'policy.toml'),
-    DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(runtimeRoot, 'agent-hook', 'state'),
+    DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(runtimeRoot, 'state', 'agent-hook'),
     DSH_RUNTIME_KIT_AGENT_DOCS_HOME: join(runtimeRoot, 'agent-docs'),
     DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: join(runtimeRoot, 'agent-docs-state'),
   },

@@ -148,7 +148,7 @@ function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
  * with the exact wiring the default bundle installs, so the seam under test is
  * the production one rather than an injected double.
  */
-async function harness(overrides = {}, { stopAction, onWrite, repositories } = {}) {
+async function harness(overrides = {}, { stopAction, onWrite, repositories, coordinator: coordinatorOptions } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -158,6 +158,7 @@ async function harness(overrides = {}, { stopAction, onWrite, repositories } = {
 
   const transport = finishLineClient({ stopAction, repositories })
   const coordinator = createFinishLineCoordinator(ctx, {
+    ...coordinatorOptions,
     client: transport.client,
     createOperationId: () => `operation:${transport.edits.length + 1}`,
     resolveEditRoots: async exec => {
@@ -422,4 +423,38 @@ test('an admitted edit registers its generation before the tool body runs', asyn
 
   assert.equal(result.isError, false, result.error?.message)
   assert.deepEqual(editsAtBody, [REPO_B.root])
+})
+
+class StubHarnessError extends Error {
+  constructor(message, code) {
+    super(message)
+    this.code = code
+  }
+}
+
+test('exhausting the same-turn steer limit fails with a typed code, not an untyped error', async () => {
+  const { ctx, coordinator } = await harness({}, {
+    repositories: [REPO_A.root],
+    stopAction: () => 'block',
+    coordinator: { HarnessError: StubHarnessError },
+  })
+  const agent = stubAgent('session-steer', REPO_A.root)
+  publish(ctx, agent)
+
+  const stop = () => coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true)
+
+  // The default budget is two same-turn steers; both hold the turn open.
+  assert.equal(await stop(), false)
+  assert.equal(await stop(), false)
+
+  // The third has no budget left. Reaching the limit is a real terminal
+  // condition, so it must name itself rather than surfacing as UNKNOWN.
+  const error = await stop().then(() => undefined, cause => cause)
+  assert.ok(error instanceof Error, 'the exhausted limit must reject')
+  assert.match(error.message, /same-turn steering limit reached/u)
+  assert.equal(error.code, 'DSH_RUNTIME_KIT_FINISH_LINE_STEERING_EXHAUSTED')
 })
