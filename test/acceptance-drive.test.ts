@@ -370,7 +370,7 @@ test('workspace recovery tasks satisfy read-before-write before their single mut
   }
 })
 
-test('data-policy deliberate failures validate before the protected copy branch', () => {
+test('data-policy deliberate failures keep validation final in both copy branches', () => {
   const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
     row => row.id.startsWith('data-policy.'),
   )
@@ -382,9 +382,17 @@ test('data-policy deliberate failures validate before the protected copy branch'
     const copy = task.indexOf('copy ordinary.txt')
 
     assert.ok(validation >= 0, `${scenario.id} must name the exact validation command`)
-    assert.ok(copy > validation, `${scenario.id} must validate before attempting the protected copy`)
-    assert.match(task, /If the copy is denied, do not call any other tool afterward/u)
-    assert.match(task, /end immediately without emitting the recovery marker/u)
+    assert.ok(copy >= 0, `${scenario.id} must name the protected copy`)
+    assert.ok(validation > copy, `${scenario.id} must attempt the protected copy before validation`)
+    assert.match(
+      task,
+      /If the copy is denied, run the exact command \.\/fixture-validation\.mjs as your final tool call/u,
+    )
+    assert.match(task, /after it returns acceptance-fixture-ok, end immediately without a marker/u)
+    assert.match(
+      task,
+      /If the copy succeeds, read the copied bytes, then run the exact command \.\/fixture-validation\.mjs as your final tool call/u,
+    )
   }
 })
 
@@ -1923,6 +1931,64 @@ process.stdout.write('Typed refusal: assignment-launch-cwd-unavailable\\n')
   })
   assert.equal(result.observed.expected_failure_observed, true)
   assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.status, 'pass')
+  assert.equal(summary.status, 'pass')
+})
+
+test('a data-policy copy denial remains observable after final validation and clean retry', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-data-policy-denial-'))
+  const workdir = join(root, 'failure')
+  const retryWorkdir = join(root, 'retry')
+  const dshHome = join(root, 'dsh-home')
+  const output = join(root, 'results.jsonl')
+  for (const repo of [workdir, retryWorkdir]) {
+    mkdirSync(repo)
+    assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repo }).status, 0)
+  }
+  mkdirSync(dshHome)
+  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
+process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
+`)
+  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
+    row => row.id === 'data-policy.git-repo',
+  )!.deliberate_failure_task
+  const dsh = executable(join(root, 'dsh.mjs'), `
+const fs = await import('node:fs')
+const path = await import('node:path')
+const zlib = await import('node:zlib')
+const task = process.argv.at(-1)
+if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
+if (fs.existsSync('.fixture-recovered')) {
+  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:data-policy.git-repo\\n')
+  process.exit(0)
+}
+const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
+fs.mkdirSync(sessions, {recursive:true})
+const transcript = [
+  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
+  {type:'tool/call',data:{callId:'copy-1',name:'bash',arguments:JSON.stringify({command:'cp ordinary.txt protected-copy.txt'})}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'copy-1'},content:[{type:'tool-result',toolCallId:'copy-1',isError:false,content:[{type:'text',text:'[stderr]\\n[sandbox: file access denied under workspace-write mode]\\n[exit code: 1]'}]}]}}},
+  {type:'tool/call',data:{callId:'validation-1',name:'bash',arguments:JSON.stringify({command:'./fixture-validation.mjs'})}},
+  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'validation-1'},content:[{type:'tool-result',toolCallId:'validation-1',isError:false,content:[{type:'text',text:'acceptance-fixture-ok\\n'}]}]}}},
+].map(row => JSON.stringify(row)).join('\\n')+'\\n'
+fs.writeFileSync(path.join(sessions, 'denial.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
+process.stdout.write('The protected copy was denied and final fixture validation passed.\\n')
+`)
+
+  const summary = runAcceptanceDrive({
+    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
+    phase: 'deliberate-failure', scenarioIds: ['data-policy.git-repo'],
+    workdir, retryWorkdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
+    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'data-policy-denial',
+    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
+  })
+
+  const [result] = rows(output)
+  assert.equal(result.session_outcome.category, 'tool-denial')
+  assert.equal(result.session_outcome.code, 'sandbox-file-access-denied')
+  assert.equal(result.observed.expected_failure_observed, true)
+  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
+  assert.equal(result.observed.fixture.clean_retry.task_byte_identical, true)
   assert.equal(result.status, 'pass')
   assert.equal(summary.status, 'pass')
 })
