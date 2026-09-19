@@ -12,7 +12,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   createScenarioFailureDiagnosticTracker,
   parseScenarioCanaryReceipt,
@@ -175,6 +175,12 @@ Object.assign(baseEnvironment, {
   DSH_RUNTIME_KIT_AGENT_DOCS_HOME: join(projectRoot, 'agent-docs'),
   DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: docsState,
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: join(temporaryRoot, 'empty-private-skills'),
+  DSH_RUNTIME_KIT_LIFECYCLE_ADAPTER_URL: pathToFileURL(
+    join(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle.js'),
+  ).href,
+  DSH_ACCEPTANCE_DSH_TOOLS_URL: pathToFileURL(
+    join(dshRoot, 'packages', 'core', 'tools', 'lib', 'index.js'),
+  ).href,
   DSH_ACCEPTANCE_WORKSPACE: workspace,
   DSH_ACCEPTANCE_WORKSPACE_SHA256: 'sha256:' + createHash('sha256').update(workspace).digest('hex'),
   DSH_ACCEPTANCE_VALIDATION_COMMAND: validationCommand,

@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import * as llmModule from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import { TestInbox } from './helpers/test-inbox.ts'
 
 import { createFinishLineCoordinator } from '../dist/src/finish-line/index.js'
 import {
@@ -35,7 +36,7 @@ function stubAgent(rawId, cwd) {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted() {}, discarded() {}, claimed() {} }),
+    inbox: new TestInbox(),
     status: 'idle',
     ctx: new Context(),
     send() {},
@@ -212,9 +213,12 @@ async function harness(overrides = {}, { stopAction, onWrite, repositories, coor
 }
 
 function publish(ctx, agent) {
-  const dispose = ctx.agents.register(agent)
+  const dispose = ctx.agents.enter(agent, undefined)
   agentEvents(ctx, agent).emit('agent/session-start', { source: 'startup' })
-  return dispose
+  return () => {
+    agentEvents(ctx, agent).emit('agent/disposed', {})
+    return dispose()
+  }
 }
 
 function write(ctx, agent, path, callId) {

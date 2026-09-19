@@ -46,7 +46,11 @@ function stageBundle(root, version) {
   writeJson(join(dir, 'compatibility', 'dsh.json'), {
     schema_version: 'dsh-runtime-kit.dsh-compatibility.v1',
     validated_releases: {
-      '0.1.2-rc.1': { ref: 'refs/tags/dsh-v0.1.2-rc.1', revision: 'a'.repeat(40), cordis: '4.0.2' },
+      '0.1.6-alpha.2': {
+        ref: 'refs/tags/dsh-v0.1.6-alpha.2',
+        revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
+        cordis: '4.0.2',
+      },
     },
   })
   writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
@@ -113,7 +117,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { dirname, join } from 'node:path'
 const args = process.argv.slice(2)
 appendFileSync(join(dirname(process.argv[1]), 'dsh-calls.jsonl'), JSON.stringify(args) + '\\n')
-if (args[0] === '--version') { console.log('0.1.2-rc.1'); process.exit(0) }
+if (args[0] === '--version') { console.log('0.1.6-alpha.2'); process.exit(0) }
 if (args[0] === '--profile' && args[2] === '--dump-default-config') { console.log('[]'); process.exit(0) }
 const home = process.env.DSH_HOME
 if (!home || args[0] !== 'plugin' || args[1] !== '--profile') process.exit(91)

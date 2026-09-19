@@ -37,7 +37,7 @@ const LANE_DENIED_TOOLS = [
 ]
 
 const EXPECTED_CONTRACT = Object.freeze({
-  schema_version: 'dsh-runtime-kit.agent-console-profile.v2',
+  schema_version: 'dsh-runtime-kit.agent-console-profile.v3',
   profile: 'dsh-tui',
   dsh: {
     version: '0.1.2-rc.1',
@@ -58,6 +58,9 @@ const EXPECTED_CONTRACT = Object.freeze({
       integrity: 'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
       shasum: '72a4b599e1f9b719f6e1a82c1c4b3bff3130c2b1',
     },
+  },
+  runtime_kit: {
+    revision: '481f521f561b065ca8ec05da59be6415b837f75b',
   },
   bundles: [
     '@deepseek-ai/dsh-base',
@@ -103,6 +106,7 @@ const VALID_OBSERVATION = Object.freeze({
     package: EXPECTED_CONTRACT.tui.package,
     version: EXPECTED_CONTRACT.tui.version,
   },
+  runtimeKit: EXPECTED_CONTRACT.runtime_kit,
   bundles: EXPECTED_CONTRACT.bundles,
   composition: {
     rowIds: EXPECTED_CONTRACT.required_rows,
@@ -155,11 +159,12 @@ test('the package pins the complete latest Agent Console composition contract', 
 
   const result = runtimeKit.inspectAgentConsoleRc7Profile(copyObservation())
   assert.deepEqual(result, {
-    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v2',
+    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v3',
     compatible: true,
     profile: 'dsh-tui',
     dsh_version: '0.1.2-rc.1',
     tui_version: '0.10.1',
+    runtime_kit_revision: '481f521f561b065ca8ec05da59be6415b837f75b',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -222,7 +227,7 @@ test('the Agent Console install contract preserves DSH profile settings and disa
   })
 })
 
-test('public Agent Console smoke consumes the contract-pinned TUI specifier', () => {
+test('the headless candidate workflow does not mutate the frozen Agent Console lane', () => {
   const workflow = parseYaml(readFileSync(join(
     projectRoot,
     '.github',
@@ -232,13 +237,7 @@ test('public Agent Console smoke consumes the contract-pinned TUI specifier', ()
   const step = workflow.jobs.upstream.steps.find(
     candidate => candidate.name === 'Run exact Agent Console TUI composition smoke',
   )
-  assert.equal(
-    step?.env?.DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE,
-    EXPECTED_CONTRACT.tui.specifier,
-  )
-  assert.match(step?.run ?? '', /\.dsh-runtime-kit-ci-nils/u)
-  assert.match(step?.run ?? '', /chmod 0700/u)
-  assert.match(step?.run ?? '', /AGENT_HOOK_BIN="\$trusted_nils\/bin\/agent-hook"/u)
+  assert.equal(step, undefined)
 })
 
 test('public Agent Console smoke authenticates the contract tarball before local install', () => {
@@ -290,6 +289,7 @@ test('every pinned version and ordered bundle has a specific failing owner', () 
     ['DSH revision', value => { value.dsh.revision = '0'.repeat(40) }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_DSH_MISMATCH'],
     ['TUI package', value => { value.tui.package = '@deepseek-harness-tui/other' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
     ['TUI version', value => { value.tui.version = '0.8.1' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
+    ['runtime-kit revision', value => { value.runtimeKit.revision = '0'.repeat(40) }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_RUNTIME_KIT_MISMATCH'],
     ...EXPECTED_CONTRACT.bundles.map(bundle => [
       `bundle ${bundle}`,
       value => { removeValue(value.bundles, bundle) },

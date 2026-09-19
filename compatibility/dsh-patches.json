@@ -7,35 +7,51 @@
         "state": "not-reported"
       },
       "release_artifacts": {
-        "0.1.2-rc.1": {
-          "path": "patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch",
-          "sha256": "ae0056284473413c92e6326b2ce69656ac98857c983e23d91ab77076a7da60db"
-        },
         "0.1.5-alpha.2": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch",
           "sha256": "8918b291ecedb942e14d4ed94bd12d3133b5b10afa8b9dc89ac6a2c0241f55fc"
+        },
+        "0.1.6-alpha.2": {
+          "path": "patches/deepseek-harness/native-execution-boundaries-v5-0-1-6-alpha-2.patch",
+          "sha256": "fe1e9a588e917bf0fb3b5aaeee9cfa4d2307b4886f171460d5ba7932b230ca2c"
         }
       },
       "targets": {
+        "packages/boot/app-boot/src/index.ts": {
+          "release_hashes": {
+            "0.1.6-alpha.2": {
+              "before_sha256": "eb2b9dbdc1eb0b08a1d1ce7b1dd32e340c05c6ad5bac15ccbd3f596f6e859028",
+              "after_sha256": "d9bb8ee48fadac4ad4a58be82ba946a96db4c87805b9f0dd6c215e5a74fc4d28"
+            }
+          }
+        },
+        "packages/boot/app-boot/tests/app-boot.spec.ts": {
+          "release_hashes": {
+            "0.1.6-alpha.2": {
+              "before_sha256": "05b081b26e05808ae257b31fa6dea579ec947d4b091b8ff0a2f95638fd6130da",
+              "after_sha256": "a119ff9802fefc248aad7877b21d0d478b6503dadf1ad9a3f131aa05171d606e"
+            }
+          }
+        },
         "packages/core/agent-loop/src/agent.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "cc14a38d5cf32003699a9342286b597eccf35cec79740c28552e229ead43b4f8",
-              "after_sha256": "3c62282ed6ad6a932eb847b01ed2f65ca36fcbc150d415c69b82b018b1d5491a"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "bbc3c4f34076e81596af855eddb1bf66f6362278730f7c4db24ea96a990e3cb3",
               "after_sha256": "71d28558ee9ed238011bc38c5e8f02378a8526ce54ce9b34140ed3a450be96c6"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "2b238998e1b63ac7ceffa20190caaaa4806a9ae275112807424d176244dfd014",
+              "after_sha256": "c12ca8ac0e7e2eac88da91babe07f9b0e78291f23ca03b166795c8253f2eeed8"
             }
           }
         },
         "packages/core/agent-loop/src/tool-calls.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
+            "0.1.5-alpha.2": {
               "before_sha256": "1f8984127d4245b6a08c1e4b0c8b9d8fa7ce30ffcf08184187f16dc1bf57ae6d",
               "after_sha256": "940c81c06537eada73ebff8608170e9bacc7ef28c4697f97c18830f92a073d3f"
             },
-            "0.1.5-alpha.2": {
+            "0.1.6-alpha.2": {
               "before_sha256": "1f8984127d4245b6a08c1e4b0c8b9d8fa7ce30ffcf08184187f16dc1bf57ae6d",
               "after_sha256": "940c81c06537eada73ebff8608170e9bacc7ef28c4697f97c18830f92a073d3f"
             }
@@ -43,35 +59,43 @@
         },
         "packages/core/tools/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "5f696f8840cbd136ab0b5903e7de8fd83ad39b3b057e6202845aede4d827c90b",
-              "after_sha256": "1681abb9287679e6ed403d743d95bf9d675978d38bb8690c10a779bd4ff2b78d"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "cc8d54b6a0d6005a26871e84ce3390ba0bbd7fa61a8c65d4b9cc2fbd86126ac2",
               "after_sha256": "7c9c197fbb284d7c8ef4be69d08a65f6b536c108c1d7f32a93466f832942e548"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "e040cf44c7a4c1b74650cc32f67503b8881cc1d5b1f47f1cb38cf0167a9bb3da",
+              "after_sha256": "bd36e305e35d6a6c4fff2e1a0936f6baaa07d330aab65ef7317cebb9b48eed04"
+            }
+          }
+        },
+        "packages/core/tools/tests/tools.spec.ts": {
+          "release_hashes": {
+            "0.1.6-alpha.2": {
+              "before_sha256": "12786f8b6f7796f842c6329b3eb061bb559439d41fc6344dff6acb90df054eb5",
+              "after_sha256": "f82cee7ad161c9eef7c9617ff1a3301d773606916c00c94011920f7bea3893f0"
             }
           }
         },
         "packages/core/tools/src/ptc.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "c0fde4ef0867eafe617675d105d87da510fa438742d037332eec75afc417e4f6",
-              "after_sha256": "23f8a9e1eae8248dc82128e096b5c7e8ad9579aaa7f69b96a692aff21dc4ff90"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "c0dda3a17a5c70503b41779605fd323d81e5c571758eb3012086c971f8fabe09",
               "after_sha256": "2e6b034ea172be4a1b6dc9dfa7504a6fadb13ad503f10fec80bff9eede025dac"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "7a7c19cfdabce7bad053291614b1d727205e94601771a7b239790b3b0f0a7eab",
+              "after_sha256": "1282a52cc0f786bb6b00edaebc3ce401e7c03e52f4d4bc08bf1e444eebe8a4f1"
             }
           }
         },
         "packages/fs/fs-sandbox/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
+            "0.1.5-alpha.2": {
               "before_sha256": "baba926440e3bcaf9c5f70c4e7d5478efd977d66c76e025c4deb82534ce3256b",
               "after_sha256": "10ce6f9dbfaf515fa84a8f0da8ab175abfa072bbefcac7fbf12dd3744e206c8a"
             },
-            "0.1.5-alpha.2": {
+            "0.1.6-alpha.2": {
               "before_sha256": "baba926440e3bcaf9c5f70c4e7d5478efd977d66c76e025c4deb82534ce3256b",
               "after_sha256": "10ce6f9dbfaf515fa84a8f0da8ab175abfa072bbefcac7fbf12dd3744e206c8a"
             }
@@ -79,83 +103,83 @@
         },
         "packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "587a2d93178dc2cbf21a51ac22cc628e0474ae2e54c1b83383b36a8ee31602ca",
-              "after_sha256": "237a82cd346916cda89d5489e72b1b9b6ceca038a4aa8648df523ced7a9c0020"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "a8959cf5eaa3c5d9e530dff9c871bec981aa7afdb8e1a2fdebdad7563ffaf541",
               "after_sha256": "b8b649e945982f8c73ee16db373ed67475694400e5ff25229bf68832b80164a8"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "a8959cf5eaa3c5d9e530dff9c871bec981aa7afdb8e1a2fdebdad7563ffaf541",
+              "after_sha256": "0131fb53520ada2728b0154f9c4387ae9afd00713142b15f34970ffdc1f96a4d"
             }
           }
         },
         "packages/fs/tool-fs/src/sandbox.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
-              "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "36cd2739844b2f2c58054e3fd3cb7d30e2b7d860af976ca5638602b7f18b08c7",
               "after_sha256": "08692e7abee670755dcbb0f105155bcbb8a294b7d5e300d9edd4683297a03437"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "4f8615e4672016cf5a33a2cf8af9880419d8cb3e6064a24d12828345c08da30e",
+              "after_sha256": "a51c6d6ade5539c28115c4442808f1a820edc5d6716eb7914b1b2a80c8a351a6"
             }
           }
         },
         "packages/fs/tool-fs/tests/tools.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "6bc87a01563454572ef494e53a97fd929ad60d0ae623a7e65170d9178997da8b",
-              "after_sha256": "cca5122957e5b267b04372bd12667b570d59de57fdb2d884cd95dbc82e16425b"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "36dd57763a3c7b8189dcab91e250d84d3366e81fccad3c16f6704b2c2a023f83",
               "after_sha256": "0993f18cc44b31b086ee1fb034a599f34c0f2aa236dc7f1146ee3cabf2df1124"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "5c1776440ffd1063a7ca27a9103b0436f504c64e01284faa0467fd1fd6cdcc89",
+              "after_sha256": "fd8bd40aee09dd86fabb40e53433910a6cdd0b835a7fcfe5acca7eb02e5f63ee"
             }
           }
         },
         "packages/goal/goal/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "7af21235fda87e36d3f454b7b789fb8a2ad62a0f23dc09ddf49ca264ad73b37c",
-              "after_sha256": "0ef820c800e74ca5c56c6e3fcdacb2a0b590da49b5bb228a55ec2ab26d4ec08d"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "1dbc449df90d26d11867262dd0996d7ef6d6502af62b0603142224b2d19adf14",
               "after_sha256": "4621732017a0dd1bdcf9a23df5a7e62a956fbac862b67b0cb33223dd1e7684c6"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "333ebc31489619ee083235c5f5ceeb38ac3c6c844b2a0179458058401a6ebf9a",
+              "after_sha256": "9ab38fa6e315ab58584df041e36c866a2e496b2f86c541f718bd995a1ae862de"
             }
           }
         },
         "packages/goal/goal/tests/goal.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "fa6ea6f63b014c62270dc370dcdfc00902c7b0acb82038db772087a30cffdf88",
-              "after_sha256": "ac3cbc4fc386f1d63a37568233d43918fcda3b29f26413e54923eb704c939459"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "1698ba3cbaf16dd3376fc114703ed4de7d33f7ac91ddc1bbc034cc5a8c191671",
               "after_sha256": "45eaece4437bdf7be5da399dd5af48d10835383ab0d0b560e39903f8332bc34e"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "06c9cd945d029fc5d594b679f5fdf61148e0ea45e3a449c1eea1a23aa739580d",
+              "after_sha256": "821beaa3bb8bd136504bf22df98d03b1a73548383d43f3b40456d0ec518e3a63"
             }
           }
         },
         "packages/llm/llm/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "e94e3a72f17d2d82038f3b456abcb19260153577706acbb81498b93fb2a41b50",
-              "after_sha256": "dc1b095a8142e57e61442ff515613824a1b20d9aa288b22fc8819b6d872d9ba8"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "e9790c58a9ab112eb41165a4cab474df751dfe7bd13fd8ade68564ca11f7c4d5",
               "after_sha256": "bf8be14d7e596923f980ed06eaf9dc6cd528a3006722fb33b912b081d08b1c0c"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "2260ce28e29fddeaa0b78a273292b6f5c7194adf6226f38ff9e59a50b808cf09",
+              "after_sha256": "456a6a70918dd183cb92ce93173c7c82586e21425be3d746a4efbde95a28a710"
             }
           }
         },
         "packages/llm/llm/tests/service.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "bbb1bb30372c4797cdf995b2a3ba81a389eb24d63d6237b3ce565bea62af44c8",
-              "after_sha256": "767b34d826523593f093c926bee28e4c694f1cfd76e943387f21d25979032497"
-            },
             "0.1.5-alpha.2": {
+              "before_sha256": "b7ffe1b2ead1b4afd441cb7c0b56303453e3df8e45a8fdb26e937dcdc4046a18",
+              "after_sha256": "3ceebdf218a1ae7641a711578492596fee947cadb440813b98f4cee3d6d248b2"
+            },
+            "0.1.6-alpha.2": {
               "before_sha256": "b7ffe1b2ead1b4afd441cb7c0b56303453e3df8e45a8fdb26e937dcdc4046a18",
               "after_sha256": "3ceebdf218a1ae7641a711578492596fee947cadb440813b98f4cee3d6d248b2"
             }
@@ -163,23 +187,23 @@
         },
         "packages/sandbox/sandbox-local/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "351dafb8de1cd62467dc863d4e2caccc10b34484cac556555e4dfd59c89a1594",
-              "after_sha256": "f559bbe42e3962fdd6ce845b3446336192a8ad93e56f33f59e78be370c7c13e2"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "e3c2aae0d9623e12ea6c78af32f84ddd06f448b652d591baa09f3cbf143a313b",
               "after_sha256": "c615a8355120cb7840a12cb82b5bc411065f51d63fc8dee480068b1d0b669a50"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "f7f21872ae725111f6a043eab37b533d9c8b9712d3ff9684aeded150e6f10b37",
+              "after_sha256": "702ae56db8968ca84dfbdf1e0fcd348eeab7cb47999a1ecac1c2688711301538"
             }
           }
         },
         "packages/sandbox/sandbox-local/src/profiles.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "20eddafc9d043f48e4500a6d984ed9782e12d0bfe56f24c169ce0727d525a282",
-              "after_sha256": "65d9cb680db20837a20fbbd670dec2397d326d080adb42e4cf2a975f361309a7"
-            },
             "0.1.5-alpha.2": {
+              "before_sha256": "b94dd0d0c49c8df63edcbdfe036fafb90eb0bb96e7613e73d46e27b009ae6aaa",
+              "after_sha256": "8eca3fb3cebc041bbed72e7730a025154ffbff0a196ec97ff352d4ec166ac9ce"
+            },
+            "0.1.6-alpha.2": {
               "before_sha256": "b94dd0d0c49c8df63edcbdfe036fafb90eb0bb96e7613e73d46e27b009ae6aaa",
               "after_sha256": "8eca3fb3cebc041bbed72e7730a025154ffbff0a196ec97ff352d4ec166ac9ce"
             }
@@ -187,71 +211,71 @@
         },
         "packages/sandbox/sandbox-local/tests/local.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "a3b6462071e6616361cf55e407ff51c962cd1c3ee05a8bd20c53d908de95e495",
-              "after_sha256": "f72211e84501d9eb4ac0acf258658478097c985599ed28dfbcf1aefaaeaf7769"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "fa47b38b6b2397152602b38110b137679b810de8ca8b2e035697132f235b1def",
               "after_sha256": "b515c3b134930fe4f61b86922b019571ac19717357db183fb65bc87fab4a8a72"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "14ba1da93db69b7f7029e41f1adbd0739f39b7b35f1fb99287dbe94565897a44",
+              "after_sha256": "98d83a7249ad934aa4f67739e2634cce7acaefcd9219224f2a6c716000cef5e0"
             }
           }
         },
         "packages/sandbox/sandbox-policy/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "f8a8bce6683a8aa762b0ef2df1b26b67a48ca8bf84480e2b78545c34bba86bee",
-              "after_sha256": "3f816849c53d439bd6e1f207493a52803e2e1fdbf978dea2b851a2c90bfe4495"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "f8a8bce6683a8aa762b0ef2df1b26b67a48ca8bf84480e2b78545c34bba86bee",
               "after_sha256": "3f816849c53d439bd6e1f207493a52803e2e1fdbf978dea2b851a2c90bfe4495"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "6fce58e5bf63475f761871389bbf01043fba859f22e44c805522c39afbff32d6",
+              "after_sha256": "ecea28a76b5139fb2348fc880c8a8c7df0c785bcd7c1556b883cb225462193a5"
             }
           }
         },
         "packages/sandbox/sandbox-policy/tests/policy.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "fbef3b5132ee8cfd30d29183ba5e49002200e555f74be89aed3b540521e7b1e4",
-              "after_sha256": "fcb5d040ee6f74d9024557483adab468afad6a590a98cb6b8fbdf0647d731f0e"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "f9d9aaaca384dd182eecfe083aee5cc0240e939a5ae2edbf94bd3205740c396c",
               "after_sha256": "b3525774bf09673e9705381c7c7b58663911ca1ab24cd0e59e41fb7cca7cf371"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "f81eb700aa8a96a14ea0b48dfbd5c5e22b63f56849e595ffe18290e817e9d1f0",
+              "after_sha256": "3605addbd38e4d8965697beb90baa53baa02b7a0c4bab48d0e1e0067dbd5019f"
             }
           }
         },
         "packages/sandbox/sandbox/src/escalation.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "a55f7ffe9243902b7eea3bcabfb005a8c2bb6113a3621dd16e6b0c4576007c8b",
-              "after_sha256": "262da260c95a17a5f318c0a4f65b8fd87ae27f7c31541ca95222ea2f16e15146"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "a55f7ffe9243902b7eea3bcabfb005a8c2bb6113a3621dd16e6b0c4576007c8b",
               "after_sha256": "262da260c95a17a5f318c0a4f65b8fd87ae27f7c31541ca95222ea2f16e15146"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "68e491d68991c8bbc609c67617cebc8d72e5031a8d63f232d89a4321b378812a",
+              "after_sha256": "719443225f02a367d9ef5f12ec8a56f66fef71c70f6782cb35f974ca46ec44b3"
             }
           }
         },
         "packages/sandbox/sandbox/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
-              "after_sha256": "5c9756157f8fbb0f677e960667e27423cd71fdbd732557b48020550d31abb0ff"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "693d90d5dbecc7e4a965e0fc9dbef034dc52f0afbf4c911b8a1cc8f9ee17c8ab",
               "after_sha256": "5c9756157f8fbb0f677e960667e27423cd71fdbd732557b48020550d31abb0ff"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "32f62c1966c536308428be2fa090042a37358d9af8084e7fb0d0878c68ac3b9d",
+              "after_sha256": "8a3b96fd656bdb1c053a5d9a8f772fc13227e4e85d6542732831788cabfecad1"
             }
           }
         },
         "packages/sandbox/sandbox/src/roots.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
+            "0.1.5-alpha.2": {
               "before_sha256": "8a18e1474012415def8197a4ee493394a91cc739a6ec94eb83c6b4d980b7a23b",
               "after_sha256": "8e3744788bc1f7bc20150a9419da8455e5706502cc0d0c529e9dbcc3d45f217b"
             },
-            "0.1.5-alpha.2": {
+            "0.1.6-alpha.2": {
               "before_sha256": "8a18e1474012415def8197a4ee493394a91cc739a6ec94eb83c6b4d980b7a23b",
               "after_sha256": "8e3744788bc1f7bc20150a9419da8455e5706502cc0d0c529e9dbcc3d45f217b"
             }
@@ -259,59 +283,59 @@
         },
         "packages/sandbox/sandbox/tests/escalation.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
-              "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "f1884c1e6d69111223c716e70a918f9553099c95a89656168ca10106dd980db4",
               "after_sha256": "bbbbd9e9902e30cd0cc10554a976697a1f34c4a6505c582a5ad24fced17dbec7"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "2272c36e25bcd37d2396a14892b70ed6258d1f7460da6b244860c2f4c4af1631",
+              "after_sha256": "c99a0ab717f4668e5e7053eff36133b462d728ecf08f97681660f6d7da62effd"
             }
           }
         },
         "packages/shell/tool-bash/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "dc63cd3bd18ad6b7ebe76851576cef50a95de9c250e69b533324b184c5bf235b",
-              "after_sha256": "01621a2c3414a3197d98967da877bff10ae4f1b3842ab1dce7f9144599de91ef"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "dc63cd3bd18ad6b7ebe76851576cef50a95de9c250e69b533324b184c5bf235b",
               "after_sha256": "01621a2c3414a3197d98967da877bff10ae4f1b3842ab1dce7f9144599de91ef"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "a86feede898f5aa961d7c2e805a42ef2d0656c08f5d865b52e9f560306f4560a",
+              "after_sha256": "32b426ebc351eff76829075a0a8d3fb488f0a6b34a651e91db6dcdc3849ceb37"
             }
           }
         },
         "packages/shell/tool-bash/tests/tools.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "370446dfc0b8b92c5da1bd784cea20c9a0765c2b6d6585003f82f51db80348b4",
-              "after_sha256": "80d36d420a07c32c2bbc7a7a2b23f09f09c210f95b5bc7f2bc08c3cbb5ec3396"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "88e27bb09fbcb3d7486139fd61781833d4e79cef47900a44db4265413ac07f0d",
               "after_sha256": "190abab40030de46eca4790c6cc9d0e0cfd05cfc9f40d60eb1e9274dd5dc97cc"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "a24c7f5aed53e62ab09a17a4377f66250fb4fad42b616c4673274ae25ece02ef",
+              "after_sha256": "e1f8eb4ca82a4fda5df2323dc7e3fe36a9c477c9897daa4023c07cdff1525df4"
             }
           }
         },
         "packages/subagent/subagent-in-process-driver/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "21e54c4932132253b8098770212b847cfedde53432159701b09af0000d87e3e1",
-              "after_sha256": "dd9ae08463dcf83941f4055426beb06a79b439843d7ff1f31c5cfd5b1f7d2002"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "bc5ad502dbeabb9ae2ee22a8f5b59e3df9d22eaec9f4ce73da0ac8372b5dd04b",
               "after_sha256": "757b1a4611d926c2d11a94495325a6e06dd6129b1ccb0931020998de11916f25"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "b8d039899b81553747929f56063b79247bf12bc5d7bfa0c1b2e91d431772baa5",
+              "after_sha256": "3e5f1069b6202d2a46d21a42cce1a9bbd4b6015c9d4d792647edb1e305fa6d39"
             }
           }
         },
         "packages/subagent/subagent-spawn-in-process/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
+            "0.1.5-alpha.2": {
               "before_sha256": "0401c302d49b44a779d1e6ba93f817f43a8fe67974840c432d881792ff14fe66",
               "after_sha256": "0abbe41a2de5c169c8f43ea90e6864d1fcad3cbfde61bc5d992c392ea1d65de0"
             },
-            "0.1.5-alpha.2": {
+            "0.1.6-alpha.2": {
               "before_sha256": "0401c302d49b44a779d1e6ba93f817f43a8fe67974840c432d881792ff14fe66",
               "after_sha256": "0abbe41a2de5c169c8f43ea90e6864d1fcad3cbfde61bc5d992c392ea1d65de0"
             }
@@ -319,13 +343,13 @@
         },
         "packages/subagent/subagent/src/child-agent.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "4a5fc00efebdccf99016868327e029825a5f1e3dbe440ec8b0b90fd69c4becb1",
-              "after_sha256": "51cec631ffc469206d7a1211f31e09d7d9e9fe67f45f8a643bb3e27c43c96a06"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "89c157c123a58039fdfeeb4113d71430c72302e07491347c6ab61e48554dac86",
               "after_sha256": "15b23bd9444d45f48ff5fe71dbc4889f26d162a9874e04acd913ce91085e8370"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "c5c63b89c96932070c27e5b14127818cda6efa0d2d56f9a4e50ad757e217956c",
+              "after_sha256": "b7bc1a1d0d2d1f9986e71b14b52b3040355b006ab9cae0e0cc4427e1ad5cbd5e"
             }
           }
         },
@@ -334,28 +358,32 @@
             "0.1.5-alpha.2": {
               "before_sha256": "f6ff8a3f8066d4f7e31b666dbb12d3d794ee0c69a7cbacbd3da9615a4509651c",
               "after_sha256": "9213c4dec6093050441eb41bbd6bdd79f94ecb65f40ab63757dc8c510c352d22"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "b7e407e9f25d3057dacd7b7dcd68e8d2fa246d0765c46bcf5ce3963e09a18a61",
+              "after_sha256": "b4720f205b6cc8c3a4cd52fcc08d06c3c4b0e2179045740fa290a03520529a49"
             }
           }
         },
         "packages/subagent/subagent/src/continuation.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "746dd3ddd623d2f476a44c31ff11a35b33b9271f0a85b06c85f5d5c14835a5bd",
-              "after_sha256": "fd8f49eb6c2951e2f70cd1260e339a4954cb805be94a2dae63e10d6995cfefd4"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "0324599499683693377681c381af7f13465235be5ba273093ceee06202ad7e4d",
               "after_sha256": "0288f43ec6defa4fbcd830f06f2bda1754ccb58b22bf2cda1fd4a3cde630c92b"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "b9224fd93929a54701b22e500837805091132f8d6a7f30c358ae0c58cd4e12de",
+              "after_sha256": "312a0027b8d5895783fc754128e14383680dfab5fec58e5a38c06b56cd8edaa2"
             }
           }
         },
         "packages/subagent/subagent/src/descriptor.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
+            "0.1.5-alpha.2": {
               "before_sha256": "00b5dc5d259f78ab9fb66cf7aa4f1c08835f471f2379e6fab79f7e03791c614c",
               "after_sha256": "21155630001cf2161aca140ed4f1e7fb95a33bae943ee728e140ef20907d4fc4"
             },
-            "0.1.5-alpha.2": {
+            "0.1.6-alpha.2": {
               "before_sha256": "00b5dc5d259f78ab9fb66cf7aa4f1c08835f471f2379e6fab79f7e03791c614c",
               "after_sha256": "21155630001cf2161aca140ed4f1e7fb95a33bae943ee728e140ef20907d4fc4"
             }
@@ -363,23 +391,23 @@
         },
         "packages/subagent/subagent/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "173e3e150ad24758c52156a9a3b27ec6632f780a999feeeee6f584601c5bd653",
-              "after_sha256": "0fdcc0afd3ff43cb846cc537ab06842d49c612364ba006502a3b165cbb8087b7"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "7597543b5f29b802545ecb559513efeb9fd1f8af66e90e8abc49d914943b1e36",
               "after_sha256": "71c9e068cc0dff10ae9b67e49c4e326dcd1f2058ea1e72a868044e5f8ad3ad89"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "168c9c1c3237e6995e2162d86aace6b4c74247a8a210f64e997b98eb0dba744f",
+              "after_sha256": "68d3523b903b6528640c7ddd3abfbe6ab398f1af645f2ee27ff78f5961ec7205"
             }
           }
         },
         "packages/subagent/subagent/src/types.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "268a9b1e38e268aa16af1bade378fecb62afd9cbcfa8b2870295e1d6ef2f9af0",
-              "after_sha256": "2da02b45b25590aaad00e0e56f7fa35724f99c7d041f4dfb593c6e34a5dc7667"
-            },
             "0.1.5-alpha.2": {
+              "before_sha256": "9a1f755aece7d541bd84772a0d2894cba003614a442f8dcc1896f8384fb91bee",
+              "after_sha256": "cf929c0ff7a7368d54ce7ba95c973b52d33aaacf359c4044b0d981f3de92772b"
+            },
+            "0.1.6-alpha.2": {
               "before_sha256": "9a1f755aece7d541bd84772a0d2894cba003614a442f8dcc1896f8384fb91bee",
               "after_sha256": "cf929c0ff7a7368d54ce7ba95c973b52d33aaacf359c4044b0d981f3de92772b"
             }
@@ -387,71 +415,71 @@
         },
         "packages/subagent/subagent/tests/continuation.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "6952892c363a67d000dc4d9403cd8facb8942fcc994ba9f3c148c55f5218338b",
-              "after_sha256": "e62323c6a7276db380e5feddb1a4c168c90bea66426e86dc05439ba1dc229028"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "0e94c13a788ef0b878d5ad810f029c1564c348d3a2871fbe25c1dc4fd67951ab",
               "after_sha256": "451edffe0785d436c03d11bf9e84e712a08f6c96b0cef98010dc9e91e4ec3fcd"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "cd697accf3e164d19466e14c8bb43cc99fc3ec00984fa5c353194a0b8bd78a3c",
+              "after_sha256": "1553aacd12215baa2ed54f23cf89ec693af0a4e5e7d0533d1806ce4860be8d46"
             }
           }
         },
         "packages/subprocess/subprocess-local/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "723e7a2be6950c72fd1b1f54e10d4e5eb1ae1f413a889019e37dd701bf9acfb3",
-              "after_sha256": "a946dbb4fe2a35bba6844a3d0dd96c8a3f9bfd95ccb72f3a15400f1aa10ac60c"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "81398ec668d58923aa5f23555b7f56b10637b9f0ad04706a7023002c58b7665d",
               "after_sha256": "63bb547a676dd140ba47775d540efbe88a079f953be7ade112f347f53b9eca1d"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "d04e779d9d7c6aac18cdbc7bb4694ea15b2b8ac6df4595a22108ace90c869581",
+              "after_sha256": "502e5333e5b7f088a62d4c7081b42fc2bb6e47868238ea27e503f405bae9f423"
             }
           }
         },
         "packages/subprocess/subprocess-local/src/spawn.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "3038096134defaf03f767b94fdcbb65c7103f60448f5973201732c93def72d71",
-              "after_sha256": "27a3fde78f52a7a9d1533afaaaec19bf9a47df98480370e70172dbfdefe95bbb"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "e96e3f1a8ec0a5a753ebf2b40a6da90f63a0546809fd2b19e9e4b62f0a6c6d37",
               "after_sha256": "1e26c6a27a788fcf288dadb12c547b83fc7df080949f4a3094fc4a1c8f2d72ca"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "e023efeb512491bea4040e52fa1462b86f9371bcd3bb59d8433d54414e50c75b",
+              "after_sha256": "27b5f8e9b2382f90e7c34a679de935ebd74b4b4c3141e180fbfe0e415e174355"
             }
           }
         },
         "packages/subprocess/subprocess-local/tests/spawn.spec.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "7f22c5da206fba30d021766da386d1a73109a45ae31b9127b43351c0eabe24f2",
-              "after_sha256": "2c4084bb1c54841e81b5c4aecd3b57717872cb98707d2e7c2391ce7f21fb54f2"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "11bc5e505de1e5e7aff41af8a58fe54d2df151b940b36afcf1d12cbcade7ad4e",
               "after_sha256": "12008564b0eeb4f2dcabb6d25e924a5e6aac9a40b8e359f2930908fcb5c7da6a"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "3c46961a12260c1be143387b73bfd7e75e8162fb78956db055ca92f9a7247f02",
+              "after_sha256": "252f7d3eccccdecef6a6f6aef22bf8b65c52e9952e8dd1df2ffa2c619595d51a"
             }
           }
         },
         "packages/subprocess/subprocess/src/index.ts": {
           "release_hashes": {
-            "0.1.2-rc.1": {
-              "before_sha256": "0498a406106a51e34ac24e2e752dde67bb3c5c623333599e2af1805a30ca5499",
-              "after_sha256": "43f1a3dbe8f9e6818988642fd32443b5e90d69577b7add3e2f0c63b8484cedb7"
-            },
             "0.1.5-alpha.2": {
               "before_sha256": "eb1bf274d0d94a6a8fd4e949b46043a6159cd2d82b6428fff243e6741f242fc3",
               "after_sha256": "47ed9b872fd919adce65de972a80c89281ef143bab01237d5edd8f17f4acdb42"
+            },
+            "0.1.6-alpha.2": {
+              "before_sha256": "19e3fde571d0cd1f76e95696477a7d38677529aaf51b07c429965f2e4330065f",
+              "after_sha256": "20a9f84679848407e9e527a478d17c89d768f59f0903dfff5b4c318af38cf93f"
             }
           }
         }
       },
       "validated_releases": {
-        "0.1.2-rc.1": {
-          "revision": "a66e4702047846cdaa10c66c9d3df3951f5ea70d"
-        },
         "0.1.5-alpha.2": {
           "revision": "b2e3b2a0125854567a4a5fcba75782e42fe84901"
+        },
+        "0.1.6-alpha.2": {
+          "revision": "ddefc45fbc7f8e46dd73185e68295696d1297887"
         }
       }
     }

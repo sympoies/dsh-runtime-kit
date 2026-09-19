@@ -96,13 +96,13 @@ jobs:
             public_contract: false
             node: 24
           - channel: pinned
-            dsh_version: 0.1.2-rc.1
-            revision: a66e4702047846cdaa10c66c9d3df3951f5ea70d
+            dsh_version: 0.1.6-alpha.2
+            revision: ddefc45fbc7f8e46dd73185e68295696d1297887
             public_contract: true
             node: 24
           - channel: upstream-next
-            dsh_version: 0.1.2-rc.1
-            revision: a66e4702047846cdaa10c66c9d3df3951f5ea70d
+            dsh_version: 0.1.6-alpha.2
+            revision: ddefc45fbc7f8e46dd73185e68295696d1297887
             public_contract: true
             node: 24
     steps:
@@ -116,6 +116,7 @@ jobs:
           repository: deepseek-ai/deepseek-harness
           ref: ${{ matrix.revision }}
           path: deepseek-harness
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
@@ -178,16 +179,35 @@ jobs:
           --action apply
           --source-root "$GITHUB_WORKSPACE/deepseek-harness"
       - name: Build selected DSH native test prerequisite
-        if: matrix.dsh_version == '0.1.5-alpha.2'
         working-directory: deepseek-harness
         run: pnpm run build:native-system
-      - name: Validate patched DSH execution boundary
+      - name: Validate retained DSH 0.1.5 execution boundary
+        if: matrix.dsh_version == '0.1.5-alpha.2'
         working-directory: deepseek-harness
         run: |
           pnpm run typecheck
           pnpm vitest run \
             packages/core/tools/tests/tools.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
+            packages/subagent/subagent/tests/continuation.spec.ts \
+            packages/subprocess/subprocess-local/tests/spawn.spec.ts
+          pnpm run build:lib:host
+      - name: Validate patched DSH execution boundary
+        if: matrix.dsh_version == '0.1.6-alpha.2'
+        working-directory: deepseek-harness
+        run: |
+          pnpm run typecheck
+          pnpm vitest run \
+            packages/boot/app-boot/tests/app-boot.spec.ts \
+            packages/core/tools/tests/tools.spec.ts \
+            packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts \
+            packages/fs/tool-fs/tests/tools.spec.ts \
+            packages/goal/goal/tests/goal.spec.ts \
+            packages/llm/llm/tests/service.spec.ts \
+            packages/sandbox/sandbox-local/tests/local.spec.ts \
+            packages/sandbox/sandbox-policy/tests/policy.spec.ts \
+            packages/sandbox/sandbox/tests/escalation.spec.ts \
+            packages/shell/tool-bash/tests/tools.spec.ts \
             packages/subagent/subagent/tests/continuation.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib:host
@@ -221,20 +241,6 @@ jobs:
           DSH_RUNTIME_KIT_SMOKE_FULL_HOST: ${{ matrix.channel == 'pinned' && '1' || '0' }}
           DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: ${{ matrix.channel == 'pinned' && '1' || '0' }}
         run: npm run test:smoke
-      - name: Run exact Agent Console TUI composition smoke
-        if: matrix.channel == 'pinned'
-        working-directory: dsh-runtime-kit
-        env:
-          DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE: '@deepseek-harness-tui/dsh-tui@0.10.1'
-        run: |
-          trusted_nils="$HOME/.dsh-runtime-kit-ci-nils"
-          install -d -m 0700 "$trusted_nils"
-          cp -a "$RUNNER_TEMP/nils-cli-v1.28.25-x86_64-unknown-linux-gnu/." "$trusted_nils/"
-          chmod 0700 "$trusted_nils"
-          AGENT_HOOK_BIN="$trusted_nils/bin/agent-hook" \
-          AGENT_DOCS_BIN="$trusted_nils/bin/agent-docs" \
-            npm run test:smoke
       - name: Reverse authenticated DSH patch
         if: always()
         working-directory: dsh-runtime-kit
@@ -254,13 +260,33 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
-      - name: Run unpatched DSH tools smoke
+      # The alpha.6 patch awaits the now-asynchronous tools finish boundary.
+      # Pristine alpha.6 cannot execute this tools canary, so first authenticate
+      # its clean reversal above, then exercise the retained known-good release
+      # as the executable rollback on every alpha.6 channel row.
+      - name: Stage retained DSH 0.1.5 rollback runtime
+        if: success() && matrix.dsh_version == '0.1.6-alpha.2'
+        working-directory: deepseek-harness
+        run: |
+          git checkout --detach b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+      - name: Run retained unpatched DSH tools smoke
         if: success()
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.25-x86_64-unknown-linux-gnu/bin/agent-hook
         run: |
+          rollback_version="${{ matrix.dsh_version }}"
+          rollback_revision="${{ matrix.revision }}"
+          if [ "$rollback_version" = 0.1.6-alpha.2 ]; then
+            rollback_version=0.1.5-alpha.2
+            rollback_revision=b2e3b2a0125854567a4a5fcba75782e42fe84901
+          fi
           package_name="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
           package="$RUNNER_TEMP/$package_name"
           package_sha="$(sha256sum "$package" | cut -d ' ' -f 1)"
@@ -273,8 +299,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"fadde034b1d9d7efd3ec296f2858cdfa4dec437408de83d0d94c1d2165d56bc3","agent-docs":"2a736ae29db016c4fdedf2585b556983152a8bf012d01a96c3071539679a5a0d"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"fadde034b1d9d7efd3ec296f2858cdfa4dec437408de83d0d94c1d2165d56bc3","agent-docs":"2a736ae29db016c4fdedf2585b556983152a8bf012d01a96c3071539679a5a0d"}' \
-          DSH_ACCEPTANCE_DSH_VERSION="${{ matrix.dsh_version }}" \
-          DSH_ACCEPTANCE_DSH_REVISION="${{ matrix.revision }}" \
+          DSH_ACCEPTANCE_DSH_VERSION="$rollback_version" \
+          DSH_ACCEPTANCE_DSH_REVISION="$rollback_revision" \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
@@ -282,7 +308,15 @@ jobs:
       - name: Assert upstream checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
-        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"
+        run: |
+          observed_revision="$(git rev-parse HEAD)"
+          if [ "${{ matrix.dsh_version }}" = 0.1.6-alpha.2 ]; then
+            test "$observed_revision" = "${{ matrix.revision }}" \
+              || test "$observed_revision" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          else
+            test "$observed_revision" = "${{ matrix.revision }}"
+          fi
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
   macos-runtime-health:
     runs-on: macos-15
@@ -295,8 +329,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: a66e4702047846cdaa10c66c9d3df3951f5ea70d
+          ref: ddefc45fbc7f8e46dd73185e68295696d1297887
           path: deepseek-harness
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
@@ -317,6 +352,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm run clean
+          pnpm run build:native-system
           pnpm run build:lib:host
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/digest-dsh-build-closure.js" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
@@ -339,8 +375,16 @@ jobs:
           node --test test/runtime-health-provider.test.ts
           cd ../deepseek-harness
           pnpm vitest run \
+            packages/boot/app-boot/tests/app-boot.spec.ts \
             packages/core/tools/tests/tools.spec.ts \
+            packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts \
+            packages/fs/tool-fs/tests/tools.spec.ts \
+            packages/goal/goal/tests/goal.spec.ts \
             packages/llm/llm/tests/service.spec.ts \
+            packages/sandbox/sandbox-local/tests/local.spec.ts \
+            packages/sandbox/sandbox-policy/tests/policy.spec.ts \
+            packages/sandbox/sandbox/tests/escalation.spec.ts \
+            packages/shell/tool-bash/tests/tools.spec.ts \
             packages/subagent/subagent/tests/continuation.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib:host
@@ -380,7 +424,21 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
-      - name: Run unpatched DSH tools smoke
+      # The alpha.6 patch awaits the now-asynchronous tools finish boundary.
+      # Pristine alpha.6 cannot execute this tools canary, so rollback evidence
+      # must exercise the retained known-good release rather than pretending
+      # that source reversal alone is an executable rollback.
+      - name: Stage retained DSH 0.1.5 rollback runtime
+        if: success()
+        working-directory: deepseek-harness
+        run: |
+          git checkout --detach b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+      - name: Run retained unpatched DSH tools smoke
         if: success()
         working-directory: dsh-runtime-kit
         env:
@@ -399,8 +457,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"9b6cff6168aa69af679a6927830756651e7a9565922ceba15595feacb4460aa1","agent-docs":"c73226255690f43c67e7900956a8de92b085252c3e7acdd7e34b7da64de97bf5"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"9b6cff6168aa69af679a6927830756651e7a9565922ceba15595feacb4460aa1","agent-docs":"c73226255690f43c67e7900956a8de92b085252c3e7acdd7e34b7da64de97bf5"}' \
-          DSH_ACCEPTANCE_DSH_VERSION=0.1.2-rc.1 \
-          DSH_ACCEPTANCE_DSH_REVISION=a66e4702047846cdaa10c66c9d3df3951f5ea70d \
+          DSH_ACCEPTANCE_DSH_VERSION=0.1.5-alpha.2 \
+          DSH_ACCEPTANCE_DSH_REVISION=b2e3b2a0125854567a4a5fcba75782e42fe84901 \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
@@ -408,4 +466,6 @@ jobs:
       - name: Assert macOS DSH checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
-        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"
+        run: |
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"

@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import * as llmModule from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import { TestInbox } from './helpers/test-inbox.ts'
 
 const CallId = llmModule.ToolCallId ?? llmModule.CallId
 
@@ -41,7 +42,7 @@ function stubAgent(rawId, cwd = '/workspace/repo-a', parentSession) {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted() {}, discarded() {}, claimed() {} }),
+    inbox: new TestInbox(),
     status: 'idle',
     ctx: new Context(),
     send() {},
@@ -133,9 +134,12 @@ async function harness(selected) {
 }
 
 function publish(ctx, agent, source = 'startup') {
-  const dispose = ctx.agents.register(agent)
+  const dispose = ctx.agents.enter(agent, undefined)
   agentEvents(ctx, agent).emit('agent/session-start', { source })
-  return dispose
+  return () => {
+    agentEvents(ctx, agent).emit('agent/disposed', {})
+    return dispose()
+  }
 }
 
 function echoTool(sequence) {

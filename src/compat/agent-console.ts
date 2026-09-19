@@ -112,6 +112,14 @@ export function inspectAgentConsoleRc7Profile(observation: unknown) {
     )
   }
 
+  const runtimeKit = record(input.runtimeKit)
+  if (runtimeKit?.revision !== CONTRACT.runtime_kit.revision) {
+    fail(
+      'DSH_RUNTIME_KIT_AGENT_CONSOLE_RUNTIME_KIT_MISMATCH',
+      'dsh-runtime-kit: Agent Console requires the frozen runtime-kit revision',
+    )
+  }
+
   const bundles = stringArray(input.bundles)
   if (bundles === undefined || !sameStrings(bundles, CONTRACT.bundles)) {
     fail(
@@ -249,11 +257,12 @@ export function inspectAgentConsoleRc7Profile(observation: unknown) {
   }
 
   return Object.freeze({
-    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v2',
+    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v3',
     compatible: true,
     profile: CONTRACT.profile,
     dsh_version: CONTRACT.dsh.version,
     tui_version: CONTRACT.tui.version,
+    runtime_kit_revision: CONTRACT.runtime_kit.revision,
     controller_route: Object.freeze({
       provider: controller.provider,
       model: controller.model,

@@ -37,6 +37,7 @@ export {
   agentConsoleRc7ProfileContract,
   inspectAgentConsoleRc7Profile,
 } from './src/compat/agent-console.js'
+export { onDshSessionStart } from './src/compat/dsh-agent-lifecycle.js'
 
 // `ctx.skills` reaches the Cordis `Context` interface through a module
 // augmentation in `@deepseek-ai/dsh-skill`, which only loads once a declaring

@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 
 import { Service } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
+import { onDshSessionStart } from '../compat/dsh-agent-lifecycle.js'
 
 export type Context = import('@deepseek-ai/cordis').Context
 export type Agent = import('@deepseek-ai/dsh-agent').Agent
@@ -436,7 +437,7 @@ export class WorkspaceLease extends Service {
     this.state = this.state.bind(this)
     this.targets = this.targets.bind(this)
 
-    ctx.on('agent/session-start', ({ agent, source }) => {
+    onDshSessionStart(ctx, ({ agent, source }) => {
       this.#sessionStarted(agent, source)
     })
     ctx.on('tools/pre-execute', (exec, next) => this.#preExecute(exec, next), { prepend: true })
