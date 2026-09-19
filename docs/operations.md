@@ -7,8 +7,10 @@ and health checks around those native operations.
 
 ## Activation boundary
 
-Use DSH's native `headless` profile, or the exact Agent Console `dsh-tui`
-profile. DSH initializes an unknown profile name with only
+This candidate deploys only to DSH's native `headless` profile. The Agent
+Console `dsh-tui` instructions below document its frozen, separately deployed
+generation and must be used only with that generation's previously accepted
+runtime-kit artifact. DSH initializes an unknown profile name with only
 `@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
 composes the base and headless agent bundles. Agent Console must already have
 created the ordered base +
@@ -397,6 +399,22 @@ cwd and renews the nils workspace lease; stale liveness sidecars never grant
 that authority. Under WorkspaceLease v2 that anchor is context only: a denied
 anchor lease no longer quarantines the session, and a session may coordinate
 several repositories without restarting.
+
+Deployment atomicity is scoped to an independently rollbackable lane, not to
+every service that happens to use DSH. The generic/headless lane may therefore
+advance while Agent Console waits for a compatible released TUI, provided the
+lanes do not share a mutable DSH installation, profile home, runtime root, or
+activation target. An excluded lane is frozen completely: do not replace its
+DSH, TUI, runtime-kit artifact, profile, or configuration, and do not report
+whole-stack convergence.
+
+This is still fail closed. `setup`, `update`, `rollback`, and `doctor --repair`
+compare the running DSH version and source revision with
+`compatibility/agent-console.json` before mutating `dsh-tui`. A mismatch is a
+typed `agent-console-dsh-mismatch` refusal and leaves the profile, receipts,
+and activation untouched. A future workbench promotion changes its exact DSH,
+TUI, runtime-kit, profile, and configuration generation together; rollback
+restores that lane's prior complete generation.
 
 The TUI pin is an explicit exact-release promotion, and this is the first
 stable 0.10 release on this boundary. Do not replace the exact specifier with

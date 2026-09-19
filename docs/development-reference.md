@@ -21,8 +21,11 @@ boundary is a fork or vendored upstream source.
   fnm-managed shell (`fnm use`, or `--use-on-cd`) selects it regardless of the
   host default; `.npmrc` sets `engine-strict` and the acceptance runner refuses
   older Node outright.
-- A pristine DeepSeek Harness `0.1.1-rc.2`, `0.1.2-alpha.4`, or `0.1.2-rc.1`
-  source checkout for compatibility, patch, and packed smoke validation.
+- A pristine DeepSeek Harness `0.1.5-alpha.2` or `0.1.6-alpha.2` source
+  checkout for generic compatibility, patch, and packed smoke validation. The
+  frozen Agent Console generation remains bound to the exact DSH and prior
+  runtime-kit artifact recorded by its deployment; it is excluded from this
+  candidate's smoke matrix until the full UI tuple is promoted.
 - A released nils-cli version accepted by
   [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) when
   exercising the real policy, agent-docs, Git, review, or delivery boundaries.
@@ -263,8 +266,10 @@ AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 npm run test:workspace-lease-native-smoke
 ```
 
-Exercise the exact Agent Console layer on the same smoke by selecting the only
-authenticated TUI package release. The smoke composes base + TUI + runtime-kit,
+The exact Agent Console smoke is a reserved workbench-promotion gate, not part
+of the current headless candidate. Run it only after the Agent Console DSH
+identity is inside the candidate's generic peer window and an authenticated TUI
+release explicitly admits that DSH. The smoke composes base + TUI + runtime-kit,
 then applies and verifies the narrowed legacy history-permission package
 repair — in that order, because a later bundle add re-materializes the profile
 tree and would discard it —
@@ -276,7 +281,7 @@ runtime-kit tools/skills, and Main Agent service together:
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
-DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='@deepseek-harness-tui/dsh-tui@0.10.1' \
+DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='<contract-pinned released specifier>' \
 npm run test:smoke
 ```
 

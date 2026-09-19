@@ -76,7 +76,8 @@ compatibility, acceptance, and delivery procedures are in the
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.2-rc.1` or `0.1.5-alpha.2` |
+| DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
+| Frozen Agent Console deployment (excluded from this candidate) | DSH `0.1.2-rc.1` + dsh-TUI `0.10.1` + runtime-kit revision `481f521f561b065ca8ec05da59be6415b837f75b` |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
@@ -97,7 +98,11 @@ authenticated companion snapshots, one optional synchronous GoalService
 acceptance call, and normalization only for a concretized blank, non-widening
 sandbox schema echo before native Bash or filesystem dispatch. Real escalation
 requests retain DSH's strict validation and approval path. The patch does not
-copy or fork DSH. The
+copy or fork DSH. On 0.1.6-alpha.2 it also makes an enabled `dsh-runtime-kit`
+row a required startup entry, so a failed health or policy activation cannot
+degrade into an optional-plugin warning, and gives the new tool scheduler a
+process-wide identity so separately installed profile packages share the same
+execution boundary. The
 packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 
@@ -123,13 +128,24 @@ is considered complete.
 
 ## Install and activate
 
-Two exact DSH `0.1.2-rc.1` compositions are supported:
+The candidate package supports the native `headless` profile on either retained
+generic DSH release, `0.1.5-alpha.2` or `0.1.6-alpha.2`. The currently deployed
+Agent Console remains a separate frozen generation:
 
-- the native DSH `headless` profile; and
-- Agent Console's `dsh-tui` profile with
+- DSH `0.1.2-rc.1` and Agent Console's `dsh-tui` profile with
   `@deepseek-ai/dsh-base`,
   `@deepseek-harness-tui/dsh-tui@0.10.1`, then
-  `@sympoies/dsh-runtime-kit` in that order.
+  `@sympoies/dsh-runtime-kit` revision
+  `481f521f561b065ca8ec05da59be6415b837f75b` in that order.
+
+Do not install this candidate artifact into that Agent Console generation: its
+generic peer window no longer includes DSH `0.1.2-rc.1`. Generic DSH admission
+does not promote Agent Console. Before `setup`, `update`, `rollback`, or
+`doctor --repair` may mutate `dsh-tui`, runtime-kit also requires the running
+DSH version and source revision to match the exact Agent Console contract. A
+future workbench promotion must validate and replace its DSH, TUI, runtime-kit
+artifact, profile, and configuration as one independently rollbackable
+generation.
 
 Unknown profile names contain only the base bundle. They are neither equivalent
 to `headless` nor accepted as Agent Console profiles. The machine-readable

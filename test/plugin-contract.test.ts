@@ -495,6 +495,8 @@ function harness({
   onRuntimeStopListenerRegistered,
   onRuntimeStopListenerEnter,
   reviewers,
+  sandboxConfine,
+  sandboxMode = 'danger-full-access',
   sessionId = 'session-1',
   workspace = '/tmp',
 } = {}) {
@@ -549,7 +551,7 @@ function harness({
       if (name === 'subagents') return reviewers
       if (name === 'shell') {
         return {
-          sandboxMode: 'danger-full-access',
+          sandboxMode,
           resolve(request) {
             return {
               ...request,
@@ -563,7 +565,7 @@ function harness({
       if (name === 'sandboxPolicy') {
         return {
           resolve: () => ({
-            mode: 'danger-full-access',
+            mode: sandboxMode,
             workspaceRoot: session.header.cwd,
           }),
           protect(roots) {
@@ -576,6 +578,9 @@ function harness({
           },
         }
       }
+      if (name === 'sandbox') return sandboxConfine === undefined
+        ? undefined
+        : { confine: sandboxConfine }
       return undefined
     },
     tools: {
@@ -2953,6 +2958,100 @@ test('an exact declared validation reaches finish-line before opaque shell polic
   assert.equal(subject.service.activeFinishLineReservations, 0)
 })
 
+test('a declared validation awaits the alpha.6 asynchronous sandbox confinement', async () => {
+  const command = 'bash scripts/ci/all.sh'
+  const confinedArgv = ['bwrap', '--ro-bind', '/', '/', '--', 'bash', '-c', command]
+  let confined = false
+  let appliedRequest
+  const subject = harness({
+    sandboxMode: 'workspace-write',
+    async sandboxConfine(argv, policy) {
+      await Promise.resolve()
+      confined = true
+      assert.deepEqual(argv, ['bash', '-c', command])
+      assert.deepEqual(policy, { mode: 'workspace-write', workspaceRoot: '/tmp' })
+      return {
+        argv: confinedArgv,
+        enforcement: 'full',
+        denialSignatures: [],
+        runnerFailureRules: [],
+      }
+    },
+    envelope: (spec) => {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex < 0) return decision('allow')
+      const action = spec.argv[finishLineIndex + 1]
+      const request = JSON.parse(spec.stdio.stdin.data)
+      if (action === 'open') {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-open.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.open-result.v1',
+            status: 'opened',
+            runner_capability: 'runner:opaque',
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      if (request.execution === undefined) {
+        return {
+          schema_version: 'cli.agent-hook.finish-line-run.v1',
+          ok: true,
+          data: {
+            schema_version: 'agent-hook.finish-line.run-result.v1',
+            status: 'ready',
+            operation_id: request.operation_id,
+            correlation_id: 'correlation:opaque',
+          },
+        }
+      }
+      appliedRequest = request
+      return {
+        schema_version: 'cli.agent-hook.finish-line-run.v1',
+        ok: true,
+        data: {
+          schema_version: 'agent-hook.finish-line.run-result.v1',
+          status: 'applied',
+          operation_id: request.operation_id,
+          generation: 1,
+          correlation_id: 'correlation:opaque',
+          execution: {
+            exit_code: 0,
+            signal: null,
+            timed_out: false,
+            aborted: false,
+            timeout_ms: request.timeout_ms,
+            stdout: { text: 'validated\n', truncated: false },
+            stderr: { text: '', truncated: false },
+            sandbox: { mode: 'workspace-write', denied: false, enforcement: 'full' },
+          },
+        },
+      }
+    },
+  })
+  subject.ctx.tools.register(Object.freeze({
+    name: 'bash',
+    async execute() { throw new Error('finish-line should own declared validation execution') },
+  }))
+
+  const invocation = await subject.invoke({
+    command,
+    description: 'Run the exact repository validation under confinement',
+  }, { name: 'bash' })
+
+  assert.equal(confined, true)
+  assert.equal(invocation.executionResult.isError, false)
+  assert.deepEqual(appliedRequest.execution.runner, {
+    kind: 'confined',
+    argv: confinedArgv,
+    mode: 'workspace-write',
+    enforcement: 'full',
+    denial_signatures: [],
+    runner_failure_rules: [],
+  })
+})
+
 test('a non-repository session runs an explicit repository validation in its bound workdir', async () => {
   const finishLineRequests = []
   const subject = harness({
@@ -4523,6 +4622,7 @@ test('transport degradation revokes an allow marker awaiting approval', async ()
 test('the rc.7 compatibility seam wires every required public lifecycle extension', async () => {
   const subject = harness()
   assert.deepEqual(subject.listenerNames, [
+    'agent/created',
     'agent/disposed',
     'agent/pre-step',
     'agent/session-start',

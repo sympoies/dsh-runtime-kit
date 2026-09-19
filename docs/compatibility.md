@@ -4,8 +4,8 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness | `0.1.2-rc.1` or `0.1.5-alpha.2` |
-| Agent Console TUI | `@deepseek-harness-tui/dsh-tui@0.10.1` |
+| DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
+| Frozen Agent Console deployment (excluded from this candidate) | DSH `0.1.2-rc.1` + `@deepseek-harness-tui/dsh-tui@0.10.1` + runtime-kit revision `481f521f561b065ca8ec05da59be6415b837f75b` |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
@@ -14,7 +14,7 @@ The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
 and its CI row in the same change; the validation count therefore remains
 bounded while DSH is immature. Runtime startup requires one homogeneous
-`0.1.2-rc.1` or `0.1.5-alpha.2` public peer set and validates the consumed public exports and
+`0.1.5-alpha.2` or `0.1.6-alpha.2` public peer set and validates the consumed public exports and
 service methods before registering a listener, tool, service, or skill. The
 reviewed compositions are exact: both retained releases require Cordis 4.0.2,
 so a checkout composed against 4.0.1 is no longer supported. Mixed,
@@ -28,8 +28,8 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.2-rc.1`
-and `0.1.5-alpha.2` release identities, the enforced two-release support policy, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.5-alpha.2`
+and `0.1.6-alpha.2` release identities, the enforced two-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets. Each `validated_releases` row also declares its exact
 Cordis composition so the public contract and runtime admission stay aligned.
@@ -58,18 +58,23 @@ through a module-private DSH scope tag, which is not portable across separate
 host and installed-package module instances. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for rc.1 and 0.1.5-alpha.2; an
+target hashes bind those seams independently for 0.1.5-alpha.2 and
+0.1.6-alpha.2; an
 unknown or locally drifted checkout remains ineligible.
 
-The two retained releases do not select the same target set. 0.1.5-alpha.2
-extracted the continuable Activation registry and its materialization inputs
-into `packages/subagent/subagent/src/continuation-activation.ts`, so the
-deployment-setup and workspace-activation seams bind there for that release and
-in `continuation.ts` for rc.1. 0.1.5-alpha.2 also removed durable
-`assistant/chunk` persistence from the agent loop and adopted
-`AgentSetupCommit` natively, so the patch no longer carries the raw-chunk
-argument scrub or that type for it; the durable persistence projection is still
-downstream in both.
+The 0.1.6-alpha.2 patch also adds `dsh-runtime-kit` to DSH's present-and-enabled
+required startup entries. DSH may continue past unrelated optional plugin
+failures, but a runtime-kit activation failure remains a fatal boot refusal. It
+also gives the new tool scheduler a process-wide symbol identity so the CLI and
+an independently installed profile package reach the same scheduler boundary.
+
+The two retained releases do not expose the same agent lifecycle event.
+0.1.5-alpha.2 emits the source-less `agent/created` event and the later
+`agent/session-start` event; 0.1.6-alpha.2 replaces that contract with a
+source-bearing `agent/created` event. The version adapter under `src/compat/`
+maps either public lifecycle to the same runtime-kit callback while preserving
+repeated starts such as clear or compact. Patch target hashes remain
+release-specific wherever upstream source moved or changed.
 
 Two authentication rules follow the newer release rather than the patch.
 Checkout authentication lists the complete index and HEAD tree, so its output
@@ -137,10 +142,13 @@ runtime and smoke paths continue to authenticate only the released artifacts.
 Promotion removes the completed source-candidate record.
 
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
-the exact non-headless Agent Console profile: ordered bundles, interaction/TUI
+the exact frozen non-headless Agent Console generation: ordered bundles, interaction/TUI
 and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
-authority facts a sanitized live observation must prove. It does not broaden
-the generic DSH version range or authorize another custom profile.
+authority facts a sanitized live observation must prove. The current candidate
+artifact is not an install target for that generation: its peer window excludes
+the generation's DSH release. The contract remains packaged as a fail-closed
+observation and mutation boundary; it does not broaden the generic DSH version
+range or authorize another custom profile.
 The TUI pin includes the exact package specifier, source tag and tag-ref type,
 source revision, npm tarball URL, SRI, and shasum. The 0.10.1 release uses a
 lightweight tag whose ref points directly at the recorded commit, rather than
@@ -186,12 +194,13 @@ it cannot admit a release or target the manager would refuse. Enforcement
 matters more than the guidance precisely because the discard is store-state
 dependent and therefore not reliably reproducible by an operator.
 
-0.10.1 also *widens* its DSH peer ranges to admit `0.1.3-alpha.2` and the
-`0.1.5` line alongside the releases 0.10.0 accepted. Both retained runtime-kit
-compositions, `0.1.2-rc.1` and `0.1.5-alpha.2`, remain inside every range. The
-runtime-kit admission of alpha.2 is independently bound to its reviewed patch
-artifact and rebuilt host evidence; the TUI range alone does not authorize a
-DSH release.
+0.10.1 widened its DSH peer ranges through the `0.1.5` line, but does not admit
+`0.1.6-alpha.2`. The Agent Console deployment therefore remains on its exact
+DSH `0.1.2-rc.1` generation and previous runtime-kit artifact while this
+candidate advances only the generic/headless lane. A TUI peer edit alone never
+authorizes promotion: an exact released TUI artifact, authenticated
+composition, complete workbench-generation update, and rollback evidence are
+required before that lane advances.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.
@@ -203,13 +212,17 @@ verifies exact Git identity, package versions, public entrypoint digests, export
 kinds, and the complete selected workspace dependency closure without executing
 checkout bytes.
 
-CI keeps separate blocking `pinned` and `upstream-next` matrix rows. Each row
+CI keeps separate blocking `pinned` and `upstream-next` matrix rows for the
+candidate headless lane. Each row
 authenticates and packs the pristine upstream artifact closure, applies the
 reviewed patch, rebuilds DSH, runs DSH's complete tool, LLM, and
 descriptor-subprocess runtime tests and the packed runtime smoke, reverses the
 patch, and proves the checkout pristine.
 It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
-and authenticates the unpatched tools
+and authenticates the unpatched tools. That rollback canary loads `dsh-tools`
+from the exact rebuilt pristine host path, while the patched runtime smoke keeps
+an independently installed profile package and therefore proves the alpha.6
+process-wide scheduler identity across package instances. CI also authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
 The retained non-pinned release is independently pinned and receives the same local

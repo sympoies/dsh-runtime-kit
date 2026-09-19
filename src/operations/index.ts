@@ -1551,6 +1551,29 @@ function assertLifecycleCompatibility(lifecycle: ReturnType<typeof packageLifecy
   }
 }
 
+/**
+ * Agent Console is promoted as one exact DSH/TUI/runtime-kit tuple. A DSH
+ * release being generally reviewed is therefore insufficient for mutations of
+ * its profile: the profile contract must have advanced to that exact revision
+ * first. Headless profiles retain the rolling compatibility policy above.
+ */
+function assertProfileToolchainCompatibility(profile: string, toolchain: ReturnType<typeof resolveToolchain>) {
+  if (profile !== AGENT_CONSOLE_CONTRACT.profile) return
+  if (toolchain.dsh.version === AGENT_CONSOLE_CONTRACT.dsh.version
+    && toolchain.dsh.source_revision === AGENT_CONSOLE_CONTRACT.dsh.revision) return
+  throw new OperationsError(
+    'agent-console-dsh-mismatch',
+    'Agent Console mutations require the exact DSH release in the reviewed profile contract',
+    65,
+    {
+      actual_version: toolchain.dsh.version,
+      actual_revision: toolchain.dsh.source_revision,
+      required_version: AGENT_CONSOLE_CONTRACT.dsh.version,
+      required_revision: AGENT_CONSOLE_CONTRACT.dsh.revision,
+    },
+  )
+}
+
 function packPackageSpec(packageSpec: string, cwd: string, npmBin: string, home: string) {
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-pack-'))
   try {
@@ -2031,6 +2054,7 @@ function validateLegacyAppliedReceipt(value: unknown, profile: string) {
 }
 
 function buildMutationPlan(operation: string, profile: string, paths: ReturnType<typeof pathsFor>, actual: ReturnType<typeof readActual>, stateRead: ReturnType<typeof readState>, requestedTarget: ReturnType<typeof resolveTarget> | null, runtimeRoot: string, toolchain: ReturnType<typeof resolveToolchain>) {
+  if (operation !== 'remove') assertProfileToolchainCompatibility(profile, toolchain)
   const state = stateRead.value
   if (stateRead.version === 1) {
     throw new OperationsError(
@@ -4484,6 +4508,9 @@ export function main(argv: string[] = process.argv.slice(2)) {
       if (!parsed.values.repair) {
         print(envelope(diagnostic, diagnostic.status === 'healthy'), format)
         return diagnostic.status === 'healthy' ? 0 : 65
+      }
+      if (profile === AGENT_CONSOLE_CONTRACT.profile) {
+        assertProfileToolchainCompatibility(profile, resolveToolchain(dshBin, home))
       }
       let planned
       try {

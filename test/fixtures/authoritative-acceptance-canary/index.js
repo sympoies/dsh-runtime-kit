@@ -3,7 +3,15 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import * as llmModule from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+
+const lifecycleModuleSpecifier = process.env.DSH_RUNTIME_KIT_LIFECYCLE_ADAPTER_URL
+  ?? '@sympoies/dsh-runtime-kit/dsh-agent-lifecycle'
+const toolsModuleSpecifier = process.env.DSH_ACCEPTANCE_DSH_TOOLS_URL
+  ?? '@deepseek-ai/dsh-tools'
+const [{ onDshSessionStart }, { defineTool }] = await Promise.all([
+  import(lifecycleModuleSpecifier),
+  import(toolsModuleSpecifier),
+])
 
 const { LlmAdapter, createUserMessage } = llmModule
 const CallId = llmModule.ToolCallId ?? llmModule.CallId
@@ -225,7 +233,7 @@ export function apply(ctx) {
         yield * stop('provider mismatch probe model must not run')
       }
     }())
-    ctx.on('agent/session-start', () => {
+    onDshSessionStart(ctx, () => {
       state.session_starts += 1
       persist()
     })
@@ -539,7 +547,7 @@ export function apply(ctx) {
           })
         }
       })
-      ctx.on('agent/session-start', ({ agent, source }) => {
+      onDshSessionStart(ctx, ({ agent, source }) => {
         if (phase === 'agent-disposal' && agent.id === sessionId) {
           sequence.push('session-start:' + String(source))
           if (source === 'resume') {

@@ -2083,9 +2083,19 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   )
   assert.match(unpatchedBranch, /installUnpatchedProfile\(profile\)/u)
   assert.doesNotMatch(unpatchedBranch, /installProfile\(profile, candidatePackage/u)
+  assert.match(
+    authoritativeSmoke,
+    /DSH_ACCEPTANCE_DSH_TOOLS_URL:\s*pathToFileURL\([\s\S]{0,180}dshRoot[\s\S]{0,180}'tools', 'lib', 'index\.js'/u,
+    'the unpatched canary must load tools from the authenticated pristine host build',
+  )
   const canary = readFileSync(
     join(projectRoot, 'test', 'fixtures', 'authoritative-acceptance-canary', 'index.js'),
     'utf8',
+  )
+  assert.match(
+    canary,
+    /process\.env\.DSH_ACCEPTANCE_DSH_TOOLS_URL[\s\S]{0,220}import\(toolsModuleSpecifier\)/u,
+    'the canary must honor the runner-authenticated pristine tools URL',
   )
   assert.match(canary, /if \(phase === 'unpatched-smoke'\) return run\(undefined\)/u)
   assert.match(canary, /acceptance\.completionSettlement\(handle\.agent\)/u)

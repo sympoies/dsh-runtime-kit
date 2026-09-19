@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import * as llmModule from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 
@@ -42,6 +42,7 @@ import {
 } from '../dist/src/artifacts/index.js'
 import { LocalArtifactProvider } from '../dist/src/artifacts/local-provider.js'
 import { MemoryArtifactProvider } from './helpers/memory-artifact-provider.ts'
+import { TestInbox } from './helpers/test-inbox.ts'
 
 const testSignal = new AbortController().signal
 const DSH_SCHEMA_KEYWORDS = new Set([
@@ -86,7 +87,7 @@ function stubAgent(rawId, cwd, parentSession) {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted() {}, discarded() {}, claimed() {} }),
+    inbox: new TestInbox(),
     status: 'idle',
     ctx: new Context(),
     send() {},
@@ -150,9 +151,12 @@ async function harness(options = {}) {
 }
 
 function publish(ctx, agent, source = 'startup') {
-  const dispose = ctx.agents.register(agent)
+  const dispose = ctx.agents.enter(agent, undefined)
   agentEvents(ctx, agent).emit('agent/session-start', { source })
-  return dispose
+  return () => {
+    agentEvents(ctx, agent).emit('agent/disposed', {})
+    return dispose()
+  }
 }
 
 async function writeArtifact(service, agent, content, overrides = {}) {

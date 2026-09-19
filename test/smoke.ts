@@ -77,15 +77,15 @@ assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
   '@deepseek-ai/cordis': '4.0.2',
-  '@deepseek-ai/dsh-agent': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-bash-local': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-fs': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-llm': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-sandbox': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-subagent': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-subprocess': '0.1.2-rc.1 || 0.1.5-alpha.2',
-  '@deepseek-ai/dsh-tools': '0.1.2-rc.1 || 0.1.5-alpha.2',
+  '@deepseek-ai/dsh-agent': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-bash-local': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-fs': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-llm': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-sandbox': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-subagent': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-subprocess': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/dsh-tools': '0.1.5-alpha.2 || 0.1.6-alpha.2',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -1674,8 +1674,8 @@ try {
     'src/compat/package-artifact.ts',
     'src/compat/performance.ts',
     'src/compat/upstream-reference.ts',
-    'patches/deepseek-harness/native-execution-boundaries-v5-rc1.patch',
     'patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-0-1-6-alpha-2.patch',
     'patches/dsh-tui/legacy-history-permissions.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
@@ -1931,10 +1931,14 @@ try {
   const scopeModuleSpecifier = agentConsoleTuiPackage === undefined
     ? pathToFileURL(join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js')).href
     : '@deepseek-ai/dsh-scope'
+  const lifecycleModuleSpecifier = agentConsoleTuiPackage === undefined
+    ? pathToFileURL(join(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle.js')).href
+    : '@sympoies/dsh-runtime-kit/dsh-agent-lifecycle'
   writeFileSync(driverPath, `
 import * as llmModule from ${JSON.stringify(llmModuleUrl)}
 import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
 import { scopeOf } from ${JSON.stringify(scopeModuleSpecifier)}
+import { onDshSessionStart } from ${JSON.stringify(lifecycleModuleSpecifier)}
 import { rmSync } from 'node:fs'
 ${agentConsoleTuiPackage === undefined
     ? ''
@@ -1953,6 +1957,7 @@ const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === und
         profile,
         dsh: { version: dshManifest.version, revision: dshRevision },
         tui: { package: '@deepseek-harness-tui/dsh-tui', version: installedTuiVersion },
+        runtimeKit: agentConsoleCompatibility.runtime_kit,
         bundles: installedBundles,
         rowIds: composedRowIds,
       })}
@@ -2525,7 +2530,7 @@ export function apply(ctx) {
         if (String(options.sessionId ?? '') === targetId) modelMiddlewareCalls += 1
         return next()
       })
-      ctx.on('agent/session-start', ({ agent, source }) => {
+      onDshSessionStart(ctx, ({ agent, source }) => {
         if (String(agent.id) === targetId) lifecycle.push('session-start:' + source)
       })
       ctx.on('agent/created', ({ agent }) => {
@@ -2908,6 +2913,7 @@ export function apply(ctx) {
             profile: agentConsoleProfileFacts.profile,
             dsh: agentConsoleProfileFacts.dsh,
             tui: agentConsoleProfileFacts.tui,
+            runtimeKit: agentConsoleProfileFacts.runtimeKit,
             bundles: agentConsoleProfileFacts.bundles,
             composition: {
               rowIds: agentConsoleProfileFacts.rowIds,
@@ -3367,7 +3373,7 @@ ${agentConsoleTuiOverlay}
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       receipt.agentConsoleInspection?.schema_version,
-      'dsh-runtime-kit.agent-console-profile-inspection.v2',
+      'dsh-runtime-kit.agent-console-profile-inspection.v3',
     )
     assert.equal(receipt.agentConsoleInspection.compatible, true)
     assert.equal(receipt.agentConsoleObservation.profile, 'dsh-tui')
@@ -4005,7 +4011,19 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(codeModeReceipt.result.isError, false, JSON.stringify(codeModeReceipt))
   assert.equal(codeModeReceipt.result.value, 42)
   assert.equal(codeModeReceipt.runCodeResult.isError, false, JSON.stringify(codeModeReceipt))
-  assert.deepEqual(codeModeReceipt.runCodeResult.value, { logs: [], result: 42 })
+  // alpha.6 makes the PTC sandbox projection observable. Keep the earlier
+  // release's exact result shape while authenticating every added alpha.6
+  // field instead of accepting an open-ended additive object.
+  assert.deepEqual(
+    codeModeReceipt.runCodeResult.value,
+    dshManifest.version === '0.1.6-alpha.2'
+      ? {
+          logs: [],
+          sandbox: { mode: environment.DSH_PERMISSION_MODE, denied: false },
+          result: 42,
+        }
+      : { logs: [], result: 42 },
+  )
   assert.equal(codeModeReceipt.plusOneExecutions, 1)
   assert.equal(codeModeReceipt.contextVisibility[0], false)
   assert.ok(codeModeReceipt.contextVisibility.length >= 2)

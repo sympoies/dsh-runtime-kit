@@ -336,7 +336,7 @@ test('profile lifecycle probe projects the authenticated DSH host', { concurrenc
   mkdirSync(workdir, { mode: 0o700 })
   mkdirSync(dshHome, { mode: 0o700 })
   writeFileSync(dsh, `#!${process.execPath}
-process.stdout.write('0.1.2-rc.1\\n')
+process.stdout.write('0.1.6-alpha.2\\n')
 `, { mode: 0o700 })
   writeFileSync(runtimeKit, `#!${process.execPath}
 const expectedDsh = ${JSON.stringify(dsh)}

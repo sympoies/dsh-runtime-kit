@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { createAuthoritativeAcceptanceCoordinator } from '../authoritative-acceptance/index.js'
 import { DshCompatibilityError } from '../compat/contract.js'
+import { onDshSessionStart } from '../compat/dsh-agent-lifecycle.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
@@ -440,10 +441,10 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
         // permission sandbox around the already selected DSH mode.
         runner = { kind: (('danger-full-access') as const) }
       } else {
-        const sandbox = ((ctx.get('sandbox')) as {confine(argv: string[], policy: {mode: 'read-only' | 'workspace-write', workspaceRoot: string, sessionId?: unknown}): {argv: string[], enforcement: 'full' | 'partial', denialSignatures: string[], runnerFailureRules: Array<{allowedExitCodes?: number[], fatalSignatures: string[], informationalLines?: string[]}>}} | undefined)
+        const sandbox = ((ctx.get('sandbox')) as {confine(argv: string[], policy: {mode: 'read-only' | 'workspace-write', workspaceRoot: string, sessionId?: unknown}): Promise<{argv: string[], enforcement: 'full' | 'partial', denialSignatures: string[], runnerFailureRules: Array<{allowedExitCodes?: number[], fatalSignatures: string[], informationalLines?: string[]}>}> | {argv: string[], enforcement: 'full' | 'partial', denialSignatures: string[], runnerFailureRules: Array<{allowedExitCodes?: number[], fatalSignatures: string[], informationalLines?: string[]}>}} | undefined)
         if (sandbox === undefined) throw new Error('dsh-runtime-kit: finish-line-sandbox-unavailable')
         const confinedPolicy = ((policy) as {mode: 'read-only' | 'workspace-write', workspaceRoot: string, sessionId?: unknown})
-        const confined = sandbox.confine(['bash', '-c', operation.command], confinedPolicy)
+        const confined = await sandbox.confine(['bash', '-c', operation.command], confinedPolicy)
         runner = {
           kind: (('confined') as const),
           providerArgv: confined.argv,
@@ -719,7 +720,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
   }
   for (const agent of ctx.agents.list()) attachDataPolicyGeneration(agent)
 
-  ctx.on('agent/session-start', payload => {
+  onDshSessionStart(ctx, payload => {
     attachDataPolicyGeneration(payload.agent)
     if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)

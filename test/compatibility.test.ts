@@ -95,20 +95,20 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
     maximum_releases: 2,
     promotion: 'add newest release and retire the oldest release in the same change',
   })
-  assert.equal(manifest.channels.pinned.version, '0.1.2-rc.1')
-  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.2-rc.1')
+  assert.equal(manifest.channels.pinned.version, '0.1.6-alpha.2')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.6-alpha.2')
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
   assert.deepEqual(manifest.validated_releases, {
-    '0.1.2-rc.1': {
-      ref: 'refs/tags/dsh-v0.1.2-rc.1',
-      revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
-      cordis: '4.0.2',
-    },
     '0.1.5-alpha.2': {
       ref: 'refs/tags/dsh-v0.1.5-alpha.2',
       revision: 'b2e3b2a0125854567a4a5fcba75782e42fe84901',
+      cordis: '4.0.2',
+    },
+    '0.1.6-alpha.2': {
+      ref: 'refs/tags/dsh-v0.1.6-alpha.2',
+      revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
       cordis: '4.0.2',
     },
   })
@@ -150,7 +150,7 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
       ? '4.0.2'
-      : '0.1.2-rc.1 || 0.1.5-alpha.2')
+      : '0.1.5-alpha.2 || 0.1.6-alpha.2')
   }
 
   const expandedWindow = structuredClone(manifest)
@@ -209,6 +209,25 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
     error => error instanceof DshCompatibilityError
       && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
   )
+})
+
+test('the headless candidate excludes the frozen Agent Console generation', () => {
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  const agentConsole = JSON.parse(readFileSync(
+    join(projectRoot, 'compatibility', 'agent-console.json'),
+    'utf8',
+  ))
+  const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
+  const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
+
+  assert.equal(manifest.validated_releases[agentConsole.dsh.version], undefined)
+  assert.notEqual(agentConsole.dsh.revision, manifest.channels.pinned.revision)
+  for (const [name, range] of Object.entries(packageManifest.peerDependencies)) {
+    if (name === '@deepseek-ai/cordis') continue
+    assert.equal(range.split(' || ').includes(agentConsole.dsh.version), false)
+  }
+  assert.doesNotMatch(workflow, /Run exact Agent Console TUI composition smoke/)
+  assert.doesNotMatch(workflow, /DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE/)
 })
 
 test('selected DSH non-workspace runtime dependencies are exact and lockfile-bound', () => {
@@ -476,7 +495,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     importModule: async specifier => overrides?.[specifier] ?? modules[specifier],
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
       ? '4.0.2'
-      : '0.1.2-rc.1',
+      : '0.1.6-alpha.2',
   })
   const loaded = await loadDshRc7Runtime(options())
   assert.equal(typeof loaded.createUserMessage, 'function')
@@ -491,12 +510,12 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   })
   assert.deepEqual(new Set(Object.values(alpha2.versions)), new Set(['0.1.5-alpha.2', '4.0.2']))
 
-  const rc1 = await loadDshRc7Runtime(options())
-  assert.deepEqual(new Set(Object.values(rc1.versions)), new Set(['0.1.2-rc.1', '4.0.2']))
+  const alpha6 = await loadDshRc7Runtime(options())
+  assert.deepEqual(new Set(Object.values(alpha6.versions)), new Set(['0.1.6-alpha.2', '4.0.2']))
 
   // A release retired by the two-release window is refused as an unreviewed
   // peer set, not admitted because it once composed.
-  for (const retired of ['0.1.1-rc.2', '0.1.2-alpha.4']) {
+  for (const retired of ['0.1.2-alpha.4', '0.1.2-rc.1']) {
     await assert.rejects(
       loadDshRc7Runtime({
         ...options(),
@@ -510,8 +529,8 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   }
 
   for (const [dshVersion, cordisVersion, expectedCordisVersion] of [
-    ['0.1.2-rc.1', '4.0.1', '4.0.2'],
     ['0.1.5-alpha.2', '4.0.1', '4.0.2'],
+    ['0.1.6-alpha.2', '4.0.1', '4.0.2'],
   ]) {
     let invalidCompositionImports = 0
     await assert.rejects(
@@ -562,7 +581,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.2'
-          : '0.1.2-rc.1',
+          : '0.1.6-alpha.2',
     }),
     error => error instanceof DshCompatibilityError
       && assert.deepEqual(error.diagnostic, {
@@ -570,7 +589,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         schema_version: 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1',
         compatible: false,
         code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-        missing: ['@deepseek-ai/dsh-tools:version:0.1.2-rc.1'],
+        missing: ['@deepseek-ai/dsh-tools:version:0.1.6-alpha.2'],
       }) === undefined,
   )
 
@@ -585,12 +604,12 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.2'
-          : '0.1.2-rc.1',
+          : '0.1.6-alpha.2',
     }),
     error => error instanceof DshCompatibilityError
       && error.diagnostic.adapter === 'dsh-rolling-v1'
       && error.diagnostic.missing.includes(
-        '@deepseek-ai/dsh-subprocess:version:0.1.2-rc.1',
+        '@deepseek-ai/dsh-subprocess:version:0.1.6-alpha.2',
       ),
   )
   assert.equal(importCalls, 0)
@@ -616,7 +635,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     assert.equal(installedVersions.has('4.0.2'), true)
     assert.equal(installedVersions.size, 2)
     assert.equal(
-      ['0.1.2-rc.1', '0.1.5-alpha.2']
+      ['0.1.5-alpha.2', '0.1.6-alpha.2']
         .some(version => installedVersions.has(version)),
       true,
     )
@@ -874,8 +893,23 @@ test('compatibility workflow keeps selected channels and every patch release blo
     /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
   )
   assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
-  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 6)
-  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 4)
+  // The retained alpha.5 row and the alpha.6 candidate rows use distinct
+  // release-scoped test sets, then both rebuild the patched host output.
+  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 7)
+  assert.match(
+    workflow,
+    /Validate retained DSH 0\.1\.5 execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.5-alpha\.2'[\s\S]{0,700}pnpm run build:lib:host/,
+  )
+  assert.match(
+    workflow,
+    /Validate patched DSH execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.6-alpha\.2'[\s\S]{0,1300}packages\/fs\/fs-sandbox\/tests\/fs-sandbox\.spec\.ts[\s\S]{0,1300}pnpm run build:lib:host/,
+  )
+  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 3)
+  assert.match(
+    workflow,
+    /pnpm run clean\n\s+pnpm run build:native-system\n\s+pnpm run build:lib:host/,
+  )
+  assert.equal(workflow.match(/pnpm run build:native-system/g)?.length, 2)
   assert.doesNotMatch(workflow, /pnpm run build:lib\n/)
   assert.match(workflow, /dist\/scripts\/digest-dsh-build-closure\.js/)
   assert.equal(workflow.match(/pristine-dsh-build-closure\.json/g)?.length, 4)
@@ -944,23 +978,23 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
   assert.match(workflow, /npm run --silent stage:compatibility-peers/)
   assert.match(workflow, /--action apply/)
-  assert.equal(workflow.match(/packages\/core\/tools\/tests\/tools\.spec\.ts/g)?.length, 2)
+  assert.equal(workflow.match(/packages\/core\/tools\/tests\/tools\.spec\.ts/g)?.length, 3)
   assert.match(workflow, /packages\/llm\/llm\/tests\/service\.spec\.ts/)
   assert.equal(
     workflow.match(/packages\/subprocess\/subprocess-local\/tests\/spawn\.spec\.ts/g)?.length,
-    2,
+    3,
   )
   assert.match(
     workflow,
-    /Validate patched DSH execution boundary[\s\S]{0,800}pnpm run build:lib:host/,
+    /Validate patched DSH execution boundary[\s\S]{0,1600}pnpm run build:lib:host/,
   )
   assert.match(
     workflow,
-    /Build selected DSH native test prerequisite[\s\S]{0,200}if: matrix\.dsh_version == '0\.1\.5-alpha\.2'[\s\S]{0,200}pnpm run build:native-system[\s\S]{0,200}Validate patched DSH execution boundary/,
+    /Build selected DSH native test prerequisite[\s\S]{0,200}pnpm run build:native-system[\s\S]{0,1800}Validate patched DSH execution boundary/,
   )
   assert.match(
     macosJob,
-    /Validate Darwin descriptor binding and patched DSH boundary[\s\S]{0,800}pnpm run build:lib:host/,
+    /Validate Darwin descriptor binding and patched DSH boundary[\s\S]{0,1600}pnpm run build:lib:host/,
   )
   assert.match(workflow, /npm run test:smoke/)
   assert.match(workflow, /--action reverse/)
@@ -990,6 +1024,11 @@ test('compatibility workflow keeps selected channels and every patch release blo
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   assert.match(runtimeSmoke, /DSH_RUNTIME_KIT_SMOKE_FULL_HOST/)
   assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
+  assert.match(
+    runtimeSmoke,
+    /dshManifest\.version === '0\.1\.6-alpha\.2'[\s\S]{0,260}sandbox: \{ mode: environment\.DSH_PERMISSION_MODE, denied: false \}[\s\S]{0,180}: \{ logs: \[\], result: 42 \}/u,
+    'the packed smoke must validate both exact PTC result shapes in the retained DSH window',
+  )
   assert.match(
     runtimeSmoke,
     /const dataPolicyCandidateEnabled = nilsCandidateFeature !== undefined\s+&& nilsCandidateFeature === nilsCompatibility\.candidate_validation\?\.feature/u,
