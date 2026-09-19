@@ -892,10 +892,10 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow,
     /Run packed runtime smoke on the patched DSH boundary[\s\S]+DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: \$\{\{ matrix\.channel == 'pinned' && '1' \|\| '0' \}\}/,
   )
-  assert.equal(workflow.match(/Run unpatched DSH tools smoke/g)?.length, 2)
+  assert.equal(workflow.match(/unpatched DSH tools smoke/g)?.length, 2)
   // The retained alpha.5 row and the alpha.6 candidate rows use distinct
   // release-scoped test sets, then both rebuild the patched host output.
-  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 7)
+  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 9)
   assert.match(
     workflow,
     /Validate retained DSH 0\.1\.5 execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.5-alpha\.2'[\s\S]{0,700}pnpm run build:lib:host/,
@@ -904,7 +904,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow,
     /Validate patched DSH execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.6-alpha\.2'[\s\S]{0,1300}packages\/fs\/fs-sandbox\/tests\/fs-sandbox\.spec\.ts[\s\S]{0,1300}pnpm run build:lib:host/,
   )
-  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 3)
+  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 5)
   assert.match(
     workflow,
     /pnpm run clean\n\s+pnpm run build:native-system\n\s+pnpm run build:lib:host/,
@@ -935,6 +935,23 @@ test('compatibility workflow keeps selected channels and every patch release blo
     'agent-docs': artifacts['agent-docs'].sha256,
   })
   const linuxJob = workflow.slice(0, workflow.indexOf('  macos-runtime-health:'))
+  assert.match(
+    linuxJob,
+    /repository: deepseek-ai\/deepseek-harness\n\s+ref: \$\{\{ matrix\.revision \}\}\n\s+path: deepseek-harness\n\s+fetch-depth: 0/,
+  )
+  assert.match(
+    linuxJob,
+    /Stage retained DSH 0\.1\.5 rollback runtime[\s\S]+if: success\(\) && matrix\.dsh_version == '0\.1\.6-alpha\.2'[\s\S]{0,700}git checkout --detach b2e3b2a0125854567a4a5fcba75782e42fe84901/,
+  )
+  assert.match(
+    linuxJob,
+    /rollback_version=0\.1\.5-alpha\.2\n\s+rollback_revision=b2e3b2a0125854567a4a5fcba75782e42fe84901/,
+  )
+  assert.match(
+    linuxJob,
+    /Assert upstream checkout returned to pristine state[\s\S]{0,500}observed_revision="\$\(git rev-parse HEAD\)"[\s\S]{0,500}if \[ "\$\{\{ matrix\.dsh_version \}\}" = 0\.1\.6-alpha\.2 \]; then[\s\S]{0,260}test "\$observed_revision" = "\$\{\{ matrix\.revision \}\}" \\\n+\s+\|\| test "\$observed_revision" = b2e3b2a0125854567a4a5fcba75782e42fe84901\n\s+else\n\s+test "\$observed_revision" = "\$\{\{ matrix\.revision \}\}"\n\s+fi/,
+    'alpha.6 cleanup may end on its authenticated source or the exact retained rollback only',
+  )
   const macosArtifacts = nils.release.platforms['aarch64-apple-darwin'].artifacts
   for (const [job, artifacts] of [[linuxJob, nils.release.artifacts], [workflow.slice(linuxJob.length), macosArtifacts]]) {
     for (const leg of ['CANDIDATE', 'BASELINE']) {
@@ -950,16 +967,18 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(macosJob, /node-version: 24/)
   assert.match(
     macosJob,
-    new RegExp(`repository: deepseek-ai/deepseek-harness\\n\\s+ref: ${manifest.channels.pinned.revision}`),
+    new RegExp(
+      `repository: deepseek-ai/deepseek-harness\\n`
+      + `\\s+ref: ${manifest.channels.pinned.revision}\\n`
+      + '\\s+path: deepseek-harness\\n'
+      + '\\s+fetch-depth: 0',
+    ),
   )
-  assert.match(
-    macosJob,
-    new RegExp(`DSH_ACCEPTANCE_DSH_VERSION=${manifest.channels.pinned.version}`),
-  )
-  assert.match(
-    macosJob,
-    new RegExp(`DSH_ACCEPTANCE_DSH_REVISION=${manifest.channels.pinned.revision}`),
-  )
+  const retained = manifest.validated_releases['0.1.5-alpha.2']
+  assert.match(macosJob, /Stage retained DSH 0\.1\.5 rollback runtime/)
+  assert.match(macosJob, new RegExp(`git checkout --detach ${retained.revision}`))
+  assert.match(macosJob, /DSH_ACCEPTANCE_DSH_VERSION=0\.1\.5-alpha\.2/)
+  assert.match(macosJob, new RegExp(`DSH_ACCEPTANCE_DSH_REVISION=${retained.revision}`))
   assert.match(macosJob, /deepseek-harness\/vendor\/cordis/)
   assert.match(macosJob, /ln -s "\$GITHUB_WORKSPACE\/deepseek-harness\/vendor\/cordis"/)
   assert.doesNotMatch(macosJob, /npm install --no-save[\s\S]{0,200}deepseek-harness\/vendor\/cordis/)
@@ -1016,9 +1035,9 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /AGENT_HOOK_BIN/)
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/)
   assert.equal(
-    workflow.match(/fetch-depth: 0/g)?.length,
-    3,
-    'every dsh-runtime-kit checkout must retain parity evidence history',
+    workflow.match(/uses: actions\/checkout@[\s\S]{0,240}fetch-depth: 0/g)?.length,
+    5,
+    'every compatibility checkout must retain the history needed by its evidence checks',
   )
 
   const runtimeSmoke = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
@@ -1026,7 +1045,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
   assert.match(
     runtimeSmoke,
-    /dshManifest\.version === '0\.1\.6-alpha\.2'[\s\S]{0,260}sandbox: \{ mode: environment\.DSH_PERMISSION_MODE, denied: false \}[\s\S]{0,180}: \{ logs: \[\], result: 42 \}/u,
+    /codeModeSandbox\?\.enforcement === undefined \|\| codeModeSandbox\.enforcement === 'full'[\s\S]{0,600}dshManifest\.version === '0\.1\.6-alpha\.2'[\s\S]{0,420}enforcement: 'full'[\s\S]{0,180}: \{ logs: \[\], result: 42 \}/u,
     'the packed smoke must validate both exact PTC result shapes in the retained DSH window',
   )
   assert.match(

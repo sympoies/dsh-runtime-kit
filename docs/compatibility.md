@@ -230,6 +230,13 @@ patch apply/reverse and packed-smoke acceptance before their peer range is
 advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
 
+Every Linux channel row authenticates the selected checkout before patching,
+rebuilds and compares its complete host closure after reversal, and then runs
+the executable rollback canary on the retained pristine `0.1.5-alpha.2`
+release whenever the selected candidate is alpha.6. This separation matters:
+pristine alpha.6 is valid source-reversal evidence, but it lacks the awaited
+tools-finish boundary needed to serve as an executable rollback.
+
 A separate blocking macOS ARM64 lane authenticates the released nils-cli
 archive, exercises the declared Darwin `verified-transient` health provider,
 proves that an inherited executable file descriptor supplies the verified bytes
@@ -240,7 +247,10 @@ pre-spawn identity validation, process-tree-bound identity cleanup, and
 preserved cleanup failures, the 256 MiB executable
 ceiling, and stable source/target identity, runs the
 native tools/LLM boundary tests and a packed runtime-health smoke, then
-reverses the patch and authenticates the pristine DSH checkout. That
+reverses the patch and authenticates the pristine candidate checkout. Because
+the alpha.6 patch supplies an awaited tools-finish boundary that pristine
+alpha.6 lacks, the executable rollback canary then switches to the retained
+pristine `0.1.5-alpha.2` release and runs its real tools pipeline. That
 platform-scoped smoke uses DSH's real tools pipeline to prove unauthenticated
 companion denial, project-health denial before model or adapter work,
 same-session recovery, `runtime_kit_plus_one(41) = 42`, and absence of health

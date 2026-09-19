@@ -116,6 +116,7 @@ jobs:
           repository: deepseek-ai/deepseek-harness
           ref: ${{ matrix.revision }}
           path: deepseek-harness
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
@@ -259,13 +260,33 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
-      - name: Run unpatched DSH tools smoke
+      # The alpha.6 patch awaits the now-asynchronous tools finish boundary.
+      # Pristine alpha.6 cannot execute this tools canary, so first authenticate
+      # its clean reversal above, then exercise the retained known-good release
+      # as the executable rollback on every alpha.6 channel row.
+      - name: Stage retained DSH 0.1.5 rollback runtime
+        if: success() && matrix.dsh_version == '0.1.6-alpha.2'
+        working-directory: deepseek-harness
+        run: |
+          git checkout --detach b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+      - name: Run retained unpatched DSH tools smoke
         if: success()
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.25-x86_64-unknown-linux-gnu/bin/agent-hook
         run: |
+          rollback_version="${{ matrix.dsh_version }}"
+          rollback_revision="${{ matrix.revision }}"
+          if [ "$rollback_version" = 0.1.6-alpha.2 ]; then
+            rollback_version=0.1.5-alpha.2
+            rollback_revision=b2e3b2a0125854567a4a5fcba75782e42fe84901
+          fi
           package_name="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
           package="$RUNNER_TEMP/$package_name"
           package_sha="$(sha256sum "$package" | cut -d ' ' -f 1)"
@@ -278,8 +299,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"fadde034b1d9d7efd3ec296f2858cdfa4dec437408de83d0d94c1d2165d56bc3","agent-docs":"2a736ae29db016c4fdedf2585b556983152a8bf012d01a96c3071539679a5a0d"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"fadde034b1d9d7efd3ec296f2858cdfa4dec437408de83d0d94c1d2165d56bc3","agent-docs":"2a736ae29db016c4fdedf2585b556983152a8bf012d01a96c3071539679a5a0d"}' \
-          DSH_ACCEPTANCE_DSH_VERSION="${{ matrix.dsh_version }}" \
-          DSH_ACCEPTANCE_DSH_REVISION="${{ matrix.revision }}" \
+          DSH_ACCEPTANCE_DSH_VERSION="$rollback_version" \
+          DSH_ACCEPTANCE_DSH_REVISION="$rollback_revision" \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
@@ -287,7 +308,15 @@ jobs:
       - name: Assert upstream checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
-        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"
+        run: |
+          observed_revision="$(git rev-parse HEAD)"
+          if [ "${{ matrix.dsh_version }}" = 0.1.6-alpha.2 ]; then
+            test "$observed_revision" = "${{ matrix.revision }}" \
+              || test "$observed_revision" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          else
+            test "$observed_revision" = "${{ matrix.revision }}"
+          fi
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
   macos-runtime-health:
     runs-on: macos-15
@@ -302,6 +331,7 @@ jobs:
           repository: deepseek-ai/deepseek-harness
           ref: ddefc45fbc7f8e46dd73185e68295696d1297887
           path: deepseek-harness
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
@@ -394,7 +424,21 @@ jobs:
             > "$RUNNER_TEMP/restored-dsh-build-closure.json"
           cmp "$RUNNER_TEMP/pristine-dsh-build-closure.json" \
             "$RUNNER_TEMP/restored-dsh-build-closure.json"
-      - name: Run unpatched DSH tools smoke
+      # The alpha.6 patch awaits the now-asynchronous tools finish boundary.
+      # Pristine alpha.6 cannot execute this tools canary, so rollback evidence
+      # must exercise the retained known-good release rather than pretending
+      # that source reversal alone is an executable rollback.
+      - name: Stage retained DSH 0.1.5 rollback runtime
+        if: success()
+        working-directory: deepseek-harness
+        run: |
+          git checkout --detach b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm run clean
+          pnpm run build:lib:host
+          pnpm dsh --help >/dev/null
+      - name: Run retained unpatched DSH tools smoke
         if: success()
         working-directory: dsh-runtime-kit
         env:
@@ -413,8 +457,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268 \
           DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"9b6cff6168aa69af679a6927830756651e7a9565922ceba15595feacb4460aa1","agent-docs":"c73226255690f43c67e7900956a8de92b085252c3e7acdd7e34b7da64de97bf5"}' \
           DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"9b6cff6168aa69af679a6927830756651e7a9565922ceba15595feacb4460aa1","agent-docs":"c73226255690f43c67e7900956a8de92b085252c3e7acdd7e34b7da64de97bf5"}' \
-          DSH_ACCEPTANCE_DSH_VERSION=0.1.6-alpha.2 \
-          DSH_ACCEPTANCE_DSH_REVISION=ddefc45fbc7f8e46dd73185e68295696d1297887 \
+          DSH_ACCEPTANCE_DSH_VERSION=0.1.5-alpha.2 \
+          DSH_ACCEPTANCE_DSH_REVISION=b2e3b2a0125854567a4a5fcba75782e42fe84901 \
           PNPM_BIN="$(command -v pnpm)" \
           NPM_BIN="$(command -v npm)" \
           DSH_ACCEPTANCE_UNPATCHED_ONLY=1 \
@@ -422,4 +466,6 @@ jobs:
       - name: Assert macOS DSH checkout returned to pristine state
         if: always()
         working-directory: deepseek-harness
-        run: test -z "$(git status --porcelain=v1 --untracked-files=all)"
+        run: |
+          test "$(git rev-parse HEAD)" = b2e3b2a0125854567a4a5fcba75782e42fe84901
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"

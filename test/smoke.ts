@@ -4013,13 +4013,27 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(codeModeReceipt.runCodeResult.isError, false, JSON.stringify(codeModeReceipt))
   // alpha.6 makes the PTC sandbox projection observable. Keep the earlier
   // release's exact result shape while authenticating every added alpha.6
-  // field instead of accepting an open-ended additive object.
+  // field instead of accepting an open-ended additive object. Upstream emits
+  // the optional enforcement field only when the selected sandbox provider
+  // reports it, and this smoke accepts only the independently usable `full`
+  // value when present.
+  const codeModeSandbox = codeModeReceipt.runCodeResult.value?.sandbox
+  assert.ok(
+    codeModeSandbox?.enforcement === undefined || codeModeSandbox.enforcement === 'full',
+    JSON.stringify(codeModeReceipt),
+  )
   assert.deepEqual(
     codeModeReceipt.runCodeResult.value,
     dshManifest.version === '0.1.6-alpha.2'
       ? {
           logs: [],
-          sandbox: { mode: environment.DSH_PERMISSION_MODE, denied: false },
+          sandbox: {
+            mode: environment.DSH_PERMISSION_MODE,
+            denied: false,
+            ...(codeModeSandbox.enforcement === undefined
+              ? {}
+              : { enforcement: 'full' }),
+          },
           result: 42,
         }
       : { logs: [], result: 42 },
