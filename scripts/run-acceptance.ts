@@ -28,7 +28,10 @@ import {
   scenarioFailureDiagnostic,
 } from '../src/acceptance/contract.js'
 import { cloneAuthenticatedDshSource } from '../src/acceptance/dsh-clone.js'
-import { digestDshBuildClosure } from '../src/acceptance/dsh-build.js'
+import {
+  digestDshBuildClosure,
+  inspectDshNativeSystemArtifact,
+} from '../src/acceptance/dsh-build.js'
 import { extractFreshPackage } from '../src/acceptance/package-staging.js'
 import {
   createToolPath,
@@ -62,6 +65,7 @@ type RunCheckedOptions = {
   env?: Env,
   timeout?: number,
   label: string,
+  failureCode?: string,
   failureDetails?: (result: SpawnSyncReturns<string>) => Record<string, unknown>,
 }
 
@@ -397,7 +401,7 @@ function runChecked(command: string, args: string[], options: RunCheckedOptions)
   })
   if (result.status !== 0 || result.error !== undefined) {
     throw new AcceptanceError(
-      'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
+      options.failureCode ?? 'DSH_RUNTIME_KIT_ACCEPTANCE_SCENARIO_FAILED',
       options.label + ' failed',
       options.failureDetails?.(result) ?? {},
     )
@@ -461,6 +465,29 @@ async function prepareDsh(
     timeout: SCENARIO_TIMEOUT_MS,
     label: 'fresh pinned DSH dependency installation',
   })
+  runChecked(tools.pnpm.path, ['run', 'build:native-system'], {
+    cwd: destination,
+    env,
+    timeout: SCENARIO_TIMEOUT_MS,
+    label: 'fresh pinned DSH native-system build',
+    failureCode: 'DSH_RUNTIME_KIT_ACCEPTANCE_DSH_NATIVE_ARTIFACT_INVALID',
+  })
+  try {
+    const nativeSystemArtifact = await inspectDshNativeSystemArtifact(destination)
+    if (nativeSystemArtifact === undefined) {
+      throw new Error('native-system workspace is absent')
+    }
+  } catch (error) {
+    const causeCode = error !== null && typeof error === 'object'
+      && 'code' in error && typeof error.code === 'string'
+      ? error.code
+      : 'DSH_NATIVE_SYSTEM_ARTIFACT_MISSING'
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_DSH_NATIVE_ARTIFACT_INVALID',
+      'fresh pinned DSH native-system artifact is missing or invalid',
+      { cause_code: causeCode },
+    )
+  }
   runChecked(tools.pnpm.path, ['run', 'build:lib:host'], {
     cwd: destination,
     env,

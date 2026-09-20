@@ -12,8 +12,9 @@ provider read-back into one promotion result.
 
 - snapshots and hashes the candidate package and six nils executables;
 - clones the manifest-selected DSH revision without hardlinks;
-- installs the frozen DSH dependency graph offline and builds its pristine
-  libraries for source compatibility evidence;
+- installs the frozen DSH dependency graph offline with lifecycle scripts
+  disabled, explicitly builds and verifies the current-host `native/system`
+  addon, and builds its pristine libraries for source compatibility evidence;
 - applies the authenticated execution-boundary patch, rebuilds DSH, and binds
   its typed patch receipt into the acceptance summary;
 - authenticates the exact Agent Console TUI artifact, applies its narrowed
@@ -41,7 +42,8 @@ Final `pass` additionally requires:
 
 - a disposable OS-isolated execution environment;
 - independently authenticated nils-cli v1.28.25 artifacts;
-- the exact pinned DSH source and dependency closure;
+- the exact pinned DSH source, dependency closure, and current-host native
+  addon inside the authenticated DSH build closure;
 - the exact reviewed DSH patch artifact, revision, target hashes, and patched
   state throughout every runtime scenario;
 - the exact reviewed TUI artifact and package-patch receipt for Agent Console

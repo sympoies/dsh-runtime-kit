@@ -2074,6 +2074,16 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.doesNotMatch(dshPreparation, /'-c', 'safe\.directory='/u)
   assert.match(dshPreparation, /cloneAuthenticatedDshSource\(\{/u)
   assert.doesNotMatch(dshPreparation, /gitConfig/u)
+  assert.match(
+    dshPreparation,
+    /\['run', 'build:native-system'\][\s\S]+inspectDshNativeSystemArtifact\(destination\)[\s\S]+\['run', 'build:lib:host'\]/u,
+    'a clean acceptance checkout must build and attest DSH native prerequisites before the host bundle',
+  )
+  assert.match(
+    dshPreparation,
+    /DSH_RUNTIME_KIT_ACCEPTANCE_DSH_NATIVE_ARTIFACT_INVALID/u,
+    'native preparation failures must have a stable acceptance-owned code',
+  )
   assert.ok(manifest.files.includes('src'))
   assert.match(runner, /GIT_CONFIG_GLOBAL: gitConfig/u)
   assert.match(runner, /GIT_CONFIG_NOSYSTEM: '1'/u)
