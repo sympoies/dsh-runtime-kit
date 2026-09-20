@@ -127,6 +127,13 @@ function stageBundle(root, version, options = {}) {
           cordis: '4.0.2',
         }]),
       ),
+      retired_operations_toolchains: {
+        '0.1.2-rc.1': {
+          ref: 'refs/tags/dsh-v0.1.2-rc.1',
+          revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
+          cordis: '4.0.1',
+        },
+      },
     })
     writeJson(join(dir, 'compatibility', 'nils-cli.json'), {
       schema_version: 'dsh-runtime-kit.nils-compatibility.v1',
@@ -1378,6 +1385,80 @@ test('operations bind the exact reviewed DSH 0.1.5-alpha.2 toolchain identity', 
     assert.equal(rejected.value.error.code, 'command-unavailable')
   } finally {
     unknown.cleanup()
+  }
+})
+
+test('update reads only an explicitly retired predecessor toolchain receipt', () => {
+  const subject = fixture()
+  try {
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+    const predecessor = JSON.parse(readFileSync(statePath, 'utf8'))
+    predecessor.last_applied.plan.toolchain.dsh.version = '0.1.2-rc.1'
+    predecessor.last_applied.plan.toolchain.dsh.source_revision = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
+    predecessor.last_applied.plan_digest = sha256(stableJson(predecessor.last_applied.plan))
+    writeJson(statePath, predecessor)
+    chmodSync(statePath, 0o600)
+
+    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.plan.action, 'update')
+    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.6-alpha.2')
+
+    const unknown = structuredClone(predecessor)
+    unknown.last_applied.plan.toolchain.dsh.source_revision = 'f'.repeat(40)
+    unknown.last_applied.plan_digest = sha256(stableJson(unknown.last_applied.plan))
+    writeJson(statePath, unknown)
+    chmodSync(statePath, 0o600)
+    const rejected = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'invalid-operations-state')
+
+    writeJson(statePath, predecessor)
+    chmodSync(statePath, 0o600)
+    const applied = run(subject, [
+      'update', '--profile', 'work', '--package', subject.v2,
+      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+    ])
+    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+    const transitioned = JSON.parse(readFileSync(statePath, 'utf8'))
+    assert.equal(transitioned.current.installed_version, '2.0.0')
+    assert.equal(transitioned.last_applied.plan.toolchain.dsh.version, '0.1.6-alpha.2')
+
+    const dshSource = readFileSync(subject.dsh, 'utf8')
+    writeFileSync(subject.dsh, dshSource.replace(
+      "console.log('0.1.6-alpha.2')",
+      "console.log('0.1.2-rc.1')",
+    ))
+    chmodSync(subject.dsh, 0o755)
+    const retiredRuntime = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(retiredRuntime.status, 70)
+    assert.equal(retiredRuntime.value.error.code, 'command-unavailable')
+  } finally {
+    subject.cleanup()
+  }
+
+  const pendingSubject = fixture()
+  try {
+    writeFileSync(join(pendingSubject.home, 'fail-after-mutation'), '')
+    const setup = run(pendingSubject, ['setup', '--profile', 'work', '--package', pendingSubject.v1])
+    const interrupted = run(pendingSubject, [
+      'setup', '--profile', 'work', '--package', pendingSubject.v1,
+      '--apply', '--expected-plan-digest', setup.value.data.plan_digest,
+    ])
+    assert.equal(interrupted.status, 70)
+    const statePath = join(pendingSubject.home, 'runtime-kit', 'state', 'work.json')
+    const state = JSON.parse(readFileSync(statePath, 'utf8'))
+    state.pending.plan.toolchain.dsh.version = '0.1.2-rc.1'
+    state.pending.plan.toolchain.dsh.source_revision = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
+    state.pending.plan_digest = sha256(stableJson(state.pending.plan))
+    writeJson(statePath, state)
+    chmodSync(statePath, 0o600)
+    const rejected = run(pendingSubject, ['doctor', '--profile', 'work'])
+    assert.equal(rejected.status, 65)
+    assert.equal(rejected.value.error.code, 'invalid-operations-state')
+  } finally {
+    pendingSubject.cleanup()
   }
 })
 

@@ -13,9 +13,14 @@ The supported runtime is deliberately exact:
 The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
 and its CI row in the same change; the validation count therefore remains
-bounded while DSH is immature. Runtime startup requires one homogeneous
-`0.1.5-alpha.2` or `0.1.6-alpha.2` public peer set and validates the consumed public exports and
-service methods before registering a listener, tool, service, or skill. The
+bounded while DSH is immature. When deployed operations receipts still name
+the evicted release, retain its exact version, tag, revision, and Cordis
+identity under `retired_operations_toolchains` until those profiles have
+converged. That historical row authenticates completed receipts only and does
+not keep the release in the runtime support window. Runtime startup requires
+one homogeneous `0.1.5-alpha.2` or `0.1.6-alpha.2` public peer set and validates
+the consumed public exports and service methods before registering a listener,
+tool, service, or skill. The
 reviewed compositions are exact: both retained releases require Cordis 4.0.2,
 so a checkout composed against 4.0.1 is no longer supported. Mixed,
 cross-composed, or unknown peer versions
