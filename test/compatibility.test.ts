@@ -904,12 +904,18 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow,
     /Validate patched DSH execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.6-alpha\.2'[\s\S]{0,1300}packages\/fs\/fs-sandbox\/tests\/fs-sandbox\.spec\.ts[\s\S]{0,1300}pnpm run build:lib:host/,
   )
-  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 5)
+  assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length, 2)
   assert.match(
     workflow,
     /pnpm run clean\n\s+pnpm run build:native-system\n\s+pnpm run build:lib:host/,
   )
-  assert.equal(workflow.match(/pnpm run build:native-system/g)?.length, 2)
+  assert.equal(
+    workflow.match(
+      /pnpm run clean\n\s+pnpm run build:native-system\n\s+pnpm run build:lib:host/g,
+    )?.length,
+    4,
+  )
+  assert.equal(workflow.match(/pnpm run build:native-system/g)?.length, 5)
   assert.doesNotMatch(workflow, /pnpm run build:lib\n/)
   assert.match(workflow, /dist\/scripts\/digest-dsh-build-closure\.js/)
   assert.equal(workflow.match(/pristine-dsh-build-closure\.json/g)?.length, 4)
