@@ -85,13 +85,13 @@ test('issue 255 rollback is pinned to the exact accepted PR 254 baseline', () =>
   )
   // #255 and Gate 0 select the serial predecessor. PR #254 acceptance admits
   // the pinned 1.28.25 host, so it is the executable rollback baseline. The
-  // package identity is the hosted acceptance
-  // artifact (npm 11.19.0 pack under Node 24.16.0, recompressed by the
+  // package identity is the compiled hosted acceptance artifact (a full build,
+  // then npm 11.19.0 production pack under Node 24.16.0, recompressed by the
   // authenticated zlib-ng helper), not raw `npm pack` output. This assertion
   // freezes that reviewed selection for #255; it does not discover a future
   // child baseline.
   assert.deepEqual(manifest.rollback_validation, {
-    runtime_package_sha256: 'b4a83a0fe2a9ece8be00deb7b052e36c19c013d9b077922ca92760c9a65bc116',
+    runtime_package_sha256: '237abe93c57d77fe00cc4b104ea7994644b65dd43061ac2ff71e7a623802177b',
     version: '1.28.25',
     source_revision: 'v1.28.25',
     source_commit: '6657af3a12a61e3cbda349c5e93279db690ca268',
