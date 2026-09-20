@@ -86,36 +86,36 @@
     }
   },
   "rollback_validation": {
-    "runtime_package_sha256": "4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd",
-    "version": "1.27.37",
-    "source_revision": "v1.27.37",
-    "source_commit": "3fd3a9bd089247405ec2be219234a7a24f54a98c",
+    "runtime_package_sha256": "b4a83a0fe2a9ece8be00deb7b052e36c19c013d9b077922ca92760c9a65bc116",
+    "version": "1.28.25",
+    "source_revision": "v1.28.25",
+    "source_commit": "6657af3a12a61e3cbda349c5e93279db690ca268",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.27.37-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "bda942ee83e9cdc02ab29a7ba3ac97a4c76aafeb2b53f88297bdc330a255577b"
+      "name": "nils-cli-v1.28.25-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "92f996f9bec38d8c5edfd52cc0966ae6cfb24fef193dbc6c5a6c26a5d22e69e8"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "0bddef9a486880d50bc866cabbfec459467b243143e6a875a34f7e0b7e469177"
+        "sha256": "fadde034b1d9d7efd3ec296f2858cdfa4dec437408de83d0d94c1d2165d56bc3"
       },
       "agent-docs": {
-        "sha256": "0c85379d4628f3a30c3df5377df95d2fddbefc2eb00e7c8ae0359f7db779c7bc"
+        "sha256": "2a736ae29db016c4fdedf2585b556983152a8bf012d01a96c3071539679a5a0d"
       },
       "agent-session": {
-        "sha256": "57a8e8aed9ba57fc63b5949d20352b0f5fd88e1071a50840d9f05af1ac14f594"
+        "sha256": "752c87c5980ac40710dde8043c30d66d4edb71f5e6c86cfa4022b6d0e17ba264"
       },
       "forge-cli": {
-        "sha256": "57d17797367d7b9597f849af4c34a963204d40b3f6f2fe2bb3b858ea49d84d3f"
+        "sha256": "ad6e887cc5f691cdfb36baeadde468bdca3d912a17bd6ff726e3286bdfb8659a"
       },
       "git-cli": {
-        "sha256": "5c1e8c789928d8568c554f113058c5bd05b1a7702a56076dd4f3e0a6f32cef2c"
+        "sha256": "904a2912b1bdbe13e2b1c66353b2aa6cc7a8db1bde0cc45827de18708367ea28"
       },
       "review-specialists": {
-        "sha256": "5038f1a438917523969314b3ca6c6189020b6ab5f550a2a55e8e62dd64b6717c"
+        "sha256": "a0110af730b1e00307aca1c3ba49a98ec77daf1c9ddfc59684f8fdf8fd477a8a"
       },
       "semantic-commit": {
-        "sha256": "1919018a9753a1ee95b68bf821fd202aab30c9700b9b5da0ff3b76f4d974b1a3"
+        "sha256": "dd7a4dfe2e5df88e38e8e5d8af681fd86455cc9013fd03b07f409a7d1f66631f"
       }
     }
   },
