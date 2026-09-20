@@ -15,12 +15,111 @@ export class DshBuildClosureError extends Error {
   }
 }
 
+export class DshNativeSystemArtifactError extends DshBuildClosureError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DshNativeSystemArtifactError'
+    this.code = 'DSH_RUNTIME_KIT_DSH_NATIVE_ARTIFACT_INVALID'
+  }
+}
+
+type BuildFile = Readonly<{
+  path: string,
+  relative: string,
+  size: number,
+  mode: number,
+}>
+
 function relativeBuildPath(root: string, child: string) {
   const path = relative(root, child)
   if (path === '' || path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)) {
     throw new DshBuildClosureError('DSH build path escaped its authenticated root')
   }
   return path.split(sep).join('/')
+}
+
+function nativeSystemFailure(message: string): never {
+  throw new DshNativeSystemArtifactError(message)
+}
+
+/**
+ * Resolve the source-checkout native addon required by the current host.
+ * Published DSH packages carry this payload, while a pristine source checkout
+ * must create it explicitly with `build:native-system`.
+ */
+export async function inspectDshNativeSystemArtifact(sourceRoot: string): Promise<BuildFile | undefined> {
+  if (!isAbsolute(sourceRoot)) {
+    throw new DshNativeSystemArtifactError('DSH source root must be absolute')
+  }
+  if (process.platform !== 'linux' && process.platform !== 'darwin') return undefined
+
+  const root = await realpath(sourceRoot)
+  const nativeRoot = resolve(root, 'native', 'system')
+  let nativeMetadata
+  try {
+    nativeMetadata = await lstat(nativeRoot)
+  } catch (error) {
+    if (((error) as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+  if (!nativeMetadata.isDirectory() || nativeMetadata.isSymbolicLink()) {
+    nativeSystemFailure('DSH native-system root is not a regular directory')
+  }
+
+  const platform = `${process.platform}-${process.arch}`
+  const packageRoot = resolve(nativeRoot, 'packages', platform)
+  const manifestPath = resolve(packageRoot, 'prebuilds.json')
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  } catch {
+    nativeSystemFailure('DSH native-system host manifest is missing or invalid')
+  }
+  if (manifest === null || typeof manifest !== 'object'
+    || !('platform' in manifest) || manifest.platform !== platform
+    || !('binaries' in manifest) || !Array.isArray(manifest.binaries)) {
+    nativeSystemFailure('DSH native-system host manifest does not match the current platform')
+  }
+
+  const libc = process.platform === 'linux'
+    ? ((process.report.getReport() as { header: { glibcVersionRuntime?: string } })
+        .header.glibcVersionRuntime ? 'glibc' : 'musl')
+    : undefined
+  const matches = manifest.binaries.filter((candidate): candidate is Record<string, unknown> =>
+    candidate !== null
+      && typeof candidate === 'object'
+      && candidate.tool === 'flock'
+      && candidate.kind === 'node-api'
+      && candidate.napi === 8
+      && (process.platform !== 'linux' || candidate.libc === libc),
+  )
+  if (matches.length !== 1 || typeof matches[0].path !== 'string') {
+    nativeSystemFailure('DSH native-system host manifest has no unique flock addon')
+  }
+
+  const path = resolve(packageRoot, matches[0].path)
+  const packageRelative = relative(packageRoot, path)
+  if (packageRelative === '' || packageRelative === '..'
+    || packageRelative.startsWith(`..${sep}`) || isAbsolute(packageRelative)) {
+    nativeSystemFailure('DSH native-system addon path escaped its platform package')
+  }
+  let metadata
+  let canonical
+  try {
+    metadata = await lstat(path)
+    canonical = await realpath(path)
+  } catch {
+    nativeSystemFailure('DSH native-system addon is missing')
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink() || canonical !== path || metadata.size < 1) {
+    nativeSystemFailure('DSH native-system addon is not a nonempty regular file')
+  }
+  return Object.freeze({
+    path,
+    relative: relativeBuildPath(root, path),
+    size: metadata.size,
+    mode: metadata.mode & 0o777,
+  })
 }
 
 /**
@@ -34,7 +133,7 @@ export async function digestDshBuildClosure(sourceRoot: string) {
     throw new DshBuildClosureError('DSH source root must be absolute')
   }
   const root = await realpath(sourceRoot)
-  const files: {path:string,relative:string,size:number,mode:number}[] = []
+  const files: BuildFile[] = []
 
   async function collectLib(directory: string) {
     const entries = await readdir(directory, { withFileTypes: true })
@@ -85,6 +184,8 @@ export async function digestDshBuildClosure(sourceRoot: string) {
   }
 
   for (const name of BUILD_ROOTS) await discoverLibs(resolve(root, name))
+  const nativeSystemArtifact = await inspectDshNativeSystemArtifact(root)
+  if (nativeSystemArtifact !== undefined) files.push(nativeSystemArtifact)
   files.sort((left, right) => left.relative.localeCompare(right.relative, 'en'))
   if (files.length === 0) {
     throw new DshBuildClosureError('DSH build closure contains no generated files')

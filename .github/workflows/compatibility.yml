@@ -137,6 +137,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm run clean
+          pnpm run build:native-system
           pnpm run build:lib:host
           pnpm dsh --help >/dev/null
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/digest-dsh-build-closure.js" \
@@ -253,6 +254,7 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm run clean
+          pnpm run build:native-system
           pnpm run build:lib:host
           pnpm dsh --help >/dev/null
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/digest-dsh-build-closure.js" \
@@ -417,6 +419,7 @@ jobs:
         working-directory: deepseek-harness
         run: |
           pnpm run clean
+          pnpm run build:native-system
           pnpm run build:lib:host
           pnpm dsh --help >/dev/null
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/digest-dsh-build-closure.js" \
