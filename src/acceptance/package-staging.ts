@@ -1,12 +1,63 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile } from 'node:fs/promises'
-import { resolve, sep } from 'node:path'
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { relative, resolve, sep } from 'node:path'
 
 import { AcceptanceError } from './contract.js'
 
 async function digest(path: string) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
+}
+
+function collectExportTargets(value: unknown): string[] | undefined {
+  if (typeof value === 'string') return [value]
+  if (value === null) return []
+  if (Array.isArray(value)) {
+    const targets = value.map(collectExportTargets)
+    return targets.some(target => target === undefined)
+      ? undefined
+      : targets.flatMap(target => target!)
+  }
+  if (typeof value === 'object') {
+    const targets = Object.values(value).map(collectExportTargets)
+    return targets.some(target => target === undefined)
+      ? undefined
+      : targets.flatMap(target => target!)
+  }
+  return undefined
+}
+
+async function requireInRootRegularFile(
+  root: string,
+  target: string,
+  label: string,
+) {
+  const canonicalRoot = await realpath(root)
+  const path = resolve(canonicalRoot, target)
+  const relativePath = relative(canonicalRoot, path)
+  if (!target.startsWith('./') || relativePath === ''
+    || relativePath === '..' || relativePath.startsWith('..' + sep)) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      label + ' declared package file is unavailable',
+    )
+  }
+  let cursor = canonicalRoot
+  try {
+    for (const component of relativePath.split(sep)) {
+      cursor = resolve(cursor, component)
+      const details = await lstat(cursor)
+      if (details.isSymbolicLink()) throw new Error('symbolic link in package path')
+      if (cursor === path ? !details.isFile() : !details.isDirectory()) {
+        throw new Error('invalid package path type')
+      }
+    }
+  } catch {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      label + ' declared package file is unavailable',
+    )
+  }
 }
 
 async function requireDeclaredRuntimeEntrypoints(
@@ -15,38 +66,26 @@ async function requireDeclaredRuntimeEntrypoints(
   label: string,
 ) {
   const bin = manifest.bin
+  const exports = collectExportTargets(manifest.exports)
   const targets = [
     manifest.main,
     ...(bin !== null && typeof bin === 'object' && !Array.isArray(bin)
       ? Object.values(bin)
       : []),
+    ...(exports ?? []),
   ]
   if (typeof manifest.main !== 'string'
     || bin === null || typeof bin !== 'object' || Array.isArray(bin)
     || Object.keys(bin).length === 0
+    || exports === undefined || exports.length === 0
     || targets.some(target => typeof target !== 'string')) {
     throw new AcceptanceError(
       'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
       label + ' package runtime entrypoint declarations are invalid',
     )
   }
-  for (const target of targets as string[]) {
-    const path = resolve(root, target)
-    if (!target.startsWith('./') || (path !== root && !path.startsWith(root + sep))) {
-      throw new AcceptanceError(
-        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
-        label + ' declared runtime entrypoint is unavailable',
-      )
-    }
-    try {
-      const details = await lstat(path)
-      if (details.isSymbolicLink() || !details.isFile()) throw new Error('invalid runtime entrypoint')
-    } catch {
-      throw new AcceptanceError(
-        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
-        label + ' declared runtime entrypoint is unavailable',
-      )
-    }
+  for (const target of new Set(targets as string[])) {
+    await requireInRootRegularFile(root, target, label)
   }
 }
 
@@ -94,6 +133,7 @@ export async function extractFreshPackage(input: {
     )
   }
   let manifest
+  await requireInRootRegularFile(input.destination, './package.json', input.label)
   try {
     manifest = JSON.parse(await readFile(input.destination + '/package.json', 'utf8'))
   } catch {
