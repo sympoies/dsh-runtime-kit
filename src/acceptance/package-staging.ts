@@ -1,11 +1,53 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile } from 'node:fs/promises'
+import { resolve, sep } from 'node:path'
 
 import { AcceptanceError } from './contract.js'
 
 async function digest(path: string) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
+}
+
+async function requireDeclaredRuntimeEntrypoints(
+  root: string,
+  manifest: Record<string, unknown>,
+  label: string,
+) {
+  const bin = manifest.bin
+  const targets = [
+    manifest.main,
+    ...(bin !== null && typeof bin === 'object' && !Array.isArray(bin)
+      ? Object.values(bin)
+      : []),
+  ]
+  if (typeof manifest.main !== 'string'
+    || bin === null || typeof bin !== 'object' || Array.isArray(bin)
+    || Object.keys(bin).length === 0
+    || targets.some(target => typeof target !== 'string')) {
+    throw new AcceptanceError(
+      'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      label + ' package runtime entrypoint declarations are invalid',
+    )
+  }
+  for (const target of targets as string[]) {
+    const path = resolve(root, target)
+    if (!target.startsWith('./') || (path !== root && !path.startsWith(root + sep))) {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+        label + ' declared runtime entrypoint is unavailable',
+      )
+    }
+    try {
+      const details = await lstat(path)
+      if (details.isSymbolicLink() || !details.isFile()) throw new Error('invalid runtime entrypoint')
+    } catch {
+      throw new AcceptanceError(
+        'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+        label + ' declared runtime entrypoint is unavailable',
+      )
+    }
+  }
 }
 
 /**
@@ -67,5 +109,6 @@ export async function extractFreshPackage(input: {
       input.label + ' package identity is invalid',
     )
   }
+  await requireDeclaredRuntimeEntrypoints(input.destination, manifest, input.label)
   return input.destination
 }

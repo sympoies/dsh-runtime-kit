@@ -53,11 +53,17 @@ test('each acceptance leg is extracted afresh from the authenticated tarball', a
     const source = join(root, 'source')
     const packageRoot = join(source, 'package')
     const tarball = join(root, 'candidate.tgz')
-    mkdirSync(packageRoot, { recursive: true })
+    mkdirSync(join(packageRoot, 'dist', 'bin'), { recursive: true })
     writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
       name: '@sympoies/dsh-runtime-kit',
       version: '0.0.0-test',
+      main: './dist/index.js',
+      bin: {
+        'dsh-runtime-kit': './dist/bin/dsh-runtime-kit.js',
+      },
     }))
+    writeFileSync(join(packageRoot, 'dist', 'index.js'), 'export {}\n')
+    writeFileSync(join(packageRoot, 'dist', 'bin', 'dsh-runtime-kit.js'), '#!/usr/bin/env node\n')
     writeFileSync(join(packageRoot, 'marker.txt'), 'authenticated\n')
     const packed = spawnSync('/usr/bin/tar', ['-czf', tarball, '-C', source, 'package'], {
       encoding: 'utf8',
@@ -85,6 +91,47 @@ test('each acceptance leg is extracted afresh from the authenticated tarball', a
     })
     assert.equal(readFileSync(runtime + '/marker.txt', 'utf8'), 'authenticated\n')
     assert.equal(readFileSync(operations + '/marker.txt', 'utf8'), 'mutated by operations\n')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('acceptance rejects a runtime package whose declared compiled entrypoints are absent', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-acceptance-entrypoints-'))
+  try {
+    const source = join(root, 'source')
+    const packageRoot = join(source, 'package')
+    const tarball = join(root, 'baseline.tgz')
+    mkdirSync(packageRoot, { recursive: true })
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+      name: '@sympoies/dsh-runtime-kit',
+      version: '0.0.0-test',
+      main: './dist/index.js',
+      bin: {
+        'dsh-runtime-kit': './dist/bin/dsh-runtime-kit.js',
+      },
+    }))
+    const packed = spawnSync('/usr/bin/tar', ['-czf', tarball, '-C', source, 'package'], {
+      encoding: 'utf8',
+    })
+    assert.equal(packed.status, 0, packed.stderr)
+    const tarballSha256 = createHash('sha256').update(readFileSync(tarball)).digest('hex')
+
+    await assert.rejects(
+      extractFreshPackage({
+        tarball,
+        tarballSha256,
+        destination: join(root, 'baseline'),
+        tarBin: '/usr/bin/tar',
+        env: { PATH: '/usr/bin:/bin' },
+        label: 'rollback baseline',
+      }),
+      (error: unknown) => {
+        assert.equal((error as {code?: unknown}).code, 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID')
+        assert.match(String((error as Error).message), /declared runtime entrypoint is unavailable/u)
+        return true
+      },
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
