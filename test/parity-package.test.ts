@@ -30,6 +30,7 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
       'docs/acceptance.md',
       'docs/compatibility.md',
       'docs/operations.md',
+      'test/fixtures/authoritative-dsh-launcher.js',
     ]) {
       assert.ok(packedPaths.has(expected), `packed documentation missing ${expected}`)
     }
@@ -50,6 +51,14 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
       { cwd: temporary },
     )
     const requireFromInstall = createRequire(join(temporary, 'consumer.cjs'))
+    const packageRoot = dirname(requireFromInstall.resolve('@sympoies/dsh-runtime-kit/package.json'))
+    const launcher = await import(pathToFileURL(join(
+      packageRoot,
+      'test',
+      'fixtures',
+      'authoritative-dsh-launcher.js',
+    )).href)
+    assert.equal(typeof launcher.authoritativeDshInvocation, 'function')
     const inventoryPath = requireFromInstall.resolve(
       '@sympoies/dsh-runtime-kit/policy/rule-parity.yaml',
     )

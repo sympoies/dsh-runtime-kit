@@ -1968,6 +1968,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.ok(manifest.files.includes('test/smoke.ts'))
   assert.ok(manifest.files.includes('test/operations-smoke.ts'))
   assert.ok(manifest.files.includes('test/authoritative-acceptance-smoke.ts'))
+  assert.ok(manifest.files.includes('test/fixtures/authoritative-dsh-launcher.js'))
   assert.ok(manifest.files.includes('test/fixtures/authoritative-acceptance-canary'))
   const runner = readFileSync(join(projectRoot, 'scripts', 'run-acceptance.ts'), 'utf8')
   const authoritativeSmoke = readFileSync(
