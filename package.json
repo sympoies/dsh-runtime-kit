@@ -46,6 +46,7 @@
     "scripts",
     "test/smoke.ts",
     "test/authoritative-acceptance-smoke.ts",
+    "test/fixtures/authoritative-dsh-launcher.js",
     "test/fixtures/authoritative-acceptance-canary",
     "test/workspace-lease-smoke.ts",
     "test/workspace-lease-native-smoke.ts",

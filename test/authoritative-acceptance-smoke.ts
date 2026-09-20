@@ -32,6 +32,7 @@ import {
   SCENARIO_CANARY_EXECUTION_TIMEOUT_MS,
   SCENARIO_CANARY_PROCESS_TIMEOUT_MS,
 } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
+import { authoritativeDshInvocation } from './fixtures/authoritative-dsh-launcher.js'
 
 const failureDiagnostic = createScenarioFailureDiagnosticTracker('packed-runtime')
 
@@ -48,6 +49,7 @@ process.once('uncaughtExceptionMonitor', emitFailureDiagnostic)
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = requiredAbsolute('DSH_SOURCE_ROOT')
+const dshBin = join(dshRoot, 'apps', 'cli', 'lib', 'bin.js')
 const candidatePackage = requiredAbsolute('DSH_ACCEPTANCE_CANDIDATE_PACKAGE_TARBALL')
 const baselinePackage = requiredAbsolute('DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL')
 const candidateBinDir = dirname(requiredAbsolute('AGENT_HOOK_BIN'))
@@ -122,6 +124,31 @@ function run(command, args, options = {}) {
   )
   failureDiagnostic.recordOperationExitStatus(0)
   return result
+}
+
+function dshInvocation(args) {
+  return authoritativeDshInvocation({
+    dshVersion,
+    nodeBin: process.execPath,
+    dshBin,
+    pnpmBin,
+    args,
+  })
+}
+
+function runDsh(args, options = {}) {
+  const invocation = dshInvocation(args)
+  return run(invocation.command, invocation.args, options)
+}
+
+function spawnDsh(args, options = {}) {
+  const invocation = dshInvocation(args)
+  return spawn(invocation.command, invocation.args, options)
+}
+
+function spawnDshSync(args, options = {}) {
+  const invocation = dshInvocation(args)
+  return spawnSync(invocation.command, invocation.args, options)
 }
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-authoritative-acceptance-'))
@@ -211,35 +238,35 @@ function nilsEnvironment(kind) {
 }
 
 function installProfile(profile, runtimePackage, includeCanary = true) {
-  run(pnpmBin, [
-    'dsh', 'plugin', '--profile', profile, 'add', '--offline', '--save-exact', runtimePackage,
+  runDsh([
+    'plugin', '--profile', profile, 'add', '--offline', '--save-exact', runtimePackage,
   ])
   if (includeCanary) {
-    run(pnpmBin, [
-      'dsh', 'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
+    runDsh([
+      'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
     ])
   }
 }
 
 function installUnpatchedProfile(profile) {
-  run(pnpmBin, [
-    'dsh', 'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
+  runDsh([
+    'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
   ])
 }
 
 function installMismatchProfile(profile, runtimePackage) {
-  run(pnpmBin, [
-    'dsh', 'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
+  runDsh([
+    'plugin', '--profile', profile, 'add', '--offline', '--save-exact', canaryPackage,
   ])
-  run(pnpmBin, [
-    'dsh', 'plugin', '--profile', profile, 'add', '--offline', '--save-exact', runtimePackage,
+  runDsh([
+    'plugin', '--profile', profile, 'add', '--offline', '--save-exact', runtimePackage,
   ])
 }
 
 function runPhase(profile, selectedPhase, selectedSession, kind = 'candidate') {
   const processInstance = processIdentity(selectedPhase)
   const executionDeadline = Date.now() + SCENARIO_CANARY_EXECUTION_TIMEOUT_MS
-  const result = run(pnpmBin, ['dsh', '--profile', profile], {
+  const result = runDsh(['--profile', profile], {
     // The canary deadline shares this process launch origin. Preserve a later
     // supervisor boundary for failure/receipt flush, disposal, and host exit.
     timeout: SCENARIO_CANARY_PROCESS_TIMEOUT_MS,
@@ -266,7 +293,7 @@ async function crashPhase(profile, selectedSession) {
   rmSync(crashMarker, { force: true })
   const processInstance = processIdentity('crash-start')
   const executionDeadline = Date.now() + SCENARIO_CANARY_EXECUTION_TIMEOUT_MS
-  const child = spawn(pnpmBin, ['dsh', '--profile', profile], {
+  const child = spawnDsh(['--profile', profile], {
     cwd: dshRoot,
     env: {
       ...baseEnvironment,
@@ -456,7 +483,7 @@ digest = ${JSON.stringify(policyDigest)}
     writeFileSync(mismatchCompanion, '#!/bin/sh\nexit 99\n', { mode: 0o500 })
     const mismatchProcess = processIdentity('candidate-old-provider-mismatch')
     enterStep('companion-identity-mismatch')
-    const mismatch = spawnSync(pnpmBin, ['dsh', '--profile', mismatchProfile], {
+    const mismatch = spawnDshSync(['--profile', mismatchProfile], {
       cwd: dshRoot,
       env: {
         ...baseEnvironment,

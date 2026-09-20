@@ -13,6 +13,7 @@ import {
   finalizeScenarioCanary,
   startScenarioCanaryWhenReady,
 } from './fixtures/authoritative-acceptance-canary/receipt-output.js'
+import { authoritativeDshInvocation } from './fixtures/authoritative-dsh-launcher.js'
 
 const fixtureManifest = new URL('./fixtures/authoritative-acceptance-canary/package.json', import.meta.url)
 
@@ -534,6 +535,51 @@ test('the process supervisor outlives the canary-wide execution deadline', async
   const runIndex = canary.indexOf('const run = async')
   assert.ok(controllerIndex >= 0 && controllerIndex < runIndex)
   assert.doesNotMatch(canary, /setTimeout\([\s\S]*SCENARIO_CANARY_EXECUTION_TIMEOUT_MS/u)
+})
+
+test('authoritative acceptance selects the release-matched DSH host launcher', () => {
+  const args = ['--profile', 'authoritative-unpatched']
+  assert.deepEqual(authoritativeDshInvocation({
+    dshVersion: '0.1.6-alpha.2',
+    nodeBin: '/trusted/node',
+    dshBin: '/reviewed/apps/cli/lib/bin.js',
+    pnpmBin: '/trusted/pnpm',
+    args,
+  }), {
+    command: '/trusted/node',
+    args: ['/reviewed/apps/cli/lib/bin.js', ...args],
+  })
+  assert.deepEqual(authoritativeDshInvocation({
+    dshVersion: '0.1.5-alpha.2',
+    nodeBin: '/trusted/node',
+    dshBin: '/reviewed/apps/cli/lib/bin.js',
+    pnpmBin: '/trusted/pnpm',
+    args,
+  }), {
+    command: '/trusted/pnpm',
+    args: ['dsh', ...args],
+  })
+  assert.throws(() => authoritativeDshInvocation({
+    dshVersion: '0.1.7-alpha.1',
+    nodeBin: '/trusted/node',
+    dshBin: '/reviewed/apps/cli/lib/bin.js',
+    pnpmBin: '/trusted/pnpm',
+    args,
+  }), /unsupported authoritative acceptance DSH version/u)
+
+  const supervisor = readFileSync(
+    new URL('./authoritative-acceptance-smoke.ts', import.meta.url),
+    'utf8',
+  )
+  assert.match(supervisor, /authoritativeDshInvocation\(\{/u)
+  assert.match(supervisor, /runDsh\(\[\s*'plugin', '--profile', profile/u)
+  assert.match(supervisor, /runDsh\(\['--profile', profile\]/u)
+  assert.match(supervisor, /spawnDsh\(\['--profile', profile\]/u)
+  assert.match(
+    supervisor,
+    /spawnDshSync\(\['--profile', mismatchProfile\]/u,
+  )
+  assert.doesNotMatch(supervisor, /(?:run|spawn|spawnSync)\(pnpmBin, \['dsh'/u)
 })
 
 test('a late canary start receives only its process-origin execution budget', async () => {
