@@ -357,6 +357,19 @@ function reviewedDshRevision(version: unknown) {
   return release.revision
 }
 
+function retiredOperationsDshRevision(version: unknown) {
+  if (typeof version !== 'string' || !plainRecord(DSH_COMPATIBILITY.retired_operations_toolchains)) return null
+  const release = DSH_COMPATIBILITY.retired_operations_toolchains[version]
+  if (!plainRecord(release)
+    || Object.keys(release).sort().join(',') !== 'cordis,ref,revision'
+    || typeof release.cordis !== 'string'
+    || !EXACT_VERSION_PATTERN.test(release.cordis)
+    || release.ref !== `refs/tags/dsh-v${version}`
+    || typeof release.revision !== 'string'
+    || !/^[a-f0-9]{40}$/.test(release.revision)) return null
+  return release.revision
+}
+
 function validateProfile(profile: string) {
   if (!PROFILE_PATTERN.test(profile)) {
     throw new OperationsError('invalid-profile', 'profile must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}', 64)
@@ -1881,7 +1894,7 @@ function planFor(operation: string, profile: string, actual: ReturnType<typeof r
   return { plan, plan_digest: sha256(stableJson(plan)) }
 }
 
-function validatePlan(value: unknown, profile: string) {
+function validatePlan(value: unknown, profile: string, options: {allowRetiredToolchain?: boolean} = {}) {
   if (!plainRecord(value) || value.schema_version !== PLAN_SCHEMA || value.profile !== profile
     || value.package_name !== PACKAGE_NAME || typeof value.operation !== 'string'
     || typeof value.action !== 'string' || !plainRecord(value.observed)
@@ -1909,7 +1922,7 @@ function validatePlan(value: unknown, profile: string) {
       || (typeof value.observed.state_digest === 'string' && DIGEST_PATTERN.test(value.observed.state_digest)))) {
     throw new OperationsError('invalid-operations-state', 'operations state contains an invalid reviewed plan')
   }
-  validateToolchain(value.toolchain)
+  validateToolchain(value.toolchain, options)
   validatePlanLifecycle(value.lifecycle)
   const actions = {
     setup: ['install', 'noop'],
@@ -1963,7 +1976,10 @@ function validateAppliedReceipt(value: unknown, profile: string) {
     ].includes(key))) {
     throw new OperationsError('invalid-operations-state', 'runtime-kit last-applied receipt is invalid')
   }
-  const plan = validatePlan(value.plan, profile)
+  // A completed receipt may name the exact predecessor that created the
+  // current authenticated state. It is historical evidence only: pending
+  // operations and every newly resolved toolchain still use the active window.
+  const plan = validatePlan(value.plan, profile, { allowRetiredToolchain: true })
   if (plan.operation !== value.operation || sha256(stableJson(plan)) !== value.plan_digest) {
     throw new OperationsError('invalid-operations-state', 'last-applied receipt does not match its reviewed plan')
   }
@@ -2263,7 +2279,11 @@ function assertTrustedExecutableAncestors(executable: string) {
   }
 }
 
-function validateToolchain(value: unknown) {
+function validateToolchain(value: unknown, options: {allowRetiredToolchain?: boolean} = {}) {
+  const reviewedRevision = plainRecord(value) && plainRecord(value.dsh)
+    ? reviewedDshRevision(value.dsh.version)
+      ?? (options.allowRetiredToolchain ? retiredOperationsDshRevision(value.dsh.version) : null)
+    : null
   if (!plainRecord(value) || !plainRecord(value.dsh) || !plainRecord(value.pnpm)
     || Object.keys(value).sort().join(',') !== 'dsh,pnpm'
     || Object.keys(value.dsh).sort().join(',') !== 'executable,executable_sha256,source_revision,version'
@@ -2272,8 +2292,8 @@ function validateToolchain(value: unknown) {
     || typeof value.dsh.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.dsh.executable_sha256)
     || typeof value.dsh.version !== 'string'
     || typeof value.dsh.source_revision !== 'string' || !/^[a-f0-9]{40}$/.test(value.dsh.source_revision)
-    || reviewedDshRevision(value.dsh.version) === null
-    || reviewedDshRevision(value.dsh.version) !== value.dsh.source_revision
+    || reviewedRevision === null
+    || reviewedRevision !== value.dsh.source_revision
     || typeof value.pnpm.executable !== 'string' || !isAbsolute(value.pnpm.executable)
     || typeof value.pnpm.executable_sha256 !== 'string' || !DIGEST_PATTERN.test(value.pnpm.executable_sha256)
     || typeof value.pnpm.version !== 'string' || !EXACT_VERSION_PATTERN.test(value.pnpm.version)) {

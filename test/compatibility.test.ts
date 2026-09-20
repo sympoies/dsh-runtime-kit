@@ -112,6 +112,13 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
       cordis: '4.0.2',
     },
   })
+  assert.deepEqual(manifest.retired_operations_toolchains, {
+    '0.1.2-rc.1': {
+      ref: 'refs/tags/dsh-v0.1.2-rc.1',
+      revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
+      cordis: '4.0.1',
+    },
+  })
   const patchManifest = validateDshPatchManifest(
     JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8')),
   )

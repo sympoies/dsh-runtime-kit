@@ -28,6 +28,13 @@ const SUPPORTED_DSH_RELEASES = Object.freeze({
     cordis: '4.0.2',
   }),
 })
+const RETIRED_OPERATIONS_TOOLCHAINS = Object.freeze({
+  '0.1.2-rc.1': Object.freeze({
+    ref: 'refs/tags/dsh-v0.1.2-rc.1',
+    revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
+    cordis: '4.0.1',
+  }),
+})
 const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
 const SUPPORTED_CORDIS_RELEASES = Object.freeze(['4.0.2'])
 const SUPPORTED_CORDIS_VERSION_RANGE = SUPPORTED_CORDIS_RELEASES.join(' || ')
@@ -214,6 +221,18 @@ export function validateDshCompatibilityManifest(input: unknown) {
     throw new DshCompatibilityError(
       'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
       'DSH validated releases do not match the reviewed release set',
+    )
+  }
+  if (!sameRecord(
+    requireRecord(
+      manifest.retired_operations_toolchains,
+      'DSH retired operations toolchains are missing',
+    ),
+    RETIRED_OPERATIONS_TOOLCHAINS,
+  )) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH retired operations toolchains do not match the reviewed predecessor set',
     )
   }
   const packages = requireRecord(manifest.public_packages, 'DSH public package contracts are missing')

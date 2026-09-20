@@ -646,6 +646,13 @@ another installed `@sympoies/dsh-runtime-kit` tree that carries
 candidate inside the acceptance sandbox, whose source checkout has no installed
 dependencies — and the receipt records which engine root and version ran.
 
+The rolling DSH release window applies to every new plan, health check, and
+pending-operation recovery. A completed `last_applied` receipt may retain an
+exact toolchain listed in `compatibility/dsh.json#retired_operations_toolchains`
+so a current engine can authenticate the predecessor state while planning its
+replacement. That declaration does not admit the retired DSH to setup, update,
+rollback, health, or a new receipt.
+
 ## Runtime assets and state
 
 The package copies its DSH policy and compact `agent-docs/` catalog into a
