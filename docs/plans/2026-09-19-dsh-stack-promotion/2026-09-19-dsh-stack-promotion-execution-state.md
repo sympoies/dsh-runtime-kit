@@ -8,12 +8,12 @@
 - Profile: tracking
 - Plan branch: `feat/support-dsh-0-1-6-alpha-2`
 - Current sprint: Sprint 2
-- Status: validating
-- Current task: Task 2.3
-- Next task: governed commit, independent review, PR delivery, then headless release/deployment handoff
-- Blockers: none for repository delivery; hosted headless deployment still requires infrastructure-owned lane-isolation read-back
-- Last updated: 2026-09-20
-- Branch/commit/PR: `feat/support-dsh-0-1-6-alpha-2`; uncommitted candidate; PR pending
+- Status: complete
+- Current task: complete
+- Next task: none
+- Blockers: none
+- Last updated: 2026-09-22
+- Branch/commit/PR: sympoies/dsh-runtime-kit#259 merged (<https://github.com/sympoies/dsh-runtime-kit/pull/259>)
 
 ## Task Ledger
 
@@ -24,7 +24,7 @@
 | 1.3 | Record the deferred dsh-TUI alpha.2 handoff | done | public clean-profile reproduction and human-submission draft in `dsh-tui-0-1-6-alpha-2-handoff-draft.md` | Deferred workbench input; not a headless dependency |
 | 2.1 | Freeze the excluded workbench lane | done | candidate peers exclude rc.1, CI omits TUI mutation smoke, and operations rejects mismatched `dsh-tui` mutation | Existing workbench generation remains untouched |
 | 2.2 | Freeze and prove one immutable runtime-kit artifact | done | routine gate passed; build provenance is current; packed candidate SHA-256 `4ceced4c2318229823010bc20de3a2568a04f7b1d949832b594716c7e1240eae` with 1,292 entries; routine gate, build provenance, and candidate package SHA-256 passed | Headless only |
-| 2.3 | Deliver, deploy the new generation, and close strictly | in-progress | local validation passed; governed commit, review, PR, release, and hosted receipts pending; local validation passed; governed delivery pending | Deployment remains an infrastructure-owned authorized mutation |
+| 2.3 | Deliver, deploy the new generation, and close strictly | done | runtime-kit PR 259; infra PR serenvia/sympoies-infra#812; hosted acceptance run 35782696987 passed; host CLI and sympoies-bot live on DSH 0.1.6-alpha.2 | Host CLI and sympoies-bot deployed; dsh-notify and reviewer follow up in serenvia/sympoies-infra#815 |
 
 ## Validation Log
 
@@ -46,9 +46,4 @@
 
 ## Handoff
 
-- Sprint 1 and the workbench-freeze boundary are complete in the existing
-  managed worktree. Continue with the headless artifact gate, governed delivery,
-  and hosted headless deployment. Before apply, the infrastructure owner must
-  prove headless and workbench do not share mutable DSH/profile/runtime/
-  activation state; after apply, read back headless health and unchanged
-  workbench identity.
+- Tracking issue <https://github.com/sympoies/dsh-runtime-kit/issues/252> is closed; terminal execution state is synchronized. No closeout or merge action remains.
