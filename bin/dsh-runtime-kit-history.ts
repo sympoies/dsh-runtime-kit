@@ -34,12 +34,25 @@ function option(args: string[], name: string, required = false) {
   return value
 }
 
+/** The pinned 0.1.6 JSONL backend encodes file mtime in its opaque revision. */
+function currentGenerationModifiedAt(revision: unknown): number {
+  const fields = String(revision).split(':')
+  if (fields.length !== 5 || fields.some(field => !/^\d+$/u.test(field))) {
+    throw new Error('unsupported DSH 0.1.6 session revision')
+  }
+  const milliseconds = Number(BigInt(fields[3]) / 1_000_000n)
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+    throw new Error('invalid DSH 0.1.6 session modification time')
+  }
+  return milliseconds
+}
+
 async function createBackend(root: string, compression: string): Promise<{ backend: DshHistoryBackend, dispose(): Promise<void> }> {
   const load = (specifier: string) => import(specifier)
   const [
     { Context },
     { SessionStore, foldSurface },
-    { JsonlSessionPersistence },
+    persistenceModule,
     { SessionQueryEngine },
     { foldSessionTitle },
   ] = await Promise.all([
@@ -49,6 +62,7 @@ async function createBackend(root: string, compression: string): Promise<{ backe
     load('@deepseek-ai/dsh-session-query'),
     load('@deepseek-ai/dsh-session-title'),
   ])
+  const JsonlSessionPersistence = persistenceModule.JsonlSessionPersistence ?? persistenceModule.default
   class ReadOnlySessionQuery extends SessionQueryEngine {
     async searchSessions() { throw new Error('full-text search is not supported by the history adapter') }
     async searchEvents() { throw new Error('full-text search is not supported by the history adapter') }
@@ -62,6 +76,14 @@ async function createBackend(root: string, compression: string): Promise<{ backe
   return {
     backend: {
       listSnapshots: async signal => {
+        if (typeof persistence.listSnapshots !== 'function') {
+          const snapshots = await persistence.list({ signal })
+          return snapshots.map((snapshot: any) => ({
+            header: snapshot.header,
+            revision: String(snapshot.revision),
+            updatedAt: currentGenerationModifiedAt(snapshot.revision),
+          }))
+        }
         const snapshots = await persistence.listSnapshots(signal)
         const listed = []
         for (let index = 0; index < snapshots.length; index += 32) {
@@ -84,7 +106,12 @@ async function createBackend(root: string, compression: string): Promise<{ backe
         return listed
       },
       readSummarySnapshots: (ids, signal) => readDshHistorySummarySnapshots(ids, {
-        inspect: (sessionId, inspectSignal) => persistence.inspect(sessionId, inspectSignal),
+        inspect: async (sessionId, inspectSignal) => {
+          inspectSignal?.throwIfAborted()
+          return typeof persistence.inspect === 'function'
+            ? persistence.inspect(sessionId, inspectSignal)
+            : query.readSession(sessionId)
+        },
         foldSurface: events => foldSurface(events).nodes,
         foldTitle: events => foldSessionTitle(events)?.title,
       }, signal),
