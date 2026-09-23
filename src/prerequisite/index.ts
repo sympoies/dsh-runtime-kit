@@ -111,6 +111,15 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
     }
   }
 
+  async function requireMatchingProjectPath(exec: Readonly<ToolExecution>, record: PendingPrerequisite) {
+    if (resolveProjectPath === undefined) return
+    try {
+      if (await resolveProjectPath(exec, record.correlation.cwd) === record.projectPath) return
+    } catch {}
+    pending.delete(exec)
+    throw new Error('dsh-runtime-kit:prerequisite-binding-invalid:project-path-changed')
+  }
+
   async function beforeBody(exec: ToolRunContext, record: PendingPrerequisite, phase: 'dispatch' | 'body') {
     if (phase !== 'dispatch' && phase !== 'body') {
       pending.delete(exec)
@@ -170,6 +179,7 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
       )
     }
     requireMatchingRecord(exec, record)
+    await requireMatchingProjectPath(exec, record)
     record.receipt = verified.receipt
     record.documents = verified.reason === 'pending' ? verified.documents : []
     record.verified = true

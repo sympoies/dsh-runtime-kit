@@ -1741,6 +1741,62 @@ test('all five default mutator names bind the exact visible definition automatic
   }
 })
 
+test('last-mile prerequisite rejects a verified worktree target that drifted after begin', async () => {
+  const definition = Object.freeze({ name: 'write' })
+  const session = { header: { id: 'session-target-drift', cwd: '/tmp' } }
+  const agent = { id: session.header.id, session }
+  const exec = {
+    token: Symbol('target-drift'),
+    callId: 'target-drift',
+    rootCallId: 'target-drift',
+    name: 'write',
+    arguments: Object.freeze({ file_path: '/tmp/worktree-a/file', content: 'value' }),
+    agent,
+    signal: new AbortController().signal,
+  }
+  let bound
+  let target = '/tmp/worktree-a'
+  let policyChecks = 0
+  const coordinator = createPrerequisiteCoordinator({
+    tools: {
+      get(name, candidateAgent) {
+        return name === 'write' && candidateAgent === agent ? definition : undefined
+      },
+      bindPrerequisite(_exec, _definition, prerequisite) {
+        bound = prerequisite
+      },
+    },
+  }, {
+    async beginPrerequisite() {
+      return { reason: 'pending', receipt: 'receipt-stable', documents: [] }
+    },
+    async commitPrerequisite() {
+      assert.fail('a drifted target must not commit')
+    },
+  }, createUserMessage, async () => {
+    policyChecks += 1
+    return undefined
+  }, async () => target)
+
+  await coordinator.begin(exec, {
+    sessionId: session.header.id,
+    cwd: session.header.cwd,
+    turn: 1,
+    step: 1,
+    callId: exec.callId,
+    name: exec.name,
+  })
+  assert.ok(bound)
+  target = '/tmp/worktree-b'
+  await assert.rejects(
+    bound.beforeBody(exec, 'dispatch'),
+    /prerequisite-binding-invalid:project-path-changed/,
+  )
+  assert.equal(policyChecks, 0)
+  assert.equal(coordinator.pending, 0)
+  coordinator.dispose()
+})
+
 test('dispatch refuses a changed prerequisite receipt before an execute wrapper can mutate', async () => {
   const definition = Object.freeze({ name: 'write' })
   const session = { header: { id: 'session-dispatch-policy', cwd: '/tmp' } }
