@@ -1943,7 +1943,7 @@ const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === und
       })}
 const smokeRoute = ${JSON.stringify(agentConsoleTuiPackage === undefined
     ? { provider: 'runtime-kit-smoke', model: 'scripted' }
-    : { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' })}
+    : { provider: 'codex-proxy', model: 'gpt-6-sol', reasoningEffort: 'high' })}
 
 export const name = 'dsh-runtime-kit-smoke-driver'
 // Cordis inject is required-only, so listing the orchestration service here
@@ -3372,7 +3372,7 @@ ${legacyCodeRuntimeEntry}
     )
     assert.deepEqual(
       receipt.agentConsoleInspection.controller_route,
-      { provider: 'codex-proxy', model: 'gpt-5.6-sol', reasoningEffort: 'high' },
+      { provider: 'codex-proxy', model: 'gpt-6-sol', reasoningEffort: 'high' },
     )
     assert.deepEqual(
       receipt.agentConsoleInspection.worker_route,
@@ -4538,7 +4538,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     agentConsoleSolInheritanceVerified: agentConsoleTuiPackage === undefined
       ? false
       : receipt.agentConsoleInspection.worker_route.provider === 'codex-proxy'
-        && receipt.agentConsoleInspection.worker_route.model === 'gpt-5.6-sol'
+        && receipt.agentConsoleInspection.worker_route.model === 'gpt-6-sol'
         && receipt.agentConsoleInspection.worker_route.reasoningEffort === 'high',
     externalProviderMutationAttempted: false,
     nilsCompatibilityStatus: nilsCompatibility.status,
