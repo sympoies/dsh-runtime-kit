@@ -215,6 +215,22 @@ test('workspace ref is opaque, non-bearer, and bound to one exact live agent', a
   await assert.rejects(ctx.workspaceLease.state(other, ref), WorkspaceLeaseInvalidRefError)
 })
 
+test('workspace lease binds an agent published before the service activates', async () => {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  const owner = stubAgent('already-live')
+  publish(ctx, owner)
+  await ctx.plugin(WorkspaceLease)
+  const { selected, calls } = provider()
+  ctx.workspaceLease.registerProvider(selected)
+
+  const ref = await ctx.workspaceLease.ref(owner)
+  assert.equal(await ctx.workspaceLease.state(owner, ref), 'owned')
+  assert.equal(calls.bind.length, 1)
+})
+
 test('the session anchor is context: a non-repository anchor owns no repository lease', async () => {
   const { selected, calls } = provider()
   const ctx = await harness(selected)

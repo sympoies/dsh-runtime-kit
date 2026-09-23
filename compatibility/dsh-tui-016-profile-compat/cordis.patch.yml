@@ -1,0 +1,6 @@
+# dsh-TUI 0.10.2 disables this legacy entry by id. DSH 0.1.6 removed it, so
+# its bundle patch needs an inert target before that bundle is composed.
+- insert:
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-tool-workflow'
+      disabled: true

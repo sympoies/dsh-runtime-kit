@@ -103,6 +103,24 @@ test('reports the adapter schema and refuses a drifted DSH composition', () => {
   )
 })
 
+test('reports 0.1.6-alpha.2 history when every package matches that release', () => {
+  const versions = Object.fromEntries([
+    '@deepseek-ai/dsh-session',
+    '@deepseek-ai/dsh-session-persistence-jsonl',
+    '@deepseek-ai/dsh-session-query',
+    '@deepseek-ai/dsh-session-title',
+  ].map(name => [name, '0.1.6-alpha.2']))
+  assert.deepEqual(dshHistoryCapabilities(versions), {
+    adapter_schema: 'dsh-runtime-kit.history.v1',
+    session_format: 'dsh-session@0.1.6-alpha.2',
+    operations: ['list', 'summaries', 'messages'],
+  })
+  assert.throws(
+    () => dshHistoryCapabilities({ ...versions, '@deepseek-ai/dsh-session-query': '0.1.5-alpha.2' }),
+    /unsupported DSH history package version/,
+  )
+})
+
 test('lists only top-level sessions without reading transcript bodies', async () => {
   const subject = backend()
   let surfaceReads = 0

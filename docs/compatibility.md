@@ -5,7 +5,7 @@ The supported runtime is deliberately exact:
 | Surface | Supported version |
 | --- | --- |
 | DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
-| Frozen Agent Console deployment (excluded from this candidate) | DSH `0.1.2-rc.1` + `@deepseek-harness-tui/dsh-tui@0.10.1` + runtime-kit revision `481f521f561b065ca8ec05da59be6415b837f75b` |
+| Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
@@ -147,26 +147,29 @@ runtime and smoke paths continue to authenticate only the released artifacts.
 Promotion removes the completed source-candidate record.
 
 [`compatibility/agent-console.json`](../compatibility/agent-console.json) owns
-the exact frozen non-headless Agent Console generation: ordered bundles, interaction/TUI
-and runtime-kit surfaces, default Sol route, and the sandbox/approval/credential
-authority facts a sanitized live observation must prove. The current candidate
-artifact is not an install target for that generation: its peer window excludes
-the generation's DSH release. The contract remains packaged as a fail-closed
-observation and mutation boundary; it does not broaden the generic DSH version
-range or authorize another custom profile.
+the exact candidate Agent Console generation: DSH `0.1.6-alpha.2`, pristine
+dsh-TUI `0.10.2`, the ordered four-bundle profile, default Sol route, and the
+sandbox/approval/credential authority facts a sanitized live observation must
+prove. The running Agent Console remains on its older generation until its
+whole host profile is promoted. The new artifact's peer window excludes that
+older DSH release and does not authorize another custom profile.
 The TUI pin includes the exact package specifier, source tag and tag-ref type,
-source revision, npm tarball URL, SRI, and shasum. The 0.10.1 release uses a
-lightweight tag whose ref points directly at the recorded commit, rather than
-the annotated tag object used by the prior 0.9.3 boundary. The stable line
+source revision, npm tarball URL, SRI, and shasum. The 0.10.2 release uses an
+annotated tag that resolves to the recorded source commit. The stable line
 closes the 0.10 interaction and plugin surfaces, adds terminal image rendering
 with its Kitty/Sixel probe and text fallback, and includes both #593's
 asynchronous history persistence and the live-Session compatibility facade;
 these remain upstream TUI behaviors rather than runtime-kit patches. The
-narrowed package repair recorded in `compatibility/dsh-tui-patches.json` now
-does exactly one thing: migrate retained, owner-owned history data to private
-modes before reading it, refusing unexpected or symlinked paths. DSH alpha.4
-natively provides the package-inventory plugin, so the former rc.2-only TUI
-configuration removal is no longer applied.
+candidate keeps the TUI package byte-for-byte pristine. A consumer-owned
+launch preflight migrates retained, owner-owned history data to private modes
+before TUI reads it, refusing unexpected or symlinked paths. The profile
+compatibility bundle supplies a disabled legacy workflow row and the profile
+patch disables TUI's obsolete code-runtime row; neither changes TUI bytes.
+The npm tarball contains 1,880 files, including 102 under its top-level
+`node_modules`. pnpm owns that installed dependency directory and may replace
+its contents. The pristine inspector therefore hashes all 1,778 other
+published files against a digest derived from the authenticated tarball; the
+consumer's frozen graph separately verifies installed dependency versions.
 
 The stable line also introduces two image-decoding dependencies absent from the
 outgoing `0.10.0-beta.4` pin: `sixel` as a required `dependencies` entry and
@@ -177,35 +180,16 @@ denials are unchanged by this promotion. 0.10.1 adds no dependency of its own:
 its adapter and channel refactor, default context bar, and long-line transcript
 folding are internal to the already-installed closure.
 
-Separately, adding a later bundle to a composed `dsh-tui` profile can discard
-an already-applied installed-package repair, because `dsh plugin add`
-re-materializes the profile's package tree. This is **not** specific to the
-0.10 line: it reproduces on `0.10.0-beta.4` and on `0.10.1` alike. What decides
-it is whether the TUI package is already materialized in the resolved pnpm
-store — with the package present the repair survived the later add, and with it
-freshly fetched into that store the next add re-materialized the package and
-discarded the repair. A promotion note in an earlier revision of this document
-attributed the discard to the 0.10 line; that attribution was wrong and is
-corrected here. How this interacts with CI versus a workstation is deliberately
-not claimed: the store-state dependence is established, the divergence between
-those two surfaces is not.
+The previous 0.10.1 generation repaired an installed TUI history file after
+every profile mutation because `dsh plugin add` can re-materialize package
+bytes. That repair remains a rollback-only path. The 0.10.2 candidate's doctor
+checks the reviewed pristine package identity and rejects local edits.
 
-[`docs/operations.md`](operations.md) encodes the consequence as an ordering and
-re-apply rule, and `doctor` enforces it: on the `dsh-tui` profile it
-authenticates the installed package and digests each patch target, so a
-reverted repair reports `needs-attention` instead of passing as healthy. That
-check is read-only and shares the reviewed manifest with the patch manager, so
-it cannot admit a release or target the manager would refuse. Enforcement
-matters more than the guidance precisely because the discard is store-state
-dependent and therefore not reliably reproducible by an operator.
-
-0.10.1 widened its DSH peer ranges through the `0.1.5` line, but does not admit
-`0.1.6-alpha.2`. The Agent Console deployment therefore remains on its exact
-DSH `0.1.2-rc.1` generation and previous runtime-kit artifact while this
-candidate advances only the generic/headless lane. A TUI peer edit alone never
-authorizes promotion: an exact released TUI artifact, authenticated
-composition, complete workbench-generation update, and rollback evidence are
-required before that lane advances.
+0.10.2's peer declaration still ends before `0.1.6-alpha.2`, so TUI displays
+its unverified-version warning. The user accepted that warning only if the
+exact pair passes functional validation. The candidate's authenticated
+composition and smoke cover the runtime-kit lane; the Agent Console host
+generation and rollback still require their own acceptance before deployment.
 Controller and lane tools are separate surfaces: the controller must not expose
 `main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
 forbidden from the controller's lane-management tools.

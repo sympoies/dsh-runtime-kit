@@ -17,9 +17,9 @@ provider read-back into one promotion result.
   addon, and builds its pristine libraries for source compatibility evidence;
 - applies the authenticated execution-boundary patch, rebuilds DSH, and binds
   its typed patch receipt into the acceptance summary;
-- authenticates the exact Agent Console TUI artifact, applies its narrowed
-  legacy history-permission package repair, and proves upstream contended
-  history persistence cannot delay input dispatch;
+- authenticates the exact Agent Console TUI artifact and its installed
+  published file tree, runs the consumer-owned legacy history preflight, and
+  proves upstream contended history persistence cannot delay input dispatch;
 - runs operations and runtime scenarios from separate fresh package
   extractions;
 - executes each scenario in a bounded transient user-systemd control group;
@@ -46,8 +46,8 @@ Final `pass` additionally requires:
   addon inside the authenticated DSH build closure;
 - the exact reviewed DSH patch artifact, revision, target hashes, and patched
   state throughout every runtime scenario;
-- the exact reviewed TUI artifact and package-patch receipt for Agent Console
-  promotion;
+- the exact reviewed pristine TUI artifact and package-tree inspection for
+  Agent Console promotion;
 - a clean repository head bound to the tested package digest;
 - explicitly authorized semantic-commit and no-merge PR delivery; and
 - direct provider read-back correlated to the same run, repository, head,

@@ -3934,6 +3934,13 @@ test('malformed normalized decisions fail closed without delegating', async () =
   }
 })
 
+test('a warning without context is a valid nonblocking policy decision', async () => {
+  const subject = harness({ envelope: decision('warn') })
+  const { result, delegated } = await subject.invoke({ value: 41 })
+  assert.equal(result.kind, 'allow')
+  assert.equal(delegated, true)
+})
+
 test('oversized DSH ingress is denied before spawning agent-hook', async () => {
   const subject = harness()
   const { result, delegated } = await subject.invoke({

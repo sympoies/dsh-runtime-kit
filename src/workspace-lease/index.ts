@@ -440,6 +440,15 @@ export class WorkspaceLease extends Service {
     onDshSessionStart(ctx, ({ agent, source }) => {
       this.#sessionStarted(agent, source)
     })
+    // A TUI may publish its agent before the profile mounts this service.
+    // Reconcile the exact live registry once, preserving resume semantics for
+    // sessions that already carry durable events.
+    for (const agent of ctx.agents.list()) {
+      this.#sessionStarted(
+        agent,
+        agent.session.snapshotEvents().length > 0 ? 'resume' : 'startup',
+      )
+    }
     ctx.on('tools/pre-execute', (exec, next) => this.#preExecute(exec, next), { prepend: true })
     ctx.on('tools/execute', (exec, next) => this.#execute(exec, next), { prepend: true })
     ctx.on(

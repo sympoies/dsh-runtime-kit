@@ -1,7 +1,7 @@
 const PREVIEW_CHARS = 240
 const MESSAGE_CHARS = 16 * 1024
 const DSH_HISTORY_SCHEMA = 'dsh-runtime-kit.history.v1'
-const DSH_HISTORY_VERSION = '0.1.2-rc.1'
+const DSH_HISTORY_VERSIONS = new Set(['0.1.2-rc.1', '0.1.6-alpha.2'])
 
 export const DSH_HISTORY_PACKAGES = [
   '@deepseek-ai/dsh-session',
@@ -65,14 +65,17 @@ export type DshHistoryMessagePage = {
 }
 
 export function dshHistoryCapabilities(versions: Readonly<Record<string, string | undefined>>) {
+  const version = versions[DSH_HISTORY_PACKAGES[0]]
   for (const packageName of DSH_HISTORY_PACKAGES) {
-    if (versions[packageName] !== DSH_HISTORY_VERSION) {
+    if (version === undefined
+      || !DSH_HISTORY_VERSIONS.has(version)
+      || versions[packageName] !== version) {
       throw new Error(`unsupported DSH history package version: ${packageName}`)
     }
   }
   return {
     adapter_schema: DSH_HISTORY_SCHEMA,
-    session_format: `dsh-session@${DSH_HISTORY_VERSION}`,
+    session_format: `dsh-session@${version}`,
     operations: ['list', 'summaries', 'messages'],
   }
 }

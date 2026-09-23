@@ -21,7 +21,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { parse as parseYaml } from 'yaml'
 
 import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
-import { inspectDshTuiRepair, manageDshTuiPatch } from '../dist/src/compat/dsh-tui-patch.js'
+import { inspectDshTuiPristine } from '../dist/src/compat/dsh-tui-pristine.js'
+import { prepareDshTuiHistory } from '../dist/src/compat/dsh-tui-history.js'
 import { fetchAuthenticatedAgentConsoleArtifact } from '../dist/src/compat/agent-console-artifact.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -95,15 +96,15 @@ const agentConsoleCompatibility = JSON.parse(
 )
 assert.equal(
   agentConsoleCompatibility.tui.specifier,
-  '@deepseek-harness-tui/dsh-tui@0.10.1',
+  '@deepseek-harness-tui/dsh-tui@0.10.2',
 )
 assert.equal(
   agentConsoleCompatibility.tui.source.revision,
-  '78081cebde1ee1b47a561ef57c04f128c5623476',
+  '9abb9101fbaead9dd37da28193618da5f07322c0',
 )
 assert.equal(
   agentConsoleCompatibility.tui.artifact.integrity,
-  'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
+  'sha512-jHAx/bYgvuMDnu7ivFPTdRll4c26dbAjE/eZht4fjbXvhBONHeF5nSC774ix3B5x6cl7hA5CU5CAuIhimSC2DA==',
 )
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
@@ -136,8 +137,8 @@ const dshRevision = selectedDshRelease.revision
 const dshPatchManifest = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
 )
-const dshTuiPatchManifest = JSON.parse(
-  readFileSync(join(projectRoot, 'compatibility', 'dsh-tui-patches.json'), 'utf8'),
+const dshTuiPristineManifest = JSON.parse(
+  readFileSync(join(projectRoot, 'compatibility', 'dsh-tui-pristine.json'), 'utf8'),
 )
 const initialDshCheckout = await manageDshPatch({
   action: 'check',
@@ -1297,6 +1298,7 @@ const result = spawnSync('timeout', [
 
 process.exit(result.status ?? 125)
 `, { mode: 0o700 })
+  const startedAt = Date.now()
   const result = spawnSync('script', ['-qefc', launcher, '/dev/null'], {
     cwd: dshRoot,
     env: { ...environment, TERM: 'xterm-256color' },
@@ -1306,9 +1308,11 @@ process.exit(result.status ?? 125)
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   const bytes = Buffer.byteLength(output)
   const sha256 = createHash('sha256').update(output).digest('hex')
-  assert.equal(
-    result.status,
-    124,
+  // GNU timeout reports 137 if the PTY process ignores TERM and the
+  // configured two-second kill grace expires. Both statuses prove it remained
+  // live for the eight-second observation window.
+  assert.ok(
+    [124, 137].includes(result.status ?? -1) && Date.now() - startedAt >= 7_500,
     `enabled dsh-tui did not stay live for the bounded PTY window (status=${result.status}, bytes=${bytes}, sha256=${sha256})`,
   )
   assert.ok(
@@ -1326,6 +1330,7 @@ process.exit(result.status ?? 125)
 function runAgentConsoleTuiHistoryLockSmoke(packageRoot) {
   const historyHome = join(temporaryRoot, 'tui-history-home')
   mkdirSync(join(historyHome, '.dsh-tui', 'history.jsonl.lock'), { recursive: true })
+  assert.deepEqual(prepareDshTuiHistory(historyHome), { directory_mode: 0o700, file_mode: null })
   const historyModule = pathToFileURL(join(packageRoot, 'lib/types/history.js')).href
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', `
 import { writeSync } from 'node:fs'
@@ -1359,6 +1364,7 @@ process.exit(0)
   writeFileSync(privateHistoryFile, '{"text":"legacy history sentinel","ts":1}\n', { mode: 0o644 })
   chmodSync(privateHistoryDir, 0o755)
   chmodSync(privateHistoryFile, 0o644)
+  assert.deepEqual(prepareDshTuiHistory(privateHome), { directory_mode: 0o700, file_mode: 0o600 })
   const privacyResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
  import { existsSync, statSync } from 'node:fs'
  import { readFile } from 'node:fs/promises'
@@ -1410,28 +1416,9 @@ process.stdout.write(JSON.stringify({
   writeFileSync(symlinkTarget, '{"text":"outside sentinel","ts":1}\n', { mode: 0o644 })
   chmodSync(symlinkTarget, 0o644)
   symlinkSync(symlinkTarget, symlinkHistoryFile)
-  const symlinkResult = spawnSync(process.execPath, ['--input-type=module', '--eval', `
-import { readFile, stat } from 'node:fs/promises'
-const { appendHistory, loadHistory } = await import(${JSON.stringify(historyModule)})
-const loaded = loadHistory()
-if (loaded.length !== 0) throw new Error('history symlink was read')
-await appendHistory('must not follow history symlink')
-const content = await readFile(${JSON.stringify(symlinkTarget)}, 'utf8')
-process.stdout.write(JSON.stringify({
-  content,
-  mode: (await stat(${JSON.stringify(symlinkTarget)})).mode & 0o777,
-}) + '\\n')
-`], {
-    cwd: packageRoot,
-    env: { ...environment, HOME: symlinkHome },
-    encoding: 'utf8',
-    timeout: 2_000,
-  })
-  assert.equal(symlinkResult.status, 0, symlinkResult.stderr)
-  assert.deepEqual(JSON.parse(symlinkResult.stdout), {
-    content: '{"text":"outside sentinel","ts":1}\n',
-    mode: 0o644,
-  })
+  assert.throws(() => prepareDshTuiHistory(symlinkHome), /unsafe history file/u)
+  assert.equal(readFileSync(symlinkTarget, 'utf8'), '{"text":"outside sentinel","ts":1}\n')
+  assert.equal(statSync(symlinkTarget).mode & 0o777, 0o644)
   return true
 }
 
@@ -1447,6 +1434,17 @@ function collectFiles(directory, prefix = '') {
 function collectDumpRowIds(dump) {
   return [...dump.matchAll(/^\s*- id:\s*['"]?([^'"\s#]+)['"]?\s*$/gmu)]
     .map(match => match[1])
+}
+
+function collectDumpDisabledRowIds(dump) {
+  const disabled = []
+  let id
+  for (const line of dump.split('\n')) {
+    const row = /^- id:\s*['"]?([^'"\s#]+)['"]?\s*$/u.exec(line)
+    if (row !== null) id = row[1]
+    else if (id !== undefined && /^  disabled: true\s*$/u.test(line)) disabled.push(id)
+  }
+  return disabled
 }
 
 try {
@@ -1628,6 +1626,7 @@ try {
     'policy.ts',
     'dist/bin/dsh-runtime-kit-launch.js',
     'dist/bin/dsh-runtime-kit.js',
+    'dist/bin/dsh-runtime-kit-tui-history.js',
     'dist/scripts/check-rule-parity-source.js',
     'dist/scripts/manage-dsh-patch.js',
     'dist/scripts/manage-dsh-tui-patch.js',
@@ -1635,6 +1634,8 @@ try {
     'src/compat/dsh-rc7.ts',
     'src/compat/agent-console.ts',
     'src/compat/agent-console-artifact.ts',
+    'src/compat/dsh-tui-pristine.ts',
+    'src/compat/dsh-tui-history.ts',
     'src/context/index.ts',
     'src/context/nils-context.ts',
     'src/finish-line/index.ts',
@@ -1659,6 +1660,9 @@ try {
     'compatibility/dsh.json',
     'compatibility/dsh-patches.json',
     'compatibility/dsh-tui-patches.json',
+    'compatibility/dsh-tui-pristine.json',
+    'compatibility/dsh-tui-016-profile-compat/package.json',
+    'compatibility/dsh-tui-016-profile-compat/cordis.patch.yml',
     'compatibility/agent-console.json',
     'compatibility/nils-cli.json',
     'scripts/benchmark-policy.ts',
@@ -1740,10 +1744,10 @@ try {
     'dsh-tui',
   )
   let agentConsoleTuiArtifactVerified = false
-  let agentConsoleTuiPatchVerified = false
+  let agentConsoleTuiPristineVerified = false
   let agentConsoleTuiHistoryNonblockingVerified = false
   let agentConsoleTuiLiveSessionFacadeVerified = false
-  let agentConsoleTuiRepairInspectionVerified = false
+  let agentConsoleTuiPristineInspectionVerified = false
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       agentConsoleTuiPackage,
@@ -1768,7 +1772,12 @@ try {
     // sequence created two package-tree materializations and reconciliation
     // snapshots; hosted acceptance observed the runtime-kit layer absent after
     // that sequence. One transaction gives the intended tuple one checkpoint.
-    runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive, tarball])
+    runDsh([
+      'plugin', '--profile', profile, 'add',
+      `file:${join(projectRoot, 'compatibility', 'dsh-tui-016-profile-compat')}`,
+      agentConsoleTuiArchive,
+      tarball,
+    ])
   } else {
     runDsh(['plugin', '--profile', profile, 'add', tarball])
   }
@@ -1776,26 +1785,30 @@ try {
     runDsh(['plugin', '--profile', nativeMainAgentProfile, 'add', tarball])
   }
 
-  const installedProfileManifest = JSON.parse(
-    readFileSync(join(profileDirectory, 'package.json'), 'utf8'),
-  )
+  const profileManifestPath = join(profileDirectory, 'package.json')
+  const installedProfileManifest = JSON.parse(readFileSync(profileManifestPath, 'utf8'))
+  if (agentConsoleTuiPackage !== undefined) {
+    // DSH's plugin command appends local file bundles after registry packages.
+    // Preserve the consumer-owned pre-TUI layer explicitly in the profile.
+    installedProfileManifest.dsh.profile.bundles = agentConsoleCompatibility.bundles
+    writeFileSync(profileManifestPath, `${JSON.stringify(installedProfileManifest, null, 2)}\n`, { mode: 0o600 })
+  }
   const installedBundles = installedProfileManifest.dsh?.profile?.bundles
   if (agentConsoleTuiPackage !== undefined) {
     assert.deepEqual(
       installedBundles,
-      [
-        '@deepseek-ai/dsh-base',
-        '@deepseek-harness-tui/dsh-tui',
-        '@sympoies/dsh-runtime-kit',
-      ],
-      'the atomic Agent Console install must declare the complete profile bundle tuple before TUI repair',
+      agentConsoleCompatibility.bundles,
+      'the atomic Agent Console install must declare the complete profile bundle tuple',
+    )
+    writeFileSync(
+      join(profileDirectory, 'cordis.patch.yml'),
+      '- id: dsh-tui-code-runtime\n  disabled: true\n',
+      { mode: 0o600 },
     )
   }
 
-  // The installed-package repair runs only after the profile's final bundle is
-  // added. This is the operator order too: atomically compose the complete
-  // profile, verify its declared tuple, then apply the repair before the first
-  // launch.
+  // The published TUI must remain byte-for-byte pristine after the complete
+  // profile transaction. Its legacy rows are handled by profile layers.
   if (agentConsoleTuiPackage !== undefined) {
     // The downstream `session.events` bridge was retired because the pinned TUI
     // resolves the live log through its own compatibility facade. Assert that
@@ -1832,53 +1845,22 @@ try {
     )
     agentConsoleTuiLiveSessionFacadeVerified = true
 
-    const appliedTuiPatch = await manageDshTuiPatch({
-      action: 'apply',
+    const pristineInspection = inspectDshTuiPristine({
       packageRoot: agentConsoleTuiPackageRoot,
-      patchRoot: projectRoot,
-      manifest: dshTuiPatchManifest,
-      gitBin: '/usr/bin/git',
+      manifest: dshTuiPristineManifest,
     })
-    assert.equal(appliedTuiPatch.before, 'pristine')
-    assert.equal(appliedTuiPatch.after, 'patched')
-    const checkedTuiPatch = await manageDshTuiPatch({
-      action: 'check',
-      packageRoot: agentConsoleTuiPackageRoot,
-      patchRoot: projectRoot,
-      manifest: dshTuiPatchManifest,
-      gitBin: '/usr/bin/git',
-    })
-    assert.equal(checkedTuiPatch.before, 'patched')
-    assert.equal(checkedTuiPatch.after, 'patched')
-    assert.equal(checkedTuiPatch.changed, false)
+    assert.equal(pristineInspection.status, 'pristine')
+    assert.equal(pristineInspection.ok, true)
+    agentConsoleTuiPristineVerified = true
     agentConsoleTuiHistoryNonblockingVerified = runAgentConsoleTuiHistoryLockSmoke(
       agentConsoleTuiPackageRoot,
     )
-
-    // The positive direction of the doctor check, against the SHIPPED manifest
-    // and the real installed package. Every other test covers only the failing
-    // statuses, or reaches `patched` through a synthetic fixture manifest, so
-    // without this a drift between `compatibility/dsh-tui-patches.json` and the
-    // authenticated release would make `doctor --profile dsh-tui` report
-    // `needs-attention` forever on a correctly repaired profile while the whole
-    // suite stayed green. This asserts the manifest-to-bytes agreement only;
-    // the doctor wiring itself is covered in test/operations.test.ts.
-    const repairInspection = inspectDshTuiRepair({
-      packageRoot: agentConsoleTuiPackageRoot,
-      manifest: dshTuiPatchManifest,
-    })
-    assert.equal(
-      repairInspection.status,
-      'patched',
-      `the shipped patch manifest must report the repaired package as patched (${repairInspection.error ?? 'no error'})`,
-    )
-    assert.equal(repairInspection.ok, true)
-    assert.equal(repairInspection.version, agentConsoleCompatibility.tui.version)
-    agentConsoleTuiRepairInspectionVerified = true
+    agentConsoleTuiPristineInspectionVerified = true
   }
 
   const dump = runDsh(['--profile', profile, '--dump-config']).stdout
   const composedRowIds = collectDumpRowIds(dump)
+  const composedDisabledRowIds = collectDumpDisabledRowIds(dump)
   assert.match(dump, /# == @sympoies\/dsh-runtime-kit/)
   assert.match(dump, /id: dsh-runtime-kit/)
   assert.match(dump, /name: '@sympoies\/dsh-runtime-kit'/)
@@ -1926,11 +1908,9 @@ try {
   ).href
   // The TUI driver runs from the installed profile and must read the scope tag
   // through that composition's package instance.  Importing the source-tree
-  // copy here creates a second private scope symbol when the hoisted profile
-  // supplies DSH packages, so a genuinely scoped agent appears unscoped.
-  const scopeModuleSpecifier = agentConsoleTuiPackage === undefined
-    ? pathToFileURL(join(dshRoot, 'packages', 'core', 'scope', 'lib', 'index.js')).href
-    : '@deepseek-ai/dsh-scope'
+  // The smoke starts DSH from this source checkout. Resolve the scope symbol
+  // from that same host graph, including when its profile uses installed bundles.
+  const scopeModuleSpecifier = pathToFileURL(join(dshRoot, 'packages', 'core', 'scope', 'src', 'index.ts')).href
   const lifecycleModuleSpecifier = agentConsoleTuiPackage === undefined
     ? pathToFileURL(join(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle.js')).href
     : '@sympoies/dsh-runtime-kit/dsh-agent-lifecycle'
@@ -1957,9 +1937,9 @@ const agentConsoleProfileFacts = ${JSON.stringify(agentConsoleTuiPackage === und
         profile,
         dsh: { version: dshManifest.version, revision: dshRevision },
         tui: { package: '@deepseek-harness-tui/dsh-tui', version: installedTuiVersion },
-        runtimeKit: agentConsoleCompatibility.runtime_kit,
         bundles: installedBundles,
         rowIds: composedRowIds,
+        disabledRowIds: composedDisabledRowIds,
       })}
 const smokeRoute = ${JSON.stringify(agentConsoleTuiPackage === undefined
     ? { provider: 'runtime-kit-smoke', model: 'scripted' }
@@ -2809,9 +2789,11 @@ export function apply(ctx) {
       // official agent preset. Read through the composed agent scope so this
       // receipt proves the same catalog the model sees, while headless keeps
       // resolving its equivalent global catalog.
+      const agentScope = scopeOf(agent.ctx)
+      if (agentScope === undefined) throw new Error('smoke agent scope was not mounted')
       const skillOptions = {
         cwd: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT,
-        scope: scopeOf(agent.ctx),
+        scope: agentScope,
       }
       const skills = await ctx.skills.list(skillOptions)
       const bootstrap = await ctx.skills.get('bootstrap', skillOptions)
@@ -2913,10 +2895,10 @@ export function apply(ctx) {
             profile: agentConsoleProfileFacts.profile,
             dsh: agentConsoleProfileFacts.dsh,
             tui: agentConsoleProfileFacts.tui,
-            runtimeKit: agentConsoleProfileFacts.runtimeKit,
             bundles: agentConsoleProfileFacts.bundles,
             composition: {
               rowIds: agentConsoleProfileFacts.rowIds,
+              disabledRowIds: agentConsoleProfileFacts.disabledRowIds,
               controllerTools,
               laneTools,
               skills: skills.map(skill => skill.name),
@@ -3166,6 +3148,9 @@ exec "$@"
   const agentConsoleCodeRuntimeOverlay = agentConsoleTuiPackage === undefined
     ? ''
     : '- id: dsh-tui-code-runtime\n  disabled: true\n'
+  const legacyCodeRuntimeEntry = dshManifest.version === '0.1.6-alpha.2'
+    ? ''
+    : `    - id: code-runtime\n      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}\n`
   writeFileSync(overlayPath, `
 ${agentConsoleTuiOverlay}
 - id: sandbox
@@ -3191,8 +3176,7 @@ ${agentConsoleCodeRuntimeOverlay}
     runnerFailureSignatures:
       - 'dsh-runtime-kit-smoke-runner:'
 - insert:
-    - id: code-runtime
-      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}
+${legacyCodeRuntimeEntry}
     - id: dsh-runtime-kit-smoke-driver
       name: ${JSON.stringify(driverPath)}
 `)
@@ -3202,8 +3186,7 @@ ${agentConsoleTuiOverlay}
   config:
     mode: both
 - insert:
-    - id: code-runtime
-      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}
+${legacyCodeRuntimeEntry}
     - id: dsh-runtime-kit-smoke-driver
       name: ${JSON.stringify(driverPath)}
 `)
@@ -3373,15 +3356,11 @@ ${agentConsoleTuiOverlay}
   if (agentConsoleTuiPackage !== undefined) {
     assert.equal(
       receipt.agentConsoleInspection?.schema_version,
-      'dsh-runtime-kit.agent-console-profile-inspection.v3',
+      'dsh-runtime-kit.agent-console-profile-inspection.v4',
     )
     assert.equal(receipt.agentConsoleInspection.compatible, true)
     assert.equal(receipt.agentConsoleObservation.profile, 'dsh-tui')
-    assert.deepEqual(receipt.agentConsoleObservation.bundles, [
-      '@deepseek-ai/dsh-base',
-      '@deepseek-harness-tui/dsh-tui',
-      '@sympoies/dsh-runtime-kit',
-    ])
+    assert.deepEqual(receipt.agentConsoleObservation.bundles, agentConsoleCompatibility.bundles)
     assert.equal(
       receipt.agentConsoleObservation.composition.controllerTools
         .includes('main_agent_checkpoint'),
@@ -4372,24 +4351,12 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   })
 
   if (agentConsoleTuiPackage !== undefined) {
-    const reversedTuiPatch = await manageDshTuiPatch({
-      action: 'reverse',
+    const finalTuiInspection = inspectDshTuiPristine({
       packageRoot: agentConsoleTuiPackageRoot,
-      patchRoot: projectRoot,
-      manifest: dshTuiPatchManifest,
-      gitBin: '/usr/bin/git',
+      manifest: dshTuiPristineManifest,
     })
-    assert.equal(reversedTuiPatch.before, 'patched')
-    assert.equal(reversedTuiPatch.after, 'pristine')
-    assert.equal(reversedTuiPatch.changed, true)
-    const tuiPatchTargets = dshTuiPatchManifest.patches[0].targets
-    for (const [relative, target] of Object.entries(tuiPatchTargets)) {
-      const actual = createHash('sha256')
-        .update(readFileSync(join(agentConsoleTuiPackageRoot, relative)))
-        .digest('hex')
-      assert.equal(actual, target.before_sha256, `${relative} did not reverse to pristine bytes`)
-    }
-    agentConsoleTuiPatchVerified = true
+    assert.equal(finalTuiInspection.status, 'pristine')
+    agentConsoleTuiPristineVerified = true
   }
 
   const finalDshCheckout = await manageDshPatch({
@@ -4557,10 +4524,10 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       ? false
       : receipt.agentConsoleInspection.compatible,
     agentConsoleTuiArtifactVerified,
-    agentConsoleTuiPatchVerified,
+    agentConsoleTuiPristineVerified,
     agentConsoleTuiHistoryNonblockingVerified,
     agentConsoleTuiLiveSessionFacadeVerified,
-    agentConsoleTuiRepairInspectionVerified,
+    agentConsoleTuiPristineInspectionVerified,
     agentConsoleTuiStartupVerified,
     agentConsoleScopedToolAuthorityVerified: agentConsoleTuiPackage === undefined
       ? false

@@ -9,9 +9,9 @@ the declared validation gate live in the root
 This reference documents the public, out-of-tree Sympoies runtime layer for
 DeepSeek Harness. Changes use public Cordis and DSH interfaces by default. The
 sole source-level exception is the reviewed, version-scoped patch owned by
-`compatibility/dsh-patches.json`. Agent Console additionally applies the exact
-installed-package repair owned by `compatibility/dsh-tui-patches.json`. Neither
-boundary is a fork or vendored upstream source.
+`compatibility/dsh-patches.json`. The Agent Console 0.1.6 candidate keeps the
+published TUI package pristine, with a consumer-owned compatibility bundle and
+history preflight. Neither boundary is a fork or vendored upstream source.
 
 ## Prerequisites
 
@@ -23,9 +23,9 @@ boundary is a fork or vendored upstream source.
   older Node outright.
 - A pristine DeepSeek Harness `0.1.5-alpha.2` or `0.1.6-alpha.2` source
   checkout for generic compatibility, patch, and packed smoke validation. The
-  frozen Agent Console generation remains bound to the exact DSH and prior
-  runtime-kit artifact recorded by its deployment; it is excluded from this
-  candidate's smoke matrix until the full UI tuple is promoted.
+  running Agent Console generation remains bound to the exact DSH and prior
+  runtime-kit artifact recorded by its deployment. The candidate smoke also
+  exercises the DSH `0.1.6-alpha.2` / pristine TUI `0.10.2` tuple.
 - A released nils-cli version accepted by
   [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) when
   exercising the real policy, agent-docs, Git, review, or delivery boundaries.
@@ -266,13 +266,11 @@ AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 npm run test:workspace-lease-native-smoke
 ```
 
-The exact Agent Console smoke is a reserved workbench-promotion gate, not part
-of the current headless candidate. Run it only after the Agent Console DSH
-identity is inside the candidate's generic peer window and an authenticated TUI
-release explicitly admits that DSH. The smoke composes base + TUI + runtime-kit,
-then applies and verifies the narrowed legacy history-permission package
-repair — in that order, because a later bundle add re-materializes the profile
-tree and would discard it —
+The exact Agent Console smoke exercises this candidate's DSH 0.1.6 / pristine
+TUI 0.10.2 tuple. The TUI peer declaration does not yet name 0.1.6, so the
+test supplies functional evidence for the accepted warning. The smoke composes
+base + consumer compatibility + TUI + runtime-kit, verifies the complete
+published TUI file tree, and runs the consumer-owned history preflight. It
 disables only the interactive front door in its test overlay, and boots the
 real selected runtime to prove `userQuestions`,
 runtime-kit tools/skills, and Main Agent service together:
