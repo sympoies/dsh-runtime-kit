@@ -81,7 +81,7 @@ const EXPECTED_CONTRACT = Object.freeze({
   required_services: ['userQuestions', 'mainAgentOrchestration'],
   default_route: {
     provider: 'codex-proxy',
-    model: 'gpt-5.6-sol',
+    model: 'gpt-6-sol',
     reasoning_effort: 'high',
   },
   authority: {
@@ -116,12 +116,12 @@ const VALID_OBSERVATION = Object.freeze({
   },
   controllerRoute: {
     provider: 'codex-proxy',
-    model: 'gpt-5.6-sol',
+    model: 'gpt-6-sol',
     reasoningEffort: 'high',
   },
   workerRoute: {
     provider: 'codex-proxy',
-    model: 'gpt-5.6-sol',
+    model: 'gpt-6-sol',
     reasoningEffort: 'high',
   },
   authority: {
@@ -165,12 +165,12 @@ test('the package pins the complete latest Agent Console composition contract', 
     tui_version: '0.10.2',
     controller_route: {
       provider: 'codex-proxy',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6-sol',
       reasoningEffort: 'high',
     },
     worker_route: {
       provider: 'codex-proxy',
-      model: 'gpt-5.6-sol',
+      model: 'gpt-6-sol',
       reasoningEffort: 'high',
     },
     authority: {
@@ -358,10 +358,10 @@ test('every required row, scoped tool, skill, and service has a specific failing
 test('Sol workers inherit the exact high-effort controller route and route evidence is closed', () => {
   const mutations = [
     value => { value.controllerRoute.provider = 'deepseek-official' },
-    value => { value.controllerRoute.model = 'gpt-5.6-terra' },
+    value => { value.controllerRoute.model = 'gpt-5.6-sol' },
     value => { value.controllerRoute.reasoningEffort = 'max' },
     value => { value.workerRoute.provider = 'deepseek-official' },
-    value => { value.workerRoute.model = 'gpt-5.6-terra' },
+    value => { value.workerRoute.model = 'gpt-5.6-sol' },
     value => { value.workerRoute.reasoningEffort = 'max' },
   ]
   for (const mutate of mutations) {
