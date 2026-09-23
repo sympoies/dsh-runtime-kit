@@ -27,7 +27,7 @@ function bytes(value) {
 
 test('the source verifier derives handler and relocation counters', async () => {
   const valid = await fixture()
-  assert.equal(verifyParitySource(valid.sourceBytes, valid.inventoryBytes).rule_count, 101)
+  assert.equal(verifyParitySource(valid.sourceBytes, valid.inventoryBytes).rule_count, 102)
 
   const staleHandlerCount = structuredClone(valid.inventory)
   staleHandlerCount.source.legacy_handler_count += 1

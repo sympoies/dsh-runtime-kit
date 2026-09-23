@@ -75,10 +75,10 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
     assert.deepEqual(verifier.verifyParitySource(sourceBytes, inventoryBytes), {
       schema_version: 'dsh-runtime-kit.rule-parity-check.v1',
       ok: true,
-      rule_count: 101,
-      rule_id_digest: 'sha256:089d67c5b3dc4de422b3e89500b92fe5ee5db4b989a9d690edc6385d13f5a671',
+      rule_count: 102,
+      rule_id_digest: 'sha256:f715200f4f9b4474c29b12bd2fa46dfa881779e1e5e44d454ec5a3247284e4e8',
       legacy_handler_count: 21,
-      legacy_registration_count: 67,
+      legacy_registration_count: 68,
       relocated_capability_count: 1,
       runtime_handler_or_relocated_count: 22,
     })

@@ -622,7 +622,14 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       HarnessError: dshRuntime.HarnessError,
       TOOL_ABORTED: dshRuntime.TOOL_ABORTED,
     })
-    applyPolicy(ctx, runtimeConfig, dshRuntime, childPlugins)
+    const { createNilsWorkspaceRecoveryClient } = await import('./src/workspace-recovery/nils-client.js')
+    const { createVerifiedWorktreeTargets } = await import('./src/workspace-recovery/verified-targets.js')
+    const recoveryClient = createNilsWorkspaceRecoveryClient(ctx, {
+      ...runtimeConfig,
+      HarnessError: dshRuntime.HarnessError,
+    })
+    const verifiedWorktreeTargets = createVerifiedWorktreeTargets(ctx, recoveryClient)
+    applyPolicy(ctx, { ...runtimeConfig, verifiedWorktreeTargets }, dshRuntime, childPlugins)
     const { applyArtifacts } = await import('./src/artifacts/index.js')
     const { LocalArtifactProvider } = await import('./src/artifacts/local-provider.js')
     await applyArtifacts(ctx, {
@@ -631,12 +638,8 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       protectedRoots: config.protectedRoots ?? [],
     })
     const { createWorkspaceRecoveryTools } = await import('./src/workspace-recovery/index.js')
-    const { createNilsWorkspaceRecoveryClient } = await import('./src/workspace-recovery/nils-client.js')
     const workspaceRecovery = createWorkspaceRecoveryTools(
-      createNilsWorkspaceRecoveryClient(ctx, {
-        ...runtimeConfig,
-        HarnessError: dshRuntime.HarnessError,
-      }),
+      recoveryClient,
       dshRuntime.HarnessError,
     )
     for (const definition of workspaceRecovery) ctx.tools.register(definition)

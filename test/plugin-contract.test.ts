@@ -722,6 +722,7 @@ function harness({
             async waitForExit() { return true },
           }
         }
+        const contextPrepare = spec.argv.includes('context')
         const prerequisiteBegin = spec.argv.includes('prerequisite')
           && !spec.argv.includes('commit-prerequisite')
         const prerequisiteCommit = spec.argv.includes('commit-prerequisite')
@@ -763,7 +764,17 @@ function harness({
             prerequisiteCommitted = true
           }
         }
-        const selectedEnvelope = prerequisiteBegin
+        const selectedEnvelope = contextPrepare
+          ? {
+              schema_version: 'cli.agent-docs.session.context.v1', ok: true,
+              data: { decision: {
+                schema_version: 'decision.context.v1',
+                request_id: spec.argv[spec.argv.indexOf('--request-id') + 1],
+                product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true,
+                documents: [], document_count: 0, total_bytes: 0,
+              } },
+            }
+          : prerequisiteBegin
           ? prerequisiteBeginMalformed
             ? {
                 schema_version: 'cli.agent-docs.session.prerequisite.v1',
@@ -1587,6 +1598,7 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
     type: 'object',
     properties: {
       intent: { type: 'string', enum: ['project-dev'] },
+      project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
     },
     required: ['intent'],
     additionalProperties: false,
@@ -4076,6 +4088,116 @@ test('policy denials report only blocking reasons from the normalized decision',
   assert.match(result.reason, /agent-hook:pre-edit-intent-gate/)
   assert.doesNotMatch(result.reason, /owner-unclaimed|semantic-conflict/)
   assert.equal(delegated, false)
+})
+
+test('a DSH pre-edit denial gives the same-session DSH intent recovery entry', async () => {
+  const subject = harness({
+    envelope: decision('block', {
+      context: 'The edit needs a current agent-docs intent. Run `agent-docs session prepare --intent <intent>` for the relevant intent, then retry the edit.',
+      reasons: [{
+        rule_id: 'dsh.pre-edit-intent-gate',
+        code: 'pre-edit-intent-gate',
+        disposition: 'block',
+      }],
+    }),
+  })
+
+  const { result, delegated } = await subject.invoke({ value: 41 })
+  assert.equal(result.kind, 'deny')
+  assert.equal(delegated, false)
+  assert.match(result.reason, /runtime_context\(\{ intent: "project-dev" \}\)/)
+  assert.match(result.reason, /same session|current session/i)
+  assert.match(result.reason, /retry/i)
+  assert.match(result.reason, /project_path/)
+  assert.match(result.reason, /workdir/)
+  assert.doesNotMatch(result.reason, /agent-docs session prepare/)
+})
+
+test('the plugin recovers a wrong intent in-session and binds the retried worktree edit', async () => {
+  const current = '/workspace/current'
+  const target = '/workspace/managed-worktree'
+  let prepared = false
+  const subject = harness({
+    workspace: current,
+    workspaceLease: {
+      async targets(exec) { return [exec.arguments?.file_path?.startsWith(target) ? target : current] },
+    },
+    config: {
+      verifiedWorktreeTargets: {
+        async verify(exec, path) {
+          assert.equal(exec.agent.session.header.cwd, current)
+          assert.equal(path, target)
+          return { session: exec.agent.session, path }
+        },
+        authorize(proof) {
+          assert.equal(proof.path, target)
+          prepared = true
+        },
+        async resolve(exec) {
+          const root = exec.arguments?.file_path?.startsWith(target) ? target : current
+          if (root !== current && !prepared) throw new Error('unverified target')
+          return root
+        },
+      },
+    },
+    envelope(spec) {
+      const finishLineIndex = spec.argv.indexOf('finish-line')
+      if (finishLineIndex >= 0) {
+        const action = spec.argv[finishLineIndex + 1]
+        const request = JSON.parse(spec.stdio.stdin.data)
+        return action === 'open'
+          ? {
+              schema_version: 'cli.agent-hook.finish-line-open.v1', ok: true,
+              data: { schema_version: 'agent-hook.finish-line.open-result.v1', status: 'opened', runner_capability: 'runner:opaque', correlation_id: 'correlation:opaque' },
+            }
+          : action === 'begin'
+            ? {
+                schema_version: 'cli.agent-hook.finish-line-begin.v1', ok: true,
+                data: { schema_version: 'agent-hook.finish-line.begin-result.v1', status: 'registered', operation_id: request.operation_id, generation: 1, correlation_id: 'correlation:opaque' },
+              }
+            : action === 'release'
+              ? {
+                  schema_version: 'cli.agent-hook.finish-line-release.v1', ok: true,
+                  data: { schema_version: 'agent-hook.finish-line.release-result.v1', status: 'released', correlation_id: 'correlation:opaque' },
+                }
+          : {
+              schema_version: 'cli.agent-hook.finish-line-run.v1', ok: true,
+              data: { schema_version: 'agent-hook.finish-line.run-result.v1', status: 'ordinary-ready', operation_id: request.operation_id, correlation_id: 'correlation:opaque' },
+            }
+      }
+      const request = JSON.parse(spec.stdio.stdin.data)
+      if (request.event === 'tools/pre-execute' && request.tool.name === 'write' && !prepared) {
+        return decision('block', {
+          context: 'Run agent-docs session prepare --intent project-dev.',
+          reasons: [{ rule_id: 'dsh.pre-edit-intent-gate', code: 'pre-edit-intent-gate', disposition: 'block' }],
+        })
+      }
+      return decision('allow')
+    },
+  })
+  subject.ctx.tools.register({ name: 'write', async execute() { return { ok: true } } })
+  const denied = await subject.invoke({ file_path: `${current}/file.txt`, content: 'one' }, { name: 'write', callId: 'wrong-intent' })
+  assert.equal(denied.executionResult.isError, true)
+  assert.match(denied.executionResult.error.message, /runtime_context/)
+
+  const context = await subject.invoke({ intent: 'project-dev', project_path: target }, { name: 'runtime_context', callId: 'prepare-target' })
+  assert.equal(context.result.kind, 'allow')
+  assert.equal(prepared, true)
+
+  const retried = await subject.invoke({ file_path: `${target}/file.txt`, content: 'two' }, { name: 'write', callId: 'retry-target' })
+  assert.equal(retried.result.kind, 'allow')
+  assert.equal(retried.executionResult.isError, false)
+  const docs = subject.spawnSpecs.filter(spec => spec.argv.includes('context')
+    || spec.argv.includes('prerequisite') || spec.argv.includes('commit-prerequisite'))
+  for (const spec of docs.filter(spec => spec.argv.includes('context') || spec.argv.includes('prerequisite'))) {
+    if (spec.argv.includes('context') || spec.argv.includes('prerequisite') && spec.argv.includes('retry-target')) {
+      assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
+    }
+  }
+  const retryDocs = docs.filter(spec => spec.argv.includes('prerequisite')
+    && spec.argv[spec.argv.indexOf('--call-id') + 1] === 'retry-target')
+  assert.ok(retryDocs.length >= 2)
+  for (const spec of retryDocs) assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
 })
 
 test('a multi-code denial without nils context lists every code and adds no retired fan-out text', async () => {

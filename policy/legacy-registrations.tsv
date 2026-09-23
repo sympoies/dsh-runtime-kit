@@ -66,3 +66,4 @@ claude	PreToolUse	MultiEdit	agent-scope-lock-guard
 claude	PreToolUse	MultiEdit	pre-edit-intent-gate
 claude	PreToolUse	MultiEdit	checkout-lease-guard
 claude	PreToolUse	MultiEdit	finish-line-record
+claude	PreToolUse	MultiEdit	portable-paths-scan

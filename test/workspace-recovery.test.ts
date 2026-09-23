@@ -222,6 +222,8 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
   assert.match(text, /path="\/managed\/fix-recovery"/)
   assert.match(text, /untrusted repository metadata/)
   assert.match(text, /workspace_recovery_handoff/)
+  assert.match(text, /runtime_context/)
+  assert.match(text, /workdir/)
   const verified = await handoff.execute({ path: '/managed/fix-recovery' }, execution())
   assert.equal(verified.handoff.status, 'verified')
 })

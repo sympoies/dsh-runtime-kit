@@ -85,11 +85,11 @@ function renderResult(value: any) {
   }
   if (value.handoff !== null) {
     lines.push(`Verified clean handoff path=${quoted(value.handoff.path)} branch=${quoted(value.handoff.branch)} head=${quoted(value.handoff.head)}.`)
-    lines.push('This session keeps working elsewhere; a fresh Agent Console session at that exact cwd is only needed when the governed work targets this checkout, because lease authority does not transfer.')
+    lines.push('To continue in this session, call runtime_context with project_path set to that exact worktree, then use Bash with workdir set to the same path. The policy and checkout lease still decide each mutation. runtime_kit_governed_commit remains bound to the session cwd; use the governed semantic-commit --repo route for another worktree.')
   } else if (eligible.length > 0) {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. To continue governed work on it, call workspace_recovery_handoff with one exact candidate path, then ask the host operator for a fresh Agent Console session there.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. Verify one exact clean candidate with workspace_recovery_handoff, then prepare its project_path with runtime_context and set Bash workdir to that path. Policy and lease checks still apply.')
   } else {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. To continue governed work on it, ask the host operator to create a clean managed worktree and start a fresh Agent Console session there.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. Create a clean managed worktree with git-cli, then prepare its project_path with runtime_context and set Bash workdir to that path. Policy and lease checks still apply.')
   }
   return [{ type: (('text') as const), text: lines.join('\n') }]
 }
@@ -209,7 +209,7 @@ export function createWorkspaceRecoveryTools(client: {inspect(exec: import('@dee
   }
   const handoff: ToolDefinition = {
     name: 'workspace_recovery_handoff',
-    description: 'Verify one exact different clean managed worktree for a host-operated fresh-session handoff.',
+    description: 'Verify one exact different clean managed worktree before continuing through its own context and checkout lease.',
     parameters: {
       type: 'object',
       properties: { path: { type: 'string', minLength: 1 } },

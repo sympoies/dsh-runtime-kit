@@ -10,6 +10,31 @@ The supported runtime is deliberately exact:
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
 
+## Agent runtime source alignment
+
+The frozen source inventory under `policy/rule-parity.yaml` and
+`policy/runtime-rule-parity.yaml` now names `sympoies/agent-runtime-kit`
+`6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1`. Since the previous
+`79d6b93f9df812e9cfd151ee03fc3d0ce44a0081` boundary, its hook manifest
+added one Claude `MultiEdit` portable-path registration: 102 rules and 68
+legacy registrations. DSH does not execute Claude hook matchers; the row is
+recorded in parity so new source registrations cannot be silently missed.
+
+The source changes were checked against DSH by behavior and owner:
+
+| Source change | DSH route |
+| --- | --- |
+| Trusted pre-edit intent recovery | `runtime_context` prepares `project-dev` for this DSH session. A different managed worktree must first pass `workspace_recovery_handoff`; its exact canonical path is then accepted as `project_path`. Bash `workdir` and native file edits use the checkout lease's authenticated target. A pre-edit denial names this tool route. |
+| Default-branch and persistent-integration delivery hook | DSH uses the released nils-cli `block-unsafe-default-delivery` group and governed `git-cli`/`semantic-commit` routes. The Codex/Claude Python parser is not loaded by DSH. The DSH-native default-branch proof is a separate nils-cli contract. |
+| Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` tools. A clean target may be prepared within the same session; the tools never transfer a lease. |
+| Artifact routing and portable path hook | DSH provides session-owned `artifact_*` tools and a native `portable-paths-scan` group. The newer host-hook rejection of a hand-built `agent-out` directory or repo-local `.cache` scratch is a distinct nils-cli DSH policy question; it is not reimplemented in JavaScript here. |
+| Coordination, health, skills, docs prompt, and finish-line hooks | DSH uses native coordination and runtime-health surfaces, selective `runtime_context`, and its nils/runtime-kit finish-line coordinator. macOS Bash and symlink fixes apply to the host-hook launchers, not to DSH's subprocess adapter. |
+| Devlog, upstream, Git delivery, review, browser, evidence, and work-tier documents | DSH follows the repository's `AGENT_DOCS.toml`, `docs/policies/`, and owning runbooks. Codex/Claude-only invocation text is not copied into the DSH catalog. |
+
+The released nils-cli v1.28.25 and v1.28.40 sources have no intervening change
+to the DSH policy, effect classifier, agent-docs session owner, or DSH adapter;
+merely raising the companion pin would not repair the wrong-intent incident.
+
 The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,
 and its CI row in the same change; the validation count therefore remains
