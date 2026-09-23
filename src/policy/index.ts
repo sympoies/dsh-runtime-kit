@@ -6,6 +6,7 @@ import { onDshSessionStart } from '../compat/dsh-agent-lifecycle.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
+import { UnverifiedWorktreeTargetError } from '../workspace-recovery/verified-targets.js'
 import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
 import { createPrerequisiteCoordinator } from '../prerequisite/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
@@ -960,11 +961,20 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
       return { kind: (('deny') as const), reason }
     }
+    const prerequisiteDenial = (error: unknown) => {
+      if (error instanceof UnverifiedWorktreeTargetError) {
+        const path = JSON.stringify(error.targetPath)
+        return rememberDenial(
+          `dsh-runtime-kit:verified-worktree-target-unverified: This DSH session needs project-dev intent for ${path}. Verify this exact clean managed worktree with workspace_recovery_handoff, then call runtime_context({ intent: "project-dev", project_path: ${path} }) in this same session. Read the returned contract and retry the blocked tool call.`,
+        )
+      }
+      return rememberDenial(denial('prerequisite-unavailable').reason)
+    }
 
     try {
       prerequisites.prepare(exec)
-    } catch {
-      return rememberDenial(denial('prerequisite-unavailable').reason)
+    } catch (error) {
+      return prerequisiteDenial(error)
     }
     const correlation = compatibility.beginTool(exec)
     if (!correlation.ok) {
@@ -973,8 +983,8 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     let prerequisiteProof
     try {
       prerequisiteProof = await prerequisites.begin(exec, correlation.context)
-    } catch {
-      return rememberDenial(denial('prerequisite-unavailable').reason)
+    } catch (error) {
+      return prerequisiteDenial(error)
     }
     if (closing || exec.signal.aborted) {
       return rememberDenial(denial(closing

@@ -23,6 +23,7 @@ import {
 } from '../dist/src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../dist/src/policy/nils-transport.js'
 import { createPrerequisiteCoordinator } from '../dist/src/prerequisite/index.js'
+import { UnverifiedWorktreeTargetError } from '../dist/src/workspace-recovery/verified-targets.js'
 import {
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_PROGRESS,
@@ -4135,7 +4136,7 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
         },
         async resolve(exec) {
           const root = exec.arguments?.file_path?.startsWith(target) ? target : current
-          if (root !== current && !prepared) throw new Error('unverified target')
+          if (root !== current && !prepared) throw new UnverifiedWorktreeTargetError(root)
           return root
         },
       },
@@ -4176,9 +4177,13 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
     },
   })
   subject.ctx.tools.register({ name: 'write', async execute() { return { ok: true } } })
-  const denied = await subject.invoke({ file_path: `${current}/file.txt`, content: 'one' }, { name: 'write', callId: 'wrong-intent' })
+  const denied = await subject.invoke({ file_path: `${target}/file.txt`, content: 'one' }, { name: 'write', callId: 'wrong-intent' })
+  assert.equal(denied.result.kind, 'deny')
   assert.equal(denied.executionResult.isError, true)
-  assert.match(denied.executionResult.error.message, /runtime_context/)
+  assert.match(denied.result.reason, /runtime_context/)
+  assert.match(denied.result.reason, /project-dev/)
+  assert.match(denied.result.reason, /managed-worktree/)
+  assert.doesNotMatch(denied.result.reason, /prerequisite-unavailable/)
 
   const context = await subject.invoke({ intent: 'project-dev', project_path: target }, { name: 'runtime_context', callId: 'prepare-target' })
   assert.equal(context.result.kind, 'allow')

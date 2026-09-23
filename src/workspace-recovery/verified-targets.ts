@@ -3,6 +3,15 @@ import { isAbsolute, relative } from 'node:path'
 
 type Handoff = { handoff: null | { status: 'verified', path: string, head: string } }
 
+export class UnverifiedWorktreeTargetError extends Error {
+  readonly targetPath: string
+
+  constructor(targetPath: string) {
+    super('dsh-runtime-kit:verified-worktree-target-unverified')
+    this.targetPath = targetPath
+  }
+}
+
 function inside(root: string, path: string) {
   const suffix = relative(root, path)
   return suffix !== '..' && !suffix.startsWith('../') && !isAbsolute(suffix)
@@ -46,7 +55,7 @@ export function createVerifiedWorktreeTargets(
       if (roots.length > 1) throw new Error('dsh-runtime-kit:verified-worktree-target-ambiguous')
       const root = roots[0] ?? sessionCwd
       if (!inside(root, sessionCwd) && verified.get(session(exec)) !== root) {
-        throw new Error('dsh-runtime-kit:verified-worktree-target-unverified')
+        throw new UnverifiedWorktreeTargetError(root)
       }
       if (exec.name === 'bash' && exec.arguments !== null && typeof exec.arguments === 'object') {
         const workdir = (exec.arguments as Record<string, unknown>).workdir
