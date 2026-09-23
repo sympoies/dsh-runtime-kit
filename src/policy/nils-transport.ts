@@ -298,7 +298,7 @@ function validDecision(decision: any, expectedRequestId: string, expectedEvent: 
         && typeof decision.context === 'string'
         && decision.context.length > 0
         && Buffer.byteLength(decision.context, 'utf8') <= 16 * 1024))
-    && (!['warn', 'context'].includes(decision.action)
+    && (decision.action !== 'context'
       || typeof decision.context === 'string')
     && decision.replacement === undefined)) return false
 
@@ -603,7 +603,8 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
       if (outcome.exitCode !== 0 || outcome.signal !== null) {
         return denial('policy-exit-mismatch')
       }
-      return decision.action === 'context' || decision.action === 'warn'
+      return decision.action === 'context'
+        || (decision.action === 'warn' && decision.context !== undefined)
         ? { kind: (('context') as const), context: decision.context }
         : undefined
     } finally {
