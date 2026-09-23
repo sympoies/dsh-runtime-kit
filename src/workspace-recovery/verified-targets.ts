@@ -1,14 +1,17 @@
 import type { ToolExecution, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative } from 'node:path'
 
 type Handoff = { handoff: null | { status: 'verified', path: string, head: string } }
 
 export class UnverifiedWorktreeTargetError extends Error {
   readonly targetPath: string
+  readonly isWorkdir: boolean
 
-  constructor(targetPath: string) {
+  constructor(targetPath: string, isWorkdir = false) {
     super('dsh-runtime-kit:verified-worktree-target-unverified')
     this.targetPath = targetPath
+    this.isWorkdir = isWorkdir
   }
 }
 
@@ -53,17 +56,39 @@ export function createVerifiedWorktreeTargets(
       }
       const roots = await lease.targets(exec)
       if (roots.length > 1) throw new Error('dsh-runtime-kit:verified-worktree-target-ambiguous')
-      const root = roots[0] ?? sessionCwd
-      if (!inside(root, sessionCwd) && verified.get(session(exec)) !== root) {
+      const workdir = exec.name === 'bash' && exec.arguments !== null && typeof exec.arguments === 'object'
+        ? (exec.arguments as Record<string, unknown>).workdir
+        : undefined
+      if (workdir !== undefined && (typeof workdir !== 'string'
+        || !isAbsolute(workdir) || workdir.includes('\0'))) {
+        throw new Error('dsh-runtime-kit:verified-worktree-workdir-mismatch')
+      }
+      const authorized = verified.get(session(exec))
+      if (roots.length === 0 && typeof workdir === 'string'
+        && !inside(sessionCwd, workdir)
+        && (authorized === undefined || !inside(authorized, workdir))) {
+        throw new UnverifiedWorktreeTargetError(workdir, true)
+      }
+      const root = roots[0] ?? (typeof workdir === 'string' && authorized !== undefined
+        && inside(authorized, workdir) ? authorized : sessionCwd)
+      if (!inside(root, sessionCwd) && authorized !== root) {
         throw new UnverifiedWorktreeTargetError(root)
       }
-      if (exec.name === 'bash' && exec.arguments !== null && typeof exec.arguments === 'object') {
-        const workdir = (exec.arguments as Record<string, unknown>).workdir
-        if (workdir !== undefined && (typeof workdir !== 'string'
-          || !isAbsolute(workdir) || workdir.includes('\0')
-          || !inside(root, workdir))) {
+      if (exec.name === 'bash' && !inside(root, sessionCwd)) {
+        if (typeof workdir !== 'string') {
           throw new Error('dsh-runtime-kit:verified-worktree-workdir-mismatch')
         }
+        try {
+          const [physicalRoot, physicalWorkdir] = await Promise.all([realpath(root), realpath(workdir)])
+          if (physicalRoot !== root || !inside(physicalRoot, physicalWorkdir)) {
+            throw new Error('dsh-runtime-kit:verified-worktree-workdir-mismatch')
+          }
+        } catch {
+          throw new Error('dsh-runtime-kit:verified-worktree-workdir-mismatch')
+        }
+      }
+      if (typeof workdir === 'string' && !inside(root, workdir)) {
+        throw new Error('dsh-runtime-kit:verified-worktree-workdir-mismatch')
       }
       return root
     },

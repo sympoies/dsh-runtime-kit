@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { Context } from '@deepseek-ai/cordis'
@@ -23,7 +26,7 @@ import {
 } from '../dist/src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../dist/src/policy/nils-transport.js'
 import { createPrerequisiteCoordinator } from '../dist/src/prerequisite/index.js'
-import { UnverifiedWorktreeTargetError } from '../dist/src/workspace-recovery/verified-targets.js'
+import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
 import {
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_PROGRESS,
@@ -4114,31 +4117,31 @@ test('a DSH pre-edit denial gives the same-session DSH intent recovery entry', a
   assert.doesNotMatch(result.reason, /agent-docs session prepare/)
 })
 
-test('the plugin recovers a wrong intent in-session and binds the retried worktree edit', async () => {
-  const current = '/workspace/current'
-  const target = '/workspace/managed-worktree'
+test('the plugin recovers a wrong intent in-session and binds the retried worktree edit', async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'dsh-plugin-worktree-'))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const current = join(temporary, 'current')
+  const target = join(temporary, 'managed-worktree')
+  await Promise.all([mkdir(current), mkdir(target)])
   let prepared = false
+  let verifiedTargets
   const subject = harness({
     workspace: current,
     workspaceLease: {
-      async targets(exec) { return [exec.arguments?.file_path?.startsWith(target) ? target : current] },
+      async targets(exec) {
+        return exec.name === 'bash' ? []
+          : [exec.arguments?.file_path?.startsWith(target) ? target : current]
+      },
     },
     config: {
       verifiedWorktreeTargets: {
-        async verify(exec, path) {
-          assert.equal(exec.agent.session.header.cwd, current)
-          assert.equal(path, target)
-          return { session: exec.agent.session, path }
-        },
+        verify(exec, path) { return verifiedTargets.verify(exec, path) },
         authorize(proof) {
           assert.equal(proof.path, target)
+          verifiedTargets.authorize(proof)
           prepared = true
         },
-        async resolve(exec) {
-          const root = exec.arguments?.file_path?.startsWith(target) ? target : current
-          if (root !== current && !prepared) throw new UnverifiedWorktreeTargetError(root)
-          return root
-        },
+        resolve(exec, cwd) { return verifiedTargets.resolve(exec, cwd) },
       },
     },
     envelope(spec) {
@@ -4146,6 +4149,23 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
       if (finishLineIndex >= 0) {
         const action = spec.argv[finishLineIndex + 1]
         const request = JSON.parse(spec.stdio.stdin.data)
+        if (action === 'run' && request.execution !== undefined) {
+          return {
+            schema_version: 'cli.agent-hook.finish-line-run.v1', ok: true,
+            data: {
+              schema_version: 'agent-hook.finish-line.run-result.v1',
+              status: 'ordinary-applied', operation_id: request.operation_id,
+              generation: 1, correlation_id: 'correlation:opaque',
+              execution: {
+                exit_code: 0, signal: null, timed_out: false, aborted: false,
+                timeout_ms: request.timeout_ms,
+                stdout: { text: `${target}\n`, truncated: false },
+                stderr: { text: '', truncated: false },
+                sandbox: { mode: 'danger-full-access', denied: false },
+              },
+            },
+          }
+        }
         return action === 'open'
           ? {
               schema_version: 'cli.agent-hook.finish-line-open.v1', ok: true,
@@ -4176,7 +4196,15 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
       return decision('allow')
     },
   })
+  verifiedTargets = createVerifiedWorktreeTargets(subject.ctx, {
+    async verifyHandoff(exec, path) {
+      assert.equal(exec.agent.session.header.cwd, current)
+      assert.equal(path, target)
+      return { handoff: { status: 'verified', path, head: 'b'.repeat(40) } }
+    },
+  })
   subject.ctx.tools.register({ name: 'write', async execute() { return { ok: true } } })
+  subject.ctx.tools.register({ name: 'bash', async execute() { return { ok: true } } })
   const denied = await subject.invoke({ file_path: `${target}/file.txt`, content: 'one' }, { name: 'write', callId: 'wrong-intent' })
   assert.equal(denied.result.kind, 'deny')
   assert.equal(denied.executionResult.isError, true)
@@ -4192,6 +4220,9 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
   const retried = await subject.invoke({ file_path: `${target}/file.txt`, content: 'two' }, { name: 'write', callId: 'retry-target' })
   assert.equal(retried.result.kind, 'allow')
   assert.equal(retried.executionResult.isError, false)
+  const bash = await subject.invoke({ command: 'pwd', description: 'Inspect the verified checkout', workdir: target }, { name: 'bash', callId: 'bash-target' })
+  assert.equal(bash.result.kind, 'allow', JSON.stringify(bash.result))
+  assert.equal(bash.executionResult.isError, false, JSON.stringify(bash.executionResult))
   const docs = subject.spawnSpecs.filter(spec => spec.argv.includes('context')
     || spec.argv.includes('prerequisite') || spec.argv.includes('commit-prerequisite'))
   for (const spec of docs.filter(spec => spec.argv.includes('context') || spec.argv.includes('prerequisite'))) {
@@ -4203,6 +4234,10 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
     && spec.argv[spec.argv.indexOf('--call-id') + 1] === 'retry-target')
   assert.ok(retryDocs.length >= 2)
   for (const spec of retryDocs) assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
+  const bashDocs = docs.filter(spec => spec.argv.includes('prerequisite')
+    && spec.argv[spec.argv.indexOf('--call-id') + 1] === 'bash-target')
+  assert.ok(bashDocs.length >= 2)
+  for (const spec of bashDocs) assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
 })
 
 test('a multi-code denial without nils context lists every code and adds no retired fan-out text', async () => {

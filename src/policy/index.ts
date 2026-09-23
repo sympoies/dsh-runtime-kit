@@ -964,6 +964,11 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     const prerequisiteDenial = (error: unknown) => {
       if (error instanceof UnverifiedWorktreeTargetError) {
         const path = JSON.stringify(error.targetPath)
+        if (error.isWorkdir) {
+          return rememberDenial(
+            `dsh-runtime-kit:verified-worktree-target-unverified: Bash workdir ${path} is outside this DSH session's verified checkout. Use workspace_recovery_handoff to verify the exact clean managed worktree containing it, then call runtime_context({ intent: "project-dev", project_path: "<verified absolute worktree>" }) in this same session. Read the returned contract and retry the blocked tool call.`,
+          )
+        }
         return rememberDenial(
           `dsh-runtime-kit:verified-worktree-target-unverified: This DSH session needs project-dev intent for ${path}. Verify this exact clean managed worktree with workspace_recovery_handoff, then call runtime_context({ intent: "project-dev", project_path: ${path} }) in this same session. Read the returned contract and retry the blocked tool call.`,
         )
