@@ -37,37 +37,36 @@ const LANE_DENIED_TOOLS = [
 ]
 
 const EXPECTED_CONTRACT = Object.freeze({
-  schema_version: 'dsh-runtime-kit.agent-console-profile.v3',
+  schema_version: 'dsh-runtime-kit.agent-console-profile.v4',
   profile: 'dsh-tui',
   dsh: {
-    version: '0.1.2-rc.1',
-    revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
+    version: '0.1.6-alpha.2',
+    revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
   },
   tui: {
     package: '@deepseek-harness-tui/dsh-tui',
-    version: '0.10.1',
-    specifier: '@deepseek-harness-tui/dsh-tui@0.10.1',
+    version: '0.10.2',
+    specifier: '@deepseek-harness-tui/dsh-tui@0.10.2',
     source: {
       repository: 'https://github.com/ccch1mneyyy/dsh-TUI',
-      tag: 'v0.10.1',
-      tag_ref_type: 'commit',
-      revision: '78081cebde1ee1b47a561ef57c04f128c5623476',
+      tag: 'v0.10.2',
+      tag_ref_type: 'annotated',
+      revision: '9abb9101fbaead9dd37da28193618da5f07322c0',
     },
     artifact: {
-      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.1.tgz',
-      integrity: 'sha512-xnwLON+c28zt1Yg5nrI2fNHysUEF63TsIC7XndtIJIiDOBEomcSfydnc9DrT+Xzx7p2/qAi6d7+GFB0eSyJ2uw==',
-      shasum: '72a4b599e1f9b719f6e1a82c1c4b3bff3130c2b1',
+      tarball: 'https://registry.npmjs.org/@deepseek-harness-tui/dsh-tui/-/dsh-tui-0.10.2.tgz',
+      integrity: 'sha512-jHAx/bYgvuMDnu7ivFPTdRll4c26dbAjE/eZht4fjbXvhBONHeF5nSC774ix3B5x6cl7hA5CU5CAuIhimSC2DA==',
+      shasum: '85db2801a478ff6207ed68894127fedcd16499c1',
     },
-  },
-  runtime_kit: {
-    revision: '481f521f561b065ca8ec05da59be6415b837f75b',
   },
   bundles: [
     '@deepseek-ai/dsh-base',
+    '@sympoies/dsh-tui-016-profile-compat',
     '@deepseek-harness-tui/dsh-tui',
     '@sympoies/dsh-runtime-kit',
   ],
-  required_rows: ['user-questions', 'dsh-tui', 'dsh-runtime-kit'],
+  required_rows: ['user-questions', 'ptc-runtime', 'workflow-worker-thread', 'dsh-tui-code-runtime', 'dsh-tui', 'dsh-runtime-kit'],
+  required_disabled_rows: ['workflow-worker-thread', 'dsh-tui-code-runtime'],
   tool_surfaces: {
     controller: {
       required: CONTROLLER_TOOLS,
@@ -106,10 +105,10 @@ const VALID_OBSERVATION = Object.freeze({
     package: EXPECTED_CONTRACT.tui.package,
     version: EXPECTED_CONTRACT.tui.version,
   },
-  runtimeKit: EXPECTED_CONTRACT.runtime_kit,
   bundles: EXPECTED_CONTRACT.bundles,
   composition: {
     rowIds: EXPECTED_CONTRACT.required_rows,
+    disabledRowIds: EXPECTED_CONTRACT.required_disabled_rows,
     controllerTools: CONTROLLER_TOOLS,
     laneTools: ['main_agent_bootstrap', 'main_agent_checkpoint'],
     skills: EXPECTED_CONTRACT.required_skills,
@@ -159,12 +158,11 @@ test('the package pins the complete latest Agent Console composition contract', 
 
   const result = runtimeKit.inspectAgentConsoleRc7Profile(copyObservation())
   assert.deepEqual(result, {
-    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v3',
+    schema_version: 'dsh-runtime-kit.agent-console-profile-inspection.v4',
     compatible: true,
     profile: 'dsh-tui',
-    dsh_version: '0.1.2-rc.1',
-    tui_version: '0.10.1',
-    runtime_kit_revision: '481f521f561b065ca8ec05da59be6415b837f75b',
+    dsh_version: '0.1.6-alpha.2',
+    tui_version: '0.10.2',
     controller_route: {
       provider: 'codex-proxy',
       model: 'gpt-5.6-sol',
@@ -184,23 +182,27 @@ test('the package pins the complete latest Agent Console composition contract', 
   })
 })
 
-test('the Agent Console release and runtime patch select the same TUI', () => {
+test('the Agent Console profile composes the pristine TUI after its 0.1.6 compatibility bundle', () => {
   const patchManifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'dsh-tui-patches.json'),
     'utf8',
   ))
   assert.equal(patchManifest.package_name, EXPECTED_CONTRACT.tui.package)
-  assert.deepEqual(
-    Object.keys(patchManifest.patches[0].validated_releases),
-    [EXPECTED_CONTRACT.tui.version],
+  assert.equal(
+    patchManifest.patches.some(entry => Object.hasOwn(entry.validated_releases, EXPECTED_CONTRACT.tui.version)),
+    false,
   )
-  assert.equal(patchManifest.patches[0].id, 'legacy-history-permissions-v1')
-  const patch = readFileSync(join(projectRoot, patchManifest.patches[0].path), 'utf8')
-  assert.doesNotMatch(patch, /Atomics\.wait|sleepSync/u)
-  // The pinned TUI ships its own live-Session facade, so the downstream
-  // session-event bridge stays out of the Agent Console repair.
-  assert.doesNotMatch(patch, /snapshotEvents/u)
-  assert.match(patch, /prepareHistoryStorage/u)
+  const bundleRoot = join(projectRoot, 'compatibility', 'dsh-tui-016-profile-compat')
+  const bundle = JSON.parse(readFileSync(join(bundleRoot, 'package.json'), 'utf8'))
+  assert.equal(bundle.name, EXPECTED_CONTRACT.bundles[1])
+  assert.deepEqual(bundle.dsh.bundle, { patch: './cordis.patch.yml' })
+  assert.deepEqual(parseYaml(readFileSync(join(bundleRoot, 'cordis.patch.yml'), 'utf8')), [{
+    insert: [{
+      id: 'workflow-worker-thread',
+      name: '@deepseek-ai/dsh-tool-workflow',
+      disabled: true,
+    }],
+  }])
 })
 
 test('the Agent Console smoke adapter advertises its configured reasoning effort', () => {
@@ -244,12 +246,10 @@ test('public Agent Console smoke authenticates the contract tarball before local
   const source = readFileSync(join(projectRoot, 'test', 'smoke.ts'), 'utf8')
   const fetched = source.indexOf('fetchAuthenticatedAgentConsoleArtifact(')
   const written = source.indexOf('writeFileSync(agentConsoleTuiArchive')
-  const installed = source.indexOf(
-    "runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive, tarball])",
-  )
+  const installed = source.indexOf("    runDsh([\n      'plugin', '--profile', profile, 'add',")
   const inspected = source.indexOf('const installedProfileManifest = JSON.parse(', installed)
-  const patched = source.indexOf("action: 'apply',", installed)
-  const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', patched)
+  const pristine = source.indexOf('const pristineInspection = inspectDshTuiPristine({', inspected)
+  const startup = source.indexOf('runAgentConsoleTuiStartupSmoke()', pristine)
 
   assert.ok(fetched >= 0, 'the smoke must fetch through the authenticated artifact owner')
   assert.ok(written > fetched, 'the smoke may write the archive only after authentication')
@@ -258,16 +258,11 @@ test('public Agent Console smoke authenticates the contract tarball before local
     'the smoke must install the verified TUI archive and runtime-kit in one profile transaction',
   )
   assert.ok(
-    inspected > installed && inspected < patched,
-    'the smoke must inspect the installed profile tuple before applying a package repair',
+    inspected > installed && inspected < pristine,
+    'the smoke must inspect the installed profile tuple before authenticating the installed package',
   )
-  assert.ok(patched > installed, 'the smoke must patch only the installed authenticated release')
-  assert.equal(
-    source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiArchive])"),
-    false,
-    'the TUI and runtime-kit must not be split across profile transactions',
-  )
-  assert.ok(startup > patched, 'the smoke must exercise the patched TUI runtime')
+  assert.ok(pristine > installed, 'the smoke must authenticate the pristine installed release')
+  assert.ok(startup > pristine, 'the smoke must exercise the pristine TUI runtime')
   assert.equal(
     source.includes("runDsh(['plugin', '--profile', profile, 'add', agentConsoleTuiPackage])"),
     false,
@@ -289,7 +284,6 @@ test('every pinned version and ordered bundle has a specific failing owner', () 
     ['DSH revision', value => { value.dsh.revision = '0'.repeat(40) }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_DSH_MISMATCH'],
     ['TUI package', value => { value.tui.package = '@deepseek-harness-tui/other' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
     ['TUI version', value => { value.tui.version = '0.8.1' }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_MISMATCH'],
-    ['runtime-kit revision', value => { value.runtimeKit.revision = '0'.repeat(40) }, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_RUNTIME_KIT_MISMATCH'],
     ...EXPECTED_CONTRACT.bundles.map(bundle => [
       `bundle ${bundle}`,
       value => { removeValue(value.bundles, bundle) },
@@ -311,6 +305,18 @@ test('every required row, scoped tool, skill, and service has a specific failing
       value => { removeValue(value.composition.rowIds, row) },
       'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROW_MISMATCH',
     ]),
+    ...EXPECTED_CONTRACT.required_disabled_rows.map(row => [
+      `enabled legacy row ${row}`,
+      value => { removeValue(value.composition.disabledRowIds, row) },
+      'DSH_RUNTIME_KIT_AGENT_CONSOLE_DISABLED_ROW_MISMATCH',
+    ]),
+    ...EXPECTED_CONTRACT.required_rows
+      .filter(row => !EXPECTED_CONTRACT.required_disabled_rows.includes(row))
+      .map(row => [
+      `disabled required row ${row}`,
+      value => { value.composition.disabledRowIds.push(row) },
+      'DSH_RUNTIME_KIT_AGENT_CONSOLE_DISABLED_ROW_MISMATCH',
+      ]),
     ...EXPECTED_CONTRACT.tool_surfaces.controller.required.map(tool => [
       `controller tool ${tool}`,
       value => { removeValue(value.composition.controllerTools, tool) },

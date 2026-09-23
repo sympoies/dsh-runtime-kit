@@ -77,7 +77,7 @@ compatibility, acceptance, and delivery procedures are in the
 | Dependency | Supported version |
 | --- | --- |
 | DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
-| Frozen Agent Console deployment (excluded from this candidate) | DSH `0.1.2-rc.1` + dsh-TUI `0.10.1` + runtime-kit revision `481f521f561b065ca8ec05da59be6415b837f75b` |
+| Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
@@ -129,8 +129,9 @@ is considered complete.
 ## Install and activate
 
 The candidate package supports the native `headless` profile on either retained
-generic DSH release, `0.1.5-alpha.2` or `0.1.6-alpha.2`. The currently deployed
-Agent Console remains a separate frozen generation:
+generic DSH release, `0.1.5-alpha.2` or `0.1.6-alpha.2`. Its Agent Console
+contract targets DSH `0.1.6-alpha.2` and pristine dsh-TUI `0.10.2`. The
+currently deployed Agent Console remains on its earlier generation:
 
 - DSH `0.1.2-rc.1` and Agent Console's `dsh-tui` profile with
   `@deepseek-ai/dsh-base`,
@@ -138,12 +139,12 @@ Agent Console remains a separate frozen generation:
   `@sympoies/dsh-runtime-kit` revision
   `481f521f561b065ca8ec05da59be6415b837f75b` in that order.
 
-Do not install this candidate artifact into that Agent Console generation: its
+Do not install this candidate artifact into the deployed Agent Console generation: its
 generic peer window no longer includes DSH `0.1.2-rc.1`. Generic DSH admission
 does not promote Agent Console. Before `setup`, `update`, `rollback`, or
 `doctor --repair` may mutate `dsh-tui`, runtime-kit also requires the running
 DSH version and source revision to match the exact Agent Console contract. A
-future workbench promotion must validate and replace its DSH, TUI, runtime-kit
+Agent Console deployment must validate and replace its DSH, TUI, runtime-kit
 artifact, profile, and configuration as one independently rollbackable
 generation.
 
@@ -158,30 +159,23 @@ profile linker and peer settings while recording the TUI release's explicit
 `false` lifecycle decisions. Those package-install decisions do not restrict
 the agent's host CLI or `PATH`.
 
-Once the ordered profile is complete — the authenticated 0.10.1 archive
-installed and `@sympoies/dsh-runtime-kit` added as the final bundle — and
-before starting the TUI, apply the narrowed history-permission repair:
+The candidate profile composes base, the consumer-owned compatibility bundle,
+the authenticated 0.10.2 archive, and runtime-kit in that order. The
+compatibility bundle supplies a disabled legacy row needed by TUI's unchanged
+Cordis patch; the profile's own patch disables TUI's obsolete code-runtime row.
+Check the installed TUI against `compatibility/dsh-tui-pristine.json` after the
+profile is complete. Before every TUI launch, restrict retained history data:
 
 ```sh
-dsh-runtime-kit-manage-dsh-tui-patch --action apply \
-  --package-root /absolute/dsh-home/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui
+dsh-runtime-kit-tui-history
 ```
 
-Apply it last: `dsh plugin add` re-materializes the profile's package tree, so
-a bundle added afterwards restores the pristine TUI bytes and drops the repair.
-[`docs/operations.md`](docs/operations.md) owns the ordering rule.
-
-The command accepts only the exact package name, version, `package.json` bytes,
-patch digest, and target before/after hashes in
-[`compatibility/dsh-tui-patches.json`](compatibility/dsh-tui-patches.json).
-Unknown or partially patched packages fail closed. The 0.10 line already carries the
-upstream asynchronous history persistence from dsh-TUI #593, so runtime-kit no
-longer patches input dispatch or lock retries, and it ships upstream's own
-live-Session compatibility facade, so the former `session.events` adaptation is
-retired too. The single remaining repair restricts owner-owned legacy history
-data directories and files to 0700/0600 before reading them. Unexpected or
-symlinked paths are refused. Apply, check, and reverse authenticate that one
-target difference.
+The preflight keeps the TUI package byte-for-byte pristine. It restricts
+owner-owned legacy history directories and files to 0700/0600 before the TUI
+reads them, preserves content, and refuses symlinked or foreign-owned paths.
+The published TUI still displays its unverified-DSH-version warning because its
+peer declaration ends before 0.1.6; deployment requires functional evidence
+for this exact pair.
 
 ### Agent Console history adapter
 

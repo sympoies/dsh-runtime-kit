@@ -1,0 +1,14 @@
+{
+  "schema_version": "dsh-runtime-kit.dsh-tui-pristine.v2",
+  "package_name": "@deepseek-harness-tui/dsh-tui",
+  "version": "0.10.2",
+  "file_count": 1880,
+  "tree_sha256": "3fb24e34d6f12d29db9671c75ed8eacf197bd58fb3eabafdf096a751baf8802d",
+  "installed_file_count": 1778,
+  "installed_tree_sha256": "9458b4488fa6b32c539061aa23268ed86bbbaa1ebeaa243105bdc0dc0fdfe44f",
+  "files": {
+    "package.json": "13c968db8bb2cc42c0860b01d8220c7754868dc1a4c88c273f46aada3a90215d",
+    "cordis.patch.yml": "2b3e5d328693b6b9712ddf78cc2a03385e568f1972fb82c959c34b8a416dc5d3",
+    "lib/types/history.js": "8e13a3c86a9a9fbc3c8c3c105f599e632d8821cf2e0d7a6037b2ee5c113aa6df"
+  }
+}

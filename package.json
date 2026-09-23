@@ -7,6 +7,7 @@
   "bin": {
     "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
     "dsh-runtime-kit-history": "./dist/bin/dsh-runtime-kit-history.js",
+    "dsh-runtime-kit-tui-history": "./dist/bin/dsh-runtime-kit-tui-history.js",
     "dsh-runtime-kit-acceptance-fixture": "./dist/bin/dsh-runtime-kit-acceptance-fixture.js",
     "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./dist/scripts/check-rule-parity-source.js",
@@ -16,6 +17,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./agent-console-profile": "./dist/src/compat/agent-console.js",
+    "./tui-history": "./dist/src/compat/dsh-tui-history.js",
     "./dsh-agent-lifecycle": "./dist/src/compat/dsh-agent-lifecycle.js",
     "./governed-commit": "./dist/src/governed-commit/index.js",
     "./composition": "./dist/src/composition/index.js",

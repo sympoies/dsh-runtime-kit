@@ -218,7 +218,7 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
   )
 })
 
-test('the headless candidate excludes the frozen Agent Console generation', () => {
+test('the Agent Console candidate uses the selected validated headless release', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   const agentConsole = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'agent-console.json'),
@@ -227,11 +227,11 @@ test('the headless candidate excludes the frozen Agent Console generation', () =
   const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
 
-  assert.equal(manifest.validated_releases[agentConsole.dsh.version], undefined)
-  assert.notEqual(agentConsole.dsh.revision, manifest.channels.pinned.revision)
+  assert.equal(manifest.validated_releases[agentConsole.dsh.version]?.revision, agentConsole.dsh.revision)
+  assert.equal(agentConsole.dsh.revision, manifest.channels.pinned.revision)
   for (const [name, range] of Object.entries(packageManifest.peerDependencies)) {
     if (name === '@deepseek-ai/cordis') continue
-    assert.equal(range.split(' || ').includes(agentConsole.dsh.version), false)
+    assert.equal(range.split(' || ').includes(agentConsole.dsh.version), true)
   }
   assert.doesNotMatch(workflow, /Run exact Agent Console TUI composition smoke/)
   assert.doesNotMatch(workflow, /DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE/)

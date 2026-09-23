@@ -1,0 +1,13 @@
+{
+  "name": "@sympoies/dsh-tui-016-profile-compat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH 0.1.6 profile compatibility for the unmodified dsh-TUI 0.10.2 bundle",
+  "files": ["cordis.patch.yml"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -28,7 +28,7 @@ import { parseArgs } from 'node:util'
 import { parse as parseYaml } from 'yaml'
 
 import { agentConsoleRc7ProfileContract } from '../compat/agent-console.js'
-import { inspectDshTuiRepair } from '../compat/dsh-tui-patch.js'
+import { inspectDshTuiPristine } from '../compat/dsh-tui-pristine.js'
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
 import {
   assertProvenanceOutsideSources,
@@ -119,8 +119,8 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
 ))
-const DSH_TUI_PATCHES = JSON.parse(readFileSync(
-  packageAsset('compatibility', 'dsh-tui-patches.json'),
+const DSH_TUI_PRISTINE = JSON.parse(readFileSync(
+  packageAsset('compatibility', 'dsh-tui-pristine.json'),
   'utf8',
 ))
 const AGENT_CONSOLE_CONTRACT = agentConsoleRc7ProfileContract()
@@ -3887,30 +3887,26 @@ function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string
 }
 
 /**
- * Repair state of the Agent Console TUI package for this profile.
+ * Pristine installed package state of the Agent Console TUI for this profile.
  *
- * Only the exact `dsh-tui` profile carries the installed-package repair, so
- * every other profile reports `not-applicable` rather than a failure. For that
- * profile the repair is health-relevant rather than install-time-only: DSH
- * reconciles a profile by re-materializing its package tree, so `update`,
- * `rollback`, and collateral restore all revert the repair, and nothing else in
- * this diagnosis would notice.
+ * The current Agent Console contract requires upstream-published TUI bytes.
+ * Other profiles do not carry that exact package constraint.
  */
 function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFor>) {
   // Every branch carries the same identifying fields, so a consumer keying on
   // `schema_version` never has to special-case the non-inspection outcomes.
   const base = {
-    schema_version: 'dsh-runtime-kit.dsh-tui-repair-inspection.v1',
+    schema_version: 'dsh-runtime-kit.dsh-tui-pristine-inspection.v2',
     package_name: AGENT_CONSOLE_CONTRACT.tui.package,
-    patch_id: DSH_TUI_PATCHES.patches?.[0]?.id ?? null,
+    version: AGENT_CONSOLE_CONTRACT.tui.version,
   }
   if (profile !== AGENT_CONSOLE_CONTRACT.profile) {
     return { ...base, ok: true, status: 'not-applicable' }
   }
   try {
-    return inspectDshTuiRepair({
+    return inspectDshTuiPristine({
       packageRoot: join(paths.profileDir, 'node_modules', ...AGENT_CONSOLE_CONTRACT.tui.package.split('/')),
-      manifest: DSH_TUI_PATCHES,
+      manifest: DSH_TUI_PRISTINE,
     })
   } catch {
     // A malformed packaged manifest is a packaging defect, not an observation.
@@ -3918,7 +3914,7 @@ function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFo
       ...base,
       ok: false,
       status: 'manifest-invalid',
-      error: 'the packaged DSH TUI patch manifest is invalid',
+      error: 'the packaged DSH TUI pristine manifest is invalid',
     }
   }
 }
