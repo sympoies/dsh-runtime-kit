@@ -1,17 +1,17 @@
 schema_version: dsh-runtime-kit.runtime-rule-parity.v1
 source:
   repository: https://github.com/sympoies/agent-runtime-kit
-  commit: 79d6b93f9df812e9cfd151ee03fc3d0ce44a0081
+  commit: 6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1
   manifest: manifests/hook-rules.yaml
   manifest_schema: agent-runtime-kit.hook-rules.v1
-  manifest_sha256: 5a7a571152fb1397b4243cb50c25a0812792a31bd3492a3e7d29a347f121849e
+  manifest_sha256: 3e5af1cc2fbbbcb937c30b7a3ccfd80eafa91f664fdaf8201fb489c0cc5c4229
   legacy_registrations: tests/agent-hook/fixtures/legacy-registrations.tsv
-  legacy_registrations_sha256: 4be983272a04c8d151d618847d997650506fcdea488404e8e91ca33b522b2452
+  legacy_registrations_sha256: 72f8a60432af949de9a47a3c2a3d542db0c7a2abc88f0fdafc8a602d8dc9b676
   counts:
-    rules: 101
-    handler_capability_registrations: 69
+    rules: 102
+    handler_capability_registrations: 70
     handler_ids: 22
-    legacy_registrations: 67
+    legacy_registrations: 68
     legacy_handler_ids: 21
 capability_groups:
   - id: execution-read-only
@@ -912,6 +912,15 @@ rules:
     source_key: handler:finish-line-record
     legacy: true
     source_digest: 3c554698500553d4ef4e845c297aae229210907d2e552238991484f853583ff8
+  - id: runtime.claude.pre-tool-use.multi-edit.portable-paths-scan
+    products:
+      - claude
+    events:
+      - PreToolUse
+    matcher: MultiEdit
+    source_key: handler:portable-paths-scan
+    legacy: true
+    source_digest: a53e5df2277c32c3036508404970c688c319df43237b297f43c17fc8a29db7ce
   - id: coord.activity.prompt-stop
     products:
       - codex

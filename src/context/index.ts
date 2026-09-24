@@ -1,3 +1,5 @@
+import { isAbsolute } from 'node:path'
+
 export type ToolDefinition = import('@deepseek-ai/dsh-tools').ToolDefinition
 
 import {
@@ -9,7 +11,7 @@ export type ContextDocument = { source: 'home' | 'project', scope: 'home' | 'pro
 
 export type ContextDecision = { schema_version: 'decision.context.v1', request_id: string, product: 'dsh', intent: string, reason: 'prepared' | 'already-current', verified: true, documents: ContextDocument[], document_count: number, total_bytes: number }
 
-export type ContextClient = { prepare: (exec: import('@deepseek-ai/dsh-tools').ToolRunContext, intent: string) => Promise<ContextDecision> }
+export type ContextClient = { prepare: (exec: import('@deepseek-ai/dsh-tools').ToolRunContext, intent: string, projectPath?: string) => Promise<ContextDecision> }
 
 function validDocument(value: unknown): value is ContextDocument  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -74,11 +76,12 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
   }
   const definition: ToolDefinition = {
     name: 'runtime_context',
-    description: 'Prepare one declared runtime-policy intent and return only its bounded required documents.',
+    description: 'Prepare one declared runtime-policy intent for this DSH session. Set project_path to the absolute target worktree when it differs from the session cwd.',
     parameters: {
       type: 'object',
       properties: {
         intent: { type: 'string', enum: [...RUNTIME_CONTEXT_INTENTS] },
+        project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
       },
       required: ['intent'],
       additionalProperties: false,
@@ -123,11 +126,17 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
         throw new TypeError('runtime_context expects an argument object')
       }
       const record = ((args) as Record<string, unknown>)
-      if (Object.keys(record).length !== 1 || !Object.hasOwn(record, 'intent')) {
-        throw new TypeError('runtime_context expects exactly one intent')
+      if (!Object.hasOwn(record, 'intent')
+        || Object.keys(record).some(key => key !== 'intent' && key !== 'project_path')) {
+        throw new TypeError('runtime_context expects one intent and an optional project_path')
       }
       const intent = normalizeRuntimeContextIntent(record.intent)
-      return sanitizeDecision(await client.prepare(exec, intent), intent)
+      const projectPath = record.project_path
+      if (projectPath !== undefined && (typeof projectPath !== 'string'
+        || !isAbsolute(projectPath) || projectPath.includes('\0'))) {
+        throw new TypeError('runtime_context project_path must be an absolute path')
+      }
+      return sanitizeDecision(await client.prepare(exec, intent, projectPath), intent)
     },
   }
   return Object.freeze(definition)

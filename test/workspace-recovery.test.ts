@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { createWorkspaceRecoveryTools } from '../dist/src/workspace-recovery/index.js'
 import { createNilsWorkspaceRecoveryClient } from '../dist/src/workspace-recovery/nils-client.js'
+import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
 
 const DSH_SCHEMA_KEYWORDS = new Set([
   'type', 'oneOf', 'properties', 'required', 'additionalProperties',
@@ -47,6 +51,41 @@ function execution(signal = new AbortController().signal) {
     concludeTurn() {},
   }
 }
+
+test('a verified worktree binds Bash when the lease has no classifiable target', async () => {
+  const temporary = await mkdtemp(join(tmpdir(), 'dsh-verified-bash-'))
+  try {
+    const current = join(temporary, 'current')
+    const target = join(temporary, 'managed-worktree')
+    const other = join(temporary, 'other-checkout')
+    await Promise.all([mkdir(current), mkdir(join(target, 'src'), { recursive: true }), mkdir(other)])
+    await symlink(other, join(target, 'outside'))
+    const exec = execution()
+    exec.agent.session.header.cwd = current
+    const ctx = {
+      get(name) {
+        return name === 'workspaceLease' ? { async targets() { return [] } } : undefined
+      },
+      effect() {},
+    }
+    const targets = createVerifiedWorktreeTargets(ctx, {
+      async verifyHandoff(_exec, path) {
+        assert.equal(path, target)
+        return { handoff: { status: 'verified', path, head: 'b'.repeat(40) } }
+      },
+    })
+    const bash = workdir => ({ ...exec, name: 'bash', arguments: { command: 'pwd', workdir } })
+
+    await assert.rejects(targets.resolve(bash(target), current))
+    targets.authorize(await targets.verify(exec, target))
+    assert.equal(await targets.resolve(bash(target), current), target)
+    assert.equal(await targets.resolve(bash(join(target, 'src')), current), target)
+    await assert.rejects(targets.resolve(bash(join(target, 'outside')), current))
+    await assert.rejects(targets.resolve(bash(other), current))
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
 
 function payload(action = 'inspect') {
   return {
@@ -222,6 +261,8 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
   assert.match(text, /path="\/managed\/fix-recovery"/)
   assert.match(text, /untrusted repository metadata/)
   assert.match(text, /workspace_recovery_handoff/)
+  assert.match(text, /runtime_context/)
+  assert.match(text, /workdir/)
   const verified = await handoff.execute({ path: '/managed/fix-recovery' }, execution())
   assert.equal(verified.handoff.status, 'verified')
 })

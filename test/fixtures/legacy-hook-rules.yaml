@@ -2,7 +2,7 @@
   "schema_version": "agent-runtime-kit.hook-rules.v1",
   "policy_bundle": "core/policies/agent-hook/runtime-kit-v1.toml",
   "legacy_handler_count": 21,
-  "legacy_registration_count": 67,
+  "legacy_registration_count": 68,
   "rules": [
     {
       "id": "runtime.shared.pre-tool-use.bash.read-only-shadow",
@@ -1824,6 +1824,32 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "typed-capability",
       "legacy_handler": "finish-line-record"
+    },
+    {
+      "id": "runtime.claude.pre-tool-use.multi-edit.portable-paths-scan",
+      "products": [
+        "claude"
+      ],
+      "events": [
+        "PreToolUse"
+      ],
+      "matcher": "MultiEdit",
+      "capability": {
+        "id": "runtime-kit.handler.v1",
+        "handler_id": "portable-paths-scan"
+      },
+      "mode": "enforce",
+      "priority": 160,
+      "failure_posture": "closed",
+      "timeout_posture": "warn",
+      "override_class": "locked",
+      "state_owner": "none",
+      "transformation": "block",
+      "recovery": "exact-capability-only",
+      "docs": "core/policies/files-hooks-validation.md",
+      "test_owner": "tests/hooks/test_shared_hooks.py",
+      "disposition": "typed-capability",
+      "legacy_handler": "portable-paths-scan"
     },
     {
       "id": "coord.activity.prompt-stop",

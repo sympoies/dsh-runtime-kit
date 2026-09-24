@@ -62,13 +62,18 @@ function policyReason(decision: Record<string, any>) {
   // shape and needs no runtime-kit fallback text.
   const unsafeDefaultDelivery = codes.length === 1
     && codes[0] === 'block-unsafe-default-delivery'
+  const missingDshIntent = codes.length === 1 && codes[0] === 'pre-edit-intent-gate'
   const guidance = unsafeDefaultDelivery
     ? 'The command was blocked before command dispatch because policy could not prove a safe read-only inspection or governed delivery shape. Retry now with one read-only command per Bash call (for example, first `pwd`, then `git status --short --branch`) and set the Bash tool workdir to the exact target checkout; do not include delivery commands in an inspection call. No operator intervention is required.\nFor a genuine delivery from a managed session whose cwd differs, run `semantic-commit commit --repo <absolute managed-worktree path> ...`, then use the repository PR workflow instead of direct default-branch mutation.'
+    : missingDshIntent
+      ? 'This DSH session needs the project-dev edit intent for the target repository. Call `runtime_context({ intent: "project-dev" })` in this same session for its current checkout. For another checkout, verify its exact clean managed path with `workspace_recovery_handoff`, then call `runtime_context({ intent: "project-dev", project_path: "<verified absolute worktree>" })`. Read the returned contract, then retry the blocked tool call. For Bash, set workdir within that worktree. The checkout lease is still checked before mutation.'
     : undefined
   // nils owns the remediation for a blocked shape; the runtime-kit text below
   // is only a fallback for a decision that carries no context of its own.
   const context = typeof decision.context === 'string' ? decision.context.trim() : ''
-  const promotedGuidance = context.length > 0 ? context : guidance
+  // nils-cli's generic remediation names the CLI entry used by Codex/Claude.
+  // DSH agents have a dedicated, authenticated runtime_context tool instead.
+  const promotedGuidance = missingDshIntent ? guidance : context.length > 0 ? context : guidance
   if (promotedGuidance === undefined || promotedGuidance.length === 0) {
     return [summary, context].filter(Boolean).join('\n')
   }
@@ -81,7 +86,7 @@ function policyReason(decision: Record<string, any>) {
   const policyRules = ruleIds.length > codes.length
     ? `Policy rules: ${ruleIds.join(',')}`
     : undefined
-  const remainingContext = promotedGuidance === context
+  const remainingContext = promotedGuidance === context || missingDshIntent
     ? []
     : context.split(/\r?\n/).filter(Boolean)
   return [

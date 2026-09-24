@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { createRuntimeContextTool } from '../dist/src/context/index.js'
 import { createNilsContextClient } from '../dist/src/context/nils-context.js'
+import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
 import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
@@ -249,6 +250,160 @@ test('runtime_context returns one sanitized bounded intent result on demand', as
 
   const oldInjectedBaseline = 'x'.repeat(76_667)
   assert.ok(Buffer.byteLength(rendered[0].text) < Buffer.byteLength(oldInjectedBaseline) / 100)
+})
+
+test('runtime_context can prepare the exact target worktree in the current DSH session', async () => {
+  const calls = []
+  const tool = createRuntimeContextTool({
+    async prepare(exec, intent, projectPath) {
+      calls.push({ exec, intent, projectPath })
+      return contextDecision()
+    },
+  })
+  const exec = execution()
+  const target = '/workspace/managed-worktree'
+  await tool.execute({ intent: 'project-dev', project_path: target }, exec)
+  assert.deepEqual(calls, [{ exec, intent: 'project-dev', projectPath: target }])
+  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: '../relative' }, exec))
+  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'edit' }, exec))
+  assert.equal(calls.length, 1)
+})
+
+test('DSH context transport binds explicit worktree context to project-path and cwd', async () => {
+  const subject = contextTransportHarness()
+  const handoffs = []
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+    verifiedWorktreeTargets: {
+      async verify(_exec, path) { return { session: {}, path } },
+      authorize(proof) { handoffs.push(proof.path) },
+    },
+  })
+  await client.prepare(execution(), 'project-dev', '/workspace/managed-worktree')
+  const spec = subject.specs[0]
+  assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], '/workspace/managed-worktree')
+  assert.equal(spec.cwd, '/workspace/managed-worktree')
+  assert.equal(spec.argv[spec.argv.indexOf('--session-id') + 1], 'session-current')
+  assert.deepEqual(handoffs, ['/workspace/managed-worktree'])
+})
+
+test('a cross-worktree context requires an exact verified managed handoff before agent-docs', async () => {
+  const subject = contextTransportHarness()
+  const target = '/workspace/managed-worktree'
+  const requests = []
+  const ctx = {
+    ...subject.ctx,
+    get(name) {
+      if (name === 'workspaceLease') return { async targets() { return [target] } }
+    },
+  }
+  const targets = createVerifiedWorktreeTargets(ctx, {
+    async verifyHandoff(_exec, path) {
+      requests.push(path)
+      return { handoff: { status: 'verified', path: target, head: 'a'.repeat(40) } }
+    },
+  })
+  const client = createNilsContextClient(ctx, {
+    agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
+    verifiedWorktreeTargets: targets,
+  })
+  const exec = execution()
+  await assert.rejects(targets.resolve(exec, '/workspace/current'), /target-unverified/)
+  await assert.rejects(client.prepare(exec, 'project-dev', '/workspace/other'), /path-invalid/)
+  assert.equal(subject.specs.length, 0)
+  await client.prepare(exec, 'project-dev', target)
+  assert.deepEqual(requests, ['/workspace/other', target])
+  assert.equal(await targets.resolve(exec, '/workspace/current'), target)
+  await assert.rejects(targets.resolve(execution(), '/workspace/current'), /target-unverified/)
+  await assert.rejects(targets.resolve(execution({ name: 'bash', arguments: { workdir: '/workspace/alias' }, agent: exec.agent }), '/workspace/current'), /workdir-mismatch/)
+})
+
+test('Bash prerequisite begin and commit stay bound to its explicit workdir', async () => {
+  const content = 'bounded policy\n'
+  const subject = contextTransportHarness({
+    response(spec) {
+      if (spec.argv.includes('commit-prerequisite')) return {
+        schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
+        ok: true,
+        data: { product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true },
+      }
+      return {
+        schema_version: 'cli.agent-docs.session.prerequisite.v1',
+        ok: true,
+        data: { decision: {
+          schema_version: 'decision.prerequisite.v1',
+          request_id: requestId(spec),
+          product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'pending', verified: true,
+          documents: [{ source: 'project', scope: 'project', content }],
+          document_count: 1, total_bytes: Buffer.byteLength(content), receipt: 'receipt-one',
+        } },
+      }
+    },
+  })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
+  })
+  const target = '/workspace/managed-worktree'
+  const exec = execution({ name: 'bash', arguments: { command: 'git status --short --branch', workdir: target } })
+  const binding = {
+    agentId: 'agent-one', workspaceGeneration: 'workspace-one', callId: 'call-one',
+    turn: 1, step: 1, toolName: 'bash', definitionId: 'definition-one',
+  }
+  const pending = await client.beginPrerequisite(exec, 'project-dev', binding)
+  await client.commitPrerequisite(exec, { intent: 'project-dev', phase: 'edit', receipt: pending.receipt, projectPath: target, binding })
+  assert.equal(subject.specs.length, 2)
+  for (const spec of subject.specs) {
+    assert.equal(spec.cwd, target)
+    assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
+    assert.equal(spec.argv[spec.argv.indexOf('--session-id') + 1], 'session-current')
+  }
+  await assert.rejects(client.commitPrerequisite(exec, {
+    intent: 'project-dev', phase: 'edit', receipt: pending.receipt,
+    projectPath: '/workspace/other', binding,
+  }), /runtime-context-project-path-changed/)
+  assert.equal(subject.specs.length, 2)
+})
+
+test('native edit prerequisite begin and commit use the authenticated worktree target', async () => {
+  const target = '/workspace/managed-worktree'
+  for (const name of ['write', 'edit', 'str_replace_editor']) {
+    const subject = contextTransportHarness({
+      response(spec) {
+        if (spec.argv.includes('commit-prerequisite')) return {
+          schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
+          ok: true,
+          data: { product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true },
+        }
+        return {
+          schema_version: 'cli.agent-docs.session.prerequisite.v1',
+          ok: true,
+          data: { decision: {
+            schema_version: 'decision.prerequisite.v1', request_id: requestId(spec),
+            product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'pending', verified: true,
+            documents: [], document_count: 0, total_bytes: 0, receipt: `receipt-${name}`,
+          } },
+        }
+      },
+    })
+    const client = createNilsContextClient(subject.ctx, {
+      agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
+      verifiedWorktreeTargets: { async resolve() { return target } },
+    })
+    const exec = execution({ name, arguments: { file_path: `${target}/file.txt` } })
+    const binding = {
+      agentId: 'agent-one', workspaceGeneration: 'workspace-one', callId: 'call-one',
+      turn: 1, step: 1, toolName: name, definitionId: 'definition-one',
+    }
+    const pending = await client.beginPrerequisite(exec, 'project-dev', binding)
+    assert.equal(pending.projectPath, target)
+    await client.commitPrerequisite(exec, { intent: 'project-dev', phase: 'edit', receipt: pending.receipt, projectPath: target, binding })
+    assert.equal(subject.specs.length, 2)
+    for (const spec of subject.specs) {
+      assert.equal(spec.cwd, target)
+      assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
+    }
+  }
 })
 
 test('the context client invokes one bounded atomic agent-docs command for the exact DSH scope', async () => {

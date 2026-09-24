@@ -196,12 +196,23 @@ function executionScope(exec: ToolRunContext) {
   return { sessionId, cwd }
 }
 
+export function targetProjectPath(exec: Pick<ToolRunContext, 'name' | 'arguments'>, sessionCwd: string) {
+  if (exec.name !== 'bash' || exec.arguments === null
+    || typeof exec.arguments !== 'object' || Array.isArray(exec.arguments)) return sessionCwd
+  const workdir = ((exec.arguments) as Record<string, unknown>).workdir
+  if (workdir === undefined) return sessionCwd
+  if (typeof workdir !== 'string' || !isAbsolute(workdir) || workdir.includes('\0')) {
+    throw failure('project-path-invalid')
+  }
+  return workdir
+}
+
 /**
  * Own the atomic agent-docs context subprocess separately from the Task 2.1
  * pre-tool policy ingress. Unknown process-tree quiescence permanently closes
  * only this context surface; it never relaxes or rewrites policy admission.
  */
-export function createNilsContextClient(ctx: Context, config: { agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} } = {}) {
+export function createNilsContextClient(ctx: Context, config: { agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown}, verifiedWorktreeTargets?: ReturnType<typeof import('../workspace-recovery/verified-targets.js').createVerifiedWorktreeTargets> } = {}) {
   const command = commandName(config.agentDocs, 'agent-docs', 'agentDocs')
   const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
   const stateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
@@ -382,12 +393,17 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
   }
 
   return Object.freeze({
-    async prepare(exec: ToolRunContext, intent: string) {
+    async prepare(exec: ToolRunContext, intent: string, projectPath?: string) {
       const phase = runtimeContextPhase(intent)
       const scope = executionScope(exec)
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId
-      const { cwd } = scope
+      const cwd = projectPath ?? scope.cwd
+      if (!isAbsolute(cwd) || cwd.includes('\0')) throw failure('project-path-invalid')
+      if (cwd !== scope.cwd && config.verifiedWorktreeTargets === undefined) {
+        throw failure('verified-worktree-unavailable')
+      }
+      const handoff = cwd === scope.cwd ? undefined : await config.verifiedWorktreeTargets!.verify(exec, cwd)
       const requestId = `context:${randomUUID()}`
       const argv = [command]
       if (docsHome !== undefined) argv.push('--docs-home', docsHome)
@@ -401,7 +417,7 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
       )
       argv.push('--phase', phase)
       argv.push('--request-id', requestId, '--max-bytes', String(maxBytes), '--format', 'json')
-      return executeCommand(
+      const decision = await executeCommand(
         exec,
         argv,
         cwd,
@@ -409,6 +425,8 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
         envelope => parseSuccess(envelope, requestId, intent, phase, maxBytes),
         ['cli.agent-docs.session.context.v1'],
       )
+      if (handoff !== undefined) config.verifiedWorktreeTargets!.authorize(handoff)
+      return decision
     },
 
     async beginPrerequisite(exec: ToolRunContext, intent: string, binding: {agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}) {
@@ -416,11 +434,14 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
       const scope = executionScope(exec)
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId
+      const projectPath = config.verifiedWorktreeTargets === undefined
+        ? targetProjectPath(exec, scope.cwd)
+        : await config.verifiedWorktreeTargets.resolve(exec, scope.cwd)
       const requestId = `prerequisite:${randomUUID()}`
       const argv = [command]
       if (docsHome !== undefined) argv.push('--docs-home', docsHome)
       argv.push(
-        '--project-path', scope.cwd,
+        '--project-path', projectPath,
         'session', 'prerequisite',
         '--session-id', sessionId,
         '--product', 'dsh',
@@ -438,25 +459,30 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
         '--max-bytes', String(maxBytes),
         '--format', 'json',
       )
-      return executeCommand(
+      const decision = await executeCommand(
         exec,
         argv,
-        scope.cwd,
+        projectPath,
         principal,
         envelope => parsePrerequisiteSuccess(envelope, requestId, intent, phase, maxBytes),
         ['cli.agent-docs.session.prerequisite.v1'],
       )
+      return { ...decision, projectPath }
     },
 
-    async commitPrerequisite(exec: ToolRunContext, pending: {intent: string, phase: string, receipt: string, binding: {agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}}) {
+    async commitPrerequisite(exec: ToolRunContext, pending: {intent: string, phase: string, receipt: string, projectPath: string, binding: {agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}}) {
       const scope = executionScope(exec)
+      if (config.verifiedWorktreeTargets === undefined && exec.name === 'bash'
+        && targetProjectPath(exec, scope.cwd) !== pending.projectPath) {
+        throw failure('project-path-changed')
+      }
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId
       const { binding } = pending
       const argv = [command]
       if (docsHome !== undefined) argv.push('--docs-home', docsHome)
       argv.push(
-        '--project-path', scope.cwd,
+        '--project-path', pending.projectPath,
         'session', 'commit-prerequisite',
         '--session-id', sessionId,
         '--product', 'dsh',
@@ -474,7 +500,7 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
       return executeCommand(
         exec,
         argv,
-        scope.cwd,
+        pending.projectPath,
         principal,
         envelope => parsePrerequisiteCommitSuccess(envelope, pending.intent, pending.phase),
         ['cli.agent-docs.session.commit-prerequisite.v1'],

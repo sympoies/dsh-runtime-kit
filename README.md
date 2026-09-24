@@ -36,6 +36,12 @@ compatibility, acceptance, and delivery procedures are in the
   tools, with context injected once and policy freshness checked on every call.
 - Explicit `runtime_context({ intent: "project-dev" })` delivery remains
   available without injecting a documentation corpus into every prompt.
+  When a managed worktree differs from the session cwd, verify it with
+  `workspace_recovery_handoff`, then use
+  `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`
+  for that exact verified path. Set Bash `workdir` within that worktree; native
+  file edits use the checkout lease's authenticated target. The project-dev
+  prerequisite, policy, and checkout lease are checked for the target worktree.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
 - Model-hidden native runtime health for exact DSH/nils identity, project

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { targetProjectPath } from '../context/nils-context.js'
 
 export type Context = import('@deepseek-ai/cordis').Context
 export type Agent = import('@deepseek-ai/dsh-agent').Agent
@@ -27,7 +28,7 @@ function validDefinition(definition: unknown) {
  * last-mile verification are side-effect free. DSH invokes durable commit only
  * after the exact body and the complete post-execute waterfall have succeeded.
  */
-export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrerequisite(exec: ToolExecution, intent: string, binding: ExecutionBinding): Promise<any>, commitPrerequisite(exec: ToolExecution, pending: {intent: string, phase: string, receipt: string, binding: ExecutionBinding}): Promise<any>}, createUserMessage: (input: any) => import('@deepseek-ai/dsh-llm').UserMessage, revalidatePolicy: (exec: ToolExecution, correlation: ToolCorrelation, proof: PrerequisiteProof) => Promise<{kind?: string, context?: string, reason?: string} | undefined>) {
+export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrerequisite(exec: ToolExecution, intent: string, binding: ExecutionBinding): Promise<any>, commitPrerequisite(exec: ToolExecution, pending: {intent: string, phase: string, receipt: string, projectPath: string, binding: ExecutionBinding}): Promise<any>}, createUserMessage: (input: any) => import('@deepseek-ai/dsh-llm').UserMessage, revalidatePolicy: (exec: ToolExecution, correlation: ToolCorrelation, proof: PrerequisiteProof) => Promise<{kind?: string, context?: string, reason?: string} | undefined>, resolveProjectPath?: (exec: ToolExecution, cwd: string) => Promise<string>) {
   let requirements: WeakMap<ToolDefinition, RequirementRegistration> = new WeakMap()
   const namedRequirements: Map<string, string> = new Map(
     DEFAULT_PROJECT_DEV_TOOLS.map(name => [name, PROJECT_DEV_CAPABILITY]),
@@ -93,6 +94,12 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
     if (exec.agent.session.header !== record.sessionHeader) return 'session-header-changed'
     if (exec.agent.session.header.id !== record.correlation.sessionId) return 'session-id-changed'
     if (exec.agent.session.header.cwd !== record.correlation.cwd) return 'cwd-changed'
+    try {
+      if (resolveProjectPath === undefined && exec.name === 'bash'
+        && targetProjectPath(exec, record.correlation.cwd) !== record.projectPath) return 'project-path-changed'
+    } catch {
+      return 'project-path-changed'
+    }
     return undefined
   }
 
@@ -102,6 +109,15 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
       pending.delete(exec)
       throw new Error(`dsh-runtime-kit:prerequisite-binding-invalid:${mismatch}`)
     }
+  }
+
+  async function requireMatchingProjectPath(exec: Readonly<ToolExecution>, record: PendingPrerequisite) {
+    if (resolveProjectPath === undefined) return
+    try {
+      if (await resolveProjectPath(exec, record.correlation.cwd) === record.projectPath) return
+    } catch {}
+    pending.delete(exec)
+    throw new Error('dsh-runtime-kit:prerequisite-binding-invalid:project-path-changed')
   }
 
   async function beforeBody(exec: ToolRunContext, record: PendingPrerequisite, phase: 'dispatch' | 'body') {
@@ -120,6 +136,9 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
       verified = await client.beginPrerequisite(exec, record.intent, record.binding)
       if (typeof verified.receipt !== 'string') {
         throw new Error('dsh-runtime-kit:prerequisite-decision-invalid')
+      }
+      if (verified.projectPath !== undefined && verified.projectPath !== record.projectPath) {
+        throw new Error('dsh-runtime-kit:prerequisite-project-path-changed')
       }
     } catch {
       pending.delete(exec)
@@ -160,6 +179,7 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
       )
     }
     requireMatchingRecord(exec, record)
+    await requireMatchingProjectPath(exec, record)
     record.receipt = verified.receipt
     record.documents = verified.reason === 'pending' ? verified.documents : []
     record.verified = true
@@ -200,6 +220,7 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
           intent: record.intent,
           phase: record.phase,
           receipt: record.receipt,
+          projectPath: record.projectPath,
           binding: record.binding,
         })
         break
@@ -266,9 +287,15 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
         toolName: correlation.name,
         definitionId: definitionId(required.definition),
       })
+      const projectPath = resolveProjectPath === undefined
+        ? targetProjectPath(exec, correlation.cwd)
+        : await resolveProjectPath(exec, correlation.cwd)
       const decision = await client.beginPrerequisite(exec, PROJECT_DEV_INTENT, binding)
       if (typeof decision.receipt !== 'string') {
         throw new Error('dsh-runtime-kit:prerequisite-decision-invalid')
+      }
+      if (decision.projectPath !== undefined && decision.projectPath !== projectPath) {
+        throw new Error('dsh-runtime-kit:prerequisite-project-path-changed')
       }
       const record: PendingPrerequisite = {
         intent: PROJECT_DEV_INTENT,
@@ -284,6 +311,7 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
         sessionHeader: exec.agent.session.header,
         parent: exec.parent,
         correlation: Object.freeze({ ...correlation }),
+        projectPath,
         definition: required.definition,
         receipt: decision.receipt,
         documents: decision.reason === 'pending' ? decision.documents : [],
@@ -335,4 +363,4 @@ export type PrerequisiteProof = { agentId: string, workspaceGeneration: string, 
 
 export type RequirementRegistration = { capability: string }
 
-export type PendingPrerequisite = { intent: string, phase: string, capability: string, registration: RequirementRegistration | undefined, binding: ExecutionBinding, token: ToolExecution['token'], rootCallId: ToolExecution['rootCallId'], arguments: unknown, agent: Agent, session: Agent['session'], sessionHeader: Agent['session']['header'], parent: ToolExecution['parent'], correlation: ToolCorrelation, definition: ToolDefinition, receipt: string, documents: Array<{source: string, scope: string, content: string}>, verified?: boolean, committed?: boolean }
+export type PendingPrerequisite = { intent: string, phase: string, capability: string, registration: RequirementRegistration | undefined, binding: ExecutionBinding, token: ToolExecution['token'], rootCallId: ToolExecution['rootCallId'], arguments: unknown, agent: Agent, session: Agent['session'], sessionHeader: Agent['session']['header'], parent: ToolExecution['parent'], correlation: ToolCorrelation, projectPath: string, definition: ToolDefinition, receipt: string, documents: Array<{source: string, scope: string, content: string}>, verified?: boolean, committed?: boolean }

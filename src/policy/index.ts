@@ -6,6 +6,7 @@ import { onDshSessionStart } from '../compat/dsh-agent-lifecycle.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
 import { createRuntimeContextTool } from '../context/index.js'
 import { createNilsContextClient } from '../context/nils-context.js'
+import { UnverifiedWorktreeTargetError } from '../workspace-recovery/verified-targets.js'
 import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
 import { createPrerequisiteCoordinator } from '../prerequisite/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
@@ -280,7 +281,7 @@ export function normalizeSandboxEscalationRequest({
  * guard. The transport effect is registered first so reverse disposal removes
  * every ingress listener and guard before process-tree draining begins.
  */
-export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} } = {}, dshRuntime?: {ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}, childPlugins: ReturnType<typeof createChildPluginStatus> = createChildPluginStatus()) {
+export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>}, verifiedWorktreeTargets?: ReturnType<typeof import('../workspace-recovery/verified-targets.js').createVerifiedWorktreeTargets> } = {}, dshRuntime?: {ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}, childPlugins: ReturnType<typeof createChildPluginStatus> = createChildPluginStatus()) {
   if (dshRuntime === undefined) {
     throw new TypeError('dsh-runtime-kit: validated DSH runtime dependencies are required')
   }
@@ -326,7 +327,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     throw new TypeError('dsh-runtime-kit: dataPolicyOpaqueTools must be an array of non-empty tool names')
   }
   const opaqueTools = new Set(opaqueToolConfig)
-  const contextClient = createNilsContextClient(ctx, config)
+  const contextClient = createNilsContextClient(ctx, { ...config, verifiedWorktreeTargets: config.verifiedWorktreeTargets })
   const finishLineClient = createNilsFinishLineClient(ctx, config)
   const finishLine = createFinishLineCoordinator(ctx, {
     client: finishLineClient,
@@ -508,6 +509,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       }
       return decision
     },
+    config.verifiedWorktreeTargets?.resolve,
   )
   const authorizedTools: WeakSet<Readonly<ToolExecution>> = new WeakSet()
   let acceptedLifecycleSteps: WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], { position: string, promptDigest: string, status: 'pending' | 'accepted', context?: string, settled: Promise<boolean>, resolve: (accepted: boolean) => void }> = new WeakMap()
@@ -959,11 +961,25 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
       return { kind: (('deny') as const), reason }
     }
+    const prerequisiteDenial = (error: unknown) => {
+      if (error instanceof UnverifiedWorktreeTargetError) {
+        const path = JSON.stringify(error.targetPath)
+        if (error.isWorkdir) {
+          return rememberDenial(
+            `dsh-runtime-kit:verified-worktree-target-unverified: Bash workdir ${path} is outside this DSH session's verified checkout. Use workspace_recovery_handoff to verify the exact clean managed worktree containing it, then call runtime_context({ intent: "project-dev", project_path: "<verified absolute worktree>" }) in this same session. Read the returned contract and retry the blocked tool call.`,
+          )
+        }
+        return rememberDenial(
+          `dsh-runtime-kit:verified-worktree-target-unverified: This DSH session needs project-dev intent for ${path}. Verify this exact clean managed worktree with workspace_recovery_handoff, then call runtime_context({ intent: "project-dev", project_path: ${path} }) in this same session. Read the returned contract and retry the blocked tool call.`,
+        )
+      }
+      return rememberDenial(denial('prerequisite-unavailable').reason)
+    }
 
     try {
       prerequisites.prepare(exec)
-    } catch {
-      return rememberDenial(denial('prerequisite-unavailable').reason)
+    } catch (error) {
+      return prerequisiteDenial(error)
     }
     const correlation = compatibility.beginTool(exec)
     if (!correlation.ok) {
@@ -972,8 +988,8 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     let prerequisiteProof
     try {
       prerequisiteProof = await prerequisites.begin(exec, correlation.context)
-    } catch {
-      return rememberDenial(denial('prerequisite-unavailable').reason)
+    } catch (error) {
+      return prerequisiteDenial(error)
     }
     if (closing || exec.signal.aborted) {
       return rememberDenial(denial(closing

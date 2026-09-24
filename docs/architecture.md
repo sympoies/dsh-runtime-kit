@@ -587,7 +587,9 @@ failure, persistence, and rollback semantics are in
 
 `src/context/nils-context.ts` owns a separate bounded subprocess lifecycle for
 `agent-docs session context`. A tool call derives the exact DSH Session id and
-absolute cwd from the live Agent, mints a fresh request id, and asks nils to
+absolute cwd from the live Agent. For another checkout, it accepts only the
+exact canonical managed-worktree path independently verified by nils workspace
+recovery for this session; it then mints a fresh request id and asks nils to
 resolve, budget-check, fingerprint, and persist one intent atomically. The
 transport validates an exact `cli.agent-docs.session.context.v1` envelope and
 `decision.context.v1` payload, including request, product, intent, optional
@@ -599,7 +601,8 @@ metadata before DSH materializes the canonical tool result.
 The tool result itself is the only model-facing context delivery path. Nothing
 is attached to the system prompt or session-start event, and the plugin does
 not duplicate the same document through `deferContext()`. The public tool
-schema allows only `project-dev`, which deterministically selects phase `edit`;
+schema allows only `project-dev`, which deterministically selects phase `edit`,
+plus an optional absolute `project_path`;
 the transport repeats the same allowlist check before spawning `agent-docs`.
 Workflow code will prepare review and delivery phases at their own boundaries.
 Context cancellation, timeout, and disposal join the complete child process
@@ -628,7 +631,9 @@ registration-bound and cannot erase a later declaration.
 
 At `tools/pre-execute`, after DSH correlation exists but before nils policy,
 the coordinator asks `agent-docs session prerequisite` for a side-effect-free
-decision. The receipt binds hashes of the DSH session, repository, Agent,
+decision. The workspace lease supplies the authenticated canonical repository
+target for Bash and native file edits. A target outside the session cwd must
+match the session's verified handoff path. The receipt binds hashes of the DSH session, repository, Agent,
 workspace generation, call, turn/step, tool name, visible definition, and the
 resolved `project-dev`/`edit` policy fingerprint. The strict v5 policy ingress
 carries that exact proof. Older ingress versions remain available for tools
@@ -637,7 +642,7 @@ without an automatic prerequisite and cannot partially parse v5 fields.
 Immediately before the selected body, patched DSH proves that the registered
 definition is still the exact bound object and invokes a second side-effect-free
 `session prerequisite` and policy check. HMR replacement, declaration disposal,
-stale or cross-scope receipts, policy drift after an approval, and cancellation
+stale or cross-scope receipts, a changed target `workdir`, policy drift after an approval, and cancellation
 fail before the body. DSH then runs the body and the complete
 `tools/post-execute` waterfall, finalizes result content and context, and
 linearizes the accepted result. Post-policy rejection, downstream exception,

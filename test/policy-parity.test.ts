@@ -28,21 +28,21 @@ function filesUnder(path) {
   return files
 }
 
-test('policy parity freezes the exact 101-rule source with distinct legacy counters', () => {
+test('policy parity freezes the exact 102-rule source with distinct legacy counters', () => {
   const inventory = loadInventory()
   assert.equal(inventory.schema_version, 'dsh-runtime-kit.runtime-rule-parity.v1')
   assert.deepEqual(inventory.source.counts, {
-    rules: 101,
-    handler_capability_registrations: 69,
+    rules: 102,
+    handler_capability_registrations: 70,
     handler_ids: 22,
-    legacy_registrations: 67,
+    legacy_registrations: 68,
     legacy_handler_ids: 21,
   })
   assert.match(inventory.source.commit, /^[0-9a-f]{40}$/)
   assert.match(inventory.source.manifest_sha256, /^[0-9a-f]{64}$/)
-  assert.equal(inventory.rules.length, 101)
-  assert.equal(new Set(inventory.rules.map((rule) => rule.id)).size, 101)
-  assert.equal(new Set(inventory.rules.map((rule) => rule.source_digest)).size, 101)
+  assert.equal(inventory.rules.length, 102)
+  assert.equal(new Set(inventory.rules.map((rule) => rule.id)).size, 102)
+  assert.equal(new Set(inventory.rules.map((rule) => rule.source_digest)).size, 102)
   const handlerRules = inventory.rules.filter((rule) => rule.source_key.startsWith('handler:'))
   const legacyRules = inventory.rules.filter((rule) => rule.legacy)
   assert.equal(handlerRules.length, inventory.source.counts.handler_capability_registrations)
@@ -159,7 +159,7 @@ test('the checked-in legacy registration snapshot is exact and bound to the inve
   const fixture = readFileSync(join(root, 'policy', 'legacy-registrations.tsv'), 'utf8')
   const lines = fixture.trimEnd().split('\n')
   assert.equal(lines[0], '# agent-runtime-kit.legacy-hook-registrations.v1')
-  assert.equal(lines.length - 1, 67)
+  assert.equal(lines.length - 1, 68)
   assert.equal(sha256(fixture), inventory.source.legacy_registrations_sha256)
 
   const projected = inventory.rules

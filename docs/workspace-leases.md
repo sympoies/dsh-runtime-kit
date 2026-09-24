@@ -256,10 +256,15 @@ allowlisted fields into DSH tool output.
 `workspace_recovery_handoff({ path })` calls the matching authenticated
 `verify-handoff` primitive and proves that the exact listed target is a
 different clean, non-bare, non-detached, non-prunable managed worktree. It does
-not create, clean, stash, switch, adopt, commit, or transfer authority. Under
-v2 the operator no longer needs a new session to keep working elsewhere; a
-fresh session at the returned exact cwd remains the recommended transition when
-the intended governed work targets the dirty checkout itself.
+not create, clean, stash, switch, adopt, commit, or transfer authority. To use
+the verified clean target in the current DSH session, prepare
+`runtime_context({ intent: "project-dev", project_path: "<verified absolute target>" })`
+and set Bash `workdir` within that worktree. Native file edits use the lease's
+authenticated repository root. Nils checks the target's intent and
+checkout lease for each call. The structured `runtime_kit_governed_commit`
+stays bound to the session cwd; a different worktree uses the governed
+`semantic-commit commit --repo <absolute target>` route or a session launched
+at that worktree.
 
 ## Lifecycle contract
 
