@@ -11,57 +11,57 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
 
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.28.3')
-  assert.equal(manifest.validated_release, '1.28.43')
+  assert.equal(manifest.validated_release, '1.28.44')
   assert.deepEqual(manifest.release, {
-      source_revision: 'v1.28.43',
-      source_commit: '569d907c207dedd64b1feef1e2e2b2f25f412db0',
-      platform: 'x86_64-unknown-linux-gnu',
-      archive: {
-          name: 'nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz',
-          'sha256': 'a40789fa4d0ebfde240557ca2032289c1b961aae4ebbbcf44291531c4cac15ce'
+    "source_revision": "v1.28.44",
+    "source_commit": "0223cc6edaca8ae66961e741516f4af7fa97fdd4",
+    "platform": "x86_64-unknown-linux-gnu",
+    "archive": {
+      "name": "nils-cli-v1.28.44-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "1865226d3506926c7ed2659d7a5405c842732eb4604fb86da21181e9ef5de712"
+    },
+    "artifacts": {
+      "agent-hook": {
+        "sha256": "b0f13e2c79e3bcb36b0ae6002ad4b387259f9baa91daba13a385a3737038665d"
       },
-      artifacts: {
-          'agent-hook': {
-              'sha256': 'e58815183eddb77b697f4ac92e438862432794f4a5b465396e47c186e6dc7d16'
-          },
-          'agent-docs': {
-              'sha256': '5ee102e6c29d9db9af6a17eb3c6d72d1bfcb944a312c6a73186406b21c52d990'
-          },
-          'agent-session': {
-              'sha256': '1b639a79de7d8f74be11e9dd2a8cdf6542581b4d661cda7e4d64009c694e774f'
-          },
-          'forge-cli': {
-              'sha256': '3f53bf07c03ca49f24c04596a7524c86f281295edb7f0c61d9b080712c94717e'
-          },
-          'git-cli': {
-              'sha256': '84c9b6c1feef4b22295edd5f56cf6612507b2bf288e11decad59450243587d06'
-          },
-          'review-specialists': {
-              'sha256': '6b6403ea677bd5b5bc77972c0a529f9b05729df3e32a0d1a6ca2b8f40265fff6'
-          },
-          'semantic-commit': {
-              'sha256': '4e979d0f1627c959e48fdc4ba4574dd3dadf032a0ecbc9f8c8e3edc67e3d370e'
-          }
+      "agent-docs": {
+        "sha256": "74d726fea1077a4f5211271fabee15084ff4d7da95903c5e0d6511a6e46286de"
       },
-      platforms: {
-          'aarch64-apple-darwin': {
-              archive: {
-                  name: 'nils-cli-v1.28.43-aarch64-apple-darwin.tar.gz',
-                  'sha256': '477364c691c233a9d263b05df749651afb143d618069b1a2aa5b567624b505e8'
-              },
-              artifacts: {
-                  'agent-hook': {
-                      'sha256': 'b32f8325530eedd7cf36f472589d172e6eeeb32e4be468863e73d9756de2f01c'
-                  },
-                  'agent-docs': {
-                      'sha256': '5bb36217404098f404d09eb350a57c9dae608430c0240380ed8b17f455246cbd'
-                  },
-                  'agent-session': {
-                      'sha256': '2111c157f4a454173700f8e2064bcbae64a1b5d5f371b748b82ff60dbf87ed3c'
-                  }
-              }
-          }
+      "agent-session": {
+        "sha256": "06f0365afc90873f2a3c3334a3b2eed850ffef1fd6105f7b40fe8255695b6e87"
+      },
+      "forge-cli": {
+        "sha256": "6b40056fbc77ff978981dff3d5528e97dda8ba59e94d4a033fe8d5e175d546b7"
+      },
+      "git-cli": {
+        "sha256": "093658e126bcd11ffb254f625adea756d851bfb5c5df75de2ac3e0ac009ede84"
+      },
+      "review-specialists": {
+        "sha256": "cb674bf48da590c85714eb9503fd4fb27dd01a9efc47e3fd842ffa8dac85724e"
+      },
+      "semantic-commit": {
+        "sha256": "8b2ae69a1a3f0abc5afdb2c698337c31319ec78aa59a9fc74b9a78f21c9affb9"
       }
+    },
+    "platforms": {
+      "aarch64-apple-darwin": {
+        "archive": {
+          "name": "nils-cli-v1.28.44-aarch64-apple-darwin.tar.gz",
+          "sha256": "f25023561eeba11ffd5937db30dfd23713099ef6694d54a0714b3e6f5553d370"
+        },
+        "artifacts": {
+          "agent-hook": {
+            "sha256": "a7f4272955f2486a42b458fec8846afcd6f89ac779cbd0eea94979dfdc820cca"
+          },
+          "agent-docs": {
+            "sha256": "78f5ec3b3e6012ebc38e764646fd8a5090184015b38d2d27ccfa2b1dfbc4683e"
+          },
+          "agent-session": {
+            "sha256": "d63e565c6b97fcabbe62b1942de1ec0bcb38be15c08c55147e9c950870a84d79"
+          }
+        }
+      }
+    }
   })
 
   assert.ok(manifest.commands.every(command => command.status === 'released'))

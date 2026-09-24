@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.43` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
 
 ## Agent runtime source alignment
 
@@ -35,7 +35,8 @@ The nils-cli v1.28.25 to v1.28.40 source comparison found no repair for the
 wrong-intent incident. DSH PR #263 repaired intent recovery in runtime-kit;
 nils-cli PR #1784 added the missing native portable-path rule for DSH and was
 released as v1.28.42. PR #1786 fixed the Agent Console DSH initial-prompt
-handoff and was released as v1.28.43.
+handoff and was released as v1.28.43. PR #1788 added the released-dirty-worktree
+successor lease contract in v1.28.44.
 
 The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,

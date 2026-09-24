@@ -109,7 +109,7 @@ assert.equal(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.28.3')
-assert.equal(nilsCompatibility.validated_release, '1.28.43')
+assert.equal(nilsCompatibility.validated_release, '1.28.44')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
