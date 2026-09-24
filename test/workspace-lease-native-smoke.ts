@@ -393,6 +393,12 @@ export function apply(ctx) {
     let dirtyNonRepositoryResult
     let dirtyCrossRepositoryResult
     let dirtyUnscopedResult
+    let handoffOwnerContext
+    let handoffOwnerEdit
+    let handoffOwnerRead
+    let handoffOwnerStage
+    let handoffSuccessorContext
+    let handoffSuccessorEdit
     try {
       await applyNilsWorkspaceLease(ctx, {
         agentHook: ${JSON.stringify(agentHookBin)},
@@ -613,6 +619,71 @@ export function apply(ctx) {
         arguments: { path: handoff },
         agent: dirtyHandle.agent,
       })
+
+      // The session cwd is a plain directory for both agents. The first
+      // agent stages an edit in the managed target, then releases its dirty
+      // lease; the second agent takes over without changing its own cwd.
+      const handoffOwner = await ctx.agents.create({
+        sessionId: 'workspace-native-handoff-owner',
+        agentOptions: { provider: 'unused', model: 'unused' },
+        meta: { cwd: plain },
+      })
+      handles.push(handoffOwner)
+      handoffOwnerContext = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-handoff-context'),
+        name: 'runtime_context',
+        arguments: { intent: 'project-dev', project_path: handoff },
+        agent: handoffOwner.agent,
+      })
+      handoffOwnerRead = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-handoff-read'),
+        name: 'read',
+        arguments: { file_path: join(handoff, 'tracked.txt') },
+        agent: handoffOwner.agent,
+      })
+      handoffOwnerEdit = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-handoff-edit'),
+        name: 'write',
+        arguments: { file_path: join(handoff, 'tracked.txt'), content: 'staged by owner\\n' },
+        agent: handoffOwner.agent,
+      })
+      handoffOwnerStage = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-handoff-stage'),
+        name: 'bash',
+        arguments: {
+          command: 'git add -- tracked.txt',
+          description: 'Stage the owner edit in the managed worktree',
+          workdir: handoff,
+        },
+        agent: handoffOwner.agent,
+      })
+      await handoffOwner.dispose()
+      handles.splice(handles.indexOf(handoffOwner), 1)
+
+      const handoffSuccessor = await ctx.agents.create({
+        sessionId: 'workspace-native-handoff-successor',
+        agentOptions: { provider: 'unused', model: 'unused' },
+        meta: { cwd: plain },
+      })
+      handles.push(handoffSuccessor)
+      handoffSuccessorContext = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-successor-context'),
+        name: 'runtime_context',
+        arguments: { intent: 'project-dev', project_path: handoff },
+        agent: handoffSuccessor.agent,
+      })
+      handoffSuccessorEdit = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-successor-edit'),
+        name: 'write',
+        arguments: { file_path: join(handoff, 'successor.txt'), content: 'continued by successor\\n' },
+        agent: handoffSuccessor.agent,
+      })
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
@@ -639,6 +710,12 @@ export function apply(ctx) {
         dirtyNonRepositoryResult,
         dirtyCrossRepositoryResult,
         dirtyUnscopedResult,
+        handoffOwnerContext,
+        handoffOwnerRead,
+        handoffOwnerEdit,
+        handoffOwnerStage,
+        handoffSuccessorContext,
+        handoffSuccessorEdit,
       }) + '\\n')
       ctx.get('appExit')?.(process.exitCode ?? 0)
     }
@@ -648,6 +725,9 @@ export function apply(ctx) {
   writeFileSync(overlayPath, `
 - id: dsh-runtime-kit
   disabled: true
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
 - insert:
     - id: workspace-lease-native-smoke-driver
       name: ${JSON.stringify(driverPath)}
@@ -715,6 +795,18 @@ export function apply(ctx) {
   assert.equal(receipt.dirtyHandoffResult.isError, false, JSON.stringify(receipt.dirtyHandoffResult))
   assert.equal(receipt.dirtyHandoffResult.value.handoff.path, handoffWorktree)
   assert.equal(receipt.dirtyHandoffResult.value.handoff.status, 'verified')
+  for (const result of [
+    receipt.handoffOwnerContext,
+    receipt.handoffOwnerRead,
+    receipt.handoffOwnerEdit,
+    receipt.handoffOwnerStage,
+    receipt.handoffSuccessorContext,
+    receipt.handoffSuccessorEdit,
+  ]) assert.equal(result.isError, false, JSON.stringify(result))
+  assert.equal(receipt.handoffOwnerStage.value.exitCode, 0, JSON.stringify(receipt.handoffOwnerStage))
+  assert.equal(readFileSync(join(handoffWorktree, 'tracked.txt'), 'utf8'), 'staged by owner\n')
+  assert.equal(readFileSync(join(handoffWorktree, 'successor.txt'), 'utf8'), 'continued by successor\n')
+  assert.match(run('/usr/bin/git', ['status', '--porcelain=v1'], { cwd: handoffWorktree }).stdout, /^M  tracked\.txt\n\?\? successor\.txt\n$/)
   assert.equal(existsSync(join(repository, 'peer-must-not-run.txt')), false)
   assert.equal(existsSync(join(dirtyRepository, 'dirty-must-not-run.txt')), false)
   assert.equal(existsSync(hostileFilterMarker), false, 'lease/recovery inspection executed a repository filter')
@@ -744,6 +836,7 @@ export function apply(ctx) {
     cleanManagedHandoffVerified: true,
     dirtyAnchorKeptFullHostAuthority: true,
     crossRepositoryMutationFenced: true,
+    releasedDirtyTargetTakenOverFromAnotherCwd: true,
   }) + '\n')
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })

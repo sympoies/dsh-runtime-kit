@@ -400,10 +400,6 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
       const sessionId = principal?.sessionId ?? scope.sessionId
       const cwd = projectPath ?? scope.cwd
       if (!isAbsolute(cwd) || cwd.includes('\0')) throw failure('project-path-invalid')
-      if (cwd !== scope.cwd && config.verifiedWorktreeTargets === undefined) {
-        throw failure('verified-worktree-unavailable')
-      }
-      const handoff = cwd === scope.cwd ? undefined : await config.verifiedWorktreeTargets!.verify(exec, cwd)
       const requestId = `context:${randomUUID()}`
       const argv = [command]
       if (docsHome !== undefined) argv.push('--docs-home', docsHome)
@@ -425,7 +421,6 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
         envelope => parseSuccess(envelope, requestId, intent, phase, maxBytes),
         ['cli.agent-docs.session.context.v1'],
       )
-      if (handoff !== undefined) config.verifiedWorktreeTargets!.authorize(handoff)
       return decision
     },
 

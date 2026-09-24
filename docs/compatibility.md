@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.43` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
 
 ## Agent runtime source alignment
 
@@ -24,9 +24,9 @@ The source changes were checked against DSH by behavior and owner:
 
 | Source change | DSH route |
 | --- | --- |
-| Trusted pre-edit intent recovery | `runtime_context` prepares `project-dev` for this DSH session. A different managed worktree must first pass `workspace_recovery_handoff`; its exact canonical path is then accepted as `project_path`. Bash `workdir` and native file edits use the checkout lease's authenticated target. A pre-edit denial names this tool route. |
+| Trusted pre-edit intent recovery | `runtime_context` prepares `project-dev` for an explicit absolute `project_path`, regardless of the session's starting cwd or the target's dirty state. Bash `workdir` and native file edits use the checkout lease's authenticated target. A pre-edit denial names the target-context route. |
 | Default-branch and persistent-integration delivery hook | DSH uses the released nils-cli `block-unsafe-default-delivery` group and governed `git-cli`/`semantic-commit` routes. The Codex/Claude Python parser is not loaded by DSH. The DSH-native default-branch proof is a separate nils-cli contract. |
-| Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` tools. A clean target may be prepared within the same session; the tools never transfer a lease. |
+| Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` for inspecting the session's repository. The v2 lease permits an explicitly resolved dirty target to pass to another session after release and terminal operations. A live foreign lease remains fenced. A session started outside Git uses `runtime_context` with the target path directly. |
 | Artifact routing and portable path hook | DSH provides session-owned `artifact_*` tools. The released nils-cli v1.28.43 native `portable-paths-scan` group also rejects hand-built `agent-out` directories and repo-local `.cache` scratch for DSH; the rule is not reimplemented in JavaScript. |
 | Coordination, health, skills, docs prompt, and finish-line hooks | DSH uses native coordination and runtime-health surfaces, selective `runtime_context`, and its nils/runtime-kit finish-line coordinator. macOS Bash and symlink fixes apply to the host-hook launchers, not to DSH's subprocess adapter. |
 | Devlog, upstream, Git delivery, review, browser, evidence, and work-tier documents | DSH follows the repository's `AGENT_DOCS.toml`, `docs/policies/`, and owning runbooks. Codex/Claude-only invocation text is not copied into the DSH catalog. |
@@ -35,7 +35,8 @@ The nils-cli v1.28.25 to v1.28.40 source comparison found no repair for the
 wrong-intent incident. DSH PR #263 repaired intent recovery in runtime-kit;
 nils-cli PR #1784 added the missing native portable-path rule for DSH and was
 released as v1.28.42. PR #1786 fixed the Agent Console DSH initial-prompt
-handoff and was released as v1.28.43.
+handoff and was released as v1.28.43. PR #1788 added the released-dirty-worktree
+successor lease contract in v1.28.44.
 
 The package retains exactly the latest two reviewed DSH releases. A promotion
 must add the newest release and remove the oldest release, its patch artifact,

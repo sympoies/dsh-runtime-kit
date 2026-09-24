@@ -87,9 +87,9 @@ function renderResult(value: any) {
     lines.push(`Verified clean handoff path=${quoted(value.handoff.path)} branch=${quoted(value.handoff.branch)} head=${quoted(value.handoff.head)}.`)
     lines.push('To continue in this session, call runtime_context with project_path set to that exact worktree, then use Bash with workdir set to the same path. The policy and checkout lease still decide each mutation. runtime_kit_governed_commit remains bound to the session cwd; use the governed semantic-commit --repo route for another worktree.')
   } else if (eligible.length > 0) {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. Verify one exact clean candidate with workspace_recovery_handoff, then prepare its project_path with runtime_context and set Bash workdir to that path. Policy and lease checks still apply.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. To retry an exact target after its former session releases it, prepare that project_path with runtime_context and set Bash workdir to the target checkout. A live owner must release first; an unrelated dirty checkout remains denied. You may instead verify one clean candidate with workspace_recovery_handoff. Policy and lease checks still apply.')
   } else {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. Create a clean managed worktree with git-cli, then prepare its project_path with runtime_context and set Bash workdir to that path. Policy and lease checks still apply.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. To retry an exact target after its former session releases it, prepare that project_path with runtime_context and set Bash workdir to the target checkout. A live owner must release first; an unrelated dirty checkout remains denied. You may instead create a clean managed worktree with git-cli. Policy and lease checks still apply.')
   }
   return [{ type: (('text') as const), text: lines.join('\n') }]
 }

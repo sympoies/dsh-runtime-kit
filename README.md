@@ -36,12 +36,13 @@ compatibility, acceptance, and delivery procedures are in the
   tools, with context injected once and policy freshness checked on every call.
 - Explicit `runtime_context({ intent: "project-dev" })` delivery remains
   available without injecting a documentation corpus into every prompt.
-  When a managed worktree differs from the session cwd, verify it with
-  `workspace_recovery_handoff`, then use
+  To work in another checkout, including from a session started outside a Git
+  repository, use
   `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`
-  for that exact verified path. Set Bash `workdir` within that worktree; native
-  file edits use the checkout lease's authenticated target. The project-dev
-  prerequisite, policy, and checkout lease are checked for the target worktree.
+  for the target. Set Bash `workdir` to that checkout; native file edits use
+  the checkout lease's authenticated target. A released dirty worktree may be
+  picked up by the next session without moving its starting cwd. A live foreign
+  lease and an unfinished operation remain fenced.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
 - Model-hidden native runtime health for exact DSH/nils identity, project
@@ -86,7 +87,7 @@ compatibility, acceptance, and delivery procedures are in the
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.43` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
 
 The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;

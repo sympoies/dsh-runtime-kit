@@ -76,7 +76,7 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
   }
   const definition: ToolDefinition = {
     name: 'runtime_context',
-    description: 'Prepare one declared runtime-policy intent for this DSH session. Set project_path to the absolute target worktree when it differs from the session cwd.',
+    description: 'Prepare one declared runtime-policy intent for the absolute target directory, regardless of this DSH session\'s starting cwd.',
     parameters: {
       type: 'object',
       properties: {

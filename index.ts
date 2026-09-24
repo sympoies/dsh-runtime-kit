@@ -628,7 +628,7 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       ...runtimeConfig,
       HarnessError: dshRuntime.HarnessError,
     })
-    const verifiedWorktreeTargets = createVerifiedWorktreeTargets(ctx, recoveryClient)
+    const verifiedWorktreeTargets = createVerifiedWorktreeTargets(ctx)
     applyPolicy(ctx, { ...runtimeConfig, verifiedWorktreeTargets }, dshRuntime, childPlugins)
     const { applyArtifacts } = await import('./src/artifacts/index.js')
     const { LocalArtifactProvider } = await import('./src/artifacts/local-provider.js')

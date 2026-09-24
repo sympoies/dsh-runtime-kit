@@ -52,7 +52,7 @@ function execution(signal = new AbortController().signal) {
   }
 }
 
-test('a verified worktree binds Bash when the lease has no classifiable target', async () => {
+test('Bash resolves an explicit target from any session cwd and rejects symlink escapes', async () => {
   const temporary = await mkdtemp(join(tmpdir(), 'dsh-verified-bash-'))
   try {
     const current = join(temporary, 'current')
@@ -68,20 +68,13 @@ test('a verified worktree binds Bash when the lease has no classifiable target',
       },
       effect() {},
     }
-    const targets = createVerifiedWorktreeTargets(ctx, {
-      async verifyHandoff(_exec, path) {
-        assert.equal(path, target)
-        return { handoff: { status: 'verified', path, head: 'b'.repeat(40) } }
-      },
-    })
+    const targets = createVerifiedWorktreeTargets(ctx)
     const bash = workdir => ({ ...exec, name: 'bash', arguments: { command: 'pwd', workdir } })
 
-    await assert.rejects(targets.resolve(bash(target), current))
-    targets.authorize(await targets.verify(exec, target))
     assert.equal(await targets.resolve(bash(target), current), target)
-    assert.equal(await targets.resolve(bash(join(target, 'src')), current), target)
+    assert.equal(await targets.resolve(bash(join(target, 'src')), current), join(target, 'src'))
     await assert.rejects(targets.resolve(bash(join(target, 'outside')), current))
-    await assert.rejects(targets.resolve(bash(other), current))
+    assert.equal(await targets.resolve(bash(other), current), other)
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
@@ -267,6 +260,25 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
   assert.equal(verified.handoff.status, 'verified')
 })
 
+test('dirty recovery guidance permits an exact target after its former owner releases', async () => {
+  const value = {
+    ...payload(),
+    schema_version: 'dsh-runtime-kit.workspace-recovery.v1',
+    lease: { state: 'dirty', code: 'WORKSPACE_DIRTY' },
+    worktrees: [payload().worktrees[0]],
+  }
+  const [inspect] = createWorkspaceRecoveryTools({
+    async inspect() { return value },
+    async verifyHandoff() { return value },
+  }, HarnessError)
+  const text = inspect.output.render({}, value)[0].text
+  assert.match(text, /former session releases it/)
+  assert.match(text, /prepare that project_path with runtime_context/)
+  assert.match(text, /live owner must release first/)
+  assert.match(text, /unrelated dirty checkout remains denied/)
+  assert.doesNotMatch(text, /Create a clean managed worktree.*then prepare/)
+})
+
 test('workspace recovery preserves typed nils handoff denials', async () => {
   const subject = harness({
     outcome: { exitCode: 65, signal: null },
@@ -289,6 +301,27 @@ test('workspace recovery preserves typed nils handoff denials', async () => {
     client.verifyHandoff(execution(), '/managed/fix-recovery'),
     error => error instanceof HarnessError && error.code === 'WORKSPACE_RECOVERY_HANDOFF_DIRTY',
   )
+  await subject.dispose()
+})
+
+test('a non-repository session anchor names the direct target-context route', async () => {
+  const subject = harness({
+    outcome: { exitCode: 65, signal: null },
+    stdout: () => JSON.stringify({
+      schema_version: 'cli.agent-hook.workspace-recovery-inspect.v1',
+      ok: false,
+      error: {
+        code: 'workspace-recovery-checkout-unavailable',
+        message: 'workspace recovery checkout is unavailable',
+      },
+    }),
+  })
+  const client = createNilsWorkspaceRecoveryClient(subject.ctx, subject.config)
+  await assert.rejects(client.inspect(execution()), error =>
+    error instanceof HarnessError
+      && error.code === 'WORKSPACE_RECOVERY_CHECKOUT_UNAVAILABLE'
+      && /runtime_context.*project_path/.test(error.message)
+      && /Bash workdir/.test(error.message))
   await subject.dispose()
 })
 

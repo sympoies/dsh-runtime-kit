@@ -41,7 +41,7 @@ success therefore must not be described as final acceptance or promotion.
 Final `pass` additionally requires:
 
 - a disposable OS-isolated execution environment;
-- independently authenticated nils-cli v1.28.43 artifacts;
+- independently authenticated nils-cli v1.28.44 artifacts;
 - the exact pinned DSH source, dependency closure, and current-host native
   addon inside the authenticated DSH build closure;
 - the exact reviewed DSH patch artifact, revision, target hashes, and patched
