@@ -44,23 +44,23 @@ jobs:
       - run: npm run benchmark:policy
       - name: Benchmark packed runtime with released agent-hook
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.28.42-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.28.42/nils-cli-v1.28.42-x86_64-unknown-linux-gnu.tar.gz"
-          echo "8e3f0967aaae52372abc0021918df9ae7dca3c477971b6dc6eaab9a1584196f7  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.28.43/nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz"
+          echo "a40789fa4d0ebfde240557ca2032289c1b961aae4ebbbcf44291531c4cac15ce  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
-          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-hook" \
+          AGENT_HOOK_BIN="$RUNNER_TEMP/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-hook" \
             npm run benchmark:policy:real
       - name: Check packaged tier declarations against the released agent-hook
         env:
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-hook
         run: node --test test/policy-parity.test.ts
       - name: Validate repository agent-docs loading contract
         env:
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-docs
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-hook
         run: npm run test:agent-docs-catalog
       - name: Provision systemd user scope for released Git trust smoke
         run: |
@@ -81,7 +81,7 @@ jobs:
           systemd-run --user --wait --pipe --collect \
             --property=PrivateUsers=yes \
             --working-directory="$probe" \
-            "$RUNNER_TEMP/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-scope-lock" \
+            "$RUNNER_TEMP/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-scope-lock" \
             create --path . --owner compatibility-private-users-git --format json
           test -f "$probe/.git/agent-scope-lock.json"
 
@@ -214,11 +214,11 @@ jobs:
           pnpm run build:lib:host
       - name: Download authenticated nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.28.42-x86_64-unknown-linux-gnu.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.28.42/nils-cli-v1.28.42-x86_64-unknown-linux-gnu.tar.gz"
-          echo "8e3f0967aaae52372abc0021918df9ae7dca3c477971b6dc6eaab9a1584196f7  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.28.43/nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz"
+          echo "a40789fa4d0ebfde240557ca2032289c1b961aae4ebbbcf44291531c4cac15ce  $archive" \
             | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Provision native full-host acceptance services
@@ -237,8 +237,8 @@ jobs:
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_FULL_HOST: ${{ matrix.channel == 'pinned' && '1' || '0' }}
           DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: ${{ matrix.channel == 'pinned' && '1' || '0' }}
         run: npm run test:smoke
@@ -281,7 +281,7 @@ jobs:
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin/agent-hook
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin/agent-hook
         run: |
           rollback_version="${{ matrix.dsh_version }}"
           rollback_revision="${{ matrix.revision }}"
@@ -296,11 +296,11 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
           DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
           DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
-          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.28.42-x86_64-unknown-linux-gnu/bin" \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068 \
-          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068 \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"a03d379d67357381ecc329108fe88ebff3311dd7973909de9c5066a527246fd4","agent-docs":"eaf4c93b363f529fce8a9dc126c7fb41b2df80b6da20c36e5f13f73e9363aa5d"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"a03d379d67357381ecc329108fe88ebff3311dd7973909de9c5066a527246fd4","agent-docs":"eaf4c93b363f529fce8a9dc126c7fb41b2df80b6da20c36e5f13f73e9363aa5d"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.28.43-x86_64-unknown-linux-gnu/bin" \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"e58815183eddb77b697f4ac92e438862432794f4a5b465396e47c186e6dc7d16","agent-docs":"5ee102e6c29d9db9af6a17eb3c6d72d1bfcb944a312c6a73186406b21c52d990"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"e58815183eddb77b697f4ac92e438862432794f4a5b465396e47c186e6dc7d16","agent-docs":"5ee102e6c29d9db9af6a17eb3c6d72d1bfcb944a312c6a73186406b21c52d990"}' \
           DSH_ACCEPTANCE_DSH_VERSION="$rollback_version" \
           DSH_ACCEPTANCE_DSH_REVISION="$rollback_revision" \
           PNPM_BIN="$(command -v pnpm)" \
@@ -392,19 +392,19 @@ jobs:
           pnpm run build:lib:host
       - name: Download authenticated macOS nils-cli acceptance binaries
         run: |
-          archive="$RUNNER_TEMP/nils-cli-v1.28.42-aarch64-apple-darwin.tar.gz"
+          archive="$RUNNER_TEMP/nils-cli-v1.28.43-aarch64-apple-darwin.tar.gz"
           curl --fail --location --proto '=https' --tlsv1.2 \
             --output "$archive" \
-            "https://github.com/sympoies/nils-cli/releases/download/v1.28.42/nils-cli-v1.28.42-aarch64-apple-darwin.tar.gz"
-          echo "51ca5a2a58c72894abb38e01225449dbf2055b88a510bab105269ba2f6207e2a  $archive" \
+            "https://github.com/sympoies/nils-cli/releases/download/v1.28.43/nils-cli-v1.28.43-aarch64-apple-darwin.tar.gz"
+          echo "477364c691c233a9d263b05df749651afb143d618069b1a2aa5b567624b505e8  $archive" \
             | shasum -a 256 --check
           tar -xzf "$archive" -C "$RUNNER_TEMP"
       - name: Run packed runtime-health smoke on macOS
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-aarch64-apple-darwin/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-aarch64-apple-darwin/bin/agent-docs
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-aarch64-apple-darwin/bin/agent-hook
+          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-aarch64-apple-darwin/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
@@ -446,7 +446,7 @@ jobs:
         working-directory: dsh-runtime-kit
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.42-aarch64-apple-darwin/bin/agent-hook
+          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.28.43-aarch64-apple-darwin/bin/agent-hook
         run: |
           package_name="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP")"
           package="$RUNNER_TEMP/$package_name"
@@ -455,11 +455,11 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_PACKAGE_TARBALL="$package" \
           DSH_ACCEPTANCE_CANDIDATE_PACKAGE_SHA256="$package_sha" \
           DSH_ACCEPTANCE_BASELINE_PACKAGE_SHA256="$package_sha" \
-          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.28.42-aarch64-apple-darwin/bin" \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068 \
-          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068 \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"06679cb16a465964504ff285b4a8e5274b022460acb2ee87c1e7a921729b8625","agent-docs":"64677cb6e8af189e495031d5669ffebd4e9d271db89531df7eb799f2f06e1afa"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"06679cb16a465964504ff285b4a8e5274b022460acb2ee87c1e7a921729b8625","agent-docs":"64677cb6e8af189e495031d5669ffebd4e9d271db89531df7eb799f2f06e1afa"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.28.43-aarch64-apple-darwin/bin" \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d \
+          DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"b32f8325530eedd7cf36f472589d172e6eeeb32e4be468863e73d9756de2f01c","agent-docs":"5bb36217404098f404d09eb350a57c9dae608430c0240380ed8b17f455246cbd"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"b32f8325530eedd7cf36f472589d172e6eeeb32e4be468863e73d9756de2f01c","agent-docs":"5bb36217404098f404d09eb350a57c9dae608430c0240380ed8b17f455246cbd"}' \
           DSH_ACCEPTANCE_DSH_VERSION=0.1.5-alpha.2 \
           DSH_ACCEPTANCE_DSH_REVISION=b2e3b2a0125854567a4a5fcba75782e42fe84901 \
           PNPM_BIN="$(command -v pnpm)" \

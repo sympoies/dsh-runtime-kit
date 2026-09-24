@@ -930,17 +930,17 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.28\.42-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /8e3f0967aaae52372abc0021918df9ae7dca3c477971b6dc6eaab9a1584196f7/)
-  assert.match(workflow, /nils-cli-v1\.28\.42-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /51ca5a2a58c72894abb38e01225449dbf2055b88a510bab105269ba2f6207e2a/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068/)
+  assert.match(workflow, /nils-cli-v1\.28\.43-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /a40789fa4d0ebfde240557ca2032289c1b961aae4ebbbcf44291531c4cac15ce/)
+  assert.match(workflow, /nils-cli-v1\.28\.43-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /477364c691c233a9d263b05df749651afb143d618069b1a2aa5b567624b505e8/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // The rollback_validation record keeps the frozen PR #254 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.42-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=98c6e50f18954cad0555c5f4fe63843891a71c6d/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.43-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
   // every env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
