@@ -86,7 +86,7 @@ compatibility, acceptance, and delivery procedures are in the
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.25` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.42` |
 
 The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;

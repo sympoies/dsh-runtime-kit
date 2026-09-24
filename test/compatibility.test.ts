@@ -930,17 +930,17 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.28\.25-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /92f996f9bec38d8c5edfd52cc0966ae6cfb24fef193dbc6c5a6c26a5d22e69e8/)
-  assert.match(workflow, /nils-cli-v1\.28\.25-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /b1ce704be35a3ff2d62cc405d779fb7999deabfca4e8dccd5b8587890f38ea49/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268/)
+  assert.match(workflow, /nils-cli-v1\.28\.42-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /8e3f0967aaae52372abc0021918df9ae7dca3c477971b6dc6eaab9a1584196f7/)
+  assert.match(workflow, /nils-cli-v1\.28\.42-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /51ca5a2a58c72894abb38e01225449dbf2055b88a510bab105269ba2f6207e2a/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
-  // `rollback_validation` keeps the frozen PR #254 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=6657af3a12a61e3cbda349c5e93279db690ca268/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.25-x86_64-unknown-linux-gnu\/bin"/)
+  // The rollback_validation record keeps the frozen PR #254 package anchor separately.
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=32fa561f897041b44fd47de54c66063754d65068/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.28\.42-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
   // every env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
