@@ -14,7 +14,7 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   assert.equal(manifest.validated_release, '1.28.43')
   assert.deepEqual(manifest.release, {
       source_revision: 'v1.28.43',
-      source_commit: '98c6e50f18954cad0555c5f4fe63843891a71c6d',
+      source_commit: '569d907c207dedd64b1feef1e2e2b2f25f412db0',
       platform: 'x86_64-unknown-linux-gnu',
       archive: {
           name: 'nils-cli-v1.28.43-x86_64-unknown-linux-gnu.tar.gz',
