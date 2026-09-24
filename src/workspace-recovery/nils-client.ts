@@ -38,6 +38,7 @@ const DIRTY_STATES = new Set([
   'conflicted',
 ])
 const EXPECTED_NILS_FAILURES = new Map([
+  ['workspace-recovery-checkout-unavailable', 'WORKSPACE_RECOVERY_CHECKOUT_UNAVAILABLE'],
   ['workspace-recovery-handoff-ineligible', 'WORKSPACE_RECOVERY_HANDOFF_INELIGIBLE'],
   ['workspace-recovery-handoff-dirty', 'WORKSPACE_RECOVERY_HANDOFF_DIRTY'],
   ['workspace-recovery-handoff-invalid', 'WORKSPACE_RECOVERY_HANDOFF_INVALID'],
@@ -374,7 +375,9 @@ export function createNilsWorkspaceRecoveryClient(ctx: Context, config: {agentHo
         const code = nilsFailureCode(parsed, action)
         throw failure(
           HarnessError,
-          'workspace recovery request was denied',
+          code === 'WORKSPACE_RECOVERY_CHECKOUT_UNAVAILABLE'
+            ? 'The session cwd is not a repository. Use runtime_context with project_path set to the absolute target checkout, then set Bash workdir to that target.'
+            : 'workspace recovery request was denied',
           code ?? 'WORKSPACE_RECOVERY_UNAVAILABLE',
         )
       }

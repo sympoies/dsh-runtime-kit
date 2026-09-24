@@ -215,6 +215,7 @@ difference.
 | Mutation in a dirty checkout this session does not own | Deny only that mutation, typed `WORKSPACE_DIRTY`; session stays usable |
 | Mutation in a worktree another live session owns | Deny only that mutation, typed `WORKSPACE_FOREIGN_ACTIVE` |
 | Same-session resume of owned dirty work | Authenticated recovery for that binding, unchanged |
+| New session takes over a dirty worktree after its owner releases | Acquire the exact resolved target after every prior operation is terminal; the prior generation is fenced |
 | Arbitrary shell with unprovable path effects | Runs unscoped; no fence claimed, behavioral policy still applies |
 | A confined/container profile in future | Enforces its own filesystem boundary, independent of leases |
 
@@ -253,18 +254,19 @@ arrays carry typed omitted counts and never turn a dirty decision clean. The
 client accepts additive service metadata but projects only the versioned
 allowlisted fields into DSH tool output.
 
-`workspace_recovery_handoff({ path })` calls the matching authenticated
-`verify-handoff` primitive and proves that the exact listed target is a
-different clean, non-bare, non-detached, non-prunable managed worktree. It does
-not create, clean, stash, switch, adopt, commit, or transfer authority. To use
-the verified clean target in the current DSH session, prepare
-`runtime_context({ intent: "project-dev", project_path: "<verified absolute target>" })`
-and set Bash `workdir` within that worktree. Native file edits use the lease's
-authenticated repository root. Nils checks the target's intent and
-checkout lease for each call. The structured `runtime_kit_governed_commit`
-stays bound to the session cwd; a different worktree uses the governed
-`semantic-commit commit --repo <absolute target>` route or a session launched
-at that worktree.
+`workspace_recovery_handoff({ path })` remains a read-only inspection of a
+different clean managed worktree. It does not create, clean, stash, switch,
+adopt, commit, or transfer authority. From any session cwd, including outside
+Git, prepare `runtime_context({ intent: "project-dev", project_path: "<absolute target>" })`
+and set Bash `workdir` to the target checkout. Native
+file edits use the lease's authenticated repository root. Nils checks the
+target's intent and lease for each mutation. A dirty target can pass to a new
+session only after the former owner releases its lease with every operation
+terminal; the new bind fences the former generation. A live or uncertain
+owner still denies the targeted mutation. The structured
+`runtime_kit_governed_commit` stays bound to the session cwd; a different
+worktree uses the governed `semantic-commit commit --repo <absolute target>`
+route.
 
 ## Lifecycle contract
 
@@ -335,11 +337,13 @@ recovery, or forwards paths, tool arguments, subprocess output, or provider
 diagnostics to the model. A canonical target root travels only between the
 runtime and the provider; it is never projected into tool output.
 
-After a clean release or expiry, nils may recover a dirty worktree only for the
-same host-authenticated session and parent lineage on an explicit `resume` or
-`compact` lifecycle, and only when no operation lacks a terminal outcome. A
-different session still receives `dirty`; recovery always mints a new binding
-ID and generation, so old receipts cannot revive authority.
+An explicit `resume` or `compact` lifecycle may recover dirty work for the same
+host-authenticated session and parent lineage when all operations are terminal.
+Protocol v2 also lets a different session bind an exact resolved dirty target
+after the former owner explicitly releases its binding and all operations are
+terminal. A live owner, an expired but unreleased owner, or an unfinished
+operation cannot be transferred. Every recovery mints a new binding ID and
+generation, so old receipts cannot revive authority.
 
 ## Compatibility and validation
 

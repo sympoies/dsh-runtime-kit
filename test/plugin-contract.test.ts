@@ -26,7 +26,7 @@ import {
 } from '../dist/src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../dist/src/policy/nils-transport.js'
 import { createPrerequisiteCoordinator } from '../dist/src/prerequisite/index.js'
-import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
+import { createVerifiedWorktreeTargets, WorktreeTargetError } from '../dist/src/workspace-recovery/verified-targets.js'
 import {
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_PROGRESS,
@@ -4165,21 +4165,44 @@ test('a DSH pre-edit denial gives the same-session DSH intent recovery entry', a
   const { result, delegated } = await subject.invoke({ value: 41 })
   assert.equal(result.kind, 'deny')
   assert.equal(delegated, false)
-  assert.match(result.reason, /runtime_context\(\{ intent: "project-dev" \}\)/)
-  assert.match(result.reason, /same session|current session/i)
+  assert.match(result.reason, /runtime_context\(\{ intent: "project-dev", project_path:/)
+  assert.match(result.reason, /session started elsewhere/i)
   assert.match(result.reason, /retry/i)
   assert.match(result.reason, /project_path/)
   assert.match(result.reason, /workdir/)
   assert.doesNotMatch(result.reason, /agent-docs session prepare/)
 })
 
-test('the plugin recovers a wrong intent in-session and binds the retried worktree edit', async t => {
+test('target resolution denials name the corrective action for their own cause', async () => {
+  for (const [code, expected, unrelated] of [
+    ['worktree-target-ambiguous', /Split it into one target per tool call/, /Set Bash workdir/],
+    ['worktree-target-lease-unavailable', /Restore the lease provider/, /Set Bash workdir/],
+    ['worktree-target-workdir-mismatch', /Set Bash workdir to the exact canonical target directory/, /Restore the lease provider/],
+  ]) {
+    const subject = harness({
+      config: {
+        verifiedWorktreeTargets: {
+          async resolve() { throw new WorktreeTargetError(code) },
+        },
+      },
+    })
+    subject.service.prerequisites.require(
+      subject.tool('runtime_kit_plus_one'),
+      'project-dev-context',
+    )
+    const { result } = await subject.invoke({ value: 41 })
+    assert.equal(result.kind, 'deny')
+    assert.match(result.reason, expected)
+    assert.doesNotMatch(result.reason, unrelated)
+  }
+})
+
+test('the plugin prepares and edits another checkout from the session anchor', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'dsh-plugin-worktree-'))
   t.after(() => rm(temporary, { recursive: true, force: true }))
   const current = join(temporary, 'current')
   const target = join(temporary, 'managed-worktree')
   await Promise.all([mkdir(current), mkdir(target)])
-  let prepared = false
   let verifiedTargets
   const subject = harness({
     workspace: current,
@@ -4191,12 +4214,6 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
     },
     config: {
       verifiedWorktreeTargets: {
-        verify(exec, path) { return verifiedTargets.verify(exec, path) },
-        authorize(proof) {
-          assert.equal(proof.path, target)
-          verifiedTargets.authorize(proof)
-          prepared = true
-        },
         resolve(exec, cwd) { return verifiedTargets.resolve(exec, cwd) },
       },
     },
@@ -4243,35 +4260,14 @@ test('the plugin recovers a wrong intent in-session and binds the retried worktr
             }
       }
       const request = JSON.parse(spec.stdio.stdin.data)
-      if (request.event === 'tools/pre-execute' && request.tool.name === 'write' && !prepared) {
-        return decision('block', {
-          context: 'Run agent-docs session prepare --intent project-dev.',
-          reasons: [{ rule_id: 'dsh.pre-edit-intent-gate', code: 'pre-edit-intent-gate', disposition: 'block' }],
-        })
-      }
       return decision('allow')
     },
   })
-  verifiedTargets = createVerifiedWorktreeTargets(subject.ctx, {
-    async verifyHandoff(exec, path) {
-      assert.equal(exec.agent.session.header.cwd, current)
-      assert.equal(path, target)
-      return { handoff: { status: 'verified', path, head: 'b'.repeat(40) } }
-    },
-  })
+  verifiedTargets = createVerifiedWorktreeTargets(subject.ctx)
   subject.ctx.tools.register({ name: 'write', async execute() { return { ok: true } } })
   subject.ctx.tools.register({ name: 'bash', async execute() { return { ok: true } } })
-  const denied = await subject.invoke({ file_path: `${target}/file.txt`, content: 'one' }, { name: 'write', callId: 'wrong-intent' })
-  assert.equal(denied.result.kind, 'deny')
-  assert.equal(denied.executionResult.isError, true)
-  assert.match(denied.result.reason, /runtime_context/)
-  assert.match(denied.result.reason, /project-dev/)
-  assert.match(denied.result.reason, /managed-worktree/)
-  assert.doesNotMatch(denied.result.reason, /prerequisite-unavailable/)
-
   const context = await subject.invoke({ intent: 'project-dev', project_path: target }, { name: 'runtime_context', callId: 'prepare-target' })
   assert.equal(context.result.kind, 'allow')
-  assert.equal(prepared, true)
 
   const retried = await subject.invoke({ file_path: `${target}/file.txt`, content: 'two' }, { name: 'write', callId: 'retry-target' })
   assert.equal(retried.result.kind, 'allow')

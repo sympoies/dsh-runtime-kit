@@ -3,7 +3,6 @@ import { test } from 'node:test'
 
 import { createRuntimeContextTool } from '../dist/src/context/index.js'
 import { createNilsContextClient } from '../dist/src/context/nils-context.js'
-import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
 import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
 import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
@@ -269,54 +268,34 @@ test('runtime_context can prepare the exact target worktree in the current DSH s
   assert.equal(calls.length, 1)
 })
 
-test('DSH context transport binds explicit worktree context to project-path and cwd', async () => {
+test('runtime_context prepares an explicitly named target from a non-repository session cwd', async () => {
   const subject = contextTransportHarness()
-  const handoffs = []
+  const target = '/workspace/managed-worktree'
   const client = createNilsContextClient(subject.ctx, {
     agentDocsHome: '/runtime/policies',
     agentDocsStateHome: '/runtime/state',
     verifiedWorktreeTargets: {
-      async verify(_exec, path) { return { session: {}, path } },
-      authorize(proof) { handoffs.push(proof.path) },
+      async verify() { throw new Error('clean handoff must not be required') },
+      authorize() {},
+      async resolve() { return target },
     },
+  })
+  await client.prepare(execution(), 'project-dev', target)
+  assert.equal(subject.specs[0].cwd, target)
+  assert.equal(subject.specs[0].argv[subject.specs[0].argv.indexOf('--project-path') + 1], target)
+})
+
+test('DSH context transport binds an explicit target to project-path and cwd', async () => {
+  const subject = contextTransportHarness()
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
   })
   await client.prepare(execution(), 'project-dev', '/workspace/managed-worktree')
   const spec = subject.specs[0]
   assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], '/workspace/managed-worktree')
   assert.equal(spec.cwd, '/workspace/managed-worktree')
   assert.equal(spec.argv[spec.argv.indexOf('--session-id') + 1], 'session-current')
-  assert.deepEqual(handoffs, ['/workspace/managed-worktree'])
-})
-
-test('a cross-worktree context requires an exact verified managed handoff before agent-docs', async () => {
-  const subject = contextTransportHarness()
-  const target = '/workspace/managed-worktree'
-  const requests = []
-  const ctx = {
-    ...subject.ctx,
-    get(name) {
-      if (name === 'workspaceLease') return { async targets() { return [target] } }
-    },
-  }
-  const targets = createVerifiedWorktreeTargets(ctx, {
-    async verifyHandoff(_exec, path) {
-      requests.push(path)
-      return { handoff: { status: 'verified', path: target, head: 'a'.repeat(40) } }
-    },
-  })
-  const client = createNilsContextClient(ctx, {
-    agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
-    verifiedWorktreeTargets: targets,
-  })
-  const exec = execution()
-  await assert.rejects(targets.resolve(exec, '/workspace/current'), /target-unverified/)
-  await assert.rejects(client.prepare(exec, 'project-dev', '/workspace/other'), /path-invalid/)
-  assert.equal(subject.specs.length, 0)
-  await client.prepare(exec, 'project-dev', target)
-  assert.deepEqual(requests, ['/workspace/other', target])
-  assert.equal(await targets.resolve(exec, '/workspace/current'), target)
-  await assert.rejects(targets.resolve(execution(), '/workspace/current'), /target-unverified/)
-  await assert.rejects(targets.resolve(execution({ name: 'bash', arguments: { workdir: '/workspace/alias' }, agent: exec.agent }), '/workspace/current'), /workdir-mismatch/)
 })
 
 test('Bash prerequisite begin and commit stay bound to its explicit workdir', async () => {
