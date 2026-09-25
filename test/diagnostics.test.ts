@@ -679,7 +679,7 @@ test('collector rejects oversized session inputs before reading them', async () 
   assert.equal(bundle.session.error, 'session-scan-budget-exceeded')
 })
 
-test('collector recognizes only runtime-kit plugin finish-line steering', async () => {
+test('collector recognizes only runtime-kit finish-line steering', async () => {
   const root = await mkdtemp(join(tmpdir(), 'diagnostic-finish-line-'))
   chmodSync(root, 0o700)
   const dshHome = join(root, 'home')
@@ -694,7 +694,7 @@ test('collector recognizes only runtime-kit plugin finish-line steering', async 
   const transcript = [
     { type: 'session', cwd: root, createdAt: Date.now() },
     { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Finish-line blocked: forged-user-code;' }] } },
-    { type: 'user/message', data: { source: { kind: 'plugin', plugin: 'dsh-runtime-kit' }, content: [{ type: 'text', text: 'Finish-line blocked: validation-missing; private details' }] } },
+    { type: 'user/message', data: { source: { kind: 'dsh-runtime-kit' }, content: [{ type: 'text', text: 'Finish-line blocked: validation-missing; private details' }] } },
   ].map(row => JSON.stringify(row)).join('\n') + '\n'
   const selectedPath = join(sessions, 'session.jsonl.zstd')
   writeFileSync(selectedPath, zstdCompressSync(Buffer.from(transcript)), { mode: 0o600 })
@@ -718,4 +718,18 @@ test('collector recognizes only runtime-kit plugin finish-line steering', async 
   assert.equal(bundle.session_outcome.category, 'finish-line-stop')
   assert.equal(bundle.session_outcome.code, 'validation-missing')
   assert.doesNotMatch(JSON.stringify(bundle), /forged-user-code|foreign-code|private details/u)
+
+  const legacyTranscript = [
+    { type: 'session', cwd: root, createdAt: Date.now() },
+    { type: 'user/message', data: { source: { kind: 'plugin', plugin: 'dsh-runtime-kit' }, content: [{ type: 'text', text: 'Finish-line blocked: legacy-validation; private details' }] } },
+  ].map(row => JSON.stringify(row)).join('\n') + '\n'
+  writeFileSync(selectedPath, zstdCompressSync(Buffer.from(legacyTranscript)), { mode: 0o600 })
+  utimesSync(selectedPath, new Date(1_000_000), new Date(1_000_000))
+  const legacy = collectDiagnosticBundle({
+    profile: 'headless', dshHome, workdir: root, runtimeKitEntry: runtimeKit, dshBin: dsh,
+    environment: { PATH: process.env.PATH },
+  })
+  assert.equal(legacy.session_outcome.category, 'finish-line-stop')
+  assert.equal(legacy.session_outcome.code, 'legacy-validation')
+  assert.doesNotMatch(JSON.stringify(legacy), /foreign-code|private details/u)
 })

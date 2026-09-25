@@ -2304,7 +2304,7 @@ test('request-changes records the fenced decision first, then delivers it into t
   assert.equal(delivery.parent.session.header.id, 'controller-one')
   assert.match(delivery.content[0].text, /the diff misses the regression test/)
   assert.match(delivery.content[0].text, /main_agent_checkpoint/)
-  assert.deepEqual(delivery.options.source, { kind: 'plugin', plugin: 'dsh-runtime-kit' })
+  assert.deepEqual(delivery.options.source, { kind: 'dsh-runtime-kit' })
 })
 
 test('request-changes uses the alpha.4 symbol-keyed host prompt queue', async (t) => {
@@ -2334,8 +2334,7 @@ test('request-changes uses the alpha.4 symbol-keyed host prompt queue', async (t
   assert.equal(returned.delivered, true)
   assert.equal(harness.followups.length, 1)
   assert.deepEqual(harness.followups[0].options.source, {
-    kind: 'plugin',
-    plugin: 'dsh-runtime-kit',
+    kind: 'dsh-runtime-kit',
   })
 })
 
@@ -2367,8 +2366,7 @@ test('request-changes uses the alpha.2 delivery symbol with queue semantics', as
   assert.equal(harness.followups.length, 1)
   assert.equal(harness.followups[0].options.delivery, 'queue')
   assert.deepEqual(harness.followups[0].options.source, {
-    kind: 'plugin',
-    plugin: 'dsh-runtime-kit',
+    kind: 'dsh-runtime-kit',
   })
 })
 

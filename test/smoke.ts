@@ -77,16 +77,16 @@ assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
-  '@deepseek-ai/cordis': '4.0.2',
-  '@deepseek-ai/dsh-agent': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-bash-local': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-fs': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-llm': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-sandbox': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-subagent': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-subprocess': '0.1.5-alpha.2 || 0.1.6-alpha.2',
-  '@deepseek-ai/dsh-tools': '0.1.5-alpha.2 || 0.1.6-alpha.2',
+  '@deepseek-ai/cordis': '4.0.2 || 4.0.4',
+  '@deepseek-ai/dsh-agent': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-bash-local': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-fs': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-llm': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-sandbox': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-subagent': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-subprocess': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/dsh-tools': '0.1.6-alpha.2 || 0.1.7-rc.1',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -2264,8 +2264,7 @@ class SmokeAdapter extends LlmAdapter {
     if (userPromptIndex >= 0) {
       this.userPromptPolicyContextVisibility.push(options.messages
         .slice(userPromptIndex + 1)
-        .some(message => message.source?.kind === 'plugin'
-          && message.source.plugin === 'dsh-runtime-kit'
+        .some(message => message.source?.kind === 'dsh-runtime-kit'
           && message.content?.some(block => block.type === 'text'
             && block.text.includes('skill-backed workflow'))))
     }
@@ -3148,9 +3147,6 @@ exec "$@"
   const agentConsoleCodeRuntimeOverlay = agentConsoleTuiPackage === undefined
     ? ''
     : '- id: dsh-tui-code-runtime\n  disabled: true\n'
-  const legacyCodeRuntimeEntry = dshManifest.version === '0.1.6-alpha.2'
-    ? ''
-    : `    - id: code-runtime\n      name: ${JSON.stringify(join(dshRoot, 'packages', 'code-runtime', 'code-runtime-worker-thread', 'lib', 'index.js'))}\n`
   writeFileSync(overlayPath, `
 ${agentConsoleTuiOverlay}
 - id: sandbox
@@ -3176,7 +3172,6 @@ ${agentConsoleCodeRuntimeOverlay}
     runnerFailureSignatures:
       - 'dsh-runtime-kit-smoke-runner:'
 - insert:
-${legacyCodeRuntimeEntry}
     - id: dsh-runtime-kit-smoke-driver
       name: ${JSON.stringify(driverPath)}
 `)
@@ -3186,7 +3181,6 @@ ${agentConsoleTuiOverlay}
   config:
     mode: both
 - insert:
-${legacyCodeRuntimeEntry}
     - id: dsh-runtime-kit-smoke-driver
       name: ${JSON.stringify(driverPath)}
 `)
@@ -4003,7 +3997,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   )
   assert.deepEqual(
     codeModeReceipt.runCodeResult.value,
-    dshManifest.version === '0.1.6-alpha.2'
+    ['0.1.6-alpha.2', '0.1.7-rc.1'].includes(dshManifest.version)
       ? {
           logs: [],
           sandbox: {
@@ -4022,9 +4016,8 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.ok(codeModeReceipt.contextVisibility.length >= 2)
   assert.ok(codeModeReceipt.contextVisibility.slice(1).every(Boolean))
   assert.ok(codeModeReceipt.healthContextVisibility.every(value => value === false))
-  // 0.1.5-alpha.2 renamed the PTC sub-dispatch events from tool/code-dispatch*
-  // to tool/ptc-dispatch*. The supported window spans both names, so accept
-  // either rather than binding the assertion to one release's vocabulary.
+  // The retained releases emit tool/ptc-dispatch*; accept the earlier event
+  // name while the smoke driver still parses historical session fixtures.
   assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch-start')
     || codeModeReceipt.sessionEvents.includes('tool/ptc-dispatch-start'))
   assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch')

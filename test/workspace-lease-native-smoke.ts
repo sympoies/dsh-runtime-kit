@@ -322,6 +322,7 @@ function sessionEvents(session) {
 }
 
 const marker = ${JSON.stringify(marker)}
+const v4Session = ${dshManifest.version === '0.1.7-rc.1'}
 const root = process.env.DSH_WORKSPACE_LEASE_NATIVE_ROOT
 const linked = process.env.DSH_WORKSPACE_LEASE_NATIVE_LINKED
 const dirty = process.env.DSH_WORKSPACE_LEASE_NATIVE_DIRTY
@@ -527,7 +528,11 @@ export function apply(ctx) {
         meta: { cwd: root },
       })
       handles.push(rootHandle)
-      await service.ref(rootHandle.agent)
+      const rootRef = await service.ref(rootHandle.agent)
+      const rootState = await service.state(rootHandle.agent, rootRef)
+      if (rootState !== 'owned') {
+        throw new Error('root workspace lease did not finish binding: ' + rootState)
+      }
 
       const peerHandle = await ctx.agents.create({
         sessionId: 'workspace-native-peer',
@@ -609,7 +614,9 @@ export function apply(ctx) {
           && event.data.message.source.callId === 'workspace-native-dirty-goal')
       dirtyGoalResult = {
         tool_succeeded: goalEvent?.type === 'tool/result'
-          && goalEvent.data.message.content[0]?.isError === false,
+          && (v4Session
+            ? goalEvent.data.message.isError === false
+            : goalEvent.data.message.content[0]?.isError === false),
         goal: goal === undefined ? null : {
           objective: goal.objective,
           phase: goal.phase,
@@ -740,7 +747,9 @@ export function apply(ctx) {
           && event.data.message.source.callId === 'workspace-native-approved-takeover')
       approvedTakeoverResult = {
         tool_succeeded: takeoverEvent?.type === 'tool/result'
-          && takeoverEvent.data.message.content[0]?.isError === false,
+          && (v4Session
+            ? takeoverEvent.data.message.isError === false
+            : takeoverEvent.data.message.content[0]?.isError === false),
         prompts: approvedTakeoverPrompts,
       }
       formerOwnerResult = await ctx.tools.execute({
@@ -790,12 +799,16 @@ export function apply(ctx) {
   })()
 }
 `, { mode: 0o600 })
+  const permissionPresetOverlay = dshManifest.version === '0.1.7-rc.1'
+    ? '- id: permission\n  config:\n    defaultPreset: danger-full-access\n'
+    : ''
   writeFileSync(overlayPath, `
 - id: dsh-runtime-kit
   disabled: true
 - id: sandbox-policy
   config:
     mode: danger-full-access
+${permissionPresetOverlay}
 - insert:
     - id: workspace-lease-native-smoke-driver
       name: ${JSON.stringify(driverPath)}

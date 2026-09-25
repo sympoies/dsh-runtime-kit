@@ -104,7 +104,7 @@ const LIFECYCLE_MANIFEST = Object.freeze({
   removal: 'owned-surfaces-only',
 })
 
-const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.5-alpha.2', '0.1.6-alpha.2']
+const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.6-alpha.2', '0.1.7-rc.1']
 
 function stageBundle(root, version, options = {}) {
   const dir = join(root, `bundle-${version}`)
@@ -124,7 +124,7 @@ function stageBundle(root, version, options = {}) {
         (options.dshReleases ?? DEFAULT_FIXTURE_DSH_RELEASES).map(release => [release, {
           ref: `refs/tags/dsh-v${release}`,
           revision: 'a'.repeat(40),
-          cordis: '4.0.2',
+          cordis: release === '0.1.7-rc.1' ? '4.0.4' : '4.0.2',
         }]),
       ),
       retired_operations_toolchains: {
@@ -1330,41 +1330,41 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   }
 })
 
-test('operations bind the exact reviewed DSH 0.1.5-alpha.2 toolchain identity', () => {
+test('operations bind the exact reviewed DSH 0.1.7-rc.1 toolchain identity', () => {
   const subject = fixture()
   try {
     const source = readFileSync(subject.dsh, 'utf8')
     assert.match(source, /console\.log\('0\.1\.6-alpha\.2'\)/)
     writeFileSync(subject.dsh, source.replace(
       "console.log('0.1.6-alpha.2')",
-      "console.log('0.1.5-alpha.2')",
+      "console.log('0.1.7-rc.1')",
     ))
     chmodSync(subject.dsh, 0o755)
 
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.5-alpha.2')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.7-rc.1')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      'b2e3b2a0125854567a4a5fcba75782e42fe84901',
+      '46a7f68b0922371ce7144b668b90e377d8e799f4',
     )
-    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.5-alpha.2')
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.7-rc.1')
   } finally {
     subject.cleanup()
   }
 
-  const unknown = fixture()
+  const retired = fixture()
   try {
-    const source = readFileSync(unknown.dsh, 'utf8')
-    writeFileSync(unknown.dsh, source.replace(
+    const source = readFileSync(retired.dsh, 'utf8')
+    writeFileSync(retired.dsh, source.replace(
       "console.log('0.1.6-alpha.2')",
-      "console.log('0.1.0-rc.9')",
+      "console.log('0.1.5-alpha.2')",
     ))
-    chmodSync(unknown.dsh, 0o755)
-    const rejected = run(unknown, ['setup', '--profile', 'work', '--package', unknown.v1])
+    chmodSync(retired.dsh, 0o755)
+    const rejected = run(retired, ['setup', '--profile', 'work', '--package', retired.v1])
     assert.equal(rejected.status, 70)
     assert.equal(rejected.value.error.code, 'command-unavailable')
   } finally {
-    unknown.cleanup()
+    retired.cleanup()
   }
 })
 
@@ -1448,7 +1448,7 @@ test('Agent Console mutation rejects a different reviewed DSH before profile mut
     const source = readFileSync(subject.dsh, 'utf8')
     writeFileSync(subject.dsh, source.replace(
       "console.log('0.1.6-alpha.2')",
-      "console.log('0.1.5-alpha.2')",
+      "console.log('0.1.7-rc.1')",
     ))
     chmodSync(subject.dsh, 0o755)
 
@@ -1458,8 +1458,8 @@ test('Agent Console mutation rejects a different reviewed DSH before profile mut
     assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
     assert.equal(rejected.value.error.code, 'agent-console-dsh-mismatch')
     assert.deepEqual(rejected.value.error.details, {
-      actual_version: '0.1.5-alpha.2',
-      actual_revision: 'b2e3b2a0125854567a4a5fcba75782e42fe84901',
+      actual_version: '0.1.7-rc.1',
+      actual_revision: '46a7f68b0922371ce7144b668b90e377d8e799f4',
       required_version: '0.1.6-alpha.2',
       required_revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
     })
@@ -2590,7 +2590,7 @@ process.stdout.write('agent-docs 1.28.46 (v1.28.46, test)\\n')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.1.5-alpha.2\\n')
+process.stdout.write('0.1.7-rc.1\\n')
 `)
     chmodSync(subject.dsh, 0o755)
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
@@ -2601,7 +2601,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const retained = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(retained.status, 65, retained.stderr)
     assert.equal(retained.value.data.status, 'needs-attention')
-    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.5-alpha.2' })
+    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.7-rc.1' })
     assert.equal(retained.value.data.agent_docs.ok, false)
     assert.match(retained.value.data.agent_docs.error, /supported range 1\.28\.3 through 1\.28\.46/)
   } finally {
@@ -3936,7 +3936,7 @@ test('the published package declares its profile lifecycle without install-time 
   const dshCompatibility = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'))
   assert.deepEqual(
     Object.keys(dshCompatibility.validated_releases).sort(),
-    ['0.1.5-alpha.2', '0.1.6-alpha.2'],
+    ['0.1.6-alpha.2', '0.1.7-rc.1'],
   )
 })
 
@@ -4330,7 +4330,7 @@ test('recovery finalization repeats the health probes and re-checks the bound to
     // another release this engine reviews, so the declared compatibility
     // recorded at preview cannot be bypassed by finalization.
     const source = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.5-alpha.2')"))
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.7-rc.1')"))
     chmodSync(subject.dsh, 0o755)
     const drifted = run(subject, [
       'doctor', '--profile', 'work', '--repair', '--apply',
@@ -4480,7 +4480,7 @@ test('a rollback plan binds the lifecycle declared by the retained prior artifac
 
     // A host the prior package never declared refuses rollback at preview.
     const source = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.5-alpha.2')"))
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.7-rc.1')"))
     chmodSync(subject.dsh, 0o755)
     const refused = run(subject, ['rollback', '--profile', 'work'])
     assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)

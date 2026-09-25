@@ -862,7 +862,8 @@ function latestSession(
         finishLine = { code: logicalCode(data?.code, 'finish-line-refused'), event: type }
       }
       const source = record(data?.source)
-      if (type === 'user/message' && source?.kind === 'plugin' && source.plugin === 'dsh-runtime-kit'
+      if (type === 'user/message' && (source?.kind === 'dsh-runtime-kit'
+        || (source?.kind === 'plugin' && source.plugin === 'dsh-runtime-kit'))
         && Array.isArray(data?.content)) {
         for (const item of data.content) {
           const content = record(item)
