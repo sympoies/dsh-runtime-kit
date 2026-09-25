@@ -33,19 +33,18 @@ test('the checked-in manifest authenticates the checked-in patch artifact', asyn
   }
 })
 
-test('the checked-in DSH patch preserves the host environment only in danger-full-access mode', async () => {
+test('the checked-in DSH patches select ambient inheritance for their reviewed release', async () => {
   const manifest = JSON.parse(
     await readFile(join(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
   )
-  for (const selected of patchArtifacts(manifest.patches[0])) {
-    const artifact = await readFile(join(projectRoot, selected.path), 'utf8')
-    assert.match(
-      artifact,
-      /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/,
-    )
-    assert.match(artifact, /inherits the ambient host environment in danger-full-access mode/)
-    assert.match(artifact, /keeps scrubbing ambient credentials outside danger-full-access mode/)
-  }
+  const artifacts = manifest.patches[0].release_artifacts
+  const retained = await readFile(join(projectRoot, artifacts['0.1.6-alpha.2'].path), 'utf8')
+  assert.match(retained, /process\.env\.DSH_PERMISSION_MODE === 'danger-full-access'[\s\S]*?\.\.\.process\.env/)
+  const selected = await readFile(join(projectRoot, artifacts['0.1.7-rc.1'].path), 'utf8')
+  assert.match(selected, /parentEnv === 'full'[\s\S]*?\.\.\.process\.env/)
+  assert.match(selected, /parentEnv: spec\.sandboxPolicy\?\.mode === 'danger-full-access' \? 'full' : 'scrubbed'/)
+  assert.match(selected, /childEnv\(spec\.env, spec\.parentEnv\)/)
+  assert.match(selected, /selects ambient credentials from the effective call policy/)
 })
 
 test('the consolidated native patch adds goal, workspace, and restricted-role boundaries', async () => {

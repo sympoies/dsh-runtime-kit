@@ -21,7 +21,7 @@ history preflight. Neither boundary is a fork or vendored upstream source.
   fnm-managed shell (`fnm use`, or `--use-on-cd`) selects it regardless of the
   host default; `.npmrc` sets `engine-strict` and the acceptance runner refuses
   older Node outright.
-- A pristine DeepSeek Harness `0.1.5-alpha.2` or `0.1.6-alpha.2` source
+- A pristine DeepSeek Harness `0.1.6-alpha.2` or `0.1.7-rc.1` source
   checkout for generic compatibility, patch, and packed smoke validation. The
   running Agent Console generation remains bound to the exact DSH and prior
   runtime-kit artifact recorded by its deployment. The candidate smoke also

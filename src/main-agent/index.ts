@@ -64,7 +64,7 @@ const MAIN_AGENT_CONTROLLER_TOOLS = Object.freeze({
  * capabilities and the legacy service method.
  */
 async function queueRevisionPrompt(subagents: SubagentRuntime, parent: any, childId: any, content: any[], signal: AbortSignal) {
-  const source = { kind: (('plugin') as const), plugin: 'dsh-runtime-kit' }
+  const source = { kind: (('dsh-runtime-kit') as const) }
   const deliverPrompt = ((subagents) as any)[DELIVER_SUBAGENT_PROMPT]
   if (typeof deliverPrompt === 'function') {
     await deliverPrompt.call(subagents, parent, childId, content, source, signal, 'queue')

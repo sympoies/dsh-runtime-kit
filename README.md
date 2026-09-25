@@ -83,16 +83,16 @@ compatibility, acceptance, and delivery procedures are in the
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
+| DeepSeek Harness (generic/headless) | `0.1.6-alpha.2` or `0.1.7-rc.1` |
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
-| Cordis | `4.0.2` |
+| Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
 
 The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;
-unlisted releases are unsupported. Both retained releases pair with Cordis
-4.0.2; cross-version DSH/Cordis combinations are not
+unlisted releases are unsupported. Each retained release has an exact Cordis
+pairing; cross-version DSH/Cordis combinations are not
 admitted. See the
 [compatibility guide](docs/compatibility.md) for the pinned machine-readable
 contract and promotion checks.
@@ -130,13 +130,14 @@ pnpm --dir /absolute/deepseek-harness run build:lib:host
 ```
 
 Patch receipts attest source state and therefore report `runtime_rebuilt:
-false`; the rebuild and an unpatched smoke check are required before rollback
-is considered complete.
+false`; the rebuild and pristine CLI check are required before source reversal
+is considered complete. CI also exercises the retained 0.1.6 tools canary with
+its authenticated patch.
 
 ## Install and activate
 
 The candidate package supports the native `headless` profile on either retained
-generic DSH release, `0.1.5-alpha.2` or `0.1.6-alpha.2`. Its Agent Console
+generic DSH release, `0.1.6-alpha.2` or `0.1.7-rc.1`. Its Agent Console
 contract targets DSH `0.1.6-alpha.2` and pristine dsh-TUI `0.10.2`. The
 currently deployed Agent Console remains on its earlier generation:
 

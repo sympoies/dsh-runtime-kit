@@ -24,10 +24,9 @@ function payload(value: unknown, sourceRequired: boolean): LifecyclePayload | un
 /**
  * Observe the session-start edge across the two retained DSH releases.
  *
- * DSH 0.1.5 emits `agent/created` without a source and then emits
- * `agent/session-start`. DSH 0.1.6 folds that edge into the serial
- * `agent/created` payload and removes the old event. Registering both aliases
- * keeps the compatibility decision in one version-scoped adapter.
+ * DSH 0.1.6 and 0.1.7 emit a source-bearing `agent/created` payload. The
+ * legacy `agent/session-start` listener remains for an installed predecessor
+ * during migration; it does not admit that release to the support window.
  */
 export function onDshSessionStart(
   context: unknown,
