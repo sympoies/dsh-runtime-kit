@@ -288,6 +288,11 @@ foreign owner on an exact target produces one combined tool and takeover `ask`.
 The runtime transfers the idle generation and begins its operation only in the
 post-approval execute boundary; a rejected tool never transfers the lease.
 An approved one-shot call therefore cannot bypass workspace authority.
+The session's DSH approval policy must be `ask` for this question to reach a
+human answerer. A `never` policy rejects it before answerer dispatch; the
+runtime does not silently change that policy. DSH can pair `ask` with a full
+host sandbox mode through a configured permission preset, so asking for this
+exact lease transfer does not require restricting ordinary folders.
 `not-required` proceeds without an operation receipt; `granted` must include an
 operation ID and fence; `denied` becomes a typed DSH tool failure that
 preserves its exact root cause — `WORKSPACE_DIRTY` is never translated into an

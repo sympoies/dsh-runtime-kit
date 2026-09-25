@@ -337,7 +337,7 @@ const overlapping = new Map([
 ])
 
 export const name = 'workspace-lease-native-smoke-driver'
-export const inject = ['agents', 'goals', 'llm', 'skills', 'subprocess', 'tools']
+export const inject = ['agents', 'approval', 'goals', 'llm', 'skills', 'subprocess', 'tools']
 
 class QuarantineGoalAdapter extends LlmAdapter {
   request = 0
@@ -732,8 +732,9 @@ export function apply(ctx) {
         meta: { cwd: plain },
       })
       handles.push(liveSuccessor)
+      ctx.approval.setPolicy(liveSuccessor.agent, 'ask')
       ctx.on('approval/request', (request, next) => {
-        if (request.agent?.id !== liveSuccessor.agent.id) return next()
+        if (request.agent !== liveSuccessor.agent) return next()
         approvedTakeoverPrompts.push(request.reason)
         return Promise.resolve('allowed-once')
       })
@@ -751,6 +752,10 @@ export function apply(ctx) {
             ? takeoverEvent.data.message.isError === false
             : takeoverEvent.data.message.content[0]?.isError === false),
         prompts: approvedTakeoverPrompts,
+        approvalPolicy: sessionEvents(liveSuccessor.agent.session)
+          .findLast(event => event.type === 'approval/policy')?.data.policy,
+        approvalOutcome: sessionEvents(liveSuccessor.agent.session)
+          .findLast(event => event.type === 'approval/decided')?.data.outcome,
       }
       formerOwnerResult = await ctx.tools.execute({
         signal: new AbortController().signal,
@@ -890,6 +895,8 @@ ${permissionPresetOverlay}
   assert.equal(readFileSync(join(handoffWorktree, 'tracked.txt'), 'utf8'), 'staged by owner\n')
   assert.equal(readFileSync(join(handoffWorktree, 'successor.txt'), 'utf8'), 'continued by successor\n')
   assert.equal(receipt.approvedTakeoverResult.tool_succeeded, true, JSON.stringify(receipt.approvedTakeoverResult))
+  assert.equal(receipt.approvedTakeoverResult.approvalPolicy, 'ask')
+  assert.equal(receipt.approvedTakeoverResult.approvalOutcome, 'allowed-once')
   assert.equal(receipt.approvedTakeoverResult.prompts.length, 1)
   assert.match(receipt.approvedTakeoverResult.prompts[0], /Take over the exact worktree/)
   assert.equal(readFileSync(join(repository, 'approved-takeover.txt'), 'utf8'), 'approved\n')

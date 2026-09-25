@@ -42,8 +42,9 @@ compatibility, acceptance, and delivery procedures are in the
   for the target. Set Bash `workdir` to that checkout; native file edits use
   the checkout lease's authenticated target. A released dirty worktree may be
   picked up by the next session without moving its starting cwd. With nils-cli
-  v1.28.46, an idle live foreign lease can transfer after approval of the exact
-  tool call; active or uncertain operations remain fenced.
+  v1.28.46 and a DSH session approval policy of `ask`, an idle live foreign
+  lease can transfer after approval of the exact tool call; active or uncertain
+  operations remain fenced.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
 - Model-hidden native runtime health for exact DSH/nils identity, project
