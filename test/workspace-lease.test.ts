@@ -194,6 +194,11 @@ class AllowedOnceApproval extends Service {
   }
 }
 
+class RejectedApproval extends Service {
+  constructor(ctx) { super(ctx, 'approval') }
+  async request() { return 'rejected' }
+}
+
 test('workspace ref is opaque, non-bearer, and bound to one exact live agent', async () => {
   const { selected } = provider()
   const ctx = await harness(selected)
@@ -391,6 +396,58 @@ test('one session acquires independent bindings for two repositories and reuses 
   )
 })
 
+test('ordinary cross-repository bind stays usable with a strict pre-takeover provider', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.takeoverCapability !== undefined || request.takeoverConflict !== undefined) {
+        throw new Error('legacy provider rejects unknown takeover fields')
+      }
+      return {
+        kind: 'bound', bindingId: 'binding:legacy', workspaceId: 'workspace:b',
+        generation: 'generation:legacy', state: 'owned', target: request.target,
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('legacy-successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:legacy-bind')
+  assert.equal(result.isError, false)
+  assert.deepEqual(sequence, ['/workspace/repo-b/one.js'])
+  const targetBinds = calls.bind.map(([request]) => request).filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
+  assert.equal(targetBinds.length, 1)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+})
+
+test('strict pre-takeover provider retains its foreign-owner denial after an unsupported probe', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.takeoverCapability !== undefined) throw new Error('legacy provider rejects unknown takeover fields')
+      return {
+        kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+        reason: 'another live session owns this workspace',
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('legacy-foreign', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:legacy-foreign')
+  assert.equal(result.isError, true)
+  assert.equal(result.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
+  assert.deepEqual(sequence, [])
+  const targetBinds = calls.bind.map(([request]) => request).filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
+  assert.equal(targetBinds.length, 2)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+  assert.equal(targetBinds[1].takeoverCapability, true)
+})
+
 test('a foreign live owner denies only its own repository target', async () => {
   const { selected } = provider({
     resolve: writeTargets,
@@ -440,6 +497,270 @@ test('a foreign live owner denies only its own repository target', async () => {
     'call:own',
   )
   assert.equal(allowed.isError, false)
+})
+
+test('exact user approval transfers a foreign target before the tool body', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey === REPO_B.workspaceKey
+        && request.takeoverConflict === undefined) {
+        return {
+          kind: 'denied',
+          state: 'foreign-active',
+          code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace',
+          ...(request.takeoverCapability === true ? { conflict: 'a'.repeat(64) } : {}),
+        }
+      }
+      return {
+        kind: 'bound',
+        bindingId: 'binding:successor',
+        workspaceId: 'workspace:b',
+        generation: 'generation:successor',
+        state: 'owned',
+        target: request.target ?? REPO_A,
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:approved-takeover',
+  )
+  assert.equal(result.isError, false)
+  assert.deepEqual(sequence, ['/workspace/repo-b/one.js'])
+  const targetBinds = calls.bind.map(([request]) => request)
+    .filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
+  assert.equal(targetBinds.length, 3)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+  assert.equal(targetBinds[1].takeoverCapability, true)
+  assert.equal(targetBinds[1].takeoverConflict, undefined)
+  assert.equal(targetBinds[2].takeoverConflict, 'a'.repeat(64))
+  assert.equal(calls.begin.length, 1)
+})
+
+test('takeover approval quotes the exact target path', async () => {
+  const root = '/workspace/repo-b/"quoted"'
+  const target = { ...REPO_B, root }
+  const prompts = []
+  class CapturingApproval extends Service {
+    constructor(ctx) { super(ctx, 'approval') }
+    async request(request) {
+      prompts.push(request.reason)
+      return 'allowed-once'
+    }
+  }
+  const { selected } = provider({
+    resolve: () => ({ kind: 'targets', targets: [target] }),
+    async bind(request) {
+      if (request.takeoverConflict === undefined) {
+        return { kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64) }
+      }
+      return { kind: 'bound', bindingId: 'binding:successor', workspaceId: 'workspace:b',
+        generation: 'generation:successor', state: 'owned', target: request.target }
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(CapturingApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool([]))
+  const result = await runTool(ctx, agent, 'write', { file_path: `${root}/one.js` }, 'call:quoted-takeover')
+  assert.equal(result.isError, false)
+  assert.equal(prompts.length, 1)
+  assert.ok(prompts[0].includes(JSON.stringify(root)))
+  assert.equal(prompts[0].includes(root), false, 'raw quotes must not appear in consent text')
+})
+
+test('an ambiguous approved bind retries with one request ID and runs the body once', async () => {
+  const sequence = []
+  let approvedAttempts = 0
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey !== REPO_B.workspaceKey) return { kind: 'not-required' }
+      if (request.takeoverConflict === undefined) {
+        return { kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64) }
+      }
+      approvedAttempts += 1
+      if (approvedAttempts === 1) throw new Error('response lost after transfer')
+      return { kind: 'bound', bindingId: 'binding:successor', workspaceId: 'workspace:b',
+        generation: 'generation:successor', state: 'owned', target: request.target }
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:retry-takeover')
+  assert.equal(result.isError, false)
+  const retries = calls.bind.map(([request]) => request).filter(request => request.takeoverConflict !== undefined)
+  assert.equal(retries.length, 2)
+  assert.equal(retries[0].requestId, retries[1].requestId)
+  assert.equal(calls.begin.length, 1)
+  assert.deepEqual(sequence, ['/workspace/repo-b/one.js'])
+})
+
+test('unreconciled approved bind stops the provider without running the tool', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey !== REPO_B.workspaceKey) return { kind: 'not-required' }
+      if (request.takeoverConflict === undefined) {
+        return { kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64) }
+      }
+      throw new Error('response unavailable')
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:uncertain-takeover')
+  assert.equal(result.isError, true)
+  assert.equal(result.error.info.code, 'WORKSPACE_TAKEOVER_UNCERTAIN')
+  const retries = calls.bind.map(([request]) => request).filter(request => request.takeoverConflict !== undefined)
+  assert.equal(retries.length, 3)
+  assert.equal(new Set(retries.map(request => request.requestId)).size, 1)
+  assert.equal(ctx.workspaceLease.hasActiveProvider(), false)
+  assert.equal(calls.begin.length, 0)
+  assert.deepEqual(sequence, [])
+})
+
+test('foreign takeover without an approval channel leaves the tool unexecuted', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey === REPO_B.workspaceKey) {
+        return {
+          kind: 'denied',
+          state: 'foreign-active',
+          code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace',
+          conflict: 'a'.repeat(64),
+        }
+      }
+      return { kind: 'not-required' }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(
+    ctx,
+    agent,
+    'write',
+    { file_path: '/workspace/repo-b/one.js' },
+    'call:takeover-no-approval',
+  )
+  assert.equal(result.isError, true)
+  assert.match(result.error.message, /Take over the exact worktree/)
+  assert.equal(calls.bind.filter(([request]) => request.target?.workspaceKey === REPO_B.workspaceKey).length, 1)
+  assert.deepEqual(sequence, [])
+})
+
+test('rejecting a combined tool and takeover approval leaves the live owner bound', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey === REPO_B.workspaceKey) {
+        return {
+          kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64),
+        }
+      }
+      return { kind: 'not-required' }
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(RejectedApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  ctx.on('tools/pre-execute', async () => ({ kind: 'ask', reason: 'confirm mutation' }))
+
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:rejected-takeover')
+  assert.equal(result.isError, true)
+  assert.equal(calls.bind.filter(([request]) => request.target?.workspaceKey === REPO_B.workspaceKey).length, 1)
+  assert.equal(calls.begin.length, 0)
+  assert.deepEqual(sequence, [])
+})
+
+test('abort after a takeover bind commits releases the successor before any tool body', async () => {
+  const sequence = []
+  const controller = new AbortController()
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request, signal) {
+      if (request.target?.workspaceKey !== REPO_B.workspaceKey) return { kind: 'not-required' }
+      if (request.takeoverConflict === undefined) {
+        return { kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64) }
+      }
+      assert.equal(signal.aborted, false, 'transfer bind must use a stable reconciliation signal')
+      controller.abort()
+      return { kind: 'bound', bindingId: 'binding:successor', workspaceId: 'workspace:b',
+        generation: 'generation:successor', state: 'owned', target: request.target }
+    },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await ctx.tools.execute({ signal: controller.signal, callId: CallId('call:abort-takeover'),
+    name: 'write', arguments: { file_path: '/workspace/repo-b/one.js' }, agent })
+  assert.equal(result.isError, true)
+  assert.equal(calls.bind.filter(([request]) => request.takeoverConflict !== undefined).length, 1)
+  assert.equal(calls.release.length, 1)
+  assert.deepEqual(sequence, [])
+})
+
+test('failed begin and failed release poison takeover admission while retaining recovery authority', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.target?.workspaceKey !== REPO_B.workspaceKey) return { kind: 'not-required' }
+      if (request.takeoverConflict === undefined) {
+        return { kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace', conflict: 'a'.repeat(64) }
+      }
+      return { kind: 'bound', bindingId: 'binding:successor', workspaceId: 'workspace:b',
+        generation: 'generation:successor', state: 'owned', target: request.target }
+    },
+    async begin() { throw new Error('begin unavailable') },
+    async release() { throw new Error('release unavailable') },
+  })
+  const ctx = await harness(selected)
+  await ctx.plugin(AllowedOnceApproval)
+  const agent = stubAgent('successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:release-failure')
+  assert.equal(result.isError, true)
+  assert.equal(ctx.workspaceLease.hasActiveProvider(), false)
+  assert.equal(calls.release.length, 1)
+  assert.deepEqual(sequence, [])
 })
 
 test('a denied protected target cannot partially dispatch an already fenced sibling', async () => {

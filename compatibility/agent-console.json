@@ -103,6 +103,10 @@
       {
         "sandbox_mode": "danger-full-access",
         "approval_policy": "never"
+      },
+      {
+        "sandbox_mode": "danger-full-access",
+        "approval_policy": "ask"
       }
     ],
     "provider_credentials": [

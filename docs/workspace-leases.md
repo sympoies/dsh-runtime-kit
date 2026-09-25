@@ -261,12 +261,15 @@ Git, prepare `runtime_context({ intent: "project-dev", project_path: "<absolute 
 and set Bash `workdir` to the target checkout. Native
 file edits use the lease's authenticated repository root. Nils checks the
 target's intent and lease for each mutation. A dirty target can pass to a new
-session only after the former owner releases its lease with every operation
-terminal; the new bind fences the former generation. A live or uncertain
-owner still denies the targeted mutation. The structured
+session after the former owner releases its lease with every operation terminal.
+With nils-cli v1.28.46, a live idle owner can also transfer after the
+user approves the exact tool and takeover request. Active or uncertain operations still deny the targeted
+mutation; every transfer fences the former generation. The structured
 `runtime_kit_governed_commit` stays bound to the session cwd; a different
-worktree uses the governed `semantic-commit commit --repo <absolute target>`
-route.
+non-default worktree uses `semantic-commit commit --repo <absolute target>`.
+For an explicitly authorized default-branch delivery, use
+`semantic-commit default-branch --repo <absolute target> --expect-head <sha> --receipt-out <outside-repo path>`
+with the required message argument.
 
 ## Lifecycle contract
 
@@ -280,8 +283,16 @@ completion work for every binding before release. Provider replacement remains
 closed until the prior disposer finishes.
 
 Tool admission runs after downstream pre-tool policy has returned `allow` or
-`ask`, but before DSH resolves approval and dispatches the tool body. An
-approved one-shot call therefore cannot bypass workspace authority.
+`ask`, but before DSH resolves approval and dispatches the tool body. A live
+foreign owner on an exact target produces one combined tool and takeover `ask`.
+The runtime transfers the idle generation and begins its operation only in the
+post-approval execute boundary; a rejected tool never transfers the lease.
+An approved one-shot call therefore cannot bypass workspace authority.
+The session's DSH approval policy must be `ask` for this question to reach a
+human answerer. A `never` policy rejects it before answerer dispatch; the
+runtime does not silently change that policy. DSH can pair `ask` with a full
+host sandbox mode through a configured permission preset, so asking for this
+exact lease transfer does not require restricting ordinary folders.
 `not-required` proceeds without an operation receipt; `granted` must include an
 operation ID and fence; `denied` becomes a typed DSH tool failure that
 preserves its exact root cause — `WORKSPACE_DIRTY` is never translated into an
@@ -334,15 +345,17 @@ nils environment, bounds concurrency and deadlines, proves process-tree
 quiescence after every call, and permanently closes admission when quiescence
 cannot be established. It never interprets Git state, reimplements lease
 recovery, or forwards paths, tool arguments, subprocess output, or provider
-diagnostics to the model. A canonical target root travels only between the
-runtime and the provider; it is never projected into tool output.
+diagnostics to the model. A canonical target root travels between the runtime
+and the provider; the exact root is shown as an escaped string only in the
+takeover approval prompt so the user can identify the target.
 
 An explicit `resume` or `compact` lifecycle may recover dirty work for the same
 host-authenticated session and parent lineage when all operations are terminal.
 Protocol v2 also lets a different session bind an exact resolved dirty target
 after the former owner explicitly releases its binding and all operations are
-terminal. A live owner, an expired but unreleased owner, or an unfinished
-operation cannot be transferred. Every recovery mints a new binding ID and
+terminal. A live idle owner may be transferred after one exact DSH tool
+approval when the provider's conflict identifier still matches. An active or
+uncertain operation cannot be transferred. Every recovery mints a new binding ID and
 generation, so old receipts cannot revive authority.
 
 ## Compatibility and validation

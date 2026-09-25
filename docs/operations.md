@@ -393,8 +393,9 @@ extensions are rejected rather than copied into a serializable inspection.
 Runtime-kit's patch owns only the `dsh-runtime-kit` row. It does not rewrite
 `sandbox-policy`, `approval`, provider rows, or credential stores. The Agent
 Console launch surface must set `DSH_PERMISSION_MODE` explicitly; supported
-pairs are `workspace-write` + `ask`, or the currently required
-`danger-full-access` + `never`. Provider credentials remain environment-name
+pairs are `workspace-write` + `ask`, `danger-full-access` + `never`, or
+`danger-full-access` + `ask`. The last pair keeps full host access while
+allowing an exact worktree takeover request to reach the user. Provider credentials remain environment-name
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
@@ -664,7 +665,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.28.44 executables for every supported DSH row.
+the released and validated v1.28.46 executables for every supported DSH row.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

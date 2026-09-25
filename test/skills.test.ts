@@ -441,7 +441,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.28.3')
-  assert.equal(manifest.validated_release, '1.28.44')
+  assert.equal(manifest.validated_release, '1.28.46')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)
   assert.equal(new Set(manifest.commands.map(command => command.id)).size, manifest.commands.length)
@@ -587,6 +587,36 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
         'agent-hook.workspace-recovery.result.v1',
       ],
       source_task: 'sympoies/nils-cli#1535',
+    },
+  )
+  assert.deepEqual(
+    manifest.commands.find(command => command.id === 'agent-hook.workspace-lease.dsh'),
+    {
+      id: 'agent-hook.workspace-lease.dsh',
+      binary: 'agent-hook',
+      status: 'released',
+      validation: 'release-artifact-validated',
+      contracts: [
+        'agent-hook.workspace-lease.resolve.v2',
+        'agent-hook.workspace-lease.resolve-result.v2',
+        'cli.agent-hook.workspace-lease-resolve.v1',
+        'agent-hook.workspace-lease.bind.v2',
+        'agent-hook.workspace-lease.bind-result.v2',
+        'cli.agent-hook.workspace-lease-bind.v1',
+        'agent-hook.workspace-lease.begin.v2',
+        'agent-hook.workspace-lease.begin-result.v2',
+        'cli.agent-hook.workspace-lease-begin.v1',
+        'agent-hook.workspace-lease.complete.v2',
+        'agent-hook.workspace-lease.complete-result.v2',
+        'cli.agent-hook.workspace-lease-complete.v1',
+        'agent-hook.workspace-lease.renew.v2',
+        'agent-hook.workspace-lease.renew-result.v2',
+        'cli.agent-hook.workspace-lease-renew.v1',
+        'agent-hook.workspace-lease.release.v2',
+        'agent-hook.workspace-lease.release-result.v2',
+        'cli.agent-hook.workspace-lease-release.v1',
+      ],
+      source_task: 'sympoies/nils-cli#1792',
     },
   )
 })

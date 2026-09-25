@@ -41,8 +41,10 @@ compatibility, acceptance, and delivery procedures are in the
   `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`
   for the target. Set Bash `workdir` to that checkout; native file edits use
   the checkout lease's authenticated target. A released dirty worktree may be
-  picked up by the next session without moving its starting cwd. A live foreign
-  lease and an unfinished operation remain fenced.
+  picked up by the next session without moving its starting cwd. With nils-cli
+  v1.28.46 and a DSH session approval policy of `ask`, an idle live foreign
+  lease can transfer after approval of the exact tool call; active or uncertain
+  operations remain fenced.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
 - Model-hidden native runtime health for exact DSH/nils identity, project
@@ -87,7 +89,7 @@ compatibility, acceptance, and delivery procedures are in the
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
+| nils-cli | `1.28.3` minimum; exactly validated through `1.28.46` |
 
 The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;

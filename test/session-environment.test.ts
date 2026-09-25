@@ -24,6 +24,7 @@ test('nils subprocess leaves the normal host PATH to the upstream scrubbed envir
         DBUS_SESSION_BUS_ADDRESS: 'unix:path=/attacker/socket',
         PATH: '/attacker/bin',
         AGENT_SESSION_TOKEN: 'must-not-cross',
+        DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2: '1',
         UNRELATED_SECRET: 'must-not-cross',
       },
       { uid: 1000, platform: 'linux' },

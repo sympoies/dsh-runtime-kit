@@ -90,6 +90,7 @@ const EXPECTED_CONTRACT = Object.freeze({
     sandbox_approval_pairs: [
       { sandbox_mode: 'workspace-write', approval_policy: 'ask' },
       { sandbox_mode: 'danger-full-access', approval_policy: 'never' },
+      { sandbox_mode: 'danger-full-access', approval_policy: 'ask' },
     ],
     provider_credentials: [{
       provider: 'codex-proxy',
@@ -412,6 +413,9 @@ test('every runtime, permission, and credential authority field has a failing ow
   const danger = copyObservation()
   danger.authority.sandboxMode = 'danger-full-access'
   danger.authority.approvalPolicy = 'never'
+  assert.equal(runtimeKit.inspectAgentConsoleRc7Profile(danger).compatible, true)
+
+  danger.authority.approvalPolicy = 'ask'
   assert.equal(runtimeKit.inspectAgentConsoleRc7Profile(danger).compatible, true)
 })
 

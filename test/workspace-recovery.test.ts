@@ -260,7 +260,7 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
   assert.equal(verified.handoff.status, 'verified')
 })
 
-test('dirty recovery guidance permits an exact target after its former owner releases', async () => {
+test('dirty recovery guidance names exact target context and approved idle takeover', async () => {
   const value = {
     ...payload(),
     schema_version: 'dsh-runtime-kit.workspace-recovery.v1',
@@ -272,10 +272,9 @@ test('dirty recovery guidance permits an exact target after its former owner rel
     async verifyHandoff() { return value },
   }, HarnessError)
   const text = inspect.output.render({}, value)[0].text
-  assert.match(text, /former session releases it/)
-  assert.match(text, /prepare that project_path with runtime_context/)
-  assert.match(text, /live owner must release first/)
-  assert.match(text, /unrelated dirty checkout remains denied/)
+  assert.match(text, /A live idle owner can be taken over with one exact tool approval/)
+  assert.match(text, /Prepare the exact target with runtime_context\(project_path\)/)
+  assert.match(text, /active operations and unrelated dirty checkouts remain protected/)
   assert.doesNotMatch(text, /Create a clean managed worktree.*then prepare/)
 })
 

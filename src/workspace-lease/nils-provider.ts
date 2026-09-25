@@ -150,11 +150,15 @@ function bindWire(request: import('./index.js').WorkspaceLeaseBindRequest) {
       || request.cwd.includes('\0'))) throw unavailable()
   if (!['startup', 'resume', 'clear', 'compact'].includes(request.source)) throw unavailable()
   if (request.target !== undefined && request.cwd !== undefined) throw unavailable()
+  if (request.takeoverConflict !== undefined
+    && (request.target === undefined || !/^[0-9a-f]{64}$/.test(request.takeoverConflict))) throw unavailable()
   return {
     schema_version: 'agent-hook.workspace-lease.bind.v2',
     ...bindingWire(request),
     ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
     ...(request.target === undefined ? {} : { target: targetWire(request.target) }),
+    ...(request.takeoverCapability === undefined ? {} : { takeover_capability: true }),
+    ...(request.takeoverConflict === undefined ? {} : { takeover_conflict: request.takeoverConflict }),
     source: request.source,
   }
 }
@@ -251,16 +255,27 @@ function envelopeData(raw: unknown, schema: string) {
 }
 
 function denial(data: Record<string, any>, schema: string) {
-  if (!exactKeys(data, ['schema_version', 'kind', 'state', 'code', 'reason'])
+  const conflict = data.conflict
+  const expected = conflict === undefined
+    ? ['schema_version', 'kind', 'state', 'code', 'reason']
+    : ['schema_version', 'kind', 'state', 'code', 'reason', 'conflict']
+  if (!exactKeys(data, expected)
     || data.schema_version !== schema
     || !deniedState(data.state)
     || !providerCode(data.code)
-    || !text(data.reason)) throw unavailable()
+    || !text(data.reason)
+    || (conflict !== undefined
+      && (schema !== 'agent-hook.workspace-lease.bind-result.v2'
+        || data.state !== 'foreign-active'
+        || data.code !== 'WORKSPACE_FOREIGN_ACTIVE'
+        || typeof conflict !== 'string'
+        || !/^[0-9a-f]{64}$/.test(conflict)))) throw unavailable()
   return {
     kind: (('denied') as const),
     state: data.state,
     code: data.code,
     reason: data.reason,
+    ...(conflict === undefined ? {} : { conflict }),
   }
 }
 

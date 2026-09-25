@@ -539,7 +539,10 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           },
           graceMs: 1_000,
           signal: executionSignal,
-          env: childEnvironment,
+          env: contract === 'dispatch'
+            && ((ctx.get?.('workspaceLease')) as {hasActiveProvider?: () => boolean} | undefined)?.hasActiveProvider?.() === true
+            ? { ...childEnvironment, DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2: '1' }
+            : childEnvironment,
         })
       } catch {
         return operation.cause === undefined

@@ -1278,6 +1278,35 @@ test('policy ingress resolves a bare agent-hook command before spawning', async 
   assert.equal(subject.spawnSpecs[0].argv[0], '/resolved/agent-hook')
 })
 
+test('the lease rollout marker follows only live-provider policy dispatches', async () => {
+  let active = true
+  const subject = harness({ workspaceLease: {
+    hasActiveProvider: () => active,
+    async targets() { return [] },
+  } })
+  const first = await subject.invoke({ value: 41 }, { callId: 'active-lease-provider' })
+  assert.equal(first.result.kind, 'allow')
+  const firstDispatch = subject.spawnSpecs.filter(spec => spec.argv.includes('dispatch'))
+  assert.ok(firstDispatch.length > 0)
+  assert.ok(firstDispatch.every(spec => spec.env?.DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2 === '1'))
+  assert.ok(subject.dataPolicySpecs.length > 0)
+  assert.ok(subject.dataPolicySpecs.every(spec => spec.env?.DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2 === undefined))
+
+  active = false
+  const previousCount = subject.spawnSpecs.length
+  const second = await subject.invoke({ value: 41 }, { callId: 'stopped-lease-provider' })
+  assert.equal(second.result.kind, 'allow')
+  const laterDispatch = subject.spawnSpecs.slice(previousCount).filter(spec => spec.argv.includes('dispatch'))
+  assert.ok(laterDispatch.length > 0)
+  assert.ok(laterDispatch.every(spec => spec.env?.DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2 === undefined))
+
+  const withoutProvider = harness()
+  const third = await withoutProvider.invoke({ value: 41 }, { callId: 'missing-lease-provider' })
+  assert.equal(third.result.kind, 'allow')
+  assert.ok(withoutProvider.spawnSpecs.filter(spec => spec.argv.includes('dispatch'))
+    .every(spec => spec.env?.DSH_RUNTIME_KIT_WORKSPACE_LEASE_V2 === undefined))
+})
+
 test('sensitive native arguments fail closed before the tool body without audit echo', async () => {
   const sentinel = 'synthetic-sensitive-value-never-visible'
   const subject = harness({
