@@ -188,7 +188,7 @@ function lifecyclePrompt(messages: unknown[]) {
 function policyContextMessage(createUserMessage: (input: any) => any, text: string) {
   return createUserMessage({
     content: [{ type: 'text', text }],
-    source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
+    source: { kind: 'dsh-runtime-kit' },
   })
 }
 
@@ -468,7 +468,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     },
     createSteeringMessage: text => createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
+      source: { kind: 'dsh-runtime-kit' },
     }),
   })
   const workspaceDisposals = createWorkspaceDisposalBarrier()
@@ -480,7 +480,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     workspaceReadiness: workspaceDisposals,
     createSteeringMessage: text => createUserMessage({
       content: [{ type: 'text', text }],
-      source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
+      source: { kind: 'dsh-runtime-kit' },
     }),
   })
   const compatibility = createDshRc7Compatibility(ctx)

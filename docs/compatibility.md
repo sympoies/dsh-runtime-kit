@@ -4,9 +4,9 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness (generic/headless) | `0.1.5-alpha.2` or `0.1.6-alpha.2` |
+| DeepSeek Harness (generic/headless) | `0.1.6-alpha.2` or `0.1.7-rc.1` |
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
-| Cordis | `4.0.2` |
+| Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
 | nils-cli | `1.28.3` minimum; exactly validated through `1.28.44` |
 
@@ -46,11 +46,11 @@ the evicted release, retain its exact version, tag, revision, and Cordis
 identity under `retired_operations_toolchains` until those profiles have
 converged. That historical row authenticates completed receipts only and does
 not keep the release in the runtime support window. Runtime startup requires
-one homogeneous `0.1.5-alpha.2` or `0.1.6-alpha.2` public peer set and validates
+one homogeneous `0.1.6-alpha.2` or `0.1.7-rc.1` public peer set and validates
 the consumed public exports and service methods before registering a listener,
 tool, service, or skill. The
-reviewed compositions are exact: both retained releases require Cordis 4.0.2,
-so a checkout composed against 4.0.1 is no longer supported. Mixed,
+reviewed compositions are exact: DSH 0.1.6 requires Cordis 4.0.2 and DSH
+0.1.7 requires Cordis 4.0.4. Mixed,
 cross-composed, or unknown peer versions
 fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
@@ -61,8 +61,8 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.5-alpha.2`
-and `0.1.6-alpha.2` release identities, the enforced two-release support policy, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.6-alpha.2`
+and `0.1.7-rc.1` release identities, the enforced two-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets. Each `validated_releases` row also declares its exact
 Cordis composition so the public contract and runtime admission stay aligned.
@@ -91,8 +91,8 @@ through a module-private DSH scope tag, which is not portable across separate
 host and installed-package module instances. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for 0.1.5-alpha.2 and
-0.1.6-alpha.2; an
+target hashes bind those seams independently for 0.1.6-alpha.2 and
+0.1.7-rc.1; an
 unknown or locally drifted checkout remains ineligible.
 
 The 0.1.6-alpha.2 patch also adds `dsh-runtime-kit` to DSH's present-and-enabled
@@ -101,18 +101,21 @@ failures, but a runtime-kit activation failure remains a fatal boot refusal. It
 also gives the new tool scheduler a process-wide symbol identity so the CLI and
 an independently installed profile package reach the same scheduler boundary.
 
-The two retained releases do not expose the same agent lifecycle event.
-0.1.5-alpha.2 emits the source-less `agent/created` event and the later
-`agent/session-start` event; 0.1.6-alpha.2 replaces that contract with a
-source-bearing `agent/created` event. The version adapter under `src/compat/`
-maps either public lifecycle to the same runtime-kit callback while preserving
-repeated starts such as clear or compact. Patch target hashes remain
-release-specific wherever upstream source moved or changed.
+Both retained releases expose the source-bearing `agent/created` event.
+The version adapter under `src/compat/` preserves repeated starts such as
+clear or compact. Patch target hashes remain release-specific wherever
+upstream source moved or changed.
+
+DSH 0.1.7 writes native session format v4 and rejects the retired
+`source.kind = plugin` wrapper for new messages. Runtime-kit emits
+`source.kind = dsh-runtime-kit` for its own context, steering, and queued
+prompts on both retained releases; diagnostics still recognize the earlier
+wrapper in historical session records.
 
 Two authentication rules follow the newer release rather than the patch.
 Checkout authentication lists the complete index and HEAD tree, so its output
-bound scales with DSH's tracked file count; at 0.1.5-alpha.2 each listing is
-already about 1.1 MB. And 0.1.5-alpha.2 declares `*.cmd text eol=crlf`, the one
+bound scales with DSH's tracked file count. The retained 0.1.6 release declares
+`*.cmd text eol=crlf`, the one
 sanctioned smudge boundary between an authenticated blob and its working-tree
 form, so byte-level attestation accepts a working tree that is the exact
 canonical CRLF form of the authenticated LF bytes and still refuses every other
@@ -236,10 +239,9 @@ reviewed patch, rebuilds DSH, runs DSH's complete tool, LLM, and
 descriptor-subprocess runtime tests and the packed runtime smoke, reverses the
 patch, and proves the checkout pristine.
 It then rebuilds the pristine host, starts the unpatched DSH CLI as a process,
-and authenticates the unpatched tools. That rollback canary loads `dsh-tools`
-from the exact rebuilt pristine host path, while the patched runtime smoke keeps
-an independently installed profile package and therefore proves the alpha.6
-process-wide scheduler identity across package instances. CI also authenticates the unpatched tools
+and authenticates the unpatched build closure. The patched runtime smoke keeps
+an independently installed profile package and therefore proves the
+process-wide scheduler identity across package instances. CI authenticates the unpatched tools
 closure by sorted path, mode, length, and bytes, so source reversal cannot leave
 patched declarations, maps, extra files, or other ignored `lib/` output.
 The retained non-pinned release is independently pinned and receives the same local
@@ -248,11 +250,11 @@ advertised. Advancing any selection therefore requires new patch hashes and
 evidence; it cannot silently broaden the supported range.
 
 Every Linux channel row authenticates the selected checkout before patching,
-rebuilds and compares its complete host closure after reversal, and then runs
-the executable rollback canary on the retained pristine `0.1.5-alpha.2`
-release whenever the selected candidate is alpha.6. This separation matters:
-pristine alpha.6 is valid source-reversal evidence, but it lacks the awaited
-tools-finish boundary needed to serve as an executable rollback.
+then rebuilds and compares its complete host closure after reversal. The
+0.1.7 candidate rows also stage retained 0.1.6, apply its authenticated patch,
+and run the executable tools canary without runtime-kit. Pristine 0.1.6 is
+valid source-reversal evidence, but it lacks the awaited tools-finish boundary
+needed by the canary.
 
 A separate blocking macOS ARM64 lane authenticates the released nils-cli
 archive, exercises the declared Darwin `verified-transient` health provider,
@@ -264,10 +266,9 @@ pre-spawn identity validation, process-tree-bound identity cleanup, and
 preserved cleanup failures, the 256 MiB executable
 ceiling, and stable source/target identity, runs the
 native tools/LLM boundary tests and a packed runtime-health smoke, then
-reverses the patch and authenticates the pristine candidate checkout. Because
-the alpha.6 patch supplies an awaited tools-finish boundary that pristine
-alpha.6 lacks, the executable rollback canary then switches to the retained
-pristine `0.1.5-alpha.2` release and runs its real tools pipeline. That
+reverses the patch and authenticates the pristine candidate checkout. The
+executable rollback canary then switches to retained `0.1.6-alpha.2`, applies
+its authenticated patch, and runs its real tools pipeline. That
 platform-scoped smoke uses DSH's real tools pipeline to prove unauthenticated
 companion denial, project-health denial before model or adapter work,
 same-session recovery, `runtime_kit_plus_one(41) = 42`, and absence of health

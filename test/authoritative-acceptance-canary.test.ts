@@ -550,17 +550,17 @@ test('authoritative acceptance selects the release-matched DSH host launcher', (
     args: ['/reviewed/apps/cli/lib/bin.js', ...args],
   })
   assert.deepEqual(authoritativeDshInvocation({
-    dshVersion: '0.1.5-alpha.2',
+    dshVersion: '0.1.7-rc.1',
     nodeBin: '/trusted/node',
     dshBin: '/reviewed/apps/cli/lib/bin.js',
     pnpmBin: '/trusted/pnpm',
     args,
   }), {
-    command: '/trusted/pnpm',
-    args: ['dsh', ...args],
+    command: '/trusted/node',
+    args: ['/reviewed/apps/cli/lib/bin.js', ...args],
   })
   assert.throws(() => authoritativeDshInvocation({
-    dshVersion: '0.1.7-alpha.1',
+    dshVersion: '0.1.5-alpha.2',
     nodeBin: '/trusted/node',
     dshBin: '/reviewed/apps/cli/lib/bin.js',
     pnpmBin: '/trusted/pnpm',

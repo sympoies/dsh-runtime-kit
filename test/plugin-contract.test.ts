@@ -2624,13 +2624,11 @@ test('the first accepted pre-step receives one bounded native lifecycle context'
 
   assert.equal(first.kind, 'enter')
   assert.equal(first.messages.length, 2)
-  assert.equal(first.messages[1].source.kind, 'plugin')
-  assert.equal(first.messages[1].source.plugin, 'dsh-runtime-kit')
+  assert.deepEqual(first.messages[1].source, { kind: 'dsh-runtime-kit' })
   assert.equal(first.messages[1].content[0].text, 'startup health and memory context')
   assert.equal(duplicate.kind, 'enter')
   assert.equal(duplicate.messages.length, 2)
-  assert.equal(duplicate.messages[1].source.kind, 'plugin')
-  assert.equal(duplicate.messages[1].source.plugin, 'dsh-runtime-kit')
+  assert.deepEqual(duplicate.messages[1].source, { kind: 'dsh-runtime-kit' })
   assert.equal(duplicate.messages[1].content[0].text, 'startup health and memory context')
   assert.equal(subject.spawnCount, 1)
   assert.deepEqual(JSON.parse(subject.spawnSpecs[0].stdio.stdin.data), {
@@ -2878,8 +2876,7 @@ test('native tool advisory context is delivered after the exact tool result', as
     { type: 'text', text: 'apply the portable output reminder' },
   ])
   assert.deepEqual(invocation.postDecision.additionalContexts[0].source, {
-    kind: 'plugin',
-    plugin: 'dsh-runtime-kit',
+    kind: 'dsh-runtime-kit',
   })
 })
 

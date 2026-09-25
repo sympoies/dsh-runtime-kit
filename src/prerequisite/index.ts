@@ -190,7 +190,7 @@ export function createPrerequisiteCoordinator(ctx: Context, client: {beginPrereq
           type: (('text') as const),
           text: document.content,
         })),
-        source: { kind: 'plugin', plugin: 'dsh-runtime-kit' },
+        source: { kind: 'dsh-runtime-kit' },
       }))
     }
     return contexts

@@ -5,7 +5,7 @@
   "minimum_supported": {
     "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
     "nils_cli": "1.28.3",
-    "dsh": ["0.1.5-alpha.2", "0.1.6-alpha.2"]
+    "dsh": ["0.1.6-alpha.2", "0.1.7-rc.1"]
   },
   "surfaces": [
     {
