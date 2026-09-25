@@ -332,13 +332,15 @@ npm run --silent stage:compatibility-peers -- \
   --consumer-root /path/to/disposable/dsh-runtime-kit
 ```
 
-The upstream checkout must remain clean before and after inspection. Never use
-these commands to patch or normalize upstream DSH sources.
+In the default pristine mode, the upstream checkout must remain clean before
+and after packing. These commands do not modify upstream DSH sources.
 
 For a consumer that needs the authenticated execution-boundary patch, first
 apply the version-scoped patch with `manage-dsh-patch` and rebuild the DSH host
 and client faces. Pack that exact patched checkout with
 `--patch-state patched`; then stage its receipt with the same command above.
+Patched mode requires exactly the reviewed patch and rejects additional source
+changes.
 The compatibility CI job cleans and rebuilds both faces from the selected
 checkout after patch application, then runs this pack-and-stage flow. The
 packer checks the reviewed patch state before and after packing, and both
