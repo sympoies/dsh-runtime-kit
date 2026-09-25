@@ -8,7 +8,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { promisify } from 'node:util'
 
-import { DshCompatibilityError, isChannel, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { DshCompatibilityError, dshWorkspaceArtifactDigest, isChannel, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { DshPatchError, manageDshPatch } from '../src/compat/dsh-patch.js'
 import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
 import { inspectCanonicalPackageArtifact } from '../src/compat/package-artifact.js'
 
@@ -29,6 +30,7 @@ function parseCli() {
         'source-root': { type: 'string' },
         'artifact-root': { type: 'string' },
         channel: { type: 'string' },
+        'patch-state': { type: 'string', default: 'pristine' },
         'git-bin': { type: 'string', default: '/usr/bin/git' },
         'pnpm-bin': { type: 'string' },
         receipt: { type: 'string' },
@@ -43,12 +45,14 @@ function parseCli() {
   const sourceRoot = parsed.values['source-root']
   const artifactRoot = parsed.values['artifact-root']
   const channel = parsed.values.channel
+  const patchState = parsed.values['patch-state']
   const gitBin = parsed.values['git-bin']
   const pnpmBin = parsed.values['pnpm-bin']
   const receipt = parsed.values.receipt
   if (typeof sourceRoot !== 'string' || !isAbsolute(sourceRoot)
     || typeof artifactRoot !== 'string' || !isAbsolute(artifactRoot)
     || !isChannel(channel)
+    || !['pristine', 'patched'].includes(patchState ?? '')
     || typeof gitBin !== 'string' || !isAbsolute(gitBin)
     || typeof pnpmBin !== 'string' || !isAbsolute(pnpmBin)
     || typeof receipt !== 'string' || !isAbsolute(receipt)) {
@@ -61,6 +65,7 @@ function parseCli() {
     sourceRoot: resolve(sourceRoot),
     artifactRoot: resolve(artifactRoot),
     channel,
+    patchState: patchState as 'pristine' | 'patched',
     gitBin,
     pnpmBin,
     receipt: resolve(receipt),
@@ -110,6 +115,35 @@ async function main() {
   ))
   const pnpmBin = await trustedLauncher(input.pnpmBin)
   const sourceRoot = await realpath(input.sourceRoot)
+  const patchManifest = input.patchState === 'patched'
+    ? JSON.parse(await readFile(resolve(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'))
+    : undefined
+  const inspectSource = async () => {
+    if (input.patchState === 'pristine') {
+      const result = await inspectSelectedDshCheckout({
+        sourceRoot,
+        channel: input.channel,
+        gitBin: input.gitBin,
+        manifest,
+      })
+      return { revision: result.revision, patchId: null }
+    }
+    const result = await manageDshPatch({
+      action: 'check',
+      sourceRoot,
+      patchRoot: projectRoot,
+      gitBin: input.gitBin,
+      manifest: patchManifest,
+    })
+    if (result.after !== 'patched'
+      || result.revision !== manifest.channels[input.channel].revision) {
+      throw new DshCompatibilityError(
+        'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+        'Selected DSH checkout does not contain the reviewed patch',
+      )
+    }
+    return { revision: result.revision, patchId: result.patch_id }
+  }
   await mkdir(input.artifactRoot, { recursive: true, mode: 0o700 })
   if ((await readdir(input.artifactRoot)).length !== 0) {
     throw new DshCompatibilityError(
@@ -124,12 +158,7 @@ async function main() {
       'DSH peer receipt must be outside the artifact root',
     )
   }
-  const before = await inspectSelectedDshCheckout({
-    sourceRoot,
-    channel: input.channel,
-    gitBin: input.gitBin,
-    manifest,
-  })
+  const before = await inspectSource()
   const artifacts = new Map<string, { contract: WorkspaceArtifactContract, packageRoot: string, dependencies: Set<string> }>()
   for (const [name, contract] of Object.entries<WorkspaceArtifactContract>(manifest.workspace_artifacts)) {
     const packageRoot = await realpath(contained(sourceRoot, contract.path))
@@ -243,13 +272,13 @@ async function main() {
       const artifactReport = inspectCanonicalPackageArtifact(tarballBytes)
       if (artifactReport.name !== name
         || artifactReport.version !== contract.version
-        || artifactReport.artifact_sha256 !== contract.artifact_sha256) {
+        || artifactReport.artifact_sha256 !== dshWorkspaceArtifactDigest(manifest, name, input.patchState)) {
         throw new DshCompatibilityError(
           'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
           `Selected DSH workspace package ${name} did not match its reviewed artifact`,
           {
             artifact: name,
-            expected_sha256: contract.artifact_sha256,
+            expected_sha256: dshWorkspaceArtifactDigest(manifest, name, input.patchState),
             actual_sha256: artifactReport.artifact_sha256,
           },
         )
@@ -262,13 +291,8 @@ async function main() {
         artifactSha256: artifactReport.artifact_sha256,
       })
     }
-    const after = await inspectSelectedDshCheckout({
-      sourceRoot,
-      channel: input.channel,
-      gitBin: input.gitBin,
-      manifest,
-    })
-    if (after.revision !== before.revision) {
+    const after = await inspectSource()
+    if (after.revision !== before.revision || after.patchId !== before.patchId) {
       throw new DshCompatibilityError(
         'DSH_RUNTIME_KIT_UNSELECTED_DSH_REVISION',
         'DSH checkout identity changed during artifact packing',
@@ -294,8 +318,10 @@ async function main() {
     data: {
       channel: input.channel,
       revision: before.revision,
+      patch_state: input.patchState,
+      patch_id: before.patchId,
       packages: receiptPackages,
-      upstream_checkout_clean: true,
+      upstream_checkout_clean: input.patchState === 'pristine',
     },
   }
   const serialized = `${JSON.stringify(envelope)}\n`
@@ -308,6 +334,8 @@ try {
 } catch (error) {
   const failure = error instanceof DshCompatibilityError
     ? error
+    : error instanceof DshPatchError
+      ? new DshCompatibilityError(error.code, error.message, error.diagnostic)
     : new DshCompatibilityError(
         'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED',
         'Selected DSH peer packing failed',

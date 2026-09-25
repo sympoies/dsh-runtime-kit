@@ -309,6 +309,26 @@ export function validateDshCompatibilityManifest(input: unknown) {
     }
     artifactPaths.add(artifact.path)
   }
+  const patchedArtifacts = requireRecord(
+    manifest.patched_workspace_artifacts,
+    'DSH patched workspace artifact contracts are missing',
+  )
+  if (Object.keys(patchedArtifacts).length === 0) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH patched workspace artifact contracts are empty',
+    )
+  }
+  for (const [name, digest] of Object.entries(patchedArtifacts)) {
+    if (workspaceArtifacts[name] === undefined
+      || typeof digest !== 'string' || !SHA256_PATTERN.test(digest)
+      || digest === workspaceArtifacts[name].artifact_sha256) {
+      throw new DshCompatibilityError(
+        'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+        `DSH patched workspace artifact ${name} is invalid`,
+      )
+    }
+  }
   for (const [name, contract] of Object.entries(packages)) {
     const artifact = workspaceArtifacts[name]
     const expectedVersion = contract.version ?? channels.pinned.version
@@ -403,6 +423,24 @@ export function validateDshCompatibilityManifest(input: unknown) {
     )
   }
   return Object.freeze(structuredClone(manifest))
+}
+
+/** Resolve a reviewed workspace artifact for the exact source patch state. */
+export function dshWorkspaceArtifactDigest(
+  manifest: ReturnType<typeof validateDshCompatibilityManifest>,
+  name: string,
+  patchState: 'pristine' | 'patched',
+) {
+  const artifact = manifest.workspace_artifacts[name]
+  if (artifact === undefined) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+      `DSH workspace artifact ${name} is outside the reviewed closure`,
+    )
+  }
+  return patchState === 'patched'
+    ? manifest.patched_workspace_artifacts[name] ?? artifact.artifact_sha256
+    : artifact.artifact_sha256
 }
 
 function resolveFunction(root: Record<string, any>, path: string) {
