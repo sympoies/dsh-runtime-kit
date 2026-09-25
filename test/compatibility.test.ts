@@ -15,6 +15,7 @@ import {
   DSH_RC7_RUNTIME_SURFACE,
   DshCompatibilityError,
   assertDshRc7Runtime,
+  dshWorkspaceArtifactDigest,
   inspectDshSource,
   loadDshRc7Runtime,
   validateDshCompatibilityManifest,
@@ -30,6 +31,7 @@ import {
   inspectExactDshCheckoutIdentity,
   inspectSelectedDshCheckoutIdentity,
 } from '../dist/src/compat/git-checkout.js'
+import { inspectDshPeerReceiptIdentity } from '../dist/src/compat/peer-receipt.js'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const manifestPath = join(projectRoot, 'compatibility', 'dsh.json')
@@ -216,6 +218,112 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
     error => error instanceof DshCompatibilityError
       && error.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
   )
+})
+
+test('DSH pinned patch has a reviewed artifact digest for every changed workspace peer', () => {
+  const manifest = validateDshCompatibilityManifest(
+    JSON.parse(readFileSync(manifestPath, 'utf8')),
+  )
+  const changed = [
+    '@deepseek-ai/dsh-agent-preset-registry',
+    '@deepseek-ai/dsh-app-boot',
+    '@deepseek-ai/dsh-bash-local',
+    '@deepseek-ai/dsh-commands',
+    '@deepseek-ai/dsh-llm',
+    '@deepseek-ai/dsh-permission-presets',
+    '@deepseek-ai/dsh-sandbox',
+    '@deepseek-ai/dsh-sandbox-policy',
+    '@deepseek-ai/dsh-subagent',
+    '@deepseek-ai/dsh-subprocess',
+    '@deepseek-ai/dsh-tools',
+  ]
+  assert.deepEqual(Object.keys(manifest.patched_workspace_artifacts).sort(), changed.sort())
+  for (const name of changed) {
+    assert.match(manifest.patched_workspace_artifacts[name], /^[a-f0-9]{64}$/u)
+    assert.notEqual(
+      manifest.patched_workspace_artifacts[name],
+      manifest.workspace_artifacts[name].artifact_sha256,
+    )
+    assert.equal(
+      dshWorkspaceArtifactDigest(manifest, name, 'patched'),
+      manifest.patched_workspace_artifacts[name],
+    )
+    assert.equal(
+      dshWorkspaceArtifactDigest(manifest, name, 'pristine'),
+      manifest.workspace_artifacts[name].artifact_sha256,
+    )
+  }
+  const unchanged = '@deepseek-ai/cordis'
+  assert.equal(
+    dshWorkspaceArtifactDigest(manifest, unchanged, 'patched'),
+    manifest.workspace_artifacts[unchanged].artifact_sha256,
+  )
+  assert.throws(
+    () => dshWorkspaceArtifactDigest(manifest, '@deepseek-ai/unreviewed', 'patched'),
+    { code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH' },
+  )
+  for (const patch of [
+    { '@deepseek-ai/unreviewed': 'a'.repeat(64) },
+    { '@deepseek-ai/dsh-tools': manifest.workspace_artifacts['@deepseek-ai/dsh-tools'].artifact_sha256 },
+    { '@deepseek-ai/dsh-tools': 'not-a-digest' },
+  ]) {
+    assert.throws(
+      () => validateDshCompatibilityManifest({
+        ...manifest,
+        patched_workspace_artifacts: patch,
+      }),
+      { code: 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID' },
+    )
+  }
+})
+
+test('peer receipts bind patched identity and retain legacy pristine identity', () => {
+  const manifest = validateDshCompatibilityManifest(
+    JSON.parse(readFileSync(manifestPath, 'utf8')),
+  )
+  const packages = Object.entries(manifest.workspace_artifacts).map(([name, contract]) => ({
+    name,
+    version: contract.version,
+    path: '/unused-fixture-path',
+    tarball_sha256: 'a'.repeat(64),
+    artifact_sha256: contract.artifact_sha256,
+  }))
+  const base = {
+    schema_version: 'dsh-runtime-kit.dsh-peer-pack.v1',
+    ok: true,
+    data: {
+      channel: 'pinned',
+      revision: manifest.channels.pinned.revision,
+      packages,
+      upstream_checkout_clean: true,
+    },
+  }
+  const patchId = 'native-execution-boundaries-v5'
+  const legacy = inspectDshPeerReceiptIdentity(base, manifest, patchId)
+  assert.equal(legacy.patchState, 'pristine')
+  assert.equal(legacy.patchId, null)
+  const patched = {
+    ...base,
+    data: {
+      ...base.data,
+      patch_state: 'patched',
+      patch_id: patchId,
+      upstream_checkout_clean: false,
+    },
+  }
+  const selected = inspectDshPeerReceiptIdentity(patched, manifest, patchId)
+  assert.equal(selected.patchState, 'patched')
+  assert.equal(selected.patchId, patchId)
+  for (const invalid of [
+    { ...patched, data: { ...patched.data, patch_id: 'unreviewed-patch' } },
+    { ...patched, data: { ...patched.data, upstream_checkout_clean: true } },
+    { ...patched, data: { ...patched.data, packages: packages.slice(1) } },
+  ]) {
+    assert.throws(
+      () => inspectDshPeerReceiptIdentity(invalid, manifest, patchId),
+      { code: 'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED' },
+    )
+  }
 })
 
 test('the Agent Console candidate stays within the validated headless release window', () => {

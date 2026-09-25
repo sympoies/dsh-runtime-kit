@@ -6,7 +6,9 @@ import { lstat, readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { DshCompatibilityError, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { DshCompatibilityError, dshWorkspaceArtifactDigest, validateDshCompatibilityManifest } from '../src/compat/contract.js'
+import { validateDshPatchManifest } from '../src/compat/dsh-patch.js'
+import { inspectDshPeerReceiptIdentity } from '../src/compat/peer-receipt.js'
 import {
   extractPackageArtifact,
   inspectCanonicalPackageArtifact,
@@ -14,9 +16,6 @@ import {
 } from '../src/compat/package-artifact.js'
 
 const projectRoot = PACKAGE_ROOT
-
-/** One `data.packages` entry of a `dsh-runtime-kit.dsh-peer-pack.v1` receipt. */
-type ReceiptPackage = { name: string, version: string, path: string, tarball_sha256: string, artifact_sha256: string }
 
 function parseCli() {
   let parsed
@@ -61,6 +60,9 @@ async function main() {
   const manifest = validateDshCompatibilityManifest(JSON.parse(
     await readFile(resolve(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
   ))
+  const patchManifest = validateDshPatchManifest(JSON.parse(
+    await readFile(resolve(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+  ))
   const [artifactRoot, consumerRoot] = await Promise.all([
     realpath(input.artifactRoot),
     realpath(input.consumerRoot),
@@ -72,31 +74,15 @@ async function main() {
       'DSH compatibility consumer root has the wrong identity',
     )
   }
-  const receipt = JSON.parse(await readFile(input.receipt, 'utf8'))
-  const channel = receipt.data?.channel
-  if (receipt.schema_version !== 'dsh-runtime-kit.dsh-peer-pack.v1'
-    || receipt.ok !== true
-    || !['pinned', 'upstream-next'].includes(channel)
-    || receipt.data?.revision !== manifest.channels[channel]?.revision
-    || receipt.data?.upstream_checkout_clean !== true
-    || !Array.isArray(receipt.data?.packages)) {
-    throw new DshCompatibilityError(
-      'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED',
-      'DSH peer receipt identity is invalid',
-    )
-  }
-  const expectedNames = Object.keys(manifest.workspace_artifacts).sort()
-  const actualNames = receipt.data.packages.map((item: ReceiptPackage | null | undefined) => item?.name).sort()
-  if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
-    throw new DshCompatibilityError(
-      'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED',
-      'DSH peer receipt does not contain the exact authenticated closure',
-    )
-  }
+  const receipt = inspectDshPeerReceiptIdentity(
+    JSON.parse(await readFile(input.receipt, 'utf8')),
+    manifest,
+    patchManifest.patches[0].id,
+  )
   const staged = []
   let installScope
   try {
-    for (const item of receipt.data.packages) {
+    for (const item of receipt.packages) {
       const contract = manifest.workspace_artifacts[item.name]
       let tarball
       try {
@@ -120,7 +106,7 @@ async function main() {
       const artifact = inspectCanonicalPackageArtifact(bytes)
       if (tarballSha256 !== item.tarball_sha256
         || artifact.artifact_sha256 !== item.artifact_sha256
-        || artifact.artifact_sha256 !== contract.artifact_sha256
+        || artifact.artifact_sha256 !== dshWorkspaceArtifactDigest(manifest, item.name, receipt.patchState)
         || artifact.name !== item.name
         || artifact.version !== item.version) {
         throw new DshCompatibilityError(
@@ -173,8 +159,10 @@ async function main() {
     schema_version: 'dsh-runtime-kit.dsh-peer-stage.v1',
     ok: true,
     data: {
-      channel,
-      revision: receipt.data.revision,
+      channel: receipt.channel,
+      revision: receipt.revision,
+      patch_state: receipt.patchState,
+      patch_id: receipt.patchId,
       packages: staged.map(item => item.name),
       network_resolution: false,
     },

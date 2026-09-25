@@ -442,6 +442,19 @@
       "artifact_sha256": "9666a03c27491d54e2ddd0fa7132cd9d0452d465030b1f666db8d1f7576a59cd"
     }
   },
+  "patched_workspace_artifacts": {
+    "@deepseek-ai/dsh-agent-preset-registry": "8e5fd5ef70d889c44f85d0146ba1ea593002a06742be4e5aea04e6fb53227502",
+    "@deepseek-ai/dsh-app-boot": "21063e7c1128837d47ebc968c63d4d7910078cd7d0de460dff2895915557ce1f",
+    "@deepseek-ai/dsh-bash-local": "9b4accfa0517cf6672d7b790a2b5cd858b2ce82b098cf35073ad2b170408b4a7",
+    "@deepseek-ai/dsh-commands": "66e88f1c76087176ff024da9e1ceda9290d6b2348953e6543bdc6cf2fed659eb",
+    "@deepseek-ai/dsh-llm": "990835d5234fdcc2f72f7d176df07b923c61c4f190defbee313c28d184722674",
+    "@deepseek-ai/dsh-permission-presets": "bea0021e143d42682d86d15da8a07d73e749365856af68c61fccc08847a61e78",
+    "@deepseek-ai/dsh-sandbox": "6bd1bb35f614e8384e0d09b08f31830df5c78c637a81ed6391855829e425aead",
+    "@deepseek-ai/dsh-sandbox-policy": "0f287f2507b14d5325ed3282fb2642a4ccb364687fa02c204065c4943a7040d2",
+    "@deepseek-ai/dsh-subagent": "e859370d0b44f3a076531a4fbe405350c1c402dbc7c3f00412b91cd2037349c8",
+    "@deepseek-ai/dsh-subprocess": "6af4b907378977e86f3a1bd7361d16abf13fcdd687529b54427a74a977a62c37",
+    "@deepseek-ai/dsh-tools": "efb4ba6e4bf4ec5fa55f314b287afa23e040dd2fa1851680d183c958d3bb8e15"
+  },
   "runtime_surface": [
     "on",
     "effect",

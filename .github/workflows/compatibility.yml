@@ -213,6 +213,34 @@ jobs:
             packages/subagent/subagent/tests/continuation.spec.ts \
             packages/subprocess/subprocess-local/tests/spawn.spec.ts
           pnpm run build:lib:host
+      - name: Rebuild and authenticate patched DSH peer artifacts
+        if: matrix.public_contract && matrix.dsh_version == '0.1.7-rc.1'
+        working-directory: deepseek-harness
+        run: |
+          ./node_modules/.bin/tsx scripts/clean.ts
+          ./node_modules/.bin/tsx native/system/scripts/build.ts --host-addon-only
+          node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.host.json
+          ./node_modules/.bin/tsdown --env.DSH_BUILD_FACE host
+          node ./node_modules/typescript/bin/tsc -b tsconfig.client.json
+          ./node_modules/.bin/tsdown --env.DSH_BUILD_FACE client
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/pack-dsh-compatibility-peers.js" \
+            --source-root "$GITHUB_WORKSPACE/deepseek-harness" \
+            --artifact-root "$RUNNER_TEMP/dsh-patched-peers" \
+            --channel "${{ matrix.channel }}" \
+            --patch-state patched \
+            --pnpm-bin "$(command -v pnpm)" \
+            --receipt "$RUNNER_TEMP/dsh-patched-peer-pack.json" \
+            > "$RUNNER_TEMP/dsh-patched-peer-pack-output.json"
+          mkdir -p "$RUNNER_TEMP/dsh-patched-consumer"
+          printf '%s\n' '{"name":"@sympoies/dsh-runtime-kit","version":"0.0.0"}' \
+            > "$RUNNER_TEMP/dsh-patched-consumer/package.json"
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/stage-dsh-compatibility-peers.js" \
+            --receipt "$RUNNER_TEMP/dsh-patched-peer-pack.json" \
+            --artifact-root "$RUNNER_TEMP/dsh-patched-peers" \
+            --consumer-root "$RUNNER_TEMP/dsh-patched-consumer" \
+            > "$RUNNER_TEMP/dsh-patched-peer-stage.json"
+          node -e 'const fs=require("node:fs"); const pack=JSON.parse(fs.readFileSync(process.argv[1])); const stage=JSON.parse(fs.readFileSync(process.argv[2])); if (!pack.ok || !stage.ok || pack.data.patch_state!=="patched" || stage.data.patch_state!=="patched" || pack.data.patch_id!=="native-execution-boundaries-v5" || stage.data.patch_id!==pack.data.patch_id || pack.data.upstream_checkout_clean!==false || pack.data.packages.length!==64 || stage.data.packages.length!==64) process.exit(1)' \
+            "$RUNNER_TEMP/dsh-patched-peer-pack.json" "$RUNNER_TEMP/dsh-patched-peer-stage.json"
       - name: Download authenticated nils-cli acceptance binaries
         run: |
           archive="$RUNNER_TEMP/nils-cli-v1.28.46-x86_64-unknown-linux-gnu.tar.gz"
