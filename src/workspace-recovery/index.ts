@@ -85,11 +85,11 @@ function renderResult(value: any) {
   }
   if (value.handoff !== null) {
     lines.push(`Verified clean handoff path=${quoted(value.handoff.path)} branch=${quoted(value.handoff.branch)} head=${quoted(value.handoff.head)}.`)
-    lines.push('To continue in this session, call runtime_context with project_path set to that exact worktree, then use Bash with workdir set to the same path. The policy and checkout lease still decide each mutation. runtime_kit_governed_commit remains bound to the session cwd; use the governed semantic-commit --repo route for another worktree.')
+    lines.push('To continue in this session, call runtime_context with project_path set to that exact worktree. Use an absolute path or set Bash workdir to the target for relative commands; the session cwd does not restrict other checkout authority. The policy and checkout lease still decide each mutation. runtime_kit_governed_commit remains bound to the session cwd; use the governed semantic-commit --repo route for another worktree.')
   } else if (eligible.length > 0) {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. To retry an exact target after its former session releases it, prepare that project_path with runtime_context and set Bash workdir to the target checkout. A live owner must release first; an unrelated dirty checkout remains denied. You may instead verify one clean candidate with workspace_recovery_handoff. Policy and lease checks still apply.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. Prepare the exact target with runtime_context(project_path), then use an absolute path or Bash workdir for relative commands. A live idle owner can be taken over with one exact tool approval; active operations and unrelated dirty checkouts remain protected. You may instead verify one clean candidate with workspace_recovery_handoff. Policy and lease checks still apply.')
   } else {
-    lines.push('This session keeps working elsewhere; the denial is local to this repository. To retry an exact target after its former session releases it, prepare that project_path with runtime_context and set Bash workdir to the target checkout. A live owner must release first; an unrelated dirty checkout remains denied. You may instead create a clean managed worktree with git-cli. Policy and lease checks still apply.')
+    lines.push('This session keeps working elsewhere; the denial is local to this repository. Prepare the exact target with runtime_context(project_path), then use an absolute path or Bash workdir for relative commands. A live idle owner can be taken over with one exact tool approval; active operations and unrelated dirty checkouts remain protected. You may instead create a clean managed worktree with git-cli. Policy and lease checks still apply.')
   }
   return [{ type: (('text') as const), text: lines.join('\n') }]
 }

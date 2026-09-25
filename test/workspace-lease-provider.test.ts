@@ -341,6 +341,55 @@ test('provider denial and lost responses preserve only stable bounded facts', as
   })
 })
 
+test('provider carries a checked takeover conflict only on the matching bind', async () => {
+  const conflict = 'a'.repeat(64)
+  const subject = fixture({
+    responder(action, request) {
+      if (action === 'bind' && request.takeover_conflict === undefined) {
+        return responseFor(action, request, {
+          kind: 'denied',
+          state: 'foreign-active',
+          code: 'WORKSPACE_FOREIGN_ACTIVE',
+          reason: 'another live session owns this workspace',
+          conflict,
+          binding_id: undefined,
+          workspace_id: undefined,
+          generation: undefined,
+          target: undefined,
+          renew_after_ms: undefined,
+        })
+      }
+      return responseFor(action, request)
+    },
+  })
+  const request = {
+    version: 2,
+    requestId: 'bind-conflict',
+    sessionId: 'session-1',
+    target,
+    takeoverCapability: true,
+    source: 'startup',
+  }
+  assert.deepEqual(await subject.provider.bind(request, new AbortController().signal), {
+    kind: 'denied',
+    state: 'foreign-active',
+    code: 'WORKSPACE_FOREIGN_ACTIVE',
+    reason: 'another live session owns this workspace',
+    conflict,
+  })
+  await subject.provider.bind({
+    ...request,
+    requestId: 'bind-approved',
+    takeoverConflict: conflict,
+  }, new AbortController().signal)
+  const bindSpawns = subject.spawns.filter(call => call.spec.argv.includes('bind'))
+  assert.equal(bindSpawns.length, 2)
+  assert.equal(bindSpawns[0].request.takeover_conflict, undefined)
+  assert.equal(bindSpawns[0].request.takeover_capability, true)
+  assert.equal(bindSpawns[1].request.takeover_conflict, conflict)
+  assert.equal(bindSpawns[1].request.takeover_capability, true)
+})
+
 test('resolve rejects a target without its per-call token', async () => {
   const subject = fixture({
     responder(action, request) {

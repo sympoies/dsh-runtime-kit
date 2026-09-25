@@ -374,6 +374,36 @@ class QuarantineGoalAdapter extends LlmAdapter {
   }
 }
 
+class ApprovedTakeoverAdapter extends LlmAdapter {
+  request = 0
+
+  resolveModel(provider, model) {
+    return Promise.resolve({ provider, id: model, name: model })
+  }
+
+  async *stream() {
+    this.request += 1
+    if (this.request === 1) {
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield {
+        type: 'block-end', index: 0,
+        block: { type: 'tool-call', id: CallId('workspace-native-approved-takeover'),
+          name: 'write', arguments: JSON.stringify({
+            file_path: join(root, 'approved-takeover.txt'), content: 'approved\\n',
+          }) },
+      }
+      yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
+    yield { type: 'block-start', index: 0, blockType: 'text' }
+    yield { type: 'text-delta', index: 0, text: 'done' }
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'done' } }
+    yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 1 } }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+}
+
 export function apply(ctx) {
   void (async () => {
     const handles = []
@@ -399,6 +429,9 @@ export function apply(ctx) {
     let handoffOwnerStage
     let handoffSuccessorContext
     let handoffSuccessorEdit
+    let approvedTakeoverResult
+    let formerOwnerResult
+    const approvedTakeoverPrompts = []
     try {
       await applyNilsWorkspaceLease(ctx, {
         agentHook: ${JSON.stringify(agentHookBin)},
@@ -453,6 +486,7 @@ export function apply(ctx) {
       })
       ctx.tools.register(runtimeContext)
       ctx.llm.registerAdapter(['quarantine-goal-smoke'], new QuarantineGoalAdapter())
+      ctx.llm.registerAdapter(['approved-takeover-smoke'], new ApprovedTakeoverAdapter())
       if (ctx.tools.get('write') === undefined) {
         throw new Error('the real DSH write tool is unavailable')
       }
@@ -684,6 +718,38 @@ export function apply(ctx) {
         arguments: { file_path: join(handoff, 'successor.txt'), content: 'continued by successor\\n' },
         agent: handoffSuccessor.agent,
       })
+
+      const liveSuccessor = await ctx.agents.create({
+        sessionId: 'workspace-native-live-successor',
+        agentOptions: { provider: 'approved-takeover-smoke', model: 'local' },
+        meta: { cwd: plain },
+      })
+      handles.push(liveSuccessor)
+      ctx.on('approval/request', (request, next) => {
+        if (request.agent?.id !== liveSuccessor.agent.id) return next()
+        approvedTakeoverPrompts.push(request.reason)
+        return Promise.resolve('allowed-once')
+      })
+      liveSuccessor.agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'Continue the live owner worktree from this other folder.' }],
+        source: { kind: 'user' },
+      }))
+      await liveSuccessor.agent.whenIdle()
+      const takeoverEvent = sessionEvents(liveSuccessor.agent.session).find(event =>
+        event.type === 'tool/result'
+          && event.data.message.source.callId === 'workspace-native-approved-takeover')
+      approvedTakeoverResult = {
+        tool_succeeded: takeoverEvent?.type === 'tool/result'
+          && takeoverEvent.data.message.content[0]?.isError === false,
+        prompts: approvedTakeoverPrompts,
+      }
+      formerOwnerResult = await ctx.tools.execute({
+        signal: new AbortController().signal,
+        callId: CallId('workspace-native-former-owner-after-takeover'),
+        name: 'write',
+        arguments: { file_path: join(root, 'former-owner-must-not-run.txt'), content: 'stale\\n' },
+        agent: rootHandle.agent,
+      })
     } catch (error) {
       process.stderr.write(String(error?.stack ?? error) + '\\n')
       process.exitCode = 1
@@ -716,6 +782,8 @@ export function apply(ctx) {
         handoffOwnerStage,
         handoffSuccessorContext,
         handoffSuccessorEdit,
+        approvedTakeoverResult,
+        formerOwnerResult,
       }) + '\\n')
       ctx.get('appExit')?.(process.exitCode ?? 0)
     }
@@ -739,7 +807,9 @@ export function apply(ctx) {
   const receipt = JSON.parse(line.slice(marker.length))
   assert.equal(receipt.schema_version, 'dsh-runtime-kit.workspace-lease-native-smoke.v1')
   assert.equal(receipt.peerResult.isError, true, JSON.stringify(receipt.peerResult))
-  assert.match(receipt.peerResult.content[0].text, /another live session owns this workspace/)
+  // This driver invokes tools outside an Agent turn, so DSH cannot resolve
+  // the one-shot takeover ask. The foreign body must remain unexecuted.
+  assert.match(receipt.peerResult.content[0].text, /approval\.request\(\) outside an open turn/)
   assert.equal(receipt.rootResult.isError, false, JSON.stringify(receipt.rootResult))
   assert.equal(receipt.rootResult.value.operation, 'create')
   assert.equal(receipt.rootResult.value.after, 'root\n')
@@ -806,6 +876,12 @@ export function apply(ctx) {
   assert.equal(receipt.handoffOwnerStage.value.exitCode, 0, JSON.stringify(receipt.handoffOwnerStage))
   assert.equal(readFileSync(join(handoffWorktree, 'tracked.txt'), 'utf8'), 'staged by owner\n')
   assert.equal(readFileSync(join(handoffWorktree, 'successor.txt'), 'utf8'), 'continued by successor\n')
+  assert.equal(receipt.approvedTakeoverResult.tool_succeeded, true, JSON.stringify(receipt.approvedTakeoverResult))
+  assert.equal(receipt.approvedTakeoverResult.prompts.length, 1)
+  assert.match(receipt.approvedTakeoverResult.prompts[0], /Take over the exact worktree/)
+  assert.equal(readFileSync(join(repository, 'approved-takeover.txt'), 'utf8'), 'approved\n')
+  assert.equal(receipt.formerOwnerResult.isError, true, JSON.stringify(receipt.formerOwnerResult))
+  assert.equal(existsSync(join(repository, 'former-owner-must-not-run.txt')), false)
   assert.match(run('/usr/bin/git', ['status', '--porcelain=v1'], { cwd: handoffWorktree }).stdout, /^M  tracked\.txt\n\?\? successor\.txt\n$/)
   assert.equal(existsSync(join(repository, 'peer-must-not-run.txt')), false)
   assert.equal(existsSync(join(dirtyRepository, 'dirty-must-not-run.txt')), false)
@@ -836,6 +912,7 @@ export function apply(ctx) {
     cleanManagedHandoffVerified: true,
     dirtyAnchorKeptFullHostAuthority: true,
     crossRepositoryMutationFenced: true,
+    liveOwnerApprovedAcrossCwd: true,
     releasedDirtyTargetTakenOverFromAnotherCwd: true,
   }) + '\n')
 } finally {

@@ -62,6 +62,8 @@ export type WorkspaceLeaseResolveResult = {kind: 'not-required'}
 export type WorkspaceLeaseBindRequest = WorkspaceLeaseBindingFacts & {
     target?: WorkspaceLeaseTarget,
     cwd?: string,
+    takeoverConflict?: string,
+    takeoverCapability?: true,
     source: SessionStartSource,
   }
 /**
@@ -71,7 +73,7 @@ export type WorkspaceLeaseBindRequest = WorkspaceLeaseBindingFacts & {
 
 export type WorkspaceLeaseBound = { kind: 'bound', bindingId: string, workspaceId: string, generation: string, state: 'owned' | 'unmanaged', target: WorkspaceLeaseTarget, renewAfterMs?: number }
 
-export type WorkspaceLeaseDenied = { kind: 'denied', state: Exclude<WorkspaceLeaseState, 'owned' | 'unmanaged'>, code: string, reason: string }
+export type WorkspaceLeaseDenied = { kind: 'denied', state: Exclude<WorkspaceLeaseState, 'owned' | 'unmanaged'>, code: string, reason: string, conflict?: string }
 
 export type WorkspaceLeaseBindResult = WorkspaceLeaseBound
     | {kind: 'not-required'}
@@ -209,6 +211,16 @@ export class WorkspaceLeaseInvalidRefError extends WorkspaceLeaseError {
       WORKSPACE_REF_INVALID,
       'unavailable',
     )
+  }
+}
+
+class TakeoverRequired extends Error {
+  readonly target: WorkspaceLeaseTarget
+  readonly conflict: string
+  constructor(target: WorkspaceLeaseTarget, conflict: string) {
+    super('worktree takeover requires one exact tool approval')
+    this.target = target
+    this.conflict = conflict
   }
 }
 
@@ -416,6 +428,7 @@ export class WorkspaceLease extends Service {
   #liveSlots: Set<AgentSlot> = new Set()
   #refs: WeakMap<WorkspaceRef, WorkspaceRefMeta> = new WeakMap()
   #executions: WeakMap<ToolExecution, readonly LeaseOperation[]> = new WeakMap()
+  #pendingTakeovers: WeakMap<ToolExecution, { slot: AgentSlot, provider: ProviderSlot, target: WorkspaceLeaseResolvedTarget, conflict: string, identity: ExecutionIdentity, epoch: number }> = new WeakMap()
   #authorizations: WeakMap<ToolExecution, ExecutionAuthorization> = new WeakMap()
   #resolutions: WeakMap<ToolExecution, Promise<readonly WorkspaceLeaseTarget[]>> = new WeakMap()
   /**
@@ -432,6 +445,7 @@ export class WorkspaceLease extends Service {
     // to the concrete instance so native private state stays inaccessible while
     // calls through ctx.workspaceLease still carry the correct receiver.
     this.registerProvider = this.registerProvider.bind(this)
+    this.hasActiveProvider = this.hasActiveProvider.bind(this)
     this.denialState = this.denialState.bind(this)
     this.ref = this.ref.bind(this)
     this.state = this.state.bind(this)
@@ -459,6 +473,7 @@ export class WorkspaceLease extends Service {
     ctx.tools.guard(exec => this.#guard(exec))
     ctx.on('tools/result', exec => {
       this.#authorizations.delete(exec)
+      this.#pendingTakeovers.delete(exec)
       this.#resolutions.delete(exec)
     })
   }
@@ -510,6 +525,11 @@ export class WorkspaceLease extends Service {
         if (this.#provider === slot) this.#provider = undefined
       }
     }, 'workspaceLease.registerProvider()')
+  }
+
+  /** Compatibility signal for the legacy nils checkout guard. */
+  hasActiveProvider() {
+    return this.#provider !== undefined && !this.#provider.stopping
   }
 
   /**
@@ -937,7 +957,7 @@ export class WorkspaceLease extends Service {
  * in the same authority set are untouched.
  */
 
-  async #acquire(slot: AgentSlot, provider: ProviderSlot, target: WorkspaceLeaseTarget, signal: AbortSignal): Promise<BoundWorkspace | undefined>  {
+  async #acquire(slot: AgentSlot, provider: ProviderSlot, target: WorkspaceLeaseTarget, signal: AbortSignal, takeoverConflict?: string): Promise<BoundWorkspace | undefined>  {
     const owner = this.#authoritySlot(slot)
     await owner.draining
     if (owner !== slot) await slot.draining
@@ -966,16 +986,42 @@ export class WorkspaceLease extends Service {
       const session = owner.session
       const exact = slot.session
       const acquisition = (async () => {
-        const result = await this.#invokeBind(
-          provider,
-          {
-            ...bindingFacts(session),
-            requestId: requestId(),
-            target,
-            source: slot.source,
-          },
-          signal,
-        )
+        const bindRequest: WorkspaceLeaseBindRequest = {
+          ...bindingFacts(session),
+          requestId: requestId(),
+          target,
+          takeoverCapability: true,
+          ...(takeoverConflict === undefined ? {} : { takeoverConflict }),
+          source: slot.source,
+        }
+        let result: WorkspaceLeaseBindResult | undefined
+        for (let retry = 0; retry < (takeoverConflict === undefined ? 1 : 3); retry += 1) {
+          try {
+            // A takeover may commit before the caller sees a response. Keep
+            // its request ID stable and reconcile under a non-tool signal.
+            result = await this.#invokeBind(
+              provider, bindRequest,
+              takeoverConflict === undefined ? signal : new AbortController().signal,
+            )
+            break
+          } catch (error) {
+            if (takeoverConflict === undefined) throw error
+            if (retry < 2 && !provider.stopping) continue
+            provider.stopping = true
+            throw new WorkspaceLeaseError(
+              'WORKSPACE_TAKEOVER_UNCERTAIN: approved transfer could not be reconciled; inspect the exact worktree lease before retrying',
+              'WORKSPACE_TAKEOVER_UNCERTAIN', 'uncertain', { cause: error },
+            )
+          }
+        }
+        if (result === undefined) throw unavailable('workspace takeover returned no binding decision')
+        if (takeoverConflict === undefined
+          && result.kind === 'denied'
+          && result.code === 'WORKSPACE_FOREIGN_ACTIVE'
+          && result.state === 'foreign-active'
+          && result.conflict !== undefined) {
+          throw new TakeoverRequired(target, result.conflict)
+        }
         if (result.kind === 'denied') throw providerAdmissionError(result)
         if (result.kind === 'not-required') return undefined
         if (slot.disposed
@@ -1029,6 +1075,8 @@ export class WorkspaceLease extends Service {
     const admissionSignal = fuseSignals([identity.signal, slot.lifecycle.signal])
     const admitted: Set<BoundWorkspace> = new Set()
     const operations: LeaseOperation[] = []
+    let takeoverTarget: WorkspaceLeaseResolvedTarget | undefined
+    let targetCount = 0
     try {
       const targets = await this.#resolutionFor(
         exec,
@@ -1043,12 +1091,14 @@ export class WorkspaceLease extends Service {
         this.#admit(exec, identity, slot, epoch, [])
         return downstream
       }
+      targetCount = targets.length
 
       // Canonical targets are acquired in the provider's deterministic order
       // before any fence is granted, so a denied target cannot leave an
       // already-fenced sibling free to dispatch.
       const resolved: { binding: BoundWorkspace, target: WorkspaceLeaseResolvedTarget }[] = []
       for (const target of targets) {
+        takeoverTarget = target
         // The per-call token authenticates `begin`, not the durable binding.
         // Keep it beside the resolved operation while bind sees only the
         // canonical workspace identity.
@@ -1097,6 +1147,22 @@ export class WorkspaceLease extends Service {
       await Promise.allSettled(operations.map(
         operation => this.#completeOperation(operation, cancelled ? 'cancelled' : 'failed'),
       ))
+      if (error instanceof TakeoverRequired
+        && takeoverTarget !== undefined
+        && targetCount === 1
+        && admitted.size === 0
+        && !cancelled
+        && !slot.disposed
+        && !provider.stopping) {
+        this.#pendingTakeovers.set(exec, {
+          slot, provider, target: takeoverTarget, conflict: error.conflict, identity, epoch,
+        })
+        this.#admit(exec, identity, slot, epoch, [])
+        return {
+          kind: 'ask',
+          reason: `${downstream.kind === 'ask' ? `Tool approval reason: ${JSON.stringify(downstream.reason)}; ` : ''}Take over the exact worktree ${JSON.stringify(error.target.root)} for this tool call? This revokes another live agent's lease and preserves its unfinished files.`,
+        }
+      }
       throw error
     } finally {
       admissionSignal.dispose()
@@ -1277,6 +1343,37 @@ export class WorkspaceLease extends Service {
   }
 
   async #execute(exec: ToolDispatchExecution, next: () => Promise<ToolExecutionResult>): Promise<ToolExecutionResult>  {
+    const pending = this.#pendingTakeovers.get(exec)
+    if (pending !== undefined) {
+      this.#pendingTakeovers.delete(exec)
+      const { slot, provider, target, conflict, identity, epoch } = pending
+      if (this.#admissionChanged(slot, epoch, identity, exec, [], exec.signal)) {
+        throw unavailable('workspace takeover approval lost its exact tool identity')
+      }
+      const binding = await this.#acquire(slot, provider, target, exec.signal, conflict)
+      if (binding === undefined) throw unavailable('approved worktree no longer requires a repository lease')
+      try {
+        if (this.#admissionChanged(slot, epoch, identity, exec, [binding], exec.signal)) {
+          throw unavailable('workspace takeover approval expired before dispatch')
+        }
+        const operation = await this.#begin(binding, target, slot.session.header.cwd, identity, exec.signal)
+        if (operation === undefined) throw unavailable('approved worktree did not grant an operation fence')
+        if (this.#admissionChanged(slot, epoch, identity, exec, [binding], exec.signal)) {
+          await this.#completeOperation(operation, 'cancelled')
+          throw unavailable('workspace takeover approval expired before dispatch')
+        }
+        binding.operations.add(operation)
+        this.#executions.set(exec, [operation])
+      } catch (error) {
+        try {
+          await this.#releaseBinding(binding, 'session-rebound')
+        } catch (releaseError) {
+          provider.stopping = true
+          throw new AggregateError([error, releaseError], 'approved workspace takeover could not be released')
+        }
+        throw error
+      }
+    }
     const operations = this.#executions.get(exec)
     if (operations === undefined || operations.length === 0) return next()
     const originalSignal = exec.signal
@@ -1608,11 +1705,11 @@ export class WorkspaceLease extends Service {
           'unavailable',
           { cause: error },
         )
-      } finally {
-        binding.provider.bindings.delete(binding)
       }
+      binding.provider.bindings.delete(binding)
     })()
     binding.releaseTask = releaseTask
+    void releaseTask.catch(() => { binding.releaseTask = undefined })
     return releaseTask
   }
 }
