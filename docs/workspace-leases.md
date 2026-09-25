@@ -262,8 +262,8 @@ and set Bash `workdir` to the target checkout. Native
 file edits use the lease's authenticated repository root. Nils checks the
 target's intent and lease for each mutation. A dirty target can pass to a new
 session after the former owner releases its lease with every operation terminal.
-A live idle owner can also transfer after the user approves the exact tool and
-takeover request. Active or uncertain operations still deny the targeted
+With nils-cli v1.28.46, a live idle owner can also transfer after the
+user approves the exact tool and takeover request. Active or uncertain operations still deny the targeted
 mutation; every transfer fences the former generation. The structured
 `runtime_kit_governed_commit` stays bound to the session cwd; a different
 non-default worktree uses `semantic-commit commit --repo <absolute target>`.

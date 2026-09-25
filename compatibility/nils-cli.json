@@ -2,53 +2,53 @@
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
   "minimum_supported_release": "1.28.3",
-  "validated_release": "1.28.44",
+  "validated_release": "1.28.46",
   "release": {
-    "source_revision": "v1.28.44",
-    "source_commit": "0223cc6edaca8ae66961e741516f4af7fa97fdd4",
+    "source_revision": "v1.28.46",
+    "source_commit": "a8dd37fb2f85102367718a36128dbdac3786631e",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.28.44-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "1865226d3506926c7ed2659d7a5405c842732eb4604fb86da21181e9ef5de712"
+      "name": "nils-cli-v1.28.46-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "26c4e9e9fe5da72b00737ccb3fd955ccfc3ad6e19806e5043ae5986925c93c35"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "b0f13e2c79e3bcb36b0ae6002ad4b387259f9baa91daba13a385a3737038665d"
+        "sha256": "7a92a2d9c4b1a5d911f29fb98b0f156012ca079390cd56a03296cb137b36909f"
       },
       "agent-docs": {
-        "sha256": "74d726fea1077a4f5211271fabee15084ff4d7da95903c5e0d6511a6e46286de"
+        "sha256": "a4a2d63d1b51fb59d8e33feb38becb1b7ae3410ee58715cefeebf7d27385a44f"
       },
       "agent-session": {
-        "sha256": "06f0365afc90873f2a3c3334a3b2eed850ffef1fd6105f7b40fe8255695b6e87"
+        "sha256": "310480c1c6acc234816e1b8fb32b312283da0393c9c26200031e92c462bc1cd6"
       },
       "forge-cli": {
-        "sha256": "6b40056fbc77ff978981dff3d5528e97dda8ba59e94d4a033fe8d5e175d546b7"
+        "sha256": "13d84e7faca87c1b7f6e195f9443a796e7b4e78b47ad2e0516768d8fdb021ca9"
       },
       "git-cli": {
-        "sha256": "093658e126bcd11ffb254f625adea756d851bfb5c5df75de2ac3e0ac009ede84"
+        "sha256": "12b4b2f0ef17ca403be1498c678945fe4e58b6465805dd4ea42545994c153fc3"
       },
       "review-specialists": {
-        "sha256": "cb674bf48da590c85714eb9503fd4fb27dd01a9efc47e3fd842ffa8dac85724e"
+        "sha256": "d54b5f0bb0888846e5e47f9ba19631cd02bcf86d750d791a6a2a51aa8f82938e"
       },
       "semantic-commit": {
-        "sha256": "8b2ae69a1a3f0abc5afdb2c698337c31319ec78aa59a9fc74b9a78f21c9affb9"
+        "sha256": "a34c280d0dab90685d676529b6451f43096459adb4e61c21afae753f61d6cc63"
       }
     },
     "platforms": {
       "aarch64-apple-darwin": {
         "archive": {
-          "name": "nils-cli-v1.28.44-aarch64-apple-darwin.tar.gz",
-          "sha256": "f25023561eeba11ffd5937db30dfd23713099ef6694d54a0714b3e6f5553d370"
+          "name": "nils-cli-v1.28.46-aarch64-apple-darwin.tar.gz",
+          "sha256": "b212bd22be7a288f7c953d48e291b2c4e359caa3488528d59a0a75dec0b1c575"
         },
         "artifacts": {
           "agent-hook": {
-            "sha256": "a7f4272955f2486a42b458fec8846afcd6f89ac779cbd0eea94979dfdc820cca"
+            "sha256": "fe9e914b5407ff0fce08a65fef550f752b452843af752f674c558dd5372f0843"
           },
           "agent-docs": {
-            "sha256": "78f5ec3b3e6012ebc38e764646fd8a5090184015b38d2d27ccfa2b1dfbc4683e"
+            "sha256": "28db692d0bc95b1471f348b703a5f75b0ec4c2e613da9da0aa86bb8bc669cbfe"
           },
           "agent-session": {
-            "sha256": "d63e565c6b97fcabbe62b1942de1ec0bcb38be15c08c55147e9c950870a84d79"
+            "sha256": "6fc7c04cc14623f470e6cbd519d687238d49bf1cfbecd12520c1148324ab43e7"
           }
         }
       }
@@ -239,6 +239,33 @@
         "agent-hook.workspace-recovery.result.v1"
       ],
       "source_task": "sympoies/nils-cli#1535"
+    },
+    {
+      "id": "agent-hook.workspace-lease.dsh",
+      "binary": "agent-hook",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "agent-hook.workspace-lease.resolve.v2",
+        "agent-hook.workspace-lease.resolve-result.v2",
+        "cli.agent-hook.workspace-lease-resolve.v1",
+        "agent-hook.workspace-lease.bind.v2",
+        "agent-hook.workspace-lease.bind-result.v2",
+        "cli.agent-hook.workspace-lease-bind.v1",
+        "agent-hook.workspace-lease.begin.v2",
+        "agent-hook.workspace-lease.begin-result.v2",
+        "cli.agent-hook.workspace-lease-begin.v1",
+        "agent-hook.workspace-lease.complete.v2",
+        "agent-hook.workspace-lease.complete-result.v2",
+        "cli.agent-hook.workspace-lease-complete.v1",
+        "agent-hook.workspace-lease.renew.v2",
+        "agent-hook.workspace-lease.renew-result.v2",
+        "cli.agent-hook.workspace-lease-renew.v1",
+        "agent-hook.workspace-lease.release.v2",
+        "agent-hook.workspace-lease.release-result.v2",
+        "cli.agent-hook.workspace-lease-release.v1"
+      ],
+      "source_task": "sympoies/nils-cli#1792"
     },
     {
       "id": "main-agent.dsh-external-runtime",

@@ -990,8 +990,7 @@ export class WorkspaceLease extends Service {
           ...bindingFacts(session),
           requestId: requestId(),
           target,
-          takeoverCapability: true,
-          ...(takeoverConflict === undefined ? {} : { takeoverConflict }),
+          ...(takeoverConflict === undefined ? {} : { takeoverCapability: true as const, takeoverConflict }),
           source: slot.source,
         }
         let result: WorkspaceLeaseBindResult | undefined
@@ -1015,6 +1014,25 @@ export class WorkspaceLease extends Service {
           }
         }
         if (result === undefined) throw unavailable('workspace takeover returned no binding decision')
+        if (takeoverConflict === undefined
+          && result.kind === 'denied'
+          && result.code === 'WORKSPACE_FOREIGN_ACTIVE'
+          && result.state === 'foreign-active'
+          && result.conflict === undefined) {
+          // Older v2 providers reject unknown takeover fields. Ordinary binds
+          // stay on the legacy wire; only an actual live-owner conflict needs
+          // this opt-in probe. A failed probe preserves the original denial.
+          const denied = result
+          try {
+            result = await this.#invokeBind(provider, {
+              ...bindRequest,
+              requestId: requestId(),
+              takeoverCapability: true,
+            }, signal)
+          } catch {
+            throw providerAdmissionError(denied)
+          }
+        }
         if (takeoverConflict === undefined
           && result.kind === 'denied'
           && result.code === 'WORKSPACE_FOREIGN_ACTIVE'

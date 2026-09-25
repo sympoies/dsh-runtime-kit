@@ -396,6 +396,58 @@ test('one session acquires independent bindings for two repositories and reuses 
   )
 })
 
+test('ordinary cross-repository bind stays usable with a strict pre-takeover provider', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.takeoverCapability !== undefined || request.takeoverConflict !== undefined) {
+        throw new Error('legacy provider rejects unknown takeover fields')
+      }
+      return {
+        kind: 'bound', bindingId: 'binding:legacy', workspaceId: 'workspace:b',
+        generation: 'generation:legacy', state: 'owned', target: request.target,
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('legacy-successor', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:legacy-bind')
+  assert.equal(result.isError, false)
+  assert.deepEqual(sequence, ['/workspace/repo-b/one.js'])
+  const targetBinds = calls.bind.map(([request]) => request).filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
+  assert.equal(targetBinds.length, 1)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+})
+
+test('strict pre-takeover provider retains its foreign-owner denial after an unsupported probe', async () => {
+  const sequence = []
+  const { selected, calls } = provider({
+    resolve: writeTargets,
+    async bind(request) {
+      if (request.takeoverCapability !== undefined) throw new Error('legacy provider rejects unknown takeover fields')
+      return {
+        kind: 'denied', state: 'foreign-active', code: 'WORKSPACE_FOREIGN_ACTIVE',
+        reason: 'another live session owns this workspace',
+      }
+    },
+  })
+  const ctx = await harness(selected)
+  const agent = stubAgent('legacy-foreign', '/srv/notes')
+  publish(ctx, agent)
+  ctx.tools.register(writeTool(sequence))
+  const result = await runTool(ctx, agent, 'write', { file_path: '/workspace/repo-b/one.js' }, 'call:legacy-foreign')
+  assert.equal(result.isError, true)
+  assert.equal(result.error.info.code, 'WORKSPACE_FOREIGN_ACTIVE')
+  assert.deepEqual(sequence, [])
+  const targetBinds = calls.bind.map(([request]) => request).filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
+  assert.equal(targetBinds.length, 2)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+  assert.equal(targetBinds[1].takeoverCapability, true)
+})
+
 test('a foreign live owner denies only its own repository target', async () => {
   const { selected } = provider({
     resolve: writeTargets,
@@ -459,7 +511,7 @@ test('exact user approval transfers a foreign target before the tool body', asyn
           state: 'foreign-active',
           code: 'WORKSPACE_FOREIGN_ACTIVE',
           reason: 'another live session owns this workspace',
-          conflict: 'a'.repeat(64),
+          ...(request.takeoverCapability === true ? { conflict: 'a'.repeat(64) } : {}),
         }
       }
       return {
@@ -489,9 +541,11 @@ test('exact user approval transfers a foreign target before the tool body', asyn
   assert.deepEqual(sequence, ['/workspace/repo-b/one.js'])
   const targetBinds = calls.bind.map(([request]) => request)
     .filter(request => request.target?.workspaceKey === REPO_B.workspaceKey)
-  assert.equal(targetBinds.length, 2)
-  assert.equal(targetBinds[0].takeoverConflict, undefined)
-  assert.equal(targetBinds[1].takeoverConflict, 'a'.repeat(64))
+  assert.equal(targetBinds.length, 3)
+  assert.equal(targetBinds[0].takeoverCapability, undefined)
+  assert.equal(targetBinds[1].takeoverCapability, true)
+  assert.equal(targetBinds[1].takeoverConflict, undefined)
+  assert.equal(targetBinds[2].takeoverConflict, 'a'.repeat(64))
   assert.equal(calls.begin.length, 1)
 })
 
