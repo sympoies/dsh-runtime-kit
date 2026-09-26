@@ -1442,6 +1442,87 @@ test('rollback removes the kit-managed home instructions when the previous targe
   }
 })
 
+test('rollback refuses to restore home instructions over a user-authored DSH home AGENTS.md', () => {
+  const subject = fixture()
+  const homeFile = join(subject.home, 'AGENTS.md')
+  try {
+    const legacy = stageBundle(subject.root, '0.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    const laterLegacy = stageBundle(subject.root, '2.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', legacy])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.equal(existsSync(homeFile), true)
+    applyPlan(subject, ['update', '--profile', 'work', '--package', laterLegacy])
+    assert.equal(existsSync(homeFile), false)
+
+    const reviewed = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(reviewed.status, 0, `${reviewed.stdout}\n${reviewed.stderr}`)
+    const userBytes = Buffer.from('# my own home rules\n')
+    writeFileSync(homeFile, userBytes, { mode: 0o644 })
+
+    const preview = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(preview.status, 65, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.error.code, 'agent-home-unmanaged')
+    const applied = run(subject, [
+      'rollback', '--profile', 'work', '--apply',
+      '--expected-plan-digest', reviewed.value.data.plan_digest,
+    ])
+    assert.equal(applied.status, 65, `${applied.stdout}\n${applied.stderr}`)
+    assert.equal(applied.value.error.code, 'agent-home-unmanaged')
+    assert.deepEqual(readFileSync(homeFile), userBytes)
+    const state = readOperationsState(subject)
+    assert.equal(state.pending, null)
+    assert.equal(state.current.installed_version, '2.5.0')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('repairing an interrupted remove deletes only the kit-managed home instructions', () => {
+  for (const handEdited of [false, true]) {
+    const subject = fixture()
+    const homeFile = join(subject.home, 'AGENTS.md')
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      assert.equal(existsSync(homeFile), true)
+      const preview = run(subject, ['remove', '--profile', 'work'])
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      const interrupted = run(subject, [
+        'remove', '--profile', 'work', '--apply',
+        '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(interrupted.status, 70, interrupted.stderr)
+      unlinkSync(join(subject.home, 'fail-after-mutation'))
+      assert.equal(readOperationsState(subject).pending.operation, 'remove')
+      assert.equal(existsSync(homeFile), true, 'the interrupted remove must not reach home cleanup')
+      if (handEdited) writeFileSync(homeFile, '# edited by hand\n', { mode: 0o600 })
+
+      const repairPreview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      assert.equal(repairPreview.status, 0, `${repairPreview.stdout}\n${repairPreview.stderr}`)
+      const repaired = run(subject, [
+        'doctor', '--profile', 'work', '--repair', '--apply',
+        '--expected-plan-digest', repairPreview.value.data.plan_digest,
+      ])
+      assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`)
+      assert.equal(readOperationsState(subject).pending, null)
+      const doctor = run(subject, ['doctor', '--profile', 'work'])
+      if (handEdited) {
+        assert.equal(readFileSync(homeFile, 'utf8'), '# edited by hand\n')
+      } else {
+        assert.equal(existsSync(homeFile), false)
+        assert.equal(doctor.value.data.lifecycle.surfaces.owned['agent-home-instructions'], 'absent')
+      }
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
 test('activation refuses to overwrite a DSH home AGENTS.md that runtime-kit did not install', () => {
   const subject = fixture()
   const homeFile = join(subject.home, 'AGENTS.md')
