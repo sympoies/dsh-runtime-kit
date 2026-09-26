@@ -72,7 +72,7 @@ const LIFECYCLE_MANIFEST = Object.freeze({
   package: '@sympoies/dsh-runtime-kit',
   owned_surfaces: {
     profile: ['dependency', 'bundle', 'installed-package', 'lockfile-projection'],
-    home: ['operations-state', 'operations-lock', 'artifact-store'],
+    home: ['operations-state', 'operations-lock', 'artifact-store', 'agent-home-instructions'],
   },
   generated_surfaces: [
     'activation-manifest',
@@ -85,6 +85,7 @@ const LIFECYCLE_MANIFEST = Object.freeze({
     policy: 'policy/dsh-runtime-kit-v1.toml',
     catalog: 'agent-docs/AGENT_DOCS.toml',
     document: 'agent-docs/PROJECT_DEV_EDIT.md',
+    home: 'agent-home/AGENTS.md',
   },
   compatibility: {
     dsh: 'compatibility/dsh.json',
@@ -102,6 +103,18 @@ const LIFECYCLE_MANIFEST = Object.freeze({
   health_probes: ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'],
   lifecycle_scripts: 'none',
   removal: 'owned-surfaces-only',
+})
+
+// The declaration an earlier package carries before it shipped DSH home
+// instructions. The engine must still admit it so rollback can restore it.
+const { home: _home, ...LEGACY_ACTIVATION_ASSETS } = LIFECYCLE_MANIFEST.activation_assets
+const LEGACY_LIFECYCLE_MANIFEST = Object.freeze({
+  ...LIFECYCLE_MANIFEST,
+  owned_surfaces: {
+    ...LIFECYCLE_MANIFEST.owned_surfaces,
+    home: ['operations-state', 'operations-lock', 'artifact-store'],
+  },
+  activation_assets: LEGACY_ACTIVATION_ASSETS,
 })
 
 const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.6-alpha.2', '0.1.7-rc.1']
@@ -166,6 +179,10 @@ function stageBundle(root, version, options = {}) {
     `# DSH project-dev ${version}\n`,
     { mode: 0o600 },
   )
+  if (options.agentHome !== false) {
+    mkdirSync(join(dir, 'agent-home'), { mode: 0o700 })
+    writeFileSync(join(dir, 'agent-home', 'AGENTS.md'), `# DSH home instructions ${version}\n`, { mode: 0o600 })
+  }
   return dir
 }
 
@@ -830,6 +847,9 @@ function activationForTarget(target, profile = 'work') {
       policy_sha256: target.assets.policy_sha256,
       catalog_sha256: target.assets.catalog_sha256,
       document_sha256: target.assets.document_sha256,
+      ...target.assets.agent_home_sha256 === undefined
+        ? {}
+        : { agent_home_sha256: target.assets.agent_home_sha256 },
     },
     agent_hook: {
       config: `assets/${target.assets.asset_set_sha256}/agent-hook/config.toml`,
@@ -840,6 +860,9 @@ function activationForTarget(target, profile = 'work') {
       home: `assets/${target.assets.asset_set_sha256}/agent-docs`,
       state: 'state/agent-docs',
     },
+    ...target.assets.agent_home_sha256 === undefined
+      ? {}
+      : { agent_home: { home: `assets/${target.assets.asset_set_sha256}/agent-home` } },
   }
 }
 
@@ -1325,6 +1348,226 @@ test('operations bind toolchain and activate the exact versioned policy and docs
     assert.equal(drifted.value.data.status, 'needs-attention')
     assert.equal(drifted.value.data.activation.ok, false)
     assert.match(drifted.value.data.activation.error, /digest|activation/u)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('activation stages the packaged DSH home instructions and rolls back to a package without them', () => {
+  const subject = fixture()
+  try {
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const first = JSON.parse(readFileSync(activationPath, 'utf8'))
+    const homeDocument = readFileSync(join(subject.v1, 'agent-home', 'AGENTS.md'))
+    assert.equal(first.assets.agent_home_sha256, sha256(homeDocument))
+    assert.equal(setup.preview.plan.target.assets.agent_home_sha256, sha256(homeDocument))
+    assert.equal(first.agent_home.home, `assets/${first.asset_set_sha256}/agent-home`)
+    const staged = join(subject.runtimeRoot, first.agent_home.home, 'AGENTS.md')
+    assert.deepEqual(readFileSync(staged), homeDocument)
+    assert.equal(lstatSync(staged).mode & 0o777, 0o600)
+
+    const legacy = stageBundle(subject.root, '2.1.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    const update = applyPlan(subject, ['update', '--profile', 'work', '--package', legacy])
+    assert.equal(Object.hasOwn(update.preview.plan.target.assets, 'agent_home_sha256'), false)
+    const second = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(second.package_version, '2.1.0')
+    assert.equal(Object.hasOwn(second, 'agent_home'), false)
+    assert.equal(Object.hasOwn(second.assets, 'agent_home_sha256'), false)
+
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    const rolledBack = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(rolledBack.asset_set_sha256, first.asset_set_sha256)
+    assert.deepEqual(rolledBack.agent_home, first.agent_home)
+
+    writeFileSync(staged, '# replaced\n', { mode: 0o600 })
+    const drifted = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(drifted.status, 65)
+    assert.equal(drifted.value.data.activation.ok, false)
+    assert.match(drifted.value.data.activation.error, /agent home document digest/u)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('activation installs the home instructions as the kit-managed DSH user-global AGENTS.md', () => {
+  const subject = fixture()
+  const homeFile = join(subject.home, 'AGENTS.md')
+  const packaged = version => readFileSync(join(subject.root, `bundle-${version}`, 'agent-home', 'AGENTS.md'))
+  try {
+    const legacy = stageBundle(subject.root, '0.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', legacy])
+    assert.equal(existsSync(homeFile), false)
+
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.deepEqual(readFileSync(homeFile), packaged('1.0.0'))
+    assert.equal(lstatSync(homeFile).mode & 0o777, 0o600)
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.lifecycle.surfaces.owned['agent-home-instructions'], 'present')
+
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.deepEqual(readFileSync(homeFile), packaged('2.0.0'))
+
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    assert.deepEqual(readFileSync(homeFile), packaged('1.0.0'))
+
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    assert.equal(existsSync(homeFile), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('rollback removes the kit-managed home instructions when the previous target had none', () => {
+  const subject = fixture()
+  const homeFile = join(subject.home, 'AGENTS.md')
+  try {
+    const legacy = stageBundle(subject.root, '0.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', legacy])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.equal(existsSync(homeFile), true)
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    assert.equal(existsSync(homeFile), false)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('rollback refuses to restore home instructions over a user-authored DSH home AGENTS.md', () => {
+  const subject = fixture()
+  const homeFile = join(subject.home, 'AGENTS.md')
+  try {
+    const legacy = stageBundle(subject.root, '0.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    const laterLegacy = stageBundle(subject.root, '2.5.0', {
+      agentHome: false,
+      lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST,
+    })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', legacy])
+    applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v1])
+    assert.equal(existsSync(homeFile), true)
+    applyPlan(subject, ['update', '--profile', 'work', '--package', laterLegacy])
+    assert.equal(existsSync(homeFile), false)
+
+    const reviewed = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(reviewed.status, 0, `${reviewed.stdout}\n${reviewed.stderr}`)
+    const userBytes = Buffer.from('# my own home rules\n')
+    writeFileSync(homeFile, userBytes, { mode: 0o644 })
+
+    const preview = run(subject, ['rollback', '--profile', 'work'])
+    assert.equal(preview.status, 65, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.error.code, 'agent-home-unmanaged')
+    const applied = run(subject, [
+      'rollback', '--profile', 'work', '--apply',
+      '--expected-plan-digest', reviewed.value.data.plan_digest,
+    ])
+    assert.equal(applied.status, 65, `${applied.stdout}\n${applied.stderr}`)
+    assert.equal(applied.value.error.code, 'agent-home-unmanaged')
+    assert.deepEqual(readFileSync(homeFile), userBytes)
+    const state = readOperationsState(subject)
+    assert.equal(state.pending, null)
+    assert.equal(state.current.installed_version, '2.5.0')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('repairing an interrupted remove deletes only the kit-managed home instructions', () => {
+  for (const handEdited of [false, true]) {
+    const subject = fixture()
+    const homeFile = join(subject.home, 'AGENTS.md')
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      assert.equal(existsSync(homeFile), true)
+      const preview = run(subject, ['remove', '--profile', 'work'])
+      writeFileSync(join(subject.home, 'fail-after-mutation'), '')
+      const interrupted = run(subject, [
+        'remove', '--profile', 'work', '--apply',
+        '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(interrupted.status, 70, interrupted.stderr)
+      unlinkSync(join(subject.home, 'fail-after-mutation'))
+      assert.equal(readOperationsState(subject).pending.operation, 'remove')
+      assert.equal(existsSync(homeFile), true, 'the interrupted remove must not reach home cleanup')
+      if (handEdited) writeFileSync(homeFile, '# edited by hand\n', { mode: 0o600 })
+
+      const repairPreview = run(subject, ['doctor', '--profile', 'work', '--repair'])
+      assert.equal(repairPreview.status, 0, `${repairPreview.stdout}\n${repairPreview.stderr}`)
+      const repaired = run(subject, [
+        'doctor', '--profile', 'work', '--repair', '--apply',
+        '--expected-plan-digest', repairPreview.value.data.plan_digest,
+      ])
+      assert.equal(repaired.status, 0, `${repaired.stdout}\n${repaired.stderr}`)
+      assert.equal(readOperationsState(subject).pending, null)
+      const doctor = run(subject, ['doctor', '--profile', 'work'])
+      if (handEdited) {
+        assert.equal(readFileSync(homeFile, 'utf8'), '# edited by hand\n')
+      } else {
+        assert.equal(existsSync(homeFile), false)
+        assert.equal(doctor.value.data.lifecycle.surfaces.owned['agent-home-instructions'], 'absent')
+      }
+    } finally {
+      subject.cleanup()
+    }
+  }
+})
+
+test('activation refuses to overwrite a DSH home AGENTS.md that runtime-kit did not install', () => {
+  const subject = fixture()
+  const homeFile = join(subject.home, 'AGENTS.md')
+  try {
+    writeFileSync(homeFile, '# my own home rules\n', { mode: 0o644 })
+    const refused = run(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)
+    assert.equal(refused.value.error.code, 'agent-home-unmanaged')
+    assert.equal(readFileSync(homeFile, 'utf8'), '# my own home rules\n')
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
+
+    rmSync(homeFile)
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+    writeFileSync(homeFile, '# edited by hand\n', { mode: 0o600 })
+    const update = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(update.status, 65, `${update.stdout}\n${update.stderr}`)
+    assert.equal(update.value.error.code, 'agent-home-unmanaged')
+    assert.equal(readFileSync(homeFile, 'utf8'), '# edited by hand\n')
+    const doctor = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(doctor.value.data.lifecycle.surfaces.owned['agent-home-instructions'], 'altered')
+
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    assert.equal(readFileSync(homeFile, 'utf8'), '# edited by hand\n')
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package must ship exactly the DSH home instructions its lifecycle declares', () => {
+  const subject = fixture()
+  try {
+    const cases = [
+      ['1.8.0', { agentHome: false }],
+      ['1.8.1', { lifecycleManifest: LEGACY_LIFECYCLE_MANIFEST }],
+      ['1.8.2', {
+        lifecycleManifest: { ...LIFECYCLE_MANIFEST, owned_surfaces: LEGACY_LIFECYCLE_MANIFEST.owned_surfaces },
+      }],
+    ]
+    for (const [version, options] of cases) {
+      const bundle = stageBundle(subject.root, version, options)
+      const rejected = run(subject, ['setup', '--profile', 'work', '--package', bundle])
+      assert.equal(rejected.status, 65, `${version}: ${rejected.stdout}\n${rejected.stderr}`)
+      assert.equal(rejected.value.error.code, 'invalid-lifecycle-manifest', version)
+    }
+    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'work.json')), false)
   } finally {
     subject.cleanup()
   }
@@ -4161,6 +4404,12 @@ test('malformed, missing, and unsupported lifecycle declarations are typed plan 
           activation_assets: { ...LIFECYCLE_MANIFEST.activation_assets, policy: 'policy/other.toml' },
         },
       }, 'unsupported-lifecycle-manifest'],
+      ['1.7.1', {
+        lifecycleManifest: {
+          ...LIFECYCLE_MANIFEST,
+          activation_assets: { ...LIFECYCLE_MANIFEST.activation_assets, home: 'agent-home/OTHER.md' },
+        },
+      }, 'unsupported-lifecycle-manifest'],
     ]
     for (const [version, options, code] of cases) {
       const bundle = stageBundle(subject.root, version, options)
@@ -4430,6 +4679,7 @@ test('doctor reports every declared owned and generated surface', () => {
         'operations-state': 'present',
         'operations-lock': 'present',
         'artifact-store': 'present',
+        'agent-home-instructions': 'present',
       },
       generated: {
         'activation-manifest': 'present',

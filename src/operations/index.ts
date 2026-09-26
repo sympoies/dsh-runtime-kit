@@ -76,9 +76,16 @@ const LIFECYCLE_SCHEMA = 'dsh-runtime-kit.profile-lifecycle.v1'
 const LIFECYCLE_OWNED_PROFILE_SURFACES = Object.freeze([
   'dependency', 'bundle', 'installed-package', 'lockfile-projection',
 ])
-const LIFECYCLE_OWNED_HOME_SURFACES = Object.freeze([
+const LIFECYCLE_LEGACY_OWNED_HOME_SURFACES = Object.freeze([
   'operations-state', 'operations-lock', 'artifact-store',
 ])
+// A package that ships DSH home instructions also owns the kit-managed
+// `<dshHome>/AGENTS.md` and its managed-digest record.
+const LIFECYCLE_OWNED_HOME_SURFACES = Object.freeze([
+  ...LIFECYCLE_LEGACY_OWNED_HOME_SURFACES, 'agent-home-instructions',
+])
+const AGENT_HOME_RECORD_SCHEMA = 'dsh-runtime-kit.agent-home.v1'
+const MAX_AGENT_HOME_RECORDED_DIGESTS = 64
 const LIFECYCLE_GENERATED_SURFACES = Object.freeze([
   'activation-manifest', 'runtime-root-owner', 'asset-set', 'agent-hook-state', 'agent-docs-state',
 ])
@@ -86,6 +93,14 @@ const LIFECYCLE_ACTIVATION_ASSETS = Object.freeze({
   policy: 'policy/dsh-runtime-kit-v1.toml',
   catalog: 'agent-docs/AGENT_DOCS.toml',
   document: 'agent-docs/PROJECT_DEV_EDIT.md',
+  home: 'agent-home/AGENTS.md',
+})
+// The declaration of a package that predates the DSH home instructions. It
+// stays admitted so rollback can restore an earlier reviewed target.
+const LIFECYCLE_LEGACY_ACTIVATION_ASSETS = Object.freeze({
+  policy: LIFECYCLE_ACTIVATION_ASSETS.policy,
+  catalog: LIFECYCLE_ACTIVATION_ASSETS.catalog,
+  document: LIFECYCLE_ACTIVATION_ASSETS.document,
 })
 const LIFECYCLE_COMPATIBILITY = Object.freeze({
   dsh: 'compatibility/dsh.json',
@@ -496,10 +511,13 @@ function installedPackageDigest(paths: ReturnType<typeof pathsFor>) {
 }
 
 function packageAssets(packageRoot: string) {
+  const home = join(packageRoot, ...LIFECYCLE_ACTIVATION_ASSETS.home.split('/'))
   const paths = {
     policy: join(packageRoot, 'policy', 'dsh-runtime-kit-v1.toml'),
     catalog: join(packageRoot, 'agent-docs', 'AGENT_DOCS.toml'),
     document: join(packageRoot, 'agent-docs', 'PROJECT_DEV_EDIT.md'),
+    // An earlier package ships no home instructions; its asset set omits them.
+    ...lstatMaybe(home) === null ? {} : { home },
   }
   const bytes = (({}) as Record<string, Buffer>)
   let total = 0
@@ -515,6 +533,7 @@ function packageAssets(packageRoot: string) {
     bytes[name] = readFileSync(path)
   }
   const assets = {
+    ...bytes.home === undefined ? {} : { agent_home_sha256: sha256(bytes.home) },
     catalog_sha256: sha256(bytes.catalog),
     document_sha256: sha256(bytes.document),
     policy_sha256: sha256(bytes.policy),
@@ -532,6 +551,7 @@ function packageAssets(packageRoot: string) {
 function assetsWithOverrides(assets: ReturnType<typeof packageAssets>, overrides: Record<string, 'advise'> | undefined) {
   if (overrides === undefined) return assets
   const members = {
+    ...assets.agent_home_sha256 === undefined ? {} : { agent_home_sha256: assets.agent_home_sha256 },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
     policy_sha256: assets.policy_sha256,
@@ -615,14 +635,19 @@ function readPolicyOverrides(path: string | undefined): Record<string, 'advise'>
 }
 
 function validateAssets(value: unknown) {
-  const keys = plainRecord(value) ? Object.keys(value).sort().join(',') : ''
-  const withOverrides = keys === 'asset_set_sha256,catalog_sha256,document_sha256,policy_overrides_sha256,policy_sha256'
+  const required = ['asset_set_sha256', 'catalog_sha256', 'document_sha256', 'policy_sha256']
+  const optional = ['agent_home_sha256', 'policy_overrides_sha256']
+  const keys = plainRecord(value) ? Object.keys(value) : []
+  const withOverrides = keys.includes('policy_overrides_sha256')
+  const withHome = keys.includes('agent_home_sha256')
   if (!plainRecord(value)
-    || (keys !== 'asset_set_sha256,catalog_sha256,document_sha256,policy_sha256' && !withOverrides)
+    || !required.every(key => keys.includes(key))
+    || !keys.every(key => required.includes(key) || optional.includes(key))
     || !Object.keys(value).every(key => typeof value[key] === 'string' && DIGEST_PATTERN.test(value[key]))) {
     throw new OperationsError('invalid-operations-state', 'package target has invalid activation assets')
   }
   const expected = assetSetSha256({
+    ...withHome ? { agent_home_sha256: ((value.agent_home_sha256) as string) } : {},
     catalog_sha256: ((value.catalog_sha256) as string),
     document_sha256: ((value.document_sha256) as string),
     policy_sha256: ((value.policy_sha256) as string),
@@ -631,7 +656,7 @@ function validateAssets(value: unknown) {
   if (expected !== value.asset_set_sha256) {
     throw new OperationsError('invalid-operations-state', 'package target activation asset digest is inconsistent')
   }
-  return ((value) as {asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string,policy_overrides_sha256?:string})
+  return ((value) as {agent_home_sha256?:string,asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string,policy_overrides_sha256?:string})
 }
 
 function readActual(paths: ReturnType<typeof pathsFor>) {
@@ -1347,15 +1372,20 @@ function validateLifecycleManifest(value: unknown) {
     || typeof value.lifecycle_scripts !== 'string' || typeof value.removal !== 'string') {
     throw invalidLifecycle('lifecycle manifest sections have invalid shapes')
   }
+  const ownsHome = sameStringSet(owned.home, LIFECYCLE_OWNED_HOME_SURFACES)
   if (!sameStringSet(owned.profile, LIFECYCLE_OWNED_PROFILE_SURFACES)
-    || !sameStringSet(owned.home, LIFECYCLE_OWNED_HOME_SURFACES)) {
+    || (!ownsHome && !sameStringSet(owned.home, LIFECYCLE_LEGACY_OWNED_HOME_SURFACES))) {
     throw unsupportedLifecycle('declared owned surfaces are not the surfaces this engine manages')
   }
   if (!sameStringSet(value.generated_surfaces, LIFECYCLE_GENERATED_SURFACES)) {
     throw unsupportedLifecycle('declared generated surfaces are not the surfaces this engine manages')
   }
-  if (stableJson(value.activation_assets) !== stableJson(LIFECYCLE_ACTIVATION_ASSETS)) {
+  const declaresHome = stableJson(value.activation_assets) === stableJson(LIFECYCLE_ACTIVATION_ASSETS)
+  if (!declaresHome && stableJson(value.activation_assets) !== stableJson(LIFECYCLE_LEGACY_ACTIVATION_ASSETS)) {
     throw unsupportedLifecycle('declared activation assets are not the assets this engine activates')
+  }
+  if (declaresHome !== ownsHome) {
+    throw invalidLifecycle('the home instructions asset and its owned home surface must be declared together')
   }
   if (stableJson(value.compatibility) !== stableJson(LIFECYCLE_COMPATIBILITY)) {
     throw unsupportedLifecycle('declared compatibility sources are not the sources this engine checks')
@@ -1397,7 +1427,7 @@ function validateLifecycleManifest(value: unknown) {
       removal: value.removal,
     })
   }
-  return { migrations, health_probes: (([...probes]) as string[]) }
+  return { migrations, health_probes: (([...probes]) as string[]), declares_home: declaresHome }
 }
 
 function lifecycleJson(packageRoot: string, relative: string, label: string) {
@@ -1460,6 +1490,13 @@ function packageLifecycle(packageRoot: string) {
     throw invalidLifecycle('lifecycle manifest is not valid JSON', { path: declared })
   }
   const validated = validateLifecycleManifest(value)
+  const home = lstatMaybe(join(root, ...LIFECYCLE_ACTIVATION_ASSETS.home.split('/')))
+  const shipsHome = home !== null && home.isFile() && !home.isSymbolicLink()
+  if (validated.declares_home !== shipsHome) {
+    throw invalidLifecycle('declared activation assets do not match the package home instructions', {
+      path: LIFECYCLE_ACTIVATION_ASSETS.home,
+    })
+  }
   const dshCompatibility = lifecycleJson(root, LIFECYCLE_COMPATIBILITY.dsh, 'declared DSH compatibility manifest')
   if (dshCompatibility.schema_version !== 'dsh-runtime-kit.dsh-compatibility.v1'
     || !plainRecord(dshCompatibility.validated_releases)) {
@@ -2072,6 +2109,11 @@ function validateLegacyAppliedReceipt(value: unknown, profile: string) {
   return value
 }
 
+/** Refuse, before any mutation, a target whose home instructions would replace a user-owned file. */
+function assertTargetAgentHome(paths: ReturnType<typeof pathsFor>, target: unknown) {
+  if (validateTarget(target).assets.agent_home_sha256 !== undefined) assertAgentHomeManaged(paths.home)
+}
+
 function buildMutationPlan(operation: string, profile: string, paths: ReturnType<typeof pathsFor>, actual: ReturnType<typeof readActual>, stateRead: ReturnType<typeof readState>, requestedTarget: ReturnType<typeof resolveTarget> | null, runtimeRoot: string, toolchain: ReturnType<typeof resolveToolchain>) {
   if (operation !== 'remove') assertProfileToolchainCompatibility(profile, toolchain)
   const state = stateRead.value
@@ -2110,6 +2152,7 @@ function buildMutationPlan(operation: string, profile: string, paths: ReturnType
       return planFor(operation, profile, actual, stateRead, requestedTarget, 'noop', runtimeRoot, toolchain, lifecycle)
     }
     assertLifecycleCompatibility(lifecycle, toolchain)
+    assertTargetAgentHome(paths, requestedTarget)
     return planFor(operation, profile, actual, stateRead, requestedTarget, 'install', runtimeRoot, toolchain, lifecycle)
   }
   if (operation === 'update') {
@@ -2117,7 +2160,10 @@ function buildMutationPlan(operation: string, profile: string, paths: ReturnType
     if (current === null) throw new OperationsError('not-managed', 'update requires a completed setup receipt', 64)
     const lifecycle = lifecycleForTarget(paths, validateTarget(requestedTarget))
     const action = stableJson(current.target) === stableJson(requestedTarget) ? 'noop' : 'update'
-    if (action === 'update') assertLifecycleCompatibility(lifecycle, toolchain)
+    if (action === 'update') {
+      assertLifecycleCompatibility(lifecycle, toolchain)
+      assertTargetAgentHome(paths, requestedTarget)
+    }
     return planFor(
       operation,
       profile,
@@ -2145,6 +2191,7 @@ function buildMutationPlan(operation: string, profile: string, paths: ReturnType
     const target = previous.target
     const lifecycle = lifecycleForTarget(paths, target)
     assertLifecycleCompatibility(lifecycle, toolchain)
+    assertTargetAgentHome(paths, target)
     return planFor(operation, profile, actual, stateRead, target, 'rollback', runtimeRoot, toolchain, lifecycle)
   }
   if (operation === 'remove') {
@@ -2578,6 +2625,86 @@ function runDshMutation(dshBin: string, home: string, profile: string, verb: str
   }
 }
 
+function agentHomePaths(home: string) {
+  return {
+    file: join(home, 'AGENTS.md'),
+    record: join(home, 'runtime-kit', 'agent-home.json'),
+  }
+}
+
+/** Digests of every home instructions document runtime-kit wrote to this DSH home. */
+function readAgentHomeRecord(home: string): string[] {
+  const { record } = agentHomePaths(home)
+  if (lstatMaybe(record) === null) return []
+  assertSafeStateFile(record)
+  const value = readJson(record).value
+  if (!plainRecord(value) || value.schema_version !== AGENT_HOME_RECORD_SCHEMA
+    || Object.keys(value).sort().join(',') !== 'installed_sha256,schema_version'
+    || !Array.isArray(value.installed_sha256)
+    || value.installed_sha256.length > MAX_AGENT_HOME_RECORDED_DIGESTS
+    || value.installed_sha256.some(digest => typeof digest !== 'string' || !DIGEST_PATTERN.test(digest))) {
+    throw new OperationsError('invalid-operations-state', 'the managed home instructions record is invalid')
+  }
+  return ((value.installed_sha256) as string[])
+}
+
+/**
+ * Observe `<dshHome>/AGENTS.md`. It is kit-managed only when its exact bytes
+ * are a version runtime-kit recorded writing; any other file, a symlink, or a
+ * foreign-owned entry is the user's and is never replaced or removed.
+ */
+function observeAgentHome(home: string) {
+  const { file } = agentHomePaths(home)
+  const recorded = readAgentHomeRecord(home)
+  const stat = lstatMaybe(file)
+  if (stat === null) return { present: false, managed: true, sha256: null, recorded }
+  const owned = stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1
+    && (typeof process.getuid !== 'function' || stat.uid === process.getuid())
+  const digest = owned ? sha256(readFileSync(file)) : null
+  return { present: true, managed: digest !== null && recorded.includes(digest), sha256: digest, recorded }
+}
+
+function assertAgentHomeManaged(home: string) {
+  if (!observeAgentHome(home).managed) {
+    throw new OperationsError(
+      'agent-home-unmanaged',
+      'the DSH home AGENTS.md exists and was not installed by runtime-kit; it was left unchanged. Move or merge it before activating home instructions',
+      65,
+    )
+  }
+}
+
+/**
+ * Converge `<dshHome>/AGENTS.md` on the target's home instructions, or remove
+ * the kit-managed file when the target ships none. The digest is recorded
+ * before the file is written, so an interrupted write stays recognizable.
+ */
+function syncAgentHome(home: string, content: Buffer | null) {
+  const { file, record } = agentHomePaths(home)
+  const observed = observeAgentHome(home)
+  if (content === null) {
+    if (observed.present && observed.managed) atomicRemoveOwnedFile(file)
+    return
+  }
+  assertAgentHomeManaged(home)
+  const digest = sha256(content)
+  if (observed.sha256 === digest) return
+  if (!observed.recorded.includes(digest)) {
+    const kept = observed.recorded.filter(entry => entry !== observed.sha256)
+    const installed = [
+      ...kept.slice(Math.max(0, kept.length - (MAX_AGENT_HOME_RECORDED_DIGESTS - 2))),
+      ...observed.sha256 === null ? [] : [observed.sha256],
+      digest,
+    ]
+    atomicWriteJson(record, { schema_version: AGENT_HOME_RECORD_SCHEMA, installed_sha256: installed })
+  }
+  atomicReplaceOwnedFile(file, content, 0o600)
+}
+
+function removeAgentHome(home: string) {
+  syncAgentHome(home, null)
+}
+
 function activationMatches(target: ReturnType<typeof validateTarget>, runtimeRoot: string, profile: string) {
   try {
     const activation = readActivation(runtimeRoot).manifest
@@ -2598,6 +2725,9 @@ function manifestAssets(target: ReturnType<typeof validateTarget>) {
     policy_sha256: target.assets.policy_sha256,
     catalog_sha256: target.assets.catalog_sha256,
     document_sha256: target.assets.document_sha256,
+    ...target.assets.agent_home_sha256 === undefined
+      ? {}
+      : { agent_home_sha256: target.assets.agent_home_sha256 },
     ...target.assets.policy_overrides_sha256 === undefined
       ? {}
       : { policy_overrides_sha256: target.assets.policy_overrides_sha256 },
@@ -2623,6 +2753,9 @@ function activationManifest(target: ReturnType<typeof validateTarget>, profile: 
       home: `assets/${target.assets.asset_set_sha256}/agent-docs`,
       state: 'state/agent-docs',
     },
+    ...target.assets.agent_home_sha256 === undefined
+      ? {}
+      : { agent_home: { home: `assets/${target.assets.asset_set_sha256}/agent-home` } },
   }
 }
 
@@ -2642,6 +2775,15 @@ function stagedActivationAssetsMatch(target: ReturnType<typeof validateTarget>, 
     if (sha256(readFileSync(policy)) !== target.assets.policy_sha256
       || sha256(readFileSync(catalog)) !== target.assets.catalog_sha256
       || sha256(readFileSync(document)) !== target.assets.document_sha256) return false
+    const home = join(finalRoot, 'agent-home')
+    if (target.assets.agent_home_sha256 === undefined) {
+      if (lstatMaybe(home) !== null) return false
+    } else {
+      assertOwnedPath(home, 'directory', true)
+      const homeDocument = join(home, 'AGENTS.md')
+      assertSafeStateFile(homeDocument)
+      if (sha256(readFileSync(homeDocument)) !== target.assets.agent_home_sha256) return false
+    }
     return readFileSync(config, 'utf8') === renderAgentHookConfig(
       policy,
       target.assets.policy_sha256,
@@ -2691,6 +2833,15 @@ function stageActivationAssets(paths: ReturnType<typeof pathsFor>, target: Retur
       writeFileSync(policyPath, readFileSync(join(source, 'policy', 'dsh-runtime-kit-v1.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'AGENT_DOCS.toml'), readFileSync(join(source, 'agent-docs', 'AGENT_DOCS.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'PROJECT_DEV_EDIT.md'), readFileSync(join(source, 'agent-docs', 'PROJECT_DEV_EDIT.md')), { mode: 0o600 })
+      if (target.assets.agent_home_sha256 !== undefined) {
+        const home = join(temporary, 'agent-home')
+        mkdirSync(home, { mode: 0o700 })
+        writeFileSync(
+          join(home, 'AGENTS.md'),
+          readFileSync(join(source, ...LIFECYCLE_ACTIVATION_ASSETS.home.split('/'))),
+          { mode: 0o600 },
+        )
+      }
       writeFileSync(
         join(hook, 'config.toml'),
         renderAgentHookConfig(
@@ -2712,10 +2863,16 @@ function stageActivationAssets(paths: ReturnType<typeof pathsFor>, target: Retur
   }
 }
 
-function activateStagedAssets(target: ReturnType<typeof validateTarget>, runtimeRoot: string, profile: string) {
+function activateStagedAssets(home: string, target: ReturnType<typeof validateTarget>, runtimeRoot: string, profile: string) {
   if (!stagedActivationAssetsMatch(target, runtimeRoot)) {
     throw new OperationsError('activation-staging-failed', 'staged activation assets changed before activation')
   }
+  syncAgentHome(
+    home,
+    target.assets.agent_home_sha256 === undefined
+      ? null
+      : readFileSync(join(runtimeRoot, 'assets', target.assets.asset_set_sha256, 'agent-home', 'AGENTS.md')),
+  )
   const activation = activationManifest(target, profile)
   atomicWriteJson(join(runtimeRoot, 'activation.json'), activation)
   if (!activationMatches(target, runtimeRoot, profile)) {
@@ -2790,7 +2947,7 @@ function stageActivation(paths: ReturnType<typeof pathsFor>, target: ReturnType<
   reconcileActivationAssets(paths, runtimeRoot, target.assets.asset_set_sha256)
   stageActivationAssets(paths, target, runtimeRoot)
   activationHealth(paths, target, runtimeRoot, lifecycle, executables)
-  return activateStagedAssets(target, runtimeRoot, profile)
+  return activateStagedAssets(paths.home, target, runtimeRoot, profile)
 }
 
 function retainActivationTarget(targets: Map<string,ReturnType<typeof validateTarget>>, target: ReturnType<typeof validateTarget>) {
@@ -3138,7 +3295,7 @@ function restoreAfterCollateral(dshBin: string, paths: ReturnType<typeof pathsFo
     // passed its health gate; the collateral path must not fail on a probe.
     reconcileActivationAssets(paths, previous.runtime_root, previous.target.assets.asset_set_sha256)
     stageActivationAssets(paths, previous.target, previous.runtime_root)
-    activateStagedAssets(previous.target, previous.runtime_root, profile)
+    activateStagedAssets(paths.home, previous.target, previous.runtime_root, profile)
   }
   restoreProfileSnapshot(profileBefore, paths)
   const restoredActual = readActual(paths)
@@ -3363,8 +3520,12 @@ function applyMutation(operation: string, profile: string, paths: ReturnType<typ
       ...pending,
       pending: { ...pending.pending, phase: 'native-applied' },
     })
-    if (operation === 'remove') removeActivation(runtimeRoot)
-    else activateStagedAssets(((target) as ReturnType<typeof validateTarget>), runtimeRoot, profile)
+    if (operation === 'remove') {
+      removeActivation(runtimeRoot)
+      removeAgentHome(paths.home)
+    } else {
+      activateStagedAssets(paths.home, ((target) as ReturnType<typeof validateTarget>), runtimeRoot, profile)
+    }
     let observed = readActual(paths)
     let current = null
     if (operation === 'remove') {
@@ -3838,6 +3999,7 @@ function lifecycleSurfaces(paths: ReturnType<typeof pathsFor>, profile: string, 
     'operations-state': lstatMaybe(paths.state) === null ? 'absent' : 'present',
     'operations-lock': lstatMaybe(paths.lock) === null ? 'absent' : 'present',
     'artifact-store': lstatMaybe(paths.artifacts) === null ? 'absent' : 'present',
+    'agent-home-instructions': agentHomeSurface(paths.home, expectedTarget),
   }
   const generated: Record<string, string> = {}
   const runtimeRoot = activationInput.runtimeRoot
@@ -3867,6 +4029,19 @@ function lifecycleSurfaces(paths: ReturnType<typeof pathsFor>, profile: string, 
     generated[surface] = status(stat !== null && stat.isDirectory() && !stat.isSymbolicLink())
   }
   return { owned, generated }
+}
+
+function agentHomeSurface(home: string, target: ReturnType<typeof validateTarget> | null) {
+  let observed
+  try {
+    observed = observeAgentHome(home)
+  } catch {
+    return 'altered'
+  }
+  const expected = target?.assets.agent_home_sha256
+  if (!observed.present) return expected === undefined ? 'absent' : 'missing'
+  if (expected === undefined) return observed.managed ? 'altered' : 'absent'
+  return observed.sha256 === expected ? 'present' : 'altered'
 }
 
 function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string, state: any, stateVersion: number | null, actual: ReturnType<typeof readActual>, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
@@ -4348,6 +4523,7 @@ function applyRepair(profile: string, paths: ReturnType<typeof pathsFor>, review
           throw new OperationsError('recovery-drift', 'recovered remove did not reach the reviewed absent state')
         }
         removeActivation(pending.plan.runtime_root)
+        removeAgentHome(paths.home)
       } else {
         const target = validateTarget(pending.target)
         const pendingPlan = ((validatePlan(pending.plan, profile)) as any)

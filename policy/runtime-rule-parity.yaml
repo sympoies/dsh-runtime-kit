@@ -269,7 +269,7 @@ capability_groups:
     test_owners:
       - dsh-runtime-kit:test/context.test.ts
       - dsh-runtime-kit:test/plugin-contract.test.ts#automatic-tool-prerequisites
-    stronger_replacement: DSH loads no policy corpus at session start. Mutating tools resolve one execution-bound nils-owned project-dev prerequisite automatically, inject bounded context only when first materialized, and freshly verify every execution; the explicit runtime_context tool remains available for direct requests.
+    stronger_replacement: DSH loads no agent-docs policy corpus at session start; only the separate kit-managed home instructions load as DSH's native user-global AGENTS.md. Mutating tools resolve one execution-bound nils-owned project-dev prerequisite automatically, inject bounded context only when first materialized, and freshly verify every execution; the explicit runtime_context tool remains available for direct requests.
   - id: user-prompt-agent-memory
     disposition: nils-capability
     migration_task: "3.3"

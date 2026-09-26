@@ -598,9 +598,11 @@ result as authorization. Nils remains the owner of session/project/product and
 catalog-content replay binding; the plugin removes correlation and filesystem
 metadata before DSH materializes the canonical tool result.
 
-The tool result itself is the only model-facing context delivery path. Nothing
-is attached to the system prompt or session-start event, and the plugin does
-not duplicate the same document through `deferContext()`. The public tool
+The tool result itself is the only model-facing delivery path for this
+catalog. The runtime-context plugin attaches nothing to the system prompt or
+session-start event, and it does not duplicate the same document through
+`deferContext()`. The only session-start instructions are the separate DSH
+home instructions below, which DSH's own instruction loader reads. The public tool
 schema allows only `project-dev`, which deterministically selects phase `edit`,
 plus an optional absolute `project_path`;
 the transport repeats the same allowlist check before spawning `agent-docs`.
@@ -614,6 +616,40 @@ wrappers run afterward, but they cannot bind an exact agent-scoped definition
 through HMR, cancellation, and the full post waterfall. Runtime-kit therefore
 does not use a wrapper as a transaction boundary. The authenticated native
 seam below binds one registry-owned execution to one exact definition.
+
+## DSH home instructions
+
+The package ships `agent-home/AGENTS.md`, a compact home-scope policy for
+every DSH session. It adapts the neutral home policy maintained in
+`github.com/sympoies/agent-runtime-kit` at `AGENT_HOME.md` to DSH: it keeps
+the shared authority, safety, voice-input, test-first, and governed-delivery
+rules and routes them to DSH surfaces (`ask_user_question`,
+`runtime_context`, `artifact_*`, and `runtime_kit_governed_commit`). Routing
+that exists only for other harnesses or in that repository's docs home is
+dropped rather than copied. The model-facing file carries no provenance text.
+
+Delivery uses DSH's native `@deepseek-ai/dsh-agent-instructions` loader, which
+reads one fixed user-global file, `<dshHome>/AGENTS.md`, before project
+instructions. Every composition reads that default path, including the Agent
+Console TUI and DSH web profiles whose agent presets carry their own loader
+row, so activation installs the document there rather than redirecting any
+loader configuration. The source stays digest-bound: activation copies it into
+the versioned asset set as `assets/<digest>/agent-home/AGENTS.md`, binds
+`agent_home_sha256` into the asset-set digest, and installs those exact bytes
+into the DSH home the operation targets.
+
+The installed file is kit-managed by digest, not by any marker in its text.
+`<dshHome>/runtime-kit/agent-home.json` records every home document digest
+runtime-kit wrote, and the record is updated before each write. Setup, update,
+and rollback preview refuse with `agent-home-unmanaged` when an existing
+`AGENTS.md` does not match a recorded digest, so a user-authored file is never
+overwritten. Activating a later target replaces only a managed file; rolling
+back restores the previous target's content, or removes the managed file when
+that target shipped none; `remove` deletes it only while it is still managed.
+Doctor reports the file as the owned `agent-home-instructions` surface. The
+file belongs to the DSH home, not to one profile: profiles activated in the same
+home share it, and the most recent activation, rollback, or removal decides its
+content.
 
 ## Automatic tool prerequisites
 

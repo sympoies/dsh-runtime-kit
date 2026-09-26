@@ -124,7 +124,9 @@ DSH uses dsh-runtime-kit plus nils-cli; Codex and Claude Code continue to use
 agent-runtime-kit plus nils-cli. Local activation is limited to an isolated DSH
 native `headless` profile, preserves a DSH-only rollback point, and must leave
 existing provider wiring and hook/skill/session state unchanged. The activation
-must copy the packaged DSH policy and agent-docs catalog into owner-only DSH
-roots, set the five mandatory absolute hook/docs config-policy-state variables,
-and prove no ambient Codex/Claude/XDG fallback was selected. Private skill
+must copy the packaged DSH policy, agent-docs catalog, and DSH home
+instructions into owner-only DSH roots, install the home instructions as the
+kit-managed `<dshHome>/AGENTS.md` without replacing a user-authored file, set
+the five mandatory absolute hook/docs config-policy-state variables, and prove
+no ambient Codex/Claude/XDG fallback was selected. Private skill
 loading remains optional and never auto-enrolls an existing provider bundle.

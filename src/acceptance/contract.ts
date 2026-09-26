@@ -77,6 +77,7 @@ const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
   'activation-staging-failed',
   'agent-console-dsh-mismatch',
   'agent-hook-isolation-invalid',
+  'agent-home-unmanaged',
   'already-managed',
   'artifact-capacity',
   'artifact-drift',

@@ -1656,6 +1656,7 @@ try {
     'agents/reviewers/reviewer-testing.md',
     'agent-docs/AGENT_DOCS.toml',
     'agent-docs/PROJECT_DEV_EDIT.md',
+    'agent-home/AGENTS.md',
     'cordis.patch.yml',
     'compatibility/dsh.json',
     'compatibility/dsh-patches.json',

@@ -15,3 +15,7 @@ agent-out/
 # Project-local Claude directory (skills live in .agents/skills/)
 .claude/
 dist/
+
+# The packaged DSH home instructions are a shipped asset. Keep them visible
+# even where a contributor's global excludes ignore every `AGENTS.md`.
+!/agent-home/AGENTS.md
