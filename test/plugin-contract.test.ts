@@ -1167,6 +1167,9 @@ function harness({
     async dispose() {
       for (const dispose of effects.reverse()) await dispose()
     },
+    async disposeConcurrently() {
+      await Promise.all(effects.map(dispose => dispose()))
+    },
     emit(event, ...args) {
       for (const observer of listeners.get(event) ?? []) observer(...args)
     },
@@ -5092,6 +5095,32 @@ test('the shipped policy wiring attributes an edit to the repository the lease r
   )
   assert.equal(subject.service.activeFinishLineReservations, 0)
   await subject.dispose()
+})
+
+test('concurrent policy teardown releases the finish-line ledger before its authenticated scope closes', async () => {
+  const requests = []
+  let cleaned = false
+  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
+  const subject = harness({
+    envelope: editFinishLineEnvelope(requests),
+    config: { agentHook: 'agent-hook', authenticatedNilsExecution: owner },
+    throwOnSpawn(spec) {
+      if (spec.argv.includes('release')) {
+        assert.equal(spec.signal.aborted, false)
+      }
+      return false
+    },
+  })
+  const invocation = await subject.invoke(
+    { file_path: '/tmp/notes.txt', content: 'mutated' },
+    { name: 'write', callId: 'edit-before-teardown' },
+  )
+  assert.equal(invocation.result.kind, 'allow')
+
+  await Promise.all([owner.dispose(), subject.disposeConcurrently()])
+  assert.equal(requests.filter(entry => entry.action === 'release').length, 1)
+  assert.equal(subject.service.finishLineDegraded, false)
+  assert.equal(cleaned, true)
 })
 
 test('an embedder without a lease service attributes an edit to the session anchor', async () => {

@@ -479,7 +479,7 @@ function runExecution(value: unknown, command: string) {
   }
 }
 
-export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown}} = {}) {
+export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, managedSessionBridge?: {resolve?: (id:string) => unknown}, coordinatorShutdown?: () => Promise<void>} = {}) {
   const agentHook = resolveAgentHookRuntime(config)
   const timeoutMs = positiveInteger(config.finishLineTimeoutMs, DEFAULT_TIMEOUT_MS, HARD_TIMEOUT_MS)
   const teardownTimeoutMs = positiveInteger(
@@ -794,17 +794,25 @@ export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: st
     }
   }
 
-  async function dispose() {
-    try {
-      await drain()
-      open = false
-      openRetryTokens.clear()
-      beginRetryTokens.clear()
-      acceptanceRetryTokens.clear()
-      pinnedPrincipals.clear()
-    } finally {
-      await authenticatedExecution.dispose()
-    }
+  let disposal: Promise<void> | undefined
+  function dispose() {
+    if (disposal !== undefined) return disposal
+    disposal = (async () => {
+      try {
+        // Cordis disposes sibling effects concurrently. The coordinator owns
+        // durable release and must finish before this client's scope closes.
+        await config.coordinatorShutdown?.()
+        await drain()
+        open = false
+        openRetryTokens.clear()
+        beginRetryTokens.clear()
+        acceptanceRetryTokens.clear()
+        pinnedPrincipals.clear()
+      } finally {
+        await authenticatedExecution.dispose()
+      }
+    })()
+    return disposal
   }
 
   ctx.effect(() => dispose, 'dsh-runtime-kit nils finish-line client')

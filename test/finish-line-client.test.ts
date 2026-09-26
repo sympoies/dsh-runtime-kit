@@ -139,6 +139,7 @@ function fixture({
   teardownTimeoutMs = 20,
   onTerminate = () => {},
   authenticatedNilsExecution,
+  coordinatorShutdown,
   managedSessionBridge,
   resolutionPendingAt,
   exitCodeFor,
@@ -218,6 +219,7 @@ function fixture({
     finishLineTeardownTimeoutMs: teardownTimeoutMs,
     maxActiveFinishLineRequests: 4,
     authenticatedNilsExecution,
+    coordinatorShutdown,
     managedSessionBridge,
   })
   return {
@@ -232,6 +234,29 @@ function fixture({
     },
   }
 }
+
+test('client disposal completes coordinator release before closing its authenticated scope', async (t) => {
+  const owner = createSnapshotExecutionOwner(async () => {}, 100)
+  t.after(async () => { await owner.dispose() })
+  let subject
+  let releaseResult
+  subject = fixture({
+    agentHook: 'agent-hook',
+    authenticatedNilsExecution: owner,
+    coordinatorShutdown: async () => {
+      releaseResult = await subject.client.release({
+        ...identity,
+        runnerCapability: 'finish-line-runner:opaque',
+      })
+    },
+  })
+
+  await subject.dispose()
+  assert.deepEqual(releaseResult, { correlationId })
+  assert.deepEqual(subject.spawns.map(spawn =>
+    spawn.spec.argv[spawn.spec.argv.indexOf('finish-line') + 1]), ['release'])
+  assert.equal(subject.spawns[0].spec.signal.aborted, false)
+})
 
 const identity = {
   product: 'dsh',

@@ -6,6 +6,36 @@ import { DshFinishLineProviderError } from '../dist/src/finish-line/nils-client.
 
 const correlationId = 'correlation:opaque'
 
+test('concurrent coordinator disposal joins the same pending release', async () => {
+  const subject = fixture()
+  await subject.coordinator.withAuthority(
+    subject.agent,
+    '7',
+    new AbortController().signal,
+    async () => {},
+  )
+  let enteredRelease
+  const entered = new Promise(resolve => { enteredRelease = resolve })
+  let finishRelease
+  const pending = new Promise(resolve => { finishRelease = resolve })
+  subject.client.release = async request => {
+    subject.releases.push(structuredClone(request))
+    enteredRelease()
+    await pending
+    return { correlationId }
+  }
+
+  const first = subject.coordinator.dispose()
+  await entered
+  let secondSettled = false
+  const second = subject.coordinator.dispose().then(() => { secondSettled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(secondSettled, false)
+  finishRelease()
+  await Promise.all([first, second])
+  assert.equal(subject.releases.length, 1)
+})
+
 function fixture({
   maxSameTurnSteers = 2,
   runtime = {
