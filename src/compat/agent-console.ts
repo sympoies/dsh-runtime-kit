@@ -198,9 +198,12 @@ export function inspectAgentConsoleRc7Profile(observation: unknown) {
       'dsh-runtime-kit: Agent Console route evidence must contain provider, model, and reasoningEffort only',
     )
   }
-  if (controller.provider !== CONTRACT.default_route.provider
-    || controller.model !== CONTRACT.default_route.model
-    || controller.reasoningEffort !== CONTRACT.default_route.reasoning_effort
+  const acceptedRoute = [CONTRACT.default_route, CONTRACT.portable_route].some(
+    (route: any) => controller.provider === route.provider
+      && controller.model === route.model
+      && controller.reasoningEffort === route.reasoning_effort,
+  )
+  if (!acceptedRoute
     || worker.provider !== controller.provider
     || worker.model !== controller.model
     || worker.reasoningEffort !== controller.reasoningEffort) {
@@ -208,7 +211,7 @@ export function inspectAgentConsoleRc7Profile(observation: unknown) {
       'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_MISMATCH',
       'dsh-runtime-kit: Agent Console worker route must inherit the high-effort Sol controller route',
       {
-        expected_provider: CONTRACT.default_route.provider,
+        expected_provider: [CONTRACT.default_route.provider, CONTRACT.portable_route.provider].join('|'),
         expected_model: CONTRACT.default_route.model,
         expected_reasoning_effort: CONTRACT.default_route.reasoning_effort,
       },
@@ -242,10 +245,13 @@ export function inspectAgentConsoleRc7Profile(observation: unknown) {
   const credentials = credentialValues === undefined
     ? undefined
     : credentialValues.map(record)
+  const expectedCredentials = controller.provider === CONTRACT.portable_route.provider
+    ? CONTRACT.authority.portable_provider_credentials
+    : CONTRACT.authority.provider_credentials
   const credentialsMatch = credentials !== undefined
-    && credentials.length === CONTRACT.authority.provider_credentials.length
+    && credentials.length === expectedCredentials.length
     && credentials.every((credential, index) => {
-      const expected = CONTRACT.authority.provider_credentials[index]
+      const expected = expectedCredentials[index]
       return credential !== undefined
         && hasExactKeys(credential, ['provider', 'apiKeyEnv', 'inlineValuePresent'])
         && credential.provider === expected.provider
