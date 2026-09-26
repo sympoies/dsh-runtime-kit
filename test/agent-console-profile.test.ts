@@ -84,6 +84,11 @@ const EXPECTED_CONTRACT = Object.freeze({
     model: 'gpt-6-sol',
     reasoning_effort: 'high',
   },
+  portable_route: {
+    provider: 'codex-subscription',
+    model: 'gpt-6-sol',
+    reasoning_effort: 'high',
+  },
   authority: {
     runtime_kit_patch_rows: ['dsh-runtime-kit'],
     permission_mode_source: 'DSH_PERMISSION_MODE',
@@ -95,6 +100,10 @@ const EXPECTED_CONTRACT = Object.freeze({
     provider_credentials: [{
       provider: 'codex-proxy',
       api_key_env: 'DSH_CODEX_PROXY_TOKEN',
+    }],
+    portable_provider_credentials: [{
+      provider: 'codex-subscription',
+      api_key_env: 'DSH_CODEX_SUBSCRIPTION_TOKEN',
     }],
   },
 })
@@ -181,6 +190,27 @@ test('the package pins the complete latest Agent Console composition contract', 
       credentials: 'environment-reference-only',
     },
   })
+})
+
+test('the Agent Console profile accepts the portable Codex provider with its matching environment reference', () => {
+  const observation = copyObservation()
+  observation.controllerRoute.provider = 'codex-subscription'
+  observation.workerRoute.provider = 'codex-subscription'
+  observation.authority.providerCredentials[0] = {
+    provider: 'codex-subscription',
+    apiKeyEnv: 'DSH_CODEX_SUBSCRIPTION_TOKEN',
+    inlineValuePresent: false,
+  }
+  const result = runtimeKit.inspectAgentConsoleRc7Profile(observation)
+  assert.equal(result.compatible, true)
+  assert.equal(result.controller_route.provider, 'codex-subscription')
+
+  observation.authority.providerCredentials[0].apiKeyEnv = 'DSH_CODEX_PROXY_TOKEN'
+  expectCode(observation, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_CREDENTIAL_AUTHORITY_MISMATCH')
+
+  observation.authority.providerCredentials[0].apiKeyEnv = 'DSH_CODEX_SUBSCRIPTION_TOKEN'
+  observation.workerRoute.provider = 'codex-proxy'
+  expectCode(observation, 'DSH_RUNTIME_KIT_AGENT_CONSOLE_ROUTE_MISMATCH')
 })
 
 test('the Agent Console profile composes the pristine TUI after its 0.1.6 compatibility bundle', () => {

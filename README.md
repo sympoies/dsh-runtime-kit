@@ -269,7 +269,7 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 That composition retains the TUI's `userQuestions` interaction service and
 adds runtime-kit tools, skills, and `mainAgentOrchestration`. With no reviewed
 worker override, Main Agent workers inherit the live controller route; an Agent
-Console controller on `codex-proxy/gpt-6-sol` therefore launches Sol workers.
+Console controller on `codex-subscription/gpt-6-sol` therefore launches Sol workers.
 Runtime-kit adds only its own Cordis row: the host remains responsible for an
 explicit `DSH_PERMISSION_MODE`, the matching approval policy, and environment-
 name credential references.

@@ -90,6 +90,11 @@
     "model": "gpt-6-sol",
     "reasoning_effort": "high"
   },
+  "portable_route": {
+    "provider": "codex-subscription",
+    "model": "gpt-6-sol",
+    "reasoning_effort": "high"
+  },
   "authority": {
     "runtime_kit_patch_rows": [
       "dsh-runtime-kit"
@@ -113,6 +118,12 @@
       {
         "provider": "codex-proxy",
         "api_key_env": "DSH_CODEX_PROXY_TOKEN"
+      }
+    ],
+    "portable_provider_credentials": [
+      {
+        "provider": "codex-subscription",
+        "api_key_env": "DSH_CODEX_SUBSCRIPTION_TOKEN"
       }
     ]
   }
