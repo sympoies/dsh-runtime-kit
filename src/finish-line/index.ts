@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { DshFinishLineProviderError } from './nils-client.js'
 
 export type Context = import('@deepseek-ai/cordis').Context
 export type Agent = import('@deepseek-ai/dsh-agent').Agent
@@ -281,7 +282,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
             ...(command === undefined ? {} : { command }),
           }, signal)
         } catch (error) {
-          if (signal.aborted) throw error
+          if (signal.aborted || error instanceof DshFinishLineProviderError) throw error
           opened = await client.open({
             ...identity,
             ...(command === undefined ? {} : { command }),
@@ -571,9 +572,11 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
           : (('ordinary') as const)
         validationCalls.set(exec, { prepared, operation, operationId, readiness })
         return { ok: true, kind: readiness }
-      } catch {
+      } catch (error) {
         poison(ledger, 'validation-probe')
-        return { ok: false, reason: 'finish-line-unavailable' }
+        return { ok: false, reason: error instanceof DshFinishLineProviderError
+          ? `${error.providerCode}: ${error.providerMessage}`
+          : 'finish-line-unavailable' }
       }
     },
 

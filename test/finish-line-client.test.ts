@@ -549,6 +549,38 @@ test('open rejects adjacent exit-65 repository failures instead of delegating', 
   }
 })
 
+test('open preserves a valid authoritative-host denial from nils', async () => {
+  const subject = fixture({
+    responder: () => ({
+      schema_version: 'cli.agent-hook.finish-line-open.v1',
+      ok: false,
+      error: {
+        code: 'finish-line-containment-unavailable',
+        message: 'authoritative finish-line execution requires a supported containment host',
+      },
+    }),
+    exitCodeFor: () => 69,
+  })
+  await assert.rejects(subject.client.open(identity), error => {
+    assert.equal(error.providerCode, 'finish-line-containment-unavailable')
+    assert.equal(error.providerMessage,
+      'authoritative finish-line execution requires a supported containment host')
+    return true
+  })
+})
+
+test('open rejects malformed authoritative-host diagnostics', async () => {
+  const subject = fixture({
+    responder: () => ({
+      schema_version: 'cli.agent-hook.finish-line-open.v1',
+      ok: false,
+      error: { code: 'finish-line-containment-unavailable', message: 'forged\nlog record' },
+    }),
+    exitCodeFor: () => 69,
+  })
+  await assert.rejects(subject.client.open(identity), /finish-line response invalid/)
+})
+
 test('open retains its private token across an ambiguous committed response', async () => {
   let call = 0
   const subject = fixture({
