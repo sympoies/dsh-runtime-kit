@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { createFinishLineCoordinator } from '../dist/src/finish-line/index.js'
+import { DshFinishLineProviderError } from '../dist/src/finish-line/nils-client.js'
 
 const correlationId = 'correlation:opaque'
 
@@ -451,6 +452,27 @@ test('a repository-anchored session cannot relax its obligation through a non-re
   await assert.rejects(subject.coordinator.execute(reserved), /finish-line capability unavailable/)
   assert.equal(subject.runs.length, 0)
   assert.equal(subject.coordinator.activeReservations, 0)
+})
+
+test('a nils host denial keeps its code and message while Bash stays blocked', async () => {
+  const subject = fixture()
+  let opens = 0
+  subject.client.open = async () => {
+    opens += 1
+    throw new DshFinishLineProviderError('finish-line-containment-unavailable',
+      'authoritative finish-line execution requires a supported containment host')
+  }
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'pwd', description: 'Inspect workspace' },
+    callId: 'host-denial-probe',
+  })
+  assert.deepEqual(await subject.coordinator.probe(exec, context(exec)), {
+    ok: false,
+    reason: 'finish-line-containment-unavailable: authoritative finish-line execution requires a supported containment host',
+  })
+  assert.equal(opens, 1, 'an authoritative nils denial must not be retried')
+  assert.equal(subject.runs.length, 0)
 })
 
 test('a non-repository anchor still owes validation when nils binds a repository-targeting command to a runner', async () => {

@@ -276,11 +276,17 @@ same-session recovery, `runtime_kit_plus_one(41) = 42`, and absence of health
 or audit state from model context. It deliberately does not claim
 authoritative finish-line acceptance: nils-cli's current finish-line contract
 requires Linux systemd/cgroup containment, so the complete packed smoke remains
-a blocking Linux gate. Direct fdesc execution,
-dyld-as-executable bridging, and directory traversal through
+a blocking Linux gate. Direct fdesc execution, dyld-as-executable bridging,
+and directory traversal through
 `/dev/fd/<directory-fd>` are deliberately not part of the contract. The lane
 also preserves the nonexistent-`argv[0]` regression so an ordinary runtime
 snapshot pathname fallback cannot pass unnoticed.
+
+When nils rejects `finish-line open` with an exact, bounded exit-69 host
+diagnostic, the DSH Bash denial retains its provider code and message. A
+malformed envelope remains `finish-line-unavailable`; neither outcome permits
+ordinary Bash to bypass the finish-line contract. macOS authoritative execution
+is tracked in [nils-cli #1800](https://github.com/sympoies/nils-cli/issues/1800).
 
 Contributor commands and staging examples are in
 [`DEVELOPMENT.md`](../DEVELOPMENT.md#compatibility-validation). The architecture

@@ -59,6 +59,20 @@ export class DshFinishLineTemporaryError extends Error {
   }
 }
 
+/** Preserve a nils-authored, bounded host denial without trusting malformed envelopes. */
+export class DshFinishLineProviderError extends Error {
+  name = 'DshFinishLineProviderError'
+  code = 'DSH_FINISH_LINE_PROVIDER'
+  providerCode
+  providerMessage
+
+  constructor(providerCode: string, providerMessage: string) {
+    super(`dsh-runtime-kit: ${providerCode}: ${providerMessage}`)
+    this.providerCode = providerCode
+    this.providerMessage = providerMessage
+  }
+}
+
 export type ActiveRequest = { action: 'open' | 'begin' | 'run' | 'stop' | 'release' | 'register' | 'admit' | 'observe' | 'verdict', controller: AbortController, handle: SubprocessHandle | undefined, cause: 'caller' | 'timeout' | 'disposed' | 'degraded' | undefined, cancelled: Promise<void>, resolveCancelled: () => void, settled: Promise<void>, resolveSettled: () => void }
 
 function positiveInteger(value: unknown, fallback: number, maximum: number) {
@@ -285,6 +299,24 @@ function throwTemporaryProviderError(envelope: unknown, outcome: unknown, schema
     && typeof error?.message === 'string' && error.message.length > 0) {
     throw new DshFinishLineTemporaryError(providerCode)
   }
+}
+
+function throwAuthoritativeHostError(envelope: unknown, outcome: unknown, schema: string): never {
+  const result = record(outcome)
+  const value = record(envelope)
+  const error = record(value?.error)
+  if (result?.exitCode === 69 && result.signal === null
+    && value?.schema_version === schema && value.ok === false
+    && typeof error?.code === 'string'
+    && error.code.length <= 128
+    && /^finish-line-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(error.code)
+    && typeof error.message === 'string'
+    && Buffer.byteLength(error.message, 'utf8') > 0
+    && Buffer.byteLength(error.message, 'utf8') <= 1_024
+    && !/[\x00-\x1f\x7f-\x9f]/u.test(error.message)) {
+    throw new DshFinishLineProviderError(error.code, error.message)
+  }
+  throw new Error('dsh-runtime-kit: finish-line response invalid')
 }
 
 function stream(value: unknown) {
@@ -807,7 +839,7 @@ export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: st
           retirePrincipal(identity)
           return { kind: (('not-in-repository') as const) }
         }
-        throw new Error('dsh-runtime-kit: finish-line response invalid')
+        throwAuthoritativeHostError(envelope, outcome, 'cli.agent-hook.finish-line-open.v1')
       }
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-open.v1')
       if (data.schema_version !== 'agent-hook.finish-line.open-result.v1'
