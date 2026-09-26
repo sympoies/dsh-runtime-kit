@@ -223,7 +223,7 @@ The package declares the surfaces the transaction may touch in
 referenced from `package.json#dsh.lifecycle`. The declaration lists the owned
 profile surfaces (dependency row, bundle row, installed package tree, lockfile
 projection), the owned home surfaces (operations state, operations lock,
-artifact store), the generated runtime-root surfaces (activation manifest,
+artifact store, and the kit-managed home instructions), the generated runtime-root surfaces (activation manifest,
 owner record, versioned asset set, hook and docs state roots), the activation
 assets, the compatibility sources, the native nils companions, the declared
 migrations, the health probes that must pass before activation, that no
@@ -236,7 +236,12 @@ enforces a fixed vocabulary: a malformed declaration fails as
 `invalid-lifecycle-manifest`, and a well-formed declaration naming a surface,
 asset, migration, probe, or behaviour this engine does not implement fails as
 `unsupported-lifecycle-manifest`, so a newer package cannot be installed by an
-engine that would ignore part of its contract. A package that declares
+engine that would ignore part of its contract. The activation assets are the
+policy, catalog, project-dev document, and `agent-home/AGENTS.md` home
+instructions, declared together with the owned `agent-home-instructions` home
+surface. The engine also admits the earlier declaration without either so
+rollback can restore a predecessor package, and a package must ship the home
+document exactly when it declares it. A package that declares
 `preinstall`, `install`, `postinstall`, `prepare`, or another install-time
 script fails as `lifecycle-scripts-declared` before any profile mutation. A
 package without a declaration is admitted under this engine's own compatibility
@@ -647,8 +652,18 @@ rollback, health, or a new receipt.
 
 ## Runtime assets and state
 
-The package copies its DSH policy and compact `agent-docs/` catalog into a
-content-addressed immutable asset set beneath the runtime root. Separate mutable
+The package copies its DSH policy, compact `agent-docs/` catalog, and DSH home
+instructions (`agent-home/AGENTS.md`) into a content-addressed immutable asset
+set beneath the runtime root. Activation then installs the home instructions as
+the kit-managed `AGENTS.md` of the DSH home the operation targets
+(`DSH_HOME`, or the dispatcher's `--dsh-home`), recording each written digest
+in `runtime-kit/agent-home.json`. An existing `AGENTS.md` that matches no
+recorded digest fails setup, update, or rollback preview as
+`agent-home-unmanaged` and is left unchanged; move or merge it, then retry.
+Update replaces only the managed file, rollback restores the previous target's
+content or removes the file when that target shipped none, and `remove`
+deletes it only while it is still managed. See
+[DSH home instructions](architecture.md#dsh-home-instructions). Separate mutable
 directories hold hook and agent-docs state. The activation manifest binds the
 selected DSH home, package target, asset digests, generated configuration, and
 bounded tree identity. Copied asset leaves are owner-only regular files with

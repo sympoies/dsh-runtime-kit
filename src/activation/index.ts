@@ -35,12 +35,16 @@ export function validatePolicyOverrides(value: unknown): Record<string, 'advise'
 }
 
 /**
- * Digest of an activation asset set. The override digest joins the set only
- * when overrides exist, so a target without overrides keeps the digest the
- * accepted baseline computed.
+ * Digest of an activation asset set. The DSH home instructions digest joins the
+ * set only when the package ships that document, and the override digest only
+ * when overrides exist, so an earlier target keeps the digest the accepted
+ * baseline computed.
  */
-export function assetSetSha256(assets: {catalog_sha256: string, document_sha256: string, policy_sha256: string, policy_overrides_sha256?: string}) {
+export function assetSetSha256(assets: {agent_home_sha256?: string, catalog_sha256: string, document_sha256: string, policy_sha256: string, policy_overrides_sha256?: string}) {
   return activationSha256(JSON.stringify({
+    ...assets.agent_home_sha256 === undefined
+      ? {}
+      : { agent_home_sha256: assets.agent_home_sha256 },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
     policy_sha256: assets.policy_sha256,
@@ -216,6 +220,7 @@ export function readActivation(root: string) {
   const hook = record(activation?.agent_hook)
   const docs = record(activation?.agent_docs)
   const assets = record(activation?.assets)
+  const home = record(activation?.agent_home)
   if (activation?.schema_version !== 'dsh-runtime-kit.activation.v1'
     || typeof activation.profile !== 'string'
     || typeof activation.package_version !== 'string'
@@ -230,7 +235,10 @@ export function readActivation(root: string) {
     || !DIGEST.test(assets.catalog_sha256)
     || !DIGEST.test(assets.document_sha256)
     || (assets.policy_overrides_sha256 !== undefined && !DIGEST.test(assets.policy_overrides_sha256))
-    || (activation.policy_overrides === undefined) !== (assets.policy_overrides_sha256 === undefined)) {
+    || (activation.policy_overrides === undefined) !== (assets.policy_overrides_sha256 === undefined)
+    || (assets.agent_home_sha256 !== undefined && !DIGEST.test(assets.agent_home_sha256))
+    || (activation.agent_home === undefined) !== (assets.agent_home_sha256 === undefined)
+    || (activation.agent_home !== undefined && typeof home?.home !== 'string')) {
     throw new TypeError('activation manifest has an incompatible contract')
   }
   let overrides: Record<string, 'advise'> | undefined
@@ -245,7 +253,8 @@ export function readActivation(root: string) {
   const assetRoot = `assets/${activation.asset_set_sha256}`
   if (hook.config !== `${assetRoot}/agent-hook/config.toml`
     || hook.policy !== `${assetRoot}/agent-hook/policy.toml`
-    || docs.home !== `${assetRoot}/agent-docs`) {
+    || docs.home !== `${assetRoot}/agent-docs`
+    || (home !== undefined && home.home !== `${assetRoot}/agent-home`)) {
     throw new TypeError('activation manifest paths do not match its versioned asset set')
   }
   const assetSetRoot = activationPath(canonicalRoot, assetRoot, 'directory')
@@ -257,16 +266,20 @@ export function readActivation(root: string) {
   const docsState = activationPath(canonicalRoot, docs.state, 'directory')
   const catalog = activationPath(canonicalRoot, `${docs.home}/AGENT_DOCS.toml`, 'file')
   const document = activationPath(canonicalRoot, `${docs.home}/PROJECT_DEV_EDIT.md`, 'file')
-  for (const path of [hookAssets, config, policy, docsHome, catalog, document]) {
+  const agentHome = home === undefined ? undefined : activationPath(canonicalRoot, home.home, 'directory')
+  const homeDocument = home === undefined ? undefined : activationPath(canonicalRoot, `${home.home}/AGENTS.md`, 'file')
+  const homeSurfaces = agentHome === undefined || homeDocument === undefined ? [] : [agentHome, homeDocument]
+  for (const path of [hookAssets, config, policy, docsHome, catalog, document, ...homeSurfaces]) {
     if (!within(assetSetRoot, path)) {
       throw new TypeError('activation asset path must remain contained in its versioned asset set')
     }
   }
   if (!within(hookAssets, config) || !within(hookAssets, policy)
-    || !within(docsHome, catalog) || !within(docsHome, document)) {
+    || !within(docsHome, catalog) || !within(docsHome, document)
+    || (agentHome !== undefined && homeDocument !== undefined && !within(agentHome, homeDocument))) {
     throw new TypeError('activation asset leaf does not match its trusted directory')
   }
-  const assetSurfaces = [assetSetRoot, hookAssets, docsHome]
+  const assetSurfaces = [assetSetRoot, hookAssets, docsHome, ...agentHome === undefined ? [] : [agentHome]]
   const stateSurfaces = [hookState, docsState]
   if (assetSurfaces.some(asset => stateSurfaces.some(state => overlaps(asset, state)))
     || overlaps(hookState, docsState)) {
@@ -275,7 +288,11 @@ export function readActivation(root: string) {
   verifyDigest(policy, assets.policy_sha256, 'policy')
   verifyDigest(catalog, assets.catalog_sha256, 'agent-docs catalog')
   verifyDigest(document, assets.document_sha256, 'agent-docs document')
+  if (homeDocument !== undefined) verifyDigest(homeDocument, assets.agent_home_sha256, 'agent home document')
   const expectedSet = assetSetSha256({
+    ...assets.agent_home_sha256 === undefined
+      ? {}
+      : { agent_home_sha256: ((assets.agent_home_sha256) as string) },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
     policy_sha256: assets.policy_sha256,

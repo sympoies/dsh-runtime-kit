@@ -75,6 +75,10 @@ compatibility, acceptance, and delivery procedures are in the
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
   DSH runtime root.
+- Packaged DSH home instructions (`agent-home/AGENTS.md`) that activation
+  installs as the kit-managed `<dshHome>/AGENTS.md`, DSH's native user-global
+  instruction file, so the shared home rules load with every session. An
+  existing user-authored file is never overwritten.
 - Tiered policy enforcement: integrity rules always block, governed delivery
   seams block by default and may be downgraded to a reminder for debugging
   through a receipt-bound `--policy-overrides` file, and reminders never

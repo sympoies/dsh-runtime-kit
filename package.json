@@ -39,6 +39,7 @@
     "src",
     "tsconfig.json",
     "agent-docs",
+    "agent-home",
     "agents",
     "cordis.patch.yml",
     "compatibility",

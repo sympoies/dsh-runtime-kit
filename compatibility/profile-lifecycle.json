@@ -3,7 +3,7 @@
   "package": "@sympoies/dsh-runtime-kit",
   "owned_surfaces": {
     "profile": ["dependency", "bundle", "installed-package", "lockfile-projection"],
-    "home": ["operations-state", "operations-lock", "artifact-store"]
+    "home": ["operations-state", "operations-lock", "artifact-store", "agent-home-instructions"]
   },
   "generated_surfaces": [
     "activation-manifest",
@@ -15,7 +15,8 @@
   "activation_assets": {
     "policy": "policy/dsh-runtime-kit-v1.toml",
     "catalog": "agent-docs/AGENT_DOCS.toml",
-    "document": "agent-docs/PROJECT_DEV_EDIT.md"
+    "document": "agent-docs/PROJECT_DEV_EDIT.md",
+    "home": "agent-home/AGENTS.md"
   },
   "compatibility": {
     "dsh": "compatibility/dsh.json",

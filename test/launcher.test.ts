@@ -38,25 +38,30 @@ function invoke(runtimeRoot, extraEnvironment = {}) {
   })
 }
 
-function activatedRuntimeRoot(temporary) {
+function activatedRuntimeRoot(temporary, options = {}) {
   const runtimeRoot = join(temporary, 'runtime')
   const policy = 'schema_version = "dsh.policy.v1"\n'
   const catalog = 'schema_version = "agent-docs.catalog.v1"\n'
   const document = '# Project development\n'
+  const homeDocument = '# DSH home instructions\n'
+  const withHome = options.home !== false
   const assets = {
     policy_sha256: activationSha256(policy),
     catalog_sha256: activationSha256(catalog),
     document_sha256: activationSha256(document),
+    ...withHome ? { agent_home_sha256: activationSha256(homeDocument) } : {},
   }
   const assetDigest = assetSetSha256(assets)
   const assetRoot = join(runtimeRoot, 'assets', assetDigest)
   const hookAssets = join(assetRoot, 'agent-hook')
   const docsHome = join(assetRoot, 'agent-docs')
+  const agentHome = join(assetRoot, 'agent-home')
   const hookState = join(runtimeRoot, 'state', 'agent-hook')
   const docsState = join(runtimeRoot, 'state', 'agent-docs')
-  for (const path of [hookAssets, docsHome, hookState, docsState]) {
+  for (const path of [hookAssets, docsHome, hookState, docsState, ...withHome ? [agentHome] : []]) {
     mkdirSync(path, { recursive: true, mode: 0o700 })
   }
+  if (withHome) writeFileSync(join(agentHome, 'AGENTS.md'), homeDocument, { mode: 0o600 })
   writeFileSync(join(hookAssets, 'policy.toml'), policy, { mode: 0o600 })
   writeFileSync(
     join(hookAssets, 'config.toml'),
@@ -82,8 +87,9 @@ function activatedRuntimeRoot(temporary) {
       home: `assets/${assetDigest}/agent-docs`,
       state: 'state/agent-docs',
     },
+    ...withHome ? { agent_home: { home: options.agentHomePath ?? `assets/${assetDigest}/agent-home` } } : {},
   })}\n`, { mode: 0o600 })
-  return { assetRoot, assets, docsHome, docsState, hookAssets, hookState, runtimeRoot }
+  return { agentHome, assetRoot, assets, docsHome, docsState, hookAssets, hookState, runtimeRoot }
 }
 
 test('owner launcher derives the complete DSH isolation environment from one runtime root', () => {
@@ -111,6 +117,25 @@ test('owner launcher derives the complete DSH isolation environment from one run
     assert.equal(activatedEnvironment.hookState, fallbackEnvironment.hookState)
     assert.equal(activatedEnvironment.hookConfig, join(activated.hookAssets, 'config.toml'))
     assert.equal(activatedEnvironment.hookPolicy, join(activated.hookAssets, 'policy.toml'))
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher rejects a drifted or misplaced DSH home instructions asset', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  try {
+    const drifted = activatedRuntimeRoot(join(temporary, 'drifted'))
+    writeFileSync(join(drifted.agentHome, 'AGENTS.md'), '# replaced\n', { mode: 0o600 })
+    const driftedResult = invoke(drifted.runtimeRoot)
+    assert.equal(driftedResult.status, 64, driftedResult.stderr)
+    assert.equal(driftedResult.stdout, '')
+    assert.match(driftedResult.stderr, /agent home document digest/u)
+
+    const misplaced = activatedRuntimeRoot(join(temporary, 'misplaced'), { agentHomePath: 'state/agent-home' })
+    const misplacedResult = invoke(misplaced.runtimeRoot)
+    assert.equal(misplacedResult.status, 64, misplacedResult.stderr)
+    assert.match(misplacedResult.stderr, /versioned asset set/u)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }

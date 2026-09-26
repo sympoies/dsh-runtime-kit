@@ -67,6 +67,8 @@ function stageBundle(root, version) {
   writeFileSync(join(dir, 'policy', 'dsh-runtime-kit-v1.toml'), `schema_version = "dsh.policy.v1"\n# asset ${version}\n`)
   writeFileSync(join(dir, 'agent-docs', 'AGENT_DOCS.toml'), `schema_version = "agent-docs.catalog.v1"\n# asset ${version}\n`)
   writeFileSync(join(dir, 'agent-docs', 'PROJECT_DEV_EDIT.md'), `# DSH project-dev ${version}\n`)
+  mkdirSync(join(dir, 'agent-home'))
+  writeFileSync(join(dir, 'agent-home', 'AGENTS.md'), `# DSH home instructions ${version}\n`)
   return dir
 }
 
