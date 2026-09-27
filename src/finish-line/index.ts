@@ -264,6 +264,18 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
 
   /** @returns whether repository authority was opened */
 
+  async function carryDshProviderError<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation()
+    } catch (error) {
+      // DSH records terminal codes through its injected public error carrier.
+      if (error instanceof DshFinishLineProviderError) {
+        throw new HarnessError(error.message, error.code)
+      }
+      throw error
+    }
+  }
+
   async function ensureRunnerCapability(ledger: SessionLedger, identity: FinishLineIdentity, signal: AbortSignal, command?: string): Promise<boolean>  {
     const currentCapability = ledger.runnerCapability
     if (currentCapability !== undefined
@@ -303,7 +315,9 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         ledger.runnerCapabilityRefreshedAt = now()
         return true
       })().catch(error => {
-        if (ledger.runnerCapability === undefined) client.abandonOpen(identity)
+        const sessionActive = error instanceof DshFinishLineProviderError
+          && error.providerCode === 'finish-line-session-active'
+        if (ledger.runnerCapability === undefined && !sessionActive) client.abandonOpen(identity)
         throw error
       }).finally(() => {
         if (ledger.runnerCapabilityOpening === opening) {
@@ -1008,7 +1022,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       // A non-repository anchor owns no stop boundary (`not-in-repository`
       // leaves the header ledger without a capability); the repositories this
       // turn edited still own theirs and are checked below.
-      await ensureRunnerCapability(headerLedger, headerIdentity, payload.signal)
+      await carryDshProviderError(() => ensureRunnerCapability(headerLedger, headerIdentity, payload.signal))
       const authoritativeLedgers = sessionLedgers(payload.agent.session)
         .filter(ledger => ledger.runnerCapability !== undefined)
         .sort((left, right) => {
@@ -1023,10 +1037,10 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
           steer(ledger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
           return false
         }
-        if (!await ensureRunnerCapability(ledger, identity, payload.signal)) {
+        if (!await carryDshProviderError(() => ensureRunnerCapability(ledger, identity, payload.signal))) {
           throw new Error('dsh-runtime-kit: finish-line unavailable')
         }
-        const decision = await client.stop(identity, payload.signal)
+        const decision = await carryDshProviderError(() => client.stop(identity, payload.signal))
         try {
           acceptCorrelation(ledger, decision.correlationId)
         } catch {

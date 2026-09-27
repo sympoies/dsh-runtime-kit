@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
-| nils-cli | `1.28.3` minimum; exactly validated through `1.28.52` |
+| nils-cli | `1.29.0` minimum; exactly validated through `1.29.0` |
 
 ## Agent runtime source alignment
 
@@ -160,10 +160,19 @@ in the summary only. The same release preserves `not-in-repository` as an exact
 public policy code for existing non-symlink directories with no Git ancestor;
 since #199 that answer means the session cwd carries no finish-line obligation
 for any principal, while repository access, scope coverage, malformed output,
-and enforcement failures remain authoritative. The v1.28.3 floor is intentional: it is the release that
-contains the tiered policy contract, the non-repository governed-commit
-admission, the non-repository finish-line answer for any command, and every native contract the accepted
-convergence children require —
+and enforcement failures remain authoritative. The v1.29.0 floor is required
+because every finish-line open now sends the actual DSH process as `owner_pid`.
+Earlier strict request schemas reject that field even when opening a fresh
+session. The consumer never omits the owner binding to admit an older companion.
+The released owner performs old-process death proof, authoritative cleanup and
+quiescence, incarnation and capability rotation, and prior acceptance-evidence
+invalidation before crash takeover. A live or unverifiable owner remains refused;
+ordinary command termination is not cleanup proof. Existing unbound sessions
+cannot gain takeover authority retroactively.
+
+The same floor retains the tiered policy contract, non-repository governed-commit
+admission, non-repository finish-line answer for any command, and the other native
+contracts required by the convergence children:
 the atomic `agent-session work-context set --if-absent` contract, the durable
 finish-line acceptance provider, the bounded `agent-hook workspace-recovery`
 inspection and handoff contracts, the restricted-role review companions, the

@@ -37,7 +37,7 @@ function publicWorkContext(environment = principalEnvironment, overrides = {}) {
     revision: 1,
     state: 'active',
     intent: 'project-dev',
-    tier: 'L2',
+    tier: 'program/plan',
     repositories: ['sympoies/example'],
     worktrees: ['hmac-sha256:1:opaque'],
     provider_refs: [],
@@ -204,7 +204,7 @@ test('always-on managed-session authentication binds before an optional child pl
     ['/bin/true', 'self', 'readiness', '--format', 'json'],
     [
       '/bin/true', 'work-context', 'set', '--if-absent',
-      '--intent', 'project-dev', '--tier', 'L2',
+      '--intent', 'project-dev', '--tier', 'program/plan',
       '--summary', 'DSH project-dev session', '--format', 'json',
     ],
   ])

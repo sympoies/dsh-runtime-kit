@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
+  DshFinishLineProviderError,
   DshFinishLineTemporaryError,
   createNilsFinishLineClient,
 } from '../dist/src/finish-line/nils-client.js'
@@ -521,9 +522,21 @@ test('open carries one private retry token without exposing it in the result', a
     turn_id: '7',
     cwd: '/workspace/project',
     attempt_token: subject.spawns[0].request.attempt_token,
+    owner_pid: process.pid,
   })
   assert.match(subject.spawns[0].request.attempt_token, /^finish-line-open:/)
   assert.doesNotMatch(JSON.stringify(result), /attempt_token|finish-line-open:/)
+})
+
+test('open authenticates the actual DSH process and accepts only the explicit recovered result', async () => {
+  const subject = fixture({ responder: (action, request) => responseFor(action, request, { status: 'recovered' }) })
+  const opened = await subject.client.open(identity)
+  assert.equal(subject.spawns[0].request.owner_pid, process.pid)
+  assert.deepEqual(opened, { runnerCapability: 'finish-line-runner:opaque', correlationId })
+  for (const status of ['recovering', 'reclaimable', 'recovered-without-proof']) {
+    const invalid = fixture({ responder: (action, request) => responseFor(action, request, { status }) })
+    await assert.rejects(invalid.client.open(identity), /finish-line response invalid/)
+  }
 })
 
 test('open returns only the exact typed non-repository result as a delegation fact', async () => {
@@ -592,6 +605,52 @@ test('open preserves a valid authoritative-host denial from nils', async () => {
       'authoritative finish-line execution requires a supported containment host')
     return true
   })
+})
+
+test('open preserves an exact active-session denial without rotating its attempt', async () => {
+  const message = 'finish-line session already belongs to a different private open attempt'
+  const subject = fixture({
+    responder: () => ({
+      schema_version: 'cli.agent-hook.finish-line-open.v1',
+      ok: false,
+      error: { code: 'finish-line-session-active', message },
+    }),
+    exitCodeFor: () => 65,
+  })
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(subject.client.open(identity), error => {
+      assert.ok(error instanceof DshFinishLineProviderError)
+      assert.equal(error.code, 'DSH_FINISH_LINE_PROVIDER')
+      assert.equal(error.providerCode, 'finish-line-session-active')
+      assert.equal(error.providerMessage, message)
+      return true
+    })
+  }
+  assert.equal(subject.spawns.length, 2)
+  assert.equal(subject.spawns[0].request.attempt_token, subject.spawns[1].request.attempt_token)
+  assert.ok(subject.spawns.every(({ spec }) =>
+    spec.argv[spec.argv.indexOf('finish-line') + 1] === 'open'))
+})
+
+test('open rejects malformed or mismatched active-session denials', async () => {
+  const envelope = {
+    schema_version: 'cli.agent-hook.finish-line-open.v1',
+    ok: false,
+    error: { code: 'finish-line-session-active', message: 'different private open attempt' },
+  }
+  for (const [response, exitCode] of [
+    [envelope, 0],
+    [envelope, 1],
+    [{ ...envelope, schema_version: 'cli.agent-hook.finish-line-stop.v1' }, 65],
+    [{ ...envelope, ok: true }, 65],
+    [{ ...envelope, error: { ...envelope.error, code: 'finish-line-other-denial' } }, 65],
+    [{ ...envelope, error: { ...envelope.error, message: '' } }, 65],
+    [{ ...envelope, error: { ...envelope.error, message: 'forged\nrecord' } }, 65],
+    [{ ...envelope, error: { ...envelope.error, message: 'x'.repeat(1_025) } }, 65],
+  ]) {
+    const subject = fixture({ responder: () => response, exitCodeFor: () => exitCode })
+    await assert.rejects(subject.client.open(identity), /finish-line response invalid/)
+  }
 })
 
 test('open rejects malformed authoritative-host diagnostics', async () => {
