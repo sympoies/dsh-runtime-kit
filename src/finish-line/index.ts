@@ -496,8 +496,9 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
   let disposal: Promise<void> | undefined
   function dispose() {
     if (disposal !== undefined) return disposal
+    const release = prepareClientDisposal()
     disposal = Promise.resolve().then(async () => {
-      await prepareClientDisposal()
+      await release
       await client.dispose()
     })
     return disposal
