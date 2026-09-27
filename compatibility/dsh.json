@@ -444,7 +444,7 @@
   },
   "patched_workspace_artifacts": {
     "@deepseek-ai/dsh-agent-preset-registry": "8e5fd5ef70d889c44f85d0146ba1ea593002a06742be4e5aea04e6fb53227502",
-    "@deepseek-ai/dsh-app-boot": "21063e7c1128837d47ebc968c63d4d7910078cd7d0de460dff2895915557ce1f",
+    "@deepseek-ai/dsh-app-boot": "2fb80957f553b4cff7182707624b5f04be381516255b01773ca53cd9dec4ac4c",
     "@deepseek-ai/dsh-bash-local": "9b4accfa0517cf6672d7b790a2b5cd858b2ce82b098cf35073ad2b170408b4a7",
     "@deepseek-ai/dsh-commands": "66e88f1c76087176ff024da9e1ceda9290d6b2348953e6543bdc6cf2fed659eb",
     "@deepseek-ai/dsh-llm": "990835d5234fdcc2f72f7d176df07b923c61c4f190defbee313c28d184722674",

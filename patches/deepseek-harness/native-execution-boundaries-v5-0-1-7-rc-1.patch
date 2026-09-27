@@ -1,8 +1,23 @@
 diff --git a/packages/boot/app-boot/src/index.ts b/packages/boot/app-boot/src/index.ts
-index 00515b4a..ef03a8b4 100644
+index 00515b4a..d3db6491 100644
 --- a/packages/boot/app-boot/src/index.ts
 +++ b/packages/boot/app-boot/src/index.ts
-@@ -749,6 +749,7 @@ const requiredStartupEntryIds = new Set<string>([
+@@ -295,7 +295,13 @@ export async function reconcileProfilePatches(
+   for (const [index, result] of results.entries()) {
+     if (result.status === 'rejected' && !previousFibers[index]?.failed) throw result.reason
+   }
+-  ctx.emit('app-boot/config-reload')
++  // The private Include owns reconciliation, including its notification.
++  // A service-triggered reload must not borrow composition-root event authority.
++  const owner = entry.fiber
++  if (owner === undefined || owner.state !== FIBER_ACTIVE) {
++    throw new Error(`${binName}: profile reload requires an active Include owner`)
++  }
++  owner.ctx.emit('app-boot/config-reload')
+   return failures.map(inactiveDiagnostic)
+ }
+ 
+@@ -749,6 +755,7 @@ const requiredStartupEntryIds = new Set<string>([
    'headless-runner',
    'acp',
    'sdk-jsonrpc-server',
@@ -22,6 +37,42 @@ index f291e45c..246bbcc8 100644
    ]
  
    interface FakeEntry {
+diff --git a/packages/boot/app-boot/tests/user-patches.spec.ts b/packages/boot/app-boot/tests/user-patches.spec.ts
+index 465f9d82..f61db866 100644
+--- a/packages/boot/app-boot/tests/user-patches.spec.ts
++++ b/packages/boot/app-boot/tests/user-patches.spec.ts
+@@ -331,6 +331,31 @@ describe('Loader entry disabled interpolation', () => {
+ })
+ 
+ describe('profile reconciliation settlement', () => {
++  it('notifies reload through the private Include owner without granting root events', async () => {
++    const dir = tmp()
++    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
++    const ctx = await boot(NAME, join(dir, 'cordis.yml'), [])
++    let reloads = 0
++    ctx.on('app-boot/config-reload', () => { reloads++ })
++    const events = Reflect.get(ctx.events, Symbol.for('cordis.original')) ?? ctx.events
++    const original = events.emit
++    Object.defineProperty(events, 'emit', { configurable: true, value: function (...args: unknown[]) {
++      if (this.ctx === ctx && (args[0] === 'app-boot/config-reload' || args[0] === 'root-probe')) {
++        throw new Error('root.events.emit denied')
++      }
++      return Reflect.apply(original, this, args)
++    } })
++    try {
++      expect(() => Reflect.apply(ctx.emit, ctx, ['root-probe'])).toThrow('root.events.emit denied')
++      expect(await reconcileProfilePatches(ctx, [], NAME)).toEqual([])
++      expect(reloads).toBe(1)
++      expect(() => Reflect.apply(ctx.emit, ctx, ['root-probe'])).toThrow('root.events.emit denied')
++    } finally {
++      Object.defineProperty(events, 'emit', { configurable: true, value: original })
++      await ctx.fiber.dispose()
++    }
++  })
++
+   it('retains unchanged import diagnostics across profile reconciliation', async () => {
+     const dir = tmp()
+     writeFileSync(join(dir, 'cordis.yml'), '[]\n')
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
 index 98114f53..d0b5f874 100644
 --- a/packages/core/agent-loop/src/agent.ts
