@@ -6,6 +6,56 @@ import { DshFinishLineProviderError } from '../dist/src/finish-line/nils-client.
 
 const correlationId = 'correlation:opaque'
 
+test('coordinator disposal closes new work admission before returning', async () => {
+  let classifications = 0
+  const subject = fixture({
+    requiresFinishLine() {
+      classifications += 1
+      return true
+    },
+  })
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'git status --short', description: 'Check checkout status' },
+  })
+
+  const disposal = subject.coordinator.dispose()
+  const probe = subject.coordinator.probe(exec, context(exec))
+  assert.equal(classifications, 0, 'new work was classified after disposal began')
+  assert.deepEqual(await probe, { ok: false, reason: 'finish-line-disposed' })
+  await disposal
+})
+
+test('concurrent coordinator disposal joins the same pending release', async () => {
+  const subject = fixture()
+  await subject.coordinator.withAuthority(
+    subject.agent,
+    '7',
+    new AbortController().signal,
+    async () => {},
+  )
+  let enteredRelease
+  const entered = new Promise(resolve => { enteredRelease = resolve })
+  let finishRelease
+  const pending = new Promise(resolve => { finishRelease = resolve })
+  subject.client.release = async request => {
+    subject.releases.push(structuredClone(request))
+    enteredRelease()
+    await pending
+    return { correlationId }
+  }
+
+  const first = subject.coordinator.dispose()
+  await entered
+  let secondSettled = false
+  const second = subject.coordinator.dispose().then(() => { secondSettled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(secondSettled, false)
+  finishRelease()
+  await Promise.all([first, second])
+  assert.equal(subject.releases.length, 1)
+})
+
 function fixture({
   maxSameTurnSteers = 2,
   runtime = {

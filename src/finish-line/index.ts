@@ -475,19 +475,33 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
     agent.steer(options.createSteeringMessage(boundedUtf8(text, MAX_STEERING_TEXT_BYTES)))
   }
 
-  async function dispose() {
-    if (!open) return
+  let releaseShutdown: Promise<void> | undefined
+  function prepareClientDisposal() {
+    if (releaseShutdown !== undefined) return releaseShutdown
     open = false
-    await client.drain()
-    // No new work can enter once `open` is false. A validation probe may still
-    // be waiting in an ordinary policy evaluation, so retire that prepared
-    // reservation before releasing its durable runner capability.
-    preparedEdits.clear()
-    validationCalls.clear()
-    for (const session of [...ledgers.keys()]) queueRelease(session)
-    await drainReleaseTasks()
-    await client.dispose()
-    ledgers.clear()
+    releaseShutdown = Promise.resolve().then(async () => {
+      await client.drain()
+      // No new work can enter once `open` is false. A validation probe may still
+      // be waiting in an ordinary policy evaluation, so retire that prepared
+      // reservation before releasing its durable runner capability.
+      preparedEdits.clear()
+      validationCalls.clear()
+      for (const session of [...ledgers.keys()]) queueRelease(session)
+      await drainReleaseTasks()
+      ledgers.clear()
+    })
+    return releaseShutdown
+  }
+
+  let disposal: Promise<void> | undefined
+  function dispose() {
+    if (disposal !== undefined) return disposal
+    const release = prepareClientDisposal()
+    disposal = Promise.resolve().then(async () => {
+      await release
+      await client.dispose()
+    })
+    return disposal
   }
 
   ctx.effect(() => dispose, 'dsh-runtime-kit finish-line coordinator')
@@ -1004,6 +1018,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       return true
     },
 
+    prepareClientDisposal,
     async dispose() { await dispose() },
     get activeReservations() { return preparedEdits.size + validationCalls.size },
     get trackedSessions() { return ledgers.size },

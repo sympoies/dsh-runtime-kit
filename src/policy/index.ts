@@ -328,7 +328,11 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
   }
   const opaqueTools = new Set(opaqueToolConfig)
   const contextClient = createNilsContextClient(ctx, { ...config, verifiedWorktreeTargets: config.verifiedWorktreeTargets })
-  const finishLineClient = createNilsFinishLineClient(ctx, config)
+  let finishLineCoordinator: ReturnType<typeof createFinishLineCoordinator> | undefined
+  const finishLineClient = createNilsFinishLineClient(ctx, {
+    ...config,
+    coordinatorShutdown: async () => { await finishLineCoordinator?.prepareClientDisposal() },
+  })
   const finishLine = createFinishLineCoordinator(ctx, {
     client: finishLineClient,
     HarnessError,
@@ -471,6 +475,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       source: { kind: 'dsh-runtime-kit' },
     }),
   })
+  finishLineCoordinator = finishLine
   const workspaceDisposals = createWorkspaceDisposalBarrier()
   const acceptance = createAuthoritativeAcceptanceCoordinator(ctx, {
     client: finishLineClient,

@@ -539,6 +539,13 @@ epoch; the guard rejects an earlier allow marker even when it was already out
 of the transport set and waiting for DSH approval. The subprocess receives a
 fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
 no forwarded environment, and no spill or unbounded output path.
+During plugin teardown, Cordis can dispose the finish-line client and its
+coordinator concurrently. The client joins the coordinator's release shutdown
+before closing its authenticated health execution scope; both disposal paths
+share the same pending release task. Coordinator disposal closes admission
+synchronously before scheduling that task. This keeps the durable runner
+capability available until release settles, even when the health owner also
+begins closing.
 
 ## Authoritative completion acceptance
 
