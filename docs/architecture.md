@@ -486,14 +486,31 @@ nils requests continue to carry independently validated product, session,
 turn, and repository root fields, with no consumer-selected correlation value.
 
 Open is create-only for a live session. The wire client retains one private
-attempt token, retries an ambiguous response with the same binding, accepts
-`opened` or `duplicate`, and requires the nils-derived capability to remain
-unchanged. Successful replay renews a 24-hour lease. Nils may reclaim only an
-expired quiescent crash orphan and its terminal evidence; this makes stop block
-until revalidation. Lease expiry alone never clears pending state. Capacity
-recovery for an expired busy orphan requires every operation to retain an exact
-systemd unit and trusted stable stop/status, job, and cgroup quiescence proof;
-active, indeterminate, or unbound sessions remain protected.
+attempt token and sends the actual DSH process PID as `owner_pid`. It retries
+an ambiguous response with the same binding, accepts only `opened`, `duplicate`,
+or `recovered`, and requires an already-learned nils capability to remain
+unchanged. Successful replay renews a 24-hour lease. Nils authenticates the
+live same-user ancestor and derives its process identity from the kernel.
+A new DSH process can immediately recover the same session only after nils
+proves the old owner dead, stops its recorded contained work, verifies stable
+unit/job/cgroup quiescence, and compares the exact persisted snapshot. Nils
+invalidates old acceptance evidence and claims before publishing a fresh
+capability incarnation, and preserves validation obligations. Runtime-kit
+does not create recovery evidence or an accepted verdict from the open result.
+Conversation and history remain under DSH's existing session semantics.
+
+Live, unknown, or indeterminate ownership and unresolved mutation or uncontained
+work remain protected. Nils refuses a competing private open attempt with
+exit 65 `finish-line-session-active`. The client preserves only this exact
+open denial as `DshFinishLineProviderError` (`DSH_FINISH_LINE_PROVIDER`), with
+the bounded provider code and message. The plugin carries it through the public
+DSH `HarnessError` boundary for capability-open and stop paths. A denial returns
+no capability and never rotates or releases the current owner. Wrong-schema,
+wrong-exit, unknown exit-65 codes, and malformed diagnostics remain invalid
+responses. Owner-bound sessions cannot bypass this recovery transaction through
+lease expiry. Older unbound state remains fail closed for immediate takeover.
+The owning nils protocol is tracked by nils-cli #1826; exact released companion
+identity and installed Web/TUI acceptance are separate delivery gates.
 
 Rc.7 dispatches `agent/disposed` without awaiting listener promises. The event
 listener therefore synchronously registers a coordinator-owned release task.
@@ -1024,7 +1041,7 @@ is rebuilt. Runtime apply independently resolves every public peer version befor
 the first import, then validates consumed export kinds and the Context/service
 method shape before any DSH registration. These checks intentionally do not
 infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.28.51` archive, authenticates
+helpers. Package CI downloads the exact nils-cli `1.29.0` archive, authenticates
 its retained SHA-256, and runs the packed candidate through the real
 `agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
 blocks promotion.

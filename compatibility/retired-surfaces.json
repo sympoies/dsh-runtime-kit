@@ -4,10 +4,35 @@
   "closeout": "https://github.com/sympoies/dsh-runtime-kit/issues/65",
   "minimum_supported": {
     "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
-    "nils_cli": "1.28.3",
+    "nils_cli": "1.29.0",
     "dsh": ["0.1.6-alpha.2", "0.1.7-rc.1"]
   },
   "surfaces": [
+    {
+      "id": "finish-line-unbound-companion-activation",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "Every finish-line open binds the actual DSH owner process. Earlier strict companion schemas reject owner_pid; activation requires nils-cli 1.29.0 and never drops the owner binding to admit an older companion.",
+      "paths": [
+        "compatibility/nils-cli.json",
+        "src/finish-line/nils-client.ts",
+        "src/operations/index.ts"
+      ],
+      "identifiers": [
+        "minimum_supported_release",
+        "owner_pid"
+      ],
+      "replacement": {
+        "owner": "nils-cli",
+        "contract": "nils-cli#1826 owner death proof, authoritative quiescence, incarnation rotation and acceptance invalidation"
+      },
+      "first_supported": {
+        "runtime_kit": "Workbench Linux crash recovery adapter",
+        "nils_cli": "1.29.0"
+      },
+      "compatibility_window": "1.29.0 minimum; exact release-artifact validation still applies",
+      "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple; pre-1.29 sessions have no recovery owner binding and remain fail closed."
+    },
     {
       "id": "workspace-lease-quarantine-registry",
       "category": "workspace-identity",

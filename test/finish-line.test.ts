@@ -181,6 +181,7 @@ function fixture({
   requiresFinishLine,
   authenticatePrincipal,
   resolveEditRoots,
+  HarnessError,
   sessionCwd = '/workspace/project',
 } = {}) {
   const effects = []
@@ -285,6 +286,7 @@ function fixture({
     requiresFinishLine,
     authenticatePrincipal,
     resolveEditRoots,
+    HarnessError,
     createOperationId: () => `operation:${++operation}`,
     prepareValidationRuntime: async (_exec, operation) => {
       runtimePreparations.push(structuredClone(operation))
@@ -633,6 +635,57 @@ test('a nils host denial keeps its code and message while Bash stays blocked', a
   })
   assert.equal(opens, 1, 'an authoritative nils denial must not be retried')
   assert.equal(subject.runs.length, 0)
+})
+
+test('turn stop carries active-session refusal through the DSH HarnessError boundary', async () => {
+  class SessionHarnessError extends Error {
+    constructor(message, code) {
+      super(message)
+      this.code = code
+    }
+  }
+  const subject = fixture({ HarnessError: SessionHarnessError })
+  let opens = 0
+  subject.client.open = async () => {
+    opens += 1
+    throw new DshFinishLineProviderError('finish-line-session-active',
+      'finish-line session already belongs to a different private open attempt')
+  }
+  await assert.rejects(subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 2, signal: new AbortController().signal,
+  }, true), error => {
+    assert.ok(error instanceof SessionHarnessError)
+    assert.equal(error.code, 'DSH_FINISH_LINE_PROVIDER')
+    assert.ok(error.message.includes('finish-line-session-active'))
+    return true
+  })
+  assert.equal(opens, 1)
+  assert.equal(subject.abandonedOpens.length, 0, 'an active-session refusal retains the private open attempt')
+  await assert.rejects(subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 2, signal: new AbortController().signal,
+  }, true), error => {
+    assert.ok(error instanceof SessionHarnessError)
+    assert.ok(error.message.includes('finish-line-session-active'))
+    return true
+  })
+  assert.equal(opens, 2)
+  assert.equal(subject.abandonedOpens.length, 0)
+  assert.equal(subject.runs.length, 0)
+  assert.equal(subject.stops.length, 0)
+  assert.equal(subject.releases.length, 0)
+})
+
+test('turn stop preserves an unknown open failure without recasting its identity', async () => {
+  class SessionHarnessError extends Error {}
+  const subject = fixture({ HarnessError: SessionHarnessError })
+  const unknown = new Error('unexpected transport failure')
+  subject.client.open = async () => { throw unknown }
+  await assert.rejects(subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 2, signal: new AbortController().signal,
+  }, true), error => error === unknown)
+  assert.equal(subject.runs.length, 0)
+  assert.equal(subject.stops.length, 0)
+  assert.equal(subject.releases.length, 0)
 })
 
 test('a non-repository anchor still owes validation when nils binds a repository-targeting command to a runner', async () => {
@@ -1604,6 +1657,40 @@ test('stop requires validation for every repository the turn modified', async ()
   assert.deepEqual(subject.stops.map(stop => stop.cwd).sort(), roots)
   assert.deepEqual(subject.releases.map(release => release.cwd).sort(), roots)
 })
+
+for (const failure of ['open', 'stop']) {
+  test(`turn stop preserves provider code from the non-header repository ${failure}`, async () => {
+    class SessionHarnessError extends Error {
+      constructor(message, code) { super(message); this.code = code }
+    }
+    let clock = 1
+    const subject = fixture({
+      sessionCwd: '/workspace/repo-a', now: () => clock,
+      resolveEditRoots: async () => ['/workspace/repo-b'],
+      HarnessError: SessionHarnessError,
+    })
+    const exec = execution(subject)
+    assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+    assert.deepEqual(await subject.coordinator.execute(exec), { kind: 'delegate' })
+    subject.coordinator.result(exec, { isError: false, content: [] })
+    clock += 24 * 60 * 60 * 1000
+    const original = subject.client[failure]
+    subject.client[failure] = async request => {
+      if (request.cwd === '/workspace/repo-b') {
+        throw new DshFinishLineProviderError('finish-line-session-active', 'the repository owner is still active')
+      }
+      return original(request)
+    }
+    await assert.rejects(subject.coordinator.turnStopping({
+      agent: subject.agent, turn: 2, signal: new AbortController().signal,
+    }, true), error => {
+      assert.ok(error instanceof SessionHarnessError)
+      assert.equal(error.code, 'DSH_FINISH_LINE_PROVIDER')
+      return true
+    })
+    assert.equal(subject.releases.length, 0)
+  })
+}
 
 test('without a lease projection an edit keeps the session anchor', async () => {
   const subject = fixture()

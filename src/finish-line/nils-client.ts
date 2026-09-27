@@ -305,7 +305,10 @@ function throwAuthoritativeHostError(envelope: unknown, outcome: unknown, schema
   const result = record(outcome)
   const value = record(envelope)
   const error = record(value?.error)
-  if (result?.exitCode === 69 && result.signal === null
+  const exactActiveSessionDenial = result?.exitCode === 65
+    && schema === 'cli.agent-hook.finish-line-open.v1'
+    && error?.code === 'finish-line-session-active'
+  if ((result?.exitCode === 69 || exactActiveSessionDenial) && result?.signal === null
     && value?.schema_version === schema && value.ok === false
     && typeof error?.code === 'string'
     && error.code.length <= 128
@@ -838,6 +841,7 @@ export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: st
       const { envelope, outcome } = await invoke('open', {
         schema_version: 'agent-hook.finish-line.open.v1',
         ...identityPayload(identity),
+        owner_pid: process.pid,
         attempt_token: attemptToken,
         ...(identity.command === undefined ? {} : { command: identity.command }),
       }, signal)
@@ -851,7 +855,7 @@ export function createNilsFinishLineClient(ctx: Context, config: {agentHook?: st
       }
       const data = envelopeData(envelope, 'cli.agent-hook.finish-line-open.v1')
       if (data.schema_version !== 'agent-hook.finish-line.open-result.v1'
-        || !['opened', 'duplicate'].includes(((data.status) as string))
+        || !['opened', 'duplicate', 'recovered'].includes(((data.status) as string))
         || !identifier(data.runner_capability)
         || !identifier(data.correlation_id)) {
         throw new Error('dsh-runtime-kit: finish-line response invalid')
