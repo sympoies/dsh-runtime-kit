@@ -6,6 +6,42 @@ import { DshFinishLineProviderError } from '../dist/src/finish-line/nils-client.
 
 const correlationId = 'correlation:opaque'
 
+for (const match of ['exact', 'wrong-call', 'wrong-decision', 'allowed']) {
+  test(`sandbox preparation rejection preserves exact approval correlation: ${match}`, async () => {
+    let subject
+    let exec
+    subject = fixture({
+      runtime: async () => {
+        subject.coordinator.approvalEvent(subject.agent.session, {
+          type: 'approval/asked',
+          data: { id: 'approval-1', toolName: 'bash',
+            callId: match === 'wrong-call' ? 'other-call' : exec.callId },
+        })
+        subject.coordinator.approvalEvent(subject.agent.session, {
+          type: 'approval/decided',
+          data: { id: match === 'wrong-decision' ? 'other-approval' : 'approval-1',
+            outcome: match === 'allowed' ? 'allowed-once' : 'rejected' },
+        })
+        throw new Error('the user rejected escalating this command')
+      },
+    })
+    exec = execution(subject, {
+      name: 'bash',
+      arguments: { command: 'touch marker', description: 'Create a disposable marker',
+        sandbox_permissions: 'danger-full-access', justification: 'fixture' },
+    })
+    assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+    await assert.rejects(subject.coordinator.execute(exec), /user rejected/)
+    subject.coordinator.result(exec, { isError: true, content: [] })
+    assert.equal(subject.runs.length, 1, 'rejection must never dispatch the reserved command')
+    assert.equal(subject.runs[0].execution, undefined, 'only the readiness probe may run')
+    assert.equal(await subject.coordinator.turnStopping({
+      agent: subject.agent, turn: 1, signal: new AbortController().signal,
+    }, true), match === 'exact')
+    assert.equal(subject.steered.length, match === 'exact' ? 0 : 1)
+  })
+}
+
 test('coordinator disposal closes new work admission before returning', async () => {
   let classifications = 0
   const subject = fixture({
@@ -26,7 +62,7 @@ test('coordinator disposal closes new work admission before returning', async ()
   await disposal
 })
 
-test('a terminal result during an entered but unsettled Bash run poisons finish-line', async () => {
+test('a terminal result during Bash preparation poisons and prevents later dispatch', async () => {
   let enteredRun
   const entered = new Promise(resolve => { enteredRun = resolve })
   let releaseRun
@@ -50,6 +86,7 @@ test('a terminal result during an entered but unsettled Bash run poisons finish-
   })
   assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
   const executing = subject.coordinator.execute(exec)
+  const rejected = assert.rejects(executing, /reservation is no longer dispatchable/)
   await entered
   subject.coordinator.result(exec, { isError: false, content: [] })
   assert.equal(await subject.coordinator.turnStopping({
@@ -58,7 +95,45 @@ test('a terminal result during an entered but unsettled Bash run poisons finish-
   assert.ok(subject.steered.some(message =>
     message.content[0]?.text.includes('Finish-line state is unavailable')))
   releaseRun()
+  await rejected
+  assert.equal(subject.runs.length, 1, 'invalidated preparation cannot dispatch the command')
+})
+
+test('a terminal result after Bash dispatch remains fail closed despite later rejection', async () => {
+  const subject = fixture()
+  const run = subject.client.run.bind(subject.client)
+  let markEntered
+  const entered = new Promise(resolve => { markEntered = resolve })
+  let releaseRun
+  const pending = new Promise(resolve => { releaseRun = resolve })
+  subject.client.run = async request => {
+    if (request.execution !== undefined) {
+      markEntered()
+      await pending
+    }
+    return run(request)
+  }
+  const exec = execution(subject, {
+    name: 'bash', arguments: { command: 'touch marker', description: 'Fixture' },
+  })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  const executing = subject.coordinator.execute(exec)
+  await entered
+  subject.coordinator.approvalEvent(subject.agent.session, {
+    type: 'approval/asked', data: { id: 'late', toolName: 'bash', callId: exec.callId },
+  })
+  subject.coordinator.approvalEvent(subject.agent.session, {
+    type: 'approval/decided', data: { id: 'late', outcome: 'rejected' },
+  })
+  subject.coordinator.result(exec, { isError: true, content: [] })
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 1, signal: new AbortController().signal,
+  }, true), false)
+  releaseRun()
   await executing
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 1, signal: new AbortController().signal,
+  }, true), false, 'settling the late run cannot erase the poisoned boundary')
 })
 
 test('concurrent coordinator disposal joins the same pending release', async () => {

@@ -385,7 +385,12 @@ overrides, and one unsandboxed, full-access, or confined runner descriptor.
 Requested sandbox escalation remains governed by DSH's own approval service.
 The committed session `approval/asked` and `approval/decided` events identify
 a rejected Bash approval before dispatch. Only that exact rejected call may
-retire its prepared probe at `tools/result`. A wrapper result without an
+retire its prepared probe at `tools/result` or when native runtime preparation
+throws after that rejection. The reservation remains pending throughout
+sandbox approval. Immediately before the execution-bearing nils call, the
+coordinator checks that the exact reservation is still live, unpoisoned, and
+not rejected, then marks it entered without an intervening await. A result
+during preparation prevents any later dispatch. A wrapper result without an
 authoritative rejection, or an entered but unsettled run, poisons the
 finish-line ledger and blocks turn completion.
 The adapter rejects runtime preparation if command text changes, cwd escapes

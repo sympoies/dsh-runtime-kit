@@ -717,9 +717,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         return { kind: 'delegate' }
       }
       const pending = validationCalls.get(exec)
-      validationCalls.delete(exec)
       if (pending !== undefined) {
-        enteredValidations.set(exec, pending.prepared)
         if (operation === undefined || 'invalid' in operation || 'unsupported' in operation
           || operation.kind !== 'validation'
           || !matches(pending.prepared, exec)
@@ -752,6 +750,11 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
             if (prepared.identity.cwd !== prepared.session.header?.cwd) {
               throw new Error('dsh-runtime-kit: finish-line capability unavailable')
             }
+            if (validationCalls.get(exec) !== pending
+              || rejectedApprovals.has(exec) || ledger.poison !== undefined) {
+              throw new Error('dsh-runtime-kit: finish-line reservation is no longer dispatchable')
+            }
+            validationCalls.delete(exec)
             return { kind: 'delegate' }
           }
           operationId = createOperationId()
@@ -786,6 +789,15 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
         if (record(runtime.execution)?.workdir !== prepared.identity.cwd) {
           throw new Error('dsh-runtime-kit: finish-line execution identity invalid')
         }
+        // Sandbox approval belongs to preparation. Keep its exact reservation
+        // visible to committed approval events until an OS run is dispatched.
+        // A terminal result while preparation awaited must never dispatch later.
+        if (validationCalls.get(exec) !== pending
+          || rejectedApprovals.has(exec) || ledger.poison !== undefined) {
+          throw new Error('dsh-runtime-kit: finish-line reservation is no longer dispatchable')
+        }
+        validationCalls.delete(exec)
+        enteredValidations.set(exec, prepared)
         const result = await client.run({
           ...candidate,
           timeoutMs: runtime.timeoutMs,
@@ -825,7 +837,13 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
           },
         }
       } catch (error) {
-        poison(ledger, 'validation-runner')
+        // Only a committed, exactly correlated rejection before dispatch can
+        // leave preparation without poisoning. Every entered run fails closed.
+        if (enteredValidations.has(exec)
+          || validationCalls.get(exec) !== pending || !rejectedApprovals.has(exec)) {
+          poison(ledger, 'validation-runner')
+        }
+        if (validationCalls.get(exec) === pending) validationCalls.delete(exec)
         throw error
       }
     },
