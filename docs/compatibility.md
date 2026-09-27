@@ -236,6 +236,19 @@ forbidden from the controller's lane-management tools.
 
 ## Promotion checks
 
+The authenticated installation closure contains every production patch package
+owner as well as the public peer roots and their dependencies. Its 83 artifacts
+include five unmodified native-system registry archives at version 0.1.2.
+The peer packer requires `--registry-artifact-root` with those exact archives;
+it verifies their pinned SHA-512 integrity and canonical package digests without
+rebuilding native binaries. The independent stager authenticates all 83 archives,
+then materializes the entry package and the matching native platform package.
+On Linux x64, `packages` lists 80 materialized packages, `verified_packages`
+lists all 83, and `skipped_optional_packages` lists the three incompatible
+optional native platform packages. The pack receipt retains the full closure
+in its existing `packages` field. These installation roots do not expand the
+runtime-kit's public peer API.
+
 The compatibility gate reads a clean, already-built upstream checkout. It
 verifies exact Git identity, package versions, public entrypoint digests, export
 kinds, and the complete selected workspace dependency closure without executing

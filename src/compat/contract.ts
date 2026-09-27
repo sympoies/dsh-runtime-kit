@@ -329,6 +329,37 @@ export function validateDshCompatibilityManifest(input: unknown) {
       )
     }
   }
+  const registryArtifacts = requireRecord(
+    manifest.registry_workspace_artifacts,
+    'DSH registry workspace artifact contracts are missing',
+  )
+  const nativePlatforms = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']
+  const nativeNames = ['@deepseek-ai/node-addon-system',
+    ...nativePlatforms.map(platform => `@deepseek-ai/node-addon-system-${platform}`)]
+  if (Object.keys(registryArtifacts).sort().join('\0') !== nativeNames.sort().join('\0')) {
+    throw new DshCompatibilityError(
+      'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+      'DSH registry artifacts must match the unmodified native system subtree',
+    )
+  }
+  for (const [name, value] of Object.entries(registryArtifacts)) {
+    const registry = requireRecord(value, `DSH registry artifact ${name} is invalid`)
+    const platform = name === '@deepseek-ai/node-addon-system'
+      ? undefined : name.slice('@deepseek-ai/node-addon-system-'.length)
+    const artifact = workspaceArtifacts[name]
+    if (typeof registry.integrity !== 'string'
+      || !/^sha512-[A-Za-z0-9+/]{86}==$/u.test(registry.integrity)
+      || registry.platform !== platform
+      || Object.keys(registry).some(key => !['integrity', 'platform'].includes(key))
+      || artifact?.version !== '0.1.2'
+      || artifact?.path !== `native/system/packages/${platform ?? 'entry'}`
+      || patchedArtifacts[name] !== undefined) {
+      throw new DshCompatibilityError(
+        'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+        `DSH registry artifact ${name} is not bound to its unmodified native identity`,
+      )
+    }
+  }
   for (const [name, contract] of Object.entries(packages)) {
     const artifact = workspaceArtifacts[name]
     const expectedVersion = contract.version ?? channels.pinned.version

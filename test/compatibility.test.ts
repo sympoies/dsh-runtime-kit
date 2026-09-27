@@ -220,21 +220,30 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
   )
 })
 
-test('DSH pinned patch has a reviewed artifact digest for every changed workspace peer', () => {
+test('DSH pinned patch has a reviewed artifact digest for every patched installation package', () => {
   const manifest = validateDshCompatibilityManifest(
     JSON.parse(readFileSync(manifestPath, 'utf8')),
   )
   const changed = [
+    '@deepseek-ai/dsh-agent-loop',
     '@deepseek-ai/dsh-agent-preset-registry',
     '@deepseek-ai/dsh-app-boot',
     '@deepseek-ai/dsh-bash-local',
     '@deepseek-ai/dsh-commands',
+    '@deepseek-ai/dsh-fs-sandbox',
+    '@deepseek-ai/dsh-goal',
     '@deepseek-ai/dsh-llm',
     '@deepseek-ai/dsh-permission-presets',
     '@deepseek-ai/dsh-sandbox',
+    '@deepseek-ai/dsh-sandbox-local',
     '@deepseek-ai/dsh-sandbox-policy',
     '@deepseek-ai/dsh-subagent',
+    '@deepseek-ai/dsh-subagent-in-process-driver',
+    '@deepseek-ai/dsh-subagent-spawn-in-process',
     '@deepseek-ai/dsh-subprocess',
+    '@deepseek-ai/dsh-subprocess-local',
+    '@deepseek-ai/dsh-tool-bash',
+    '@deepseek-ai/dsh-tool-fs',
     '@deepseek-ai/dsh-tools',
   ]
   assert.deepEqual(Object.keys(manifest.patched_workspace_artifacts).sort(), changed.sort())
@@ -275,6 +284,43 @@ test('DSH pinned patch has a reviewed artifact digest for every changed workspac
       { code: 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID' },
     )
   }
+})
+
+test('DSH installation closure covers every production patch package owner', () => {
+  const manifest = validateDshCompatibilityManifest(JSON.parse(readFileSync(manifestPath, 'utf8')))
+  const patches = JSON.parse(readFileSync(join(projectRoot, 'compatibility/dsh-patches.json'), 'utf8'))
+  const patch = patches.patches.find(entry => entry.id === 'native-execution-boundaries-v5')
+  const owners = new Set(Object.keys(patch.targets)
+    .filter(path => path.includes('/src/'))
+    .map(path => path.slice(0, path.indexOf('/src/'))))
+  for (const path of owners) {
+    const owner = Object.entries(manifest.workspace_artifacts).find(([, artifact]) => artifact.path === path)
+    assert.ok(owner, `Missing workspace installation artifact for ${path}`)
+    assert.ok(manifest.patched_workspace_artifacts[owner[0]], `Missing patched digest for ${owner[0]}`)
+  }
+})
+
+test('native registry artifacts retain exact stock identity and platform selection', () => {
+  const manifest = validateDshCompatibilityManifest(JSON.parse(readFileSync(manifestPath, 'utf8')))
+  assert.equal(Object.keys(manifest.registry_workspace_artifacts).length, 5)
+  for (const [name, registry] of Object.entries(manifest.registry_workspace_artifacts)) {
+    assert.equal(manifest.workspace_artifacts[name].version, '0.1.2')
+    assert.equal(manifest.patched_workspace_artifacts[name], undefined)
+    for (const mutation of [
+      { ...registry, integrity: 'sha512-invalid' },
+      { ...registry, platform: 'unsupported-platform' },
+      { ...registry, unreviewed: true },
+    ]) {
+      assert.throws(() => validateDshCompatibilityManifest({
+        ...manifest,
+        registry_workspace_artifacts: { ...manifest.registry_workspace_artifacts, [name]: mutation },
+      }), { code: 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID' })
+    }
+  }
+  const missing = structuredClone(manifest)
+  delete missing.registry_workspace_artifacts['@deepseek-ai/node-addon-system-linux-x64']
+  assert.throws(() => validateDshCompatibilityManifest(missing),
+    { code: 'DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID' })
 })
 
 test('peer receipts bind patched identity and retain legacy pristine identity', () => {
@@ -1115,6 +1161,9 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(macosJob, /pnpm dsh --help >\/dev\/null/)
   assert.match(workflow, /npm run --silent check:compatibility/)
   assert.match(workflow, /npm run --silent pack:compatibility-peers/)
+  const packCalls = workflow.match(/(?:npm run --silent pack:compatibility-peers --|node "\$GITHUB_WORKSPACE\/dsh-runtime-kit\/dist\/scripts\/pack-dsh-compatibility-peers\.js")[\s\S]*?--receipt [^\n]+/g)
+  assert.equal(packCalls?.length, 2)
+  for (const call of packCalls ?? []) assert.match(call, /--registry-artifact-root "\$RUNNER_TEMP\/dsh-native-registry"/)
   assert.match(workflow, /--channel "\$\{\{ matrix\.channel \}\}"/)
   assert.match(workflow, /--pnpm-bin "\$\(command -v pnpm\)"/)
   assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
@@ -1255,6 +1304,31 @@ test('advertised silent compatibility command emits exactly one JSON error envel
   )
 })
 
+test('peer packer rejects missing, relative, and unavailable registry roots before source I/O', async () => {
+  const fixture = await mkdtemp(join(tmpdir(), 'dsh-registry-arguments-'))
+  try {
+    for (const registryArgs of [[], ['--registry-artifact-root', 'relative'],
+      ['--registry-artifact-root', join(fixture, 'absent-registry')],
+      ['--registry-artifact-root', manifestPath]]) {
+      await assert.rejects(run(process.execPath, [
+        join(projectRoot, 'dist/scripts/pack-dsh-compatibility-peers.js'),
+        '--source-root', join(fixture, 'absent-source'),
+        '--artifact-root', join(fixture, 'absent-artifacts'),
+        '--channel', 'pinned', '--pnpm-bin', process.execPath,
+        '--receipt', join(fixture, 'absent-receipt.json'), ...registryArgs,
+      ]), error => {
+        const result = JSON.parse(error.stdout)
+        return result.schema_version === 'dsh-runtime-kit.dsh-peer-pack.v1'
+          && result.ok === false
+          && result.error?.code === 'DSH_RUNTIME_KIT_COMPATIBILITY_ARGUMENT_INVALID'
+      })
+      assert.deepEqual(await readdir(fixture), [])
+    }
+  } finally {
+    await rm(fixture, { recursive: true, force: true })
+  }
+})
+
 test('peer packer rejects an unselected checkout before producing artifacts', async () => {
   const artifactRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-artifacts-'))
   const receiptRoot = await mkdtemp(join(tmpdir(), 'dsh-peer-receipt-'))
@@ -1267,6 +1341,7 @@ test('peer packer rejects an unselected checkout before producing artifacts', as
         join(projectRoot, 'dist', 'scripts', 'pack-dsh-compatibility-peers.js'),
         '--source-root', projectRoot,
         '--artifact-root', artifactRoot,
+        '--registry-artifact-root', receiptRoot,
         '--channel', 'pinned',
         '--pnpm-bin', launcher,
         '--receipt', join(receiptRoot, 'receipt.json'),

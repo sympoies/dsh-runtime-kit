@@ -151,6 +151,13 @@ jobs:
           --source-root "$GITHUB_WORKSPACE/deepseek-harness"
           --channel "${{ matrix.channel }}"
           --format json
+      - name: Download pinned stock native registry archives
+        if: matrix.public_contract
+        working-directory: dsh-runtime-kit
+        run: |
+          mkdir -p "$RUNNER_TEMP/dsh-native-registry"
+          node -e 'const fs=require("node:fs"); const cp=require("node:child_process"); const m=JSON.parse(fs.readFileSync(process.argv[1])); for(const name of Object.keys(m.registry_workspace_artifacts)){ const r=cp.spawnSync("npm",["pack",`${name}@${m.workspace_artifacts[name].version}`,"--ignore-scripts","--pack-destination",process.argv[2]],{stdio:"inherit"}); if(r.status!==0)process.exit(1) }' \
+            compatibility/dsh.json "$RUNNER_TEMP/dsh-native-registry"
       - name: Pack selected DSH public packages
         if: matrix.public_contract
         working-directory: dsh-runtime-kit
@@ -158,6 +165,7 @@ jobs:
           npm run --silent pack:compatibility-peers -- \
             --source-root "$GITHUB_WORKSPACE/deepseek-harness" \
             --artifact-root "$RUNNER_TEMP/dsh-compatibility-peers" \
+            --registry-artifact-root "$RUNNER_TEMP/dsh-native-registry" \
             --channel "${{ matrix.channel }}" \
             --pnpm-bin "$(command -v pnpm)" \
             --receipt "$RUNNER_TEMP/dsh-peer-pack.json"
@@ -227,6 +235,7 @@ jobs:
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/pack-dsh-compatibility-peers.js" \
             --source-root "$GITHUB_WORKSPACE/deepseek-harness" \
             --artifact-root "$RUNNER_TEMP/dsh-patched-peers" \
+            --registry-artifact-root "$RUNNER_TEMP/dsh-native-registry" \
             --channel "${{ matrix.channel }}" \
             --patch-state patched \
             --pnpm-bin "$(command -v pnpm)" \
@@ -240,8 +249,10 @@ jobs:
             --artifact-root "$RUNNER_TEMP/dsh-patched-peers" \
             --consumer-root "$RUNNER_TEMP/dsh-patched-consumer" \
             > "$RUNNER_TEMP/dsh-patched-peer-stage.json"
-          node -e 'const fs=require("node:fs"); const pack=JSON.parse(fs.readFileSync(process.argv[1])); const stage=JSON.parse(fs.readFileSync(process.argv[2])); if (!pack.ok || !stage.ok || pack.data.patch_state!=="patched" || stage.data.patch_state!=="patched" || pack.data.patch_id!=="native-execution-boundaries-v5" || stage.data.patch_id!==pack.data.patch_id || pack.data.upstream_checkout_clean!==false || pack.data.packages.length!==64 || stage.data.packages.length!==64) process.exit(1)' \
+          node -e 'const fs=require("node:fs"); const pack=JSON.parse(fs.readFileSync(process.argv[1])); const stage=JSON.parse(fs.readFileSync(process.argv[2])); if (!pack.ok || !stage.ok || pack.data.patch_state!=="patched" || stage.data.patch_state!=="patched" || pack.data.patch_id!=="native-execution-boundaries-v5" || stage.data.patch_id!==pack.data.patch_id || pack.data.upstream_checkout_clean!==false || pack.data.packages.length!==83 || stage.data.verified_packages.length!==83 || stage.data.packages.length!==80 || stage.data.skipped_optional_packages.length!==3) process.exit(1)' \
             "$RUNNER_TEMP/dsh-patched-peer-pack.json" "$RUNNER_TEMP/dsh-patched-peer-stage.json"
+          node "$GITHUB_WORKSPACE/dsh-runtime-kit/test/compatibility-native-artifacts.ts" \
+            "$RUNNER_TEMP/dsh-patched-peer-pack.json" "$RUNNER_TEMP/dsh-patched-peers"
       - name: Download authenticated nils-cli acceptance binaries
         run: |
           archive="$RUNNER_TEMP/nils-cli-v1.28.52-x86_64-unknown-linux-gnu.tar.gz"

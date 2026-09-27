@@ -80,6 +80,7 @@ async function main() {
     patchManifest.patches[0].id,
   )
   const staged = []
+  const skippedOptionalPackages: string[] = []
   let installScope
   try {
     for (const item of receipt.packages) {
@@ -104,7 +105,9 @@ async function main() {
       const bytes = await readFile(tarball)
       const tarballSha256 = createHash('sha256').update(bytes).digest('hex')
       const artifact = inspectCanonicalPackageArtifact(bytes)
+      const registry = manifest.registry_workspace_artifacts[item.name]
       if (tarballSha256 !== item.tarball_sha256
+        || (registry !== undefined && `sha512-${createHash('sha512').update(bytes).digest('base64')}` !== registry.integrity)
         || artifact.artifact_sha256 !== item.artifact_sha256
         || artifact.artifact_sha256 !== dshWorkspaceArtifactDigest(manifest, item.name, receipt.patchState)
         || artifact.name !== item.name
@@ -113,6 +116,10 @@ async function main() {
           'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
           `DSH peer artifact ${item.name} failed staging authentication`,
         )
+      }
+      if (registry?.platform !== undefined && registry.platform !== `${process.platform}-${process.arch}`) {
+        skippedOptionalPackages.push(item.name)
+        continue
       }
       const base = item.name.slice('@deepseek-ai/'.length)
       staged.push({
@@ -164,6 +171,8 @@ async function main() {
       patch_state: receipt.patchState,
       patch_id: receipt.patchId,
       packages: staged.map(item => item.name),
+      verified_packages: receipt.packages.map(item => item.name),
+      skipped_optional_packages: skippedOptionalPackages,
       network_resolution: false,
     },
   })}\n`)

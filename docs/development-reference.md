@@ -323,6 +323,7 @@ that closure into a disposable consumer:
 npm run --silent pack:compatibility-peers -- \
   --source-root /path/to/deepseek-harness \
   --artifact-root /empty/private/artifacts \
+  --registry-artifact-root /private/pinned-native-registry-archives \
   --channel pinned \
   --pnpm-bin /absolute/path/to/pnpm \
   --receipt /separate/private/receipt.json
@@ -345,11 +346,21 @@ changes.
 The compatibility CI job cleans and rebuilds both faces from the selected
 checkout after patch application, then runs this pack-and-stage flow. The
 packer checks the reviewed patch state before and after packing, and both
-packer and stager compare all 64 workspace tarballs with the fixed artifact
-digests in `compatibility/dsh.json`. The patched contract lists only the 11
+packer and stager compare all 83 tarballs with the fixed artifact
+digests in `compatibility/dsh.json`. The patched contract lists only the 20
 artifacts whose bytes change; the others retain their pristine digest. A
 receipt records `patch_state` and `patch_id`. Existing pristine receipts remain
-accepted by the stager.
+accepted when they contain the complete current closure. Obtain the five
+exact native-system 0.1.2 archives listed in `registry_workspace_artifacts`
+using `npm pack <name>@0.1.2 --ignore-scripts --pack-destination <registry-root>`.
+Both pack modes require this input and verify its pinned SHA-512 integrity;
+they never rebuild these stock native binaries. The stager verifies all 83
+archives and installs only the matching native platform: 80 packages on Linux
+x64, with three incompatible optional platform packages reported as skipped.
+Consumers that install through pnpm must create local-file overrides only for
+the materialized package set. Keep nonhost optional native dependencies at
+their exact registry versions and integrity in the frozen lockfile; pnpm may
+otherwise link their skipped `file:` archives as files rather than packages.
 
 ## Acceptance and delivery
 
