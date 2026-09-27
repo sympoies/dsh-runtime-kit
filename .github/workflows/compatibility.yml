@@ -200,6 +200,7 @@ jobs:
           pnpm run typecheck
           pnpm vitest run \
             packages/boot/app-boot/tests/app-boot.spec.ts \
+            packages/boot/app-boot/tests/user-patches.spec.ts \
             packages/core/tools/tests/tools.spec.ts \
             packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts \
             packages/fs/tool-fs/tests/tools.spec.ts \

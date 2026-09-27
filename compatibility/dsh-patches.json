@@ -13,7 +13,7 @@
         },
         "0.1.7-rc.1": {
           "path": "patches/deepseek-harness/native-execution-boundaries-v5-0-1-7-rc-1.patch",
-          "sha256": "38dcb5ddbdf56d2ce23d9d084bb559798ea5cd4aef6d6d1861839eee275be703"
+          "sha256": "2238897d6e342f42da385f091fc6441f30e1089646d4320c2cfa36c6e5982aed"
         }
       },
       "targets": {
@@ -25,7 +25,7 @@
             },
             "0.1.7-rc.1": {
               "before_sha256": "3adbfc7a6a5344cd24e62fa2067abb8131001758c14294373e8b5c6fc8ee42e6",
-              "after_sha256": "7cc6b812d86ec59da40bdad5f3b24b554c0470fd0c6fe018e806fbe644baf0f6"
+              "after_sha256": "757231b36b8e39489c2b53453d9ca37477e629e360627dcdb4a7f4faabc94229"
             }
           }
         },
@@ -514,6 +514,14 @@
             "0.1.7-rc.1": {
               "before_sha256": "e65166444ff791994a7198a86ac4a821e8329120bd551f342913623c87e5a715",
               "after_sha256": "6b26f829391c95b00410c48441eb7bdae7b03c3c477dde7abd12418eae68fd57"
+            }
+          }
+        },
+        "packages/boot/app-boot/tests/user-patches.spec.ts": {
+          "release_hashes": {
+            "0.1.7-rc.1": {
+              "before_sha256": "16c0e9d1e3ad428d1d48b632e483535ce80752c835678c84be10246ddc145860",
+              "after_sha256": "d12433fbdaad8da355e2f3eca43d51fb933cf1043f8f5ad915171ebfa08b1c83"
             }
           }
         }

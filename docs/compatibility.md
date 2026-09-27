@@ -96,6 +96,14 @@ target hashes bind those seams independently for 0.1.6-alpha.2 and
 0.1.7-rc.1; an
 unknown or locally drifted checkout remains ineligible.
 
+The rc.1 artifact also dispatches profile reload notifications from the private
+bootstrap Include's current active context. Settings mutation, package reload,
+and HMR retain their root-owned reconciliation while the installed TUI keeps
+denying plugin access to composition-root event capabilities. The notification
+does not grant a root capability to the caller; an unavailable Include owner
+rejects the reload. Native owner tests and installed Workbench acceptance cover
+the welcome acknowledgement that exposed this integration boundary.
+
 The 0.1.6-alpha.2 patch also adds `dsh-runtime-kit` to DSH's present-and-enabled
 required startup entries. DSH may continue past unrelated optional plugin
 failures, but a runtime-kit activation failure remains a fatal boot refusal. It
