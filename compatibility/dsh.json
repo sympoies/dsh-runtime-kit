@@ -440,6 +440,101 @@
       "version": "0.1.7-rc.1",
       "path": "packages/boot/cmdline",
       "artifact_sha256": "9666a03c27491d54e2ddd0fa7132cd9d0452d465030b1f666db8d1f7576a59cd"
+    },
+    "@deepseek-ai/dsh-agent-loop": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/core/agent-loop",
+      "artifact_sha256": "feaaa9e5160933b112f1edf9e7f6592758b2acc3fc4ed1788d39f2727427228e"
+    },
+    "@deepseek-ai/dsh-fs-local": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/fs/fs-local",
+      "artifact_sha256": "9fce76fd656b4710e0a4f41d6b633d9f1f5f2bce394efed2c18d9d41e14c1cd8"
+    },
+    "@deepseek-ai/dsh-fs-sandbox": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/fs/fs-sandbox",
+      "artifact_sha256": "a97da6afb85b47eb94efbaa38f4a45bcfe8fdc2763c3d4407d0f9f725de6078d"
+    },
+    "@deepseek-ai/dsh-goal": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/goal/goal",
+      "artifact_sha256": "f8bfada6723fef76e76e41662a6e60d2aaa101c91527942527fb323c6a794fc2"
+    },
+    "@deepseek-ai/dsh-lazy-require": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/util/lazy-require",
+      "artifact_sha256": "837576c13c6d4336be5ef98e7c8fbbe7f2cb50c13db2aa1e0ef9b04cd256e132"
+    },
+    "@deepseek-ai/dsh-sandbox-local": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/sandbox/sandbox-local",
+      "artifact_sha256": "8d119e9cbe246507f2c7eecfae7c87020079679d805d0b3d5960cf75f2ac3393"
+    },
+    "@deepseek-ai/dsh-sandbox-windows-acl": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/sandbox/sandbox-windows-acl",
+      "artifact_sha256": "32b569c90c7787d9a157a0664044712f6a7fd0fb659ad5c667174bc72a950ce9"
+    },
+    "@deepseek-ai/dsh-shell-env": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/shell/shell-env",
+      "artifact_sha256": "291b48e05f73c58a92f2e8a371c0bd3b8e2d147a00f867bcba58a40ffcaf22ed"
+    },
+    "@deepseek-ai/dsh-subagent-in-process-driver": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/subagent/subagent-in-process-driver",
+      "artifact_sha256": "4d3b401cb7745aa2f26dcb1c722bd34660bf6e10503c8d27aa212b6d3dec6087"
+    },
+    "@deepseek-ai/dsh-subagent-spawn-in-process": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/subagent/subagent-spawn-in-process",
+      "artifact_sha256": "88d47132acfec5c98098adc82090b5a49de04b4a2a93e5c03a067649e5d430b2"
+    },
+    "@deepseek-ai/dsh-subprocess-local": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/subprocess/subprocess-local",
+      "artifact_sha256": "0fa3036e565a6f26fcf118eda0a25d2da7734edddb8ae2232a1318401abb3f00"
+    },
+    "@deepseek-ai/dsh-tool-bash": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/shell/tool-bash",
+      "artifact_sha256": "1142fa0937b4272c71691b5371692d15db61602cd9bffb7e7560e3ac6003a63d"
+    },
+    "@deepseek-ai/dsh-tool-fs": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/fs/tool-fs",
+      "artifact_sha256": "d7be4fd36d03d664ab814910f825eeb903305a4c1ea816a97a440ad6cc3e844b"
+    },
+    "@deepseek-ai/dsh-win32-process": {
+      "version": "0.1.7-rc.1",
+      "path": "packages/subprocess/win32-process",
+      "artifact_sha256": "dd7913fdb28a17dc7bf480b0e246c4cd7bc56754240e32c2491b396e56d0a572"
+    },
+    "@deepseek-ai/node-addon-system": {
+      "version": "0.1.2",
+      "path": "native/system/packages/entry",
+      "artifact_sha256": "95135b1471231f2a49484a4e0bbc3a8e6e76a0069668e4abb5577c913cffa0dd"
+    },
+    "@deepseek-ai/node-addon-system-darwin-arm64": {
+      "version": "0.1.2",
+      "path": "native/system/packages/darwin-arm64",
+      "artifact_sha256": "03ec80be82849b7fd42b4cedf660ce7f64a48198f20a057c9c1f608ec566f0ac"
+    },
+    "@deepseek-ai/node-addon-system-darwin-x64": {
+      "version": "0.1.2",
+      "path": "native/system/packages/darwin-x64",
+      "artifact_sha256": "95d8cc7581dc1a378aa14fe226b6bef2ed13aa298a33f7ea36039343db0a6efe"
+    },
+    "@deepseek-ai/node-addon-system-linux-arm64": {
+      "version": "0.1.2",
+      "path": "native/system/packages/linux-arm64",
+      "artifact_sha256": "45f944244199b94be346c66814a82f141fbc91603363d444a835af06857a2c2b"
+    },
+    "@deepseek-ai/node-addon-system-linux-x64": {
+      "version": "0.1.2",
+      "path": "native/system/packages/linux-x64",
+      "artifact_sha256": "f489af3e8c4bd6ad06e26a0ae21561804c6b51503482759d8e3e2feaf17bb266"
     }
   },
   "patched_workspace_artifacts": {
@@ -453,7 +548,16 @@
     "@deepseek-ai/dsh-sandbox-policy": "0f287f2507b14d5325ed3282fb2642a4ccb364687fa02c204065c4943a7040d2",
     "@deepseek-ai/dsh-subagent": "e859370d0b44f3a076531a4fbe405350c1c402dbc7c3f00412b91cd2037349c8",
     "@deepseek-ai/dsh-subprocess": "6af4b907378977e86f3a1bd7361d16abf13fcdd687529b54427a74a977a62c37",
-    "@deepseek-ai/dsh-tools": "efb4ba6e4bf4ec5fa55f314b287afa23e040dd2fa1851680d183c958d3bb8e15"
+    "@deepseek-ai/dsh-tools": "efb4ba6e4bf4ec5fa55f314b287afa23e040dd2fa1851680d183c958d3bb8e15",
+    "@deepseek-ai/dsh-agent-loop": "30e56ded29703b311cc5f2606788e52e2a743a7727d23c99b76add5144eaf91e",
+    "@deepseek-ai/dsh-fs-sandbox": "edcb546b9e2a1c74a7f5193fafcc00c6df8bd2f8de167f084548d25872e54cbb",
+    "@deepseek-ai/dsh-goal": "8c36e1ae0b0659724bd35c62273faa12ea2d4bd809e2877612c50bf87c0f0853",
+    "@deepseek-ai/dsh-sandbox-local": "14a95a288b8b6038b10191629fc694a8369634e311e0e3eed9224cd2a2769b30",
+    "@deepseek-ai/dsh-subagent-in-process-driver": "812d405cef15966147d4a4124fea0a2b3212831413a6ed963ea042e4196655be",
+    "@deepseek-ai/dsh-subagent-spawn-in-process": "13edc179c264eddadd19cd217c000e2e796a6663bf2c7cbd14cd599dc24316cd",
+    "@deepseek-ai/dsh-subprocess-local": "2f4519064192d9e882ccf87c080c8835180ea8b41dc5d6646191b6a46eabd09a",
+    "@deepseek-ai/dsh-tool-bash": "725f2499f913d85430bee22496d2c5ac4bb90b49b1176c89c0f92699e18d1753",
+    "@deepseek-ai/dsh-tool-fs": "6accb2fc820883a72931922ef76204c56f5dc4b04732ed1564ed3fc4c4e9728e"
   },
   "runtime_surface": [
     "on",
@@ -525,5 +629,26 @@
     "kind": "rolling-latest-releases",
     "maximum_releases": 2,
     "promotion": "add newest release and retire the oldest release in the same change"
+  },
+  "registry_workspace_artifacts": {
+    "@deepseek-ai/node-addon-system": {
+      "integrity": "sha512-EFn8K+mXIXiw6s3rxX+cgp2hZTEAQdVIsURhrXnBxycSXvtQ1EQpsSVzoNKtKAQI0I0VqkEcVEjHzS/PeaGsvw=="
+    },
+    "@deepseek-ai/node-addon-system-linux-x64": {
+      "integrity": "sha512-S2aPVHvYCpNCppCFyNlooMYuTB7ucK5lvD9oXQQ42v5Z2s5AoaiCdjz9r2l+ED2rI5oS1x0cUZmKjJH2dxV0pg==",
+      "platform": "linux-x64"
+    },
+    "@deepseek-ai/node-addon-system-linux-arm64": {
+      "integrity": "sha512-Z/DQtqgEYzjBzb2ocHGjMzx51W7xDILkJKKj89nyErr8gZMNiLs+JNL1uKzJqc3VLZB+vYCPaHGyQ3oX6EzEmA==",
+      "platform": "linux-arm64"
+    },
+    "@deepseek-ai/node-addon-system-darwin-arm64": {
+      "integrity": "sha512-IR0cx8um19mLCZaJ+H5PLblKr6Eg3PWvVo8eTQBr/SwH2nh5tM9CD9/5fHweNS9Pjt15UdFlGqnvLSd/w+O6Rw==",
+      "platform": "darwin-arm64"
+    },
+    "@deepseek-ai/node-addon-system-darwin-x64": {
+      "integrity": "sha512-XDbmquNapk9aT28y4EKn9lbONVr9YNs1NM/GKH1Gi5gUhjOT9wgRaTv72FJdNaVIInbPAYbPoyn7/y+MzQMNNg==",
+      "platform": "darwin-x64"
+    }
   }
 }

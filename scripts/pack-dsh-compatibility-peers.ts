@@ -3,13 +3,14 @@
 import { PACKAGE_ROOT } from '../src/package-root.js'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { promisify } from 'node:util'
 
 import { DshCompatibilityError, dshWorkspaceArtifactDigest, isChannel, validateDshCompatibilityManifest } from '../src/compat/contract.js'
-import { DshPatchError, manageDshPatch } from '../src/compat/dsh-patch.js'
+import { DshPatchError, manageDshPatch, validateDshPatchManifest } from '../src/compat/dsh-patch.js'
 import { inspectSelectedDshCheckout } from '../src/compat/git-checkout.js'
 import { inspectCanonicalPackageArtifact } from '../src/compat/package-artifact.js'
 
@@ -29,6 +30,7 @@ function parseCli() {
       options: {
         'source-root': { type: 'string' },
         'artifact-root': { type: 'string' },
+        'registry-artifact-root': { type: 'string' },
         channel: { type: 'string' },
         'patch-state': { type: 'string', default: 'pristine' },
         'git-bin': { type: 'string', default: '/usr/bin/git' },
@@ -44,6 +46,7 @@ function parseCli() {
   }
   const sourceRoot = parsed.values['source-root']
   const artifactRoot = parsed.values['artifact-root']
+  const registryArtifactRoot = parsed.values['registry-artifact-root']
   const channel = parsed.values.channel
   const patchState = parsed.values['patch-state']
   const gitBin = parsed.values['git-bin']
@@ -61,9 +64,14 @@ function parseCli() {
       'source-root, artifact-root, git-bin, pnpm-bin, and receipt must be absolute paths with one selected channel',
     )
   }
+  if (typeof registryArtifactRoot !== 'string' || !isAbsolute(registryArtifactRoot)) {
+    throw new DshCompatibilityError('DSH_RUNTIME_KIT_COMPATIBILITY_ARGUMENT_INVALID',
+      'registry-artifact-root is required and must be an absolute path')
+  }
   return {
     sourceRoot: resolve(sourceRoot),
     artifactRoot: resolve(artifactRoot),
+    registryArtifactRoot,
     channel,
     patchState: patchState as 'pristine' | 'patched',
     gitBin,
@@ -113,11 +121,19 @@ async function main() {
   const manifest = validateDshCompatibilityManifest(JSON.parse(
     await readFile(resolve(projectRoot, 'compatibility', 'dsh.json'), 'utf8'),
   ))
+  let registryRoot: string
+  try {
+    registryRoot = await realpath(input.registryArtifactRoot)
+    if (!(await stat(registryRoot)).isDirectory()) throw new Error('Not a directory')
+  } catch {
+    throw new DshCompatibilityError('DSH_RUNTIME_KIT_COMPATIBILITY_ARGUMENT_INVALID',
+      'registry-artifact-root must resolve to an available directory')
+  }
   const pnpmBin = await trustedLauncher(input.pnpmBin)
   const sourceRoot = await realpath(input.sourceRoot)
-  const patchManifest = input.patchState === 'patched'
-    ? JSON.parse(await readFile(resolve(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'))
-    : undefined
+  const patchManifest = validateDshPatchManifest(JSON.parse(
+    await readFile(resolve(projectRoot, 'compatibility', 'dsh-patches.json'), 'utf8'),
+  ))
   const inspectSource = async () => {
     if (input.patchState === 'pristine') {
       const result = await inspectSelectedDshCheckout({
@@ -200,7 +216,17 @@ async function main() {
     artifacts.set(name, { contract, packageRoot, dependencies })
   }
   const reachable = new Set<string>()
-  const pending: string[] = Object.keys(manifest.public_packages)
+  for (const target of Object.keys(patchManifest.patches[0].targets)) {
+    const sourceIndex = target.indexOf('/src/')
+    if (sourceIndex === -1) continue
+    const path = target.slice(0, sourceIndex)
+    const owner = [...artifacts].find(([, item]) => item.contract.path === path)
+    if (!owner || manifest.patched_workspace_artifacts[owner[0]] === undefined) {
+      throw new DshCompatibilityError('DSH_RUNTIME_KIT_COMPATIBILITY_MANIFEST_INVALID',
+        'A production patch package owner is outside the authenticated installation closure')
+    }
+  }
+  const pending: string[] = [...Object.keys(manifest.public_packages), ...Object.keys(manifest.patched_workspace_artifacts)]
   while (pending.length > 0) {
     const name = pending.shift()
     if (name === undefined || reachable.has(name)) continue
@@ -221,29 +247,53 @@ async function main() {
   try {
     for (const [name, { contract, packageRoot }] of artifacts) {
       let packed
+      const registry = manifest.registry_workspace_artifacts[name]
       try {
-        const result = await run(pnpmBin, [
-          'pack',
-          '--json',
-          '--pack-destination', stagingRoot,
-        ], {
-        cwd: packageRoot,
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-        timeout: 120_000,
-        env: {
-          PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
-          HOME: process.env.HOME,
-          TMPDIR: process.env.TMPDIR,
-          npm_config_ignore_scripts: 'true',
-          npm_config_userconfig: '/dev/null',
-          npm_config_update_notifier: 'false',
-          LANG: 'C',
-          LC_ALL: 'C',
-        },
-      })
-        packed = JSON.parse(result.stdout)
-      } catch {
+        if (registry !== undefined) {
+          const filename = `${name.slice(1).replace('/', '-')}-${contract.version}.tgz`
+          const source = contained(registryRoot, filename)
+          const canonical = await realpath(source)
+          if (canonical !== source) throw new Error('Registry artifact must be a regular contained file')
+          const handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW)
+          let bytes
+          try {
+            if (!(await handle.stat()).isFile()) throw new Error('Registry artifact must be a regular file')
+            bytes = await handle.readFile()
+          } finally {
+            await handle.close()
+          }
+          if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== registry.integrity) {
+            throw new DshCompatibilityError('DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
+              `Registry artifact ${name} did not match its reviewed integrity`)
+          }
+          const destination = resolve(stagingRoot, filename)
+          await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 })
+          packed = { name, version: contract.version, filename: destination }
+        } else {
+          const result = await run(pnpmBin, [
+            'pack',
+            '--json',
+            '--pack-destination', stagingRoot,
+          ], {
+            cwd: packageRoot,
+            encoding: 'utf8',
+            maxBuffer: 1024 * 1024,
+            timeout: 120_000,
+            env: {
+              PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+              HOME: process.env.HOME,
+              TMPDIR: process.env.TMPDIR,
+              npm_config_ignore_scripts: 'true',
+              npm_config_userconfig: '/dev/null',
+              npm_config_update_notifier: 'false',
+              LANG: 'C',
+              LC_ALL: 'C',
+            },
+          })
+          packed = JSON.parse(result.stdout)
+        }
+      } catch (error) {
+        if (error instanceof DshCompatibilityError) throw error
         throw new DshCompatibilityError(
           'DSH_RUNTIME_KIT_DSH_PEER_PACK_FAILED',
           `Could not pack selected DSH workspace package ${name}`,
