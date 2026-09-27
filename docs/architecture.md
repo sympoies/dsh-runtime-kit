@@ -383,6 +383,11 @@ execute, the runtime. Public shell and sandbox services resolve the exact
 command, canonical repository cwd, timeout, output bound, environment
 overrides, and one unsandboxed, full-access, or confined runner descriptor.
 Requested sandbox escalation remains governed by DSH's own approval service.
+The committed session `approval/asked` and `approval/decided` events identify
+a rejected Bash approval before dispatch. Only that exact rejected call may
+retire its prepared probe at `tools/result`. A wrapper result without an
+authoritative rejection, or an entered but unsettled run, poisons the
+finish-line ledger and blocks turn completion.
 The adapter rejects runtime preparation if command text changes, cwd escapes
 the repository root, or bounds and provider argv are malformed.
 

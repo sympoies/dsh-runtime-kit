@@ -26,6 +26,41 @@ test('coordinator disposal closes new work admission before returning', async ()
   await disposal
 })
 
+test('a terminal result during an entered but unsettled Bash run poisons finish-line', async () => {
+  let enteredRun
+  const entered = new Promise(resolve => { enteredRun = resolve })
+  let releaseRun
+  const pendingRun = new Promise(resolve => { releaseRun = resolve })
+  const subject = fixture({
+    runtime: async () => {
+      enteredRun()
+      await pendingRun
+      return {
+        timeoutMs: 5_000,
+        execution: {
+          kind: 'bash-v1', workdir: '/workspace/project', outputMaxBytes: 64 * 1024,
+          runner: { kind: 'danger-full-access' },
+        },
+      }
+    },
+  })
+  const exec = execution(subject, {
+    name: 'bash',
+    arguments: { command: 'touch marker', description: 'Create a disposable marker' },
+  })
+  assert.deepEqual(await subject.coordinator.begin(exec, context(exec)), { ok: true })
+  const executing = subject.coordinator.execute(exec)
+  await entered
+  subject.coordinator.result(exec, { isError: false, content: [] })
+  assert.equal(await subject.coordinator.turnStopping({
+    agent: subject.agent, turn: 1, signal: new AbortController().signal,
+  }, true), false)
+  assert.ok(subject.steered.some(message =>
+    message.content[0]?.text.includes('Finish-line state is unavailable')))
+  releaseRun()
+  await executing
+})
+
 test('concurrent coordinator disposal joins the same pending release', async () => {
   const subject = fixture()
   await subject.coordinator.withAuthority(
