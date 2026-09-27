@@ -199,6 +199,9 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
   const preparedEdits: Map<Readonly<ToolExecution>, CallIdentity> = new Map()
   const editRegistrations: WeakMap<Readonly<ToolExecution>, {ledger: SessionLedger, operationId: string}> = new WeakMap()
   const validationCalls: Map<Readonly<ToolExecution>, ValidationCall> = new Map()
+  const enteredValidations: WeakMap<Readonly<ToolExecution>, CallIdentity> = new WeakMap()
+  const approvalRequests: Map<string, {session: Agent['session'], exec: Readonly<ToolExecution>}> = new Map()
+  const rejectedApprovals: WeakSet<Readonly<ToolExecution>> = new WeakSet()
   // Executions the ledger admits without an obligation: the principal is a
   // managed advisory/off session, or nils answered `not-in-repository` for the
   // session anchor itself. `execute` delegates these to the ordinary tool path.
@@ -716,6 +719,7 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       const pending = validationCalls.get(exec)
       validationCalls.delete(exec)
       if (pending !== undefined) {
+        enteredValidations.set(exec, pending.prepared)
         if (operation === undefined || 'invalid' in operation || 'unsupported' in operation
           || operation.kind !== 'validation'
           || !matches(pending.prepared, exec)
@@ -829,6 +833,8 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
     /** Drop a prepared operation when a later pre-execution gate denies. */
 
     reject(exec: ToolExecution) {
+      enteredValidations.delete(exec)
+      rejectedApprovals.delete(exec)
       preparedEdits.delete(exec)
       editRegistrations.delete(exec)
       validationCalls.delete(exec)
@@ -917,16 +923,43 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
 
     observeFs(_target: unknown, _observation: unknown, _actor: unknown) {},
 
+    approvalEvent(session: Agent['session'], event: {type: string, data: unknown}) {
+      const data = record(event.data)
+      if (data === undefined || typeof data.id !== 'string') return
+      if (event.type === 'approval/asked') {
+        const matches = [...validationCalls.entries()].filter(([exec, call]) =>
+          call.prepared.session === session
+          && exec.agent?.session === session
+          && exec.callId === data.callId
+          && exec.name === data.toolName)
+        if (matches.length === 1) approvalRequests.set(data.id, { session, exec: matches[0][0] })
+      } else if (event.type === 'approval/decided') {
+        const request = approvalRequests.get(data.id)
+        approvalRequests.delete(data.id)
+        if (request?.session === session && data.outcome === 'rejected') {
+          rejectedApprovals.add(request.exec)
+        }
+      }
+    },
+
     result(exec: Readonly<ToolExecution>, _result: Readonly<ToolExecutionResult>) {
+      const entered = enteredValidations.get(exec)
+      enteredValidations.delete(exec)
+      const rejected = rejectedApprovals.delete(exec)
+      for (const [id, request] of approvalRequests) {
+        if (request.exec === exec) approvalRequests.delete(id)
+      }
       preparedEdits.delete(exec)
       editRegistrations.delete(exec)
       if (settledValidations.has(exec)) {
         settledValidations.delete(exec)
         return
       }
-      const prepared = validationCalls.get(exec)?.prepared
+      const prepared = entered ?? validationCalls.get(exec)?.prepared
       validationCalls.delete(exec)
-      if (prepared !== undefined) poison(ledgerFor(prepared.session, prepared.identity), 'validation-dispatch-missing')
+      if (prepared !== undefined && (entered !== undefined || !rejected)) {
+        poison(ledgerFor(prepared.session, prepared.identity), 'validation-dispatch-missing')
+      }
     },
 
     async turnStopping(payload: {agent: Agent, turn: number, signal: AbortSignal}, correlated: boolean) {

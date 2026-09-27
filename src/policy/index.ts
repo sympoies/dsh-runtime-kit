@@ -1169,6 +1169,12 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     return next()
   })
 
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'approval/asked' || event.type === 'approval/decided') {
+      finishLine.approvalEvent(session, event)
+    }
+  }, { global: true })
+
   ctx.on('tools/result', (exec, result) => {
     if (isReviewer(exec.agent)) {
       compatibility.result(exec)

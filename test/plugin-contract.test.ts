@@ -3429,6 +3429,178 @@ test('ordinary Bash downstream denial and failure clear the prepared finish-line
   }
 })
 
+test('rejected Bash approval leaves no finish-line validation debt at stop', async () => {
+  const actions = []
+  const probe = bashFinishLineEnvelope({ actions })
+  const stopping = lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' }))
+  const subject = harness({
+    envelope: spec => {
+      const index = spec.argv.indexOf('finish-line')
+      if (index >= 0 && spec.argv[index + 1] === 'run') return probe(spec)
+      if (index < 0) {
+        const ingress = JSON.parse(spec.stdio.stdin.data)
+        return decision('allow', {
+          event: ingress.event === 'agent/pre-step'
+            ? 'UserPromptSubmit'
+            : ingress.event === 'agent/turn-stopping'
+              ? 'Stop'
+              : ingress.event === 'tools/post-execute'
+                ? 'PostToolUse'
+                : 'PreToolUse',
+        })
+      }
+      const response = stopping(spec)
+      return {
+        ...response,
+        data: { ...response.data, correlation_id: 'correlation:opaque' },
+      }
+    },
+  })
+  const pending = await subject.prepare({
+    command: 'touch marker',
+    description: 'Create a disposable marker',
+  }, {
+    name: 'bash',
+    downstreamDecision: { kind: 'ask' },
+  })
+  assert.equal(pending.result.kind, 'ask')
+  assert.equal(subject.service.activeFinishLineReservations, 1)
+  // The approval service publishes the decision before DSH emits the result.
+  subject.emit('session/event', subject.agent.session, {
+    type: 'approval/asked',
+    data: { id: 'approval-1', toolName: 'bash', callId: pending.exec.callId },
+  })
+  subject.emit('session/event', subject.agent.session, {
+    type: 'approval/decided',
+    data: { id: 'approval-1', outcome: 'rejected' },
+  })
+  subject.emit('tools/result', pending.exec, {
+    isError: true,
+    error: { message: 'approval rejected' },
+    content: [],
+  })
+  subject.agent.session.events.push({ type: 'step/end', data: { turn: 1, step: 1 } })
+  assert.deepEqual(subject.agent.session.events.map(event => event.type),
+    ['turn/start', 'step/start', 'step/end'])
+  await subject.waterfall('agent/turn-stopping', [{
+    agent: subject.agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }], async () => undefined)
+  assert.deepEqual(subject.steered.map(message => message.content[0]?.text), [])
+  assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), 'allow')
+  assert.deepEqual(actions, ['run'])
+  assert.equal(subject.service.activeFinishLineReservations, 0)
+})
+
+for (const mismatch of ['call-id', 'tool-name', 'asked-session', 'decision-id', 'decision-session', 'allowed-outcome']) {
+  test(`near-match Bash approval remains fail closed: ${mismatch}`, async () => {
+    const actions = []
+    const probe = bashFinishLineEnvelope({ actions })
+    const stopping = lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' }))
+    const subject = harness({
+      envelope: spec => {
+        const index = spec.argv.indexOf('finish-line')
+        if (index >= 0 && spec.argv[index + 1] === 'run') return probe(spec)
+        if (index < 0) {
+          const ingress = JSON.parse(spec.stdio.stdin.data)
+          return decision('allow', {
+            event: ingress.event === 'agent/pre-step'
+              ? 'UserPromptSubmit'
+              : ingress.event === 'agent/turn-stopping'
+                ? 'Stop'
+                : ingress.event === 'tools/post-execute'
+                  ? 'PostToolUse'
+                  : 'PreToolUse',
+          })
+        }
+        const response = stopping(spec)
+        return {
+          ...response,
+          data: { ...response.data, correlation_id: 'correlation:opaque' },
+        }
+      },
+    })
+    const pending = await subject.prepare({
+      command: 'touch marker',
+      description: 'Create a disposable marker',
+    }, {
+      name: 'bash',
+      downstreamDecision: { kind: 'ask' },
+    })
+    assert.equal(pending.result.kind, 'ask')
+    assert.equal(subject.service.activeFinishLineReservations, 1)
+    // The approval service publishes the decision before DSH emits the result.
+    subject.emit('session/event', mismatch === 'asked-session' ? {} : subject.agent.session, {
+      type: 'approval/asked',
+      data: { id: 'approval-1', toolName: mismatch === 'tool-name' ? 'read' : 'bash', callId: mismatch === 'call-id' ? 'other-call' : pending.exec.callId },
+    })
+    subject.emit('session/event', mismatch === 'decision-session' ? {} : subject.agent.session, {
+      type: 'approval/decided',
+      data: { id: mismatch === 'decision-id' ? 'other-approval' : 'approval-1', outcome: mismatch === 'allowed-outcome' ? 'allowed-once' : 'rejected' },
+    })
+    subject.emit('tools/result', pending.exec, {
+      isError: true,
+      error: { message: 'approval rejected' },
+      content: [],
+    })
+    subject.agent.session.events.push({ type: 'step/end', data: { turn: 1, step: 1 } })
+    assert.deepEqual(subject.agent.session.events.map(event => event.type),
+      ['turn/start', 'step/start', 'step/end'])
+    await subject.waterfall('agent/turn-stopping', [{
+      agent: subject.agent,
+      turn: 1,
+      signal: new AbortController().signal,
+    }], async () => undefined)
+    assert.ok(subject.steered.some(message =>
+    message.content[0]?.text.includes('Finish-line state is unavailable')))
+    assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), 'finish-line-denied')
+    assert.deepEqual(actions, ['run'])
+    assert.equal(subject.service.activeFinishLineReservations, 0)
+  })
+
+}
+
+test('an unentered Bash wrapper result cannot retire finish-line validation debt', async () => {
+  const probe = bashFinishLineEnvelope({ actions: [] })
+  const stopping = lifecycleStopEnvelope(() => decision('allow', { event: 'Stop' }))
+  const subject = harness({
+    envelope: spec => {
+      const index = spec.argv.indexOf('finish-line')
+      if (index >= 0 && spec.argv[index + 1] === 'run') return probe(spec)
+      if (index < 0) {
+        const ingress = JSON.parse(spec.stdio.stdin.data)
+        return decision('allow', {
+          event: ingress.event === 'agent/pre-step' ? 'UserPromptSubmit'
+            : ingress.event === 'agent/turn-stopping' ? 'Stop'
+              : ingress.event === 'tools/post-execute' ? 'PostToolUse' : 'PreToolUse',
+        })
+      }
+      const response = stopping(spec)
+      return { ...response, data: { ...response.data, correlation_id: 'correlation:opaque' } }
+    },
+  })
+  subject.ctx.on('tools/execute', async () => ({
+    isError: false, value: { kind: 'foreground', exitCode: 0 }, content: [],
+  }), { prepend: true })
+  const pending = await subject.prepare({
+    command: 'touch marker', description: 'Create a disposable marker',
+  }, { name: 'bash', downstreamDecision: { kind: 'ask' } })
+  assert.equal(pending.result.kind, 'ask')
+  assert.equal(subject.service.activeFinishLineReservations, 1)
+  const wrapperResult = await subject.waterfall('tools/execute', [pending.exec],
+    async () => ({ isError: false, content: [] }))
+  assert.equal(wrapperResult.isError, false)
+  subject.emit('tools/result', pending.exec, wrapperResult)
+  subject.agent.session.events.push({ type: 'step/end', data: { turn: 1, step: 1 } })
+  await subject.waterfall('agent/turn-stopping', [{
+    agent: subject.agent, turn: 1, signal: new AbortController().signal,
+  }], async () => undefined)
+  assert.equal(subject.service.stopPipelineOutcome(subject.agent, 1), 'finish-line-denied')
+  assert.ok(subject.steered.some(message =>
+    message.content[0]?.text.includes('Finish-line state is unavailable')))
+})
+
 test('caller abort during ordinary Bash policy evaluation clears the prepared probe', async () => {
   const actions = []
   const subject = harness({
@@ -4878,6 +5050,7 @@ test('the rc.7 compatibility seam wires every required public lifecycle extensio
     'agent/session-start',
     'agent/turn-stopping',
     'fs/observed',
+    'session/event',
     'tools/execute',
     'tools/post-execute',
     'tools/pre-execute',
