@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { lstat } from 'node:fs/promises'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { DshFinishLineProviderError } from './nils-client.js'
 
@@ -264,15 +265,18 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
 
   /** @returns whether repository authority was opened */
 
+  // DSH records terminal codes through its injected public error carrier.
+  function carriedProviderError(error: unknown) {
+    return error instanceof DshFinishLineProviderError
+      ? new HarnessError(error.message, error.code)
+      : error
+  }
+
   async function carryDshProviderError<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation()
     } catch (error) {
-      // DSH records terminal codes through its injected public error carrier.
-      if (error instanceof DshFinishLineProviderError) {
-        throw new HarnessError(error.message, error.code)
-      }
-      throw error
+      throw carriedProviderError(error)
     }
   }
 
@@ -395,6 +399,31 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
     }
   }
 
+  /**
+ * Every nils request for a ledger runs inside that ledger's checkout. Once the
+ * checkout directory itself is gone (a linked worktree removed after its work
+ * was delivered, for example), no request for it can succeed again and nothing
+ * remains that this or a later turn could validate or release. Consult this
+ * only after a request has already failed. A provider-authored denial proves
+ * nils ran inside the checkout, so it never qualifies; otherwise an absent path
+ * retires the ledger locally, while any checkout that still exists keeps
+ * failing closed. The provider's durable record for that checkout is left to
+ * its own lease expiry.
+ */
+  async function retireRemovedCheckout(ledger: SessionLedger, failure: unknown) {
+    if (failure instanceof DshFinishLineProviderError) return false
+    try {
+      await lstat(ledger.identity.cwd)
+      return false
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return false
+    }
+    client.abandonOpen(ledger.identity)
+    removeLedger(ledger)
+    return true
+  }
+
   async function releaseLedger(session: Agent['session'], ledger: SessionLedger) {
     for (const prepared of preparedEdits.values()) {
       if (prepared.session === session) {
@@ -431,7 +460,8 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
       }
       acceptCorrelation(ledger, released.correlationId)
       removeLedger(ledger)
-    } catch {
+    } catch (error) {
+      if (await retireRemovedCheckout(ledger, error)) return
       releaseDegraded = true
       poison(ledger, 'release-persistence')
     }
@@ -1037,10 +1067,18 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
           steer(ledger, payload.turn, 'Finish-line state is unavailable. Do not stop; repair the runtime boundary and retry.', payload.agent)
           return false
         }
-        if (!await carryDshProviderError(() => ensureRunnerCapability(ledger, identity, payload.signal))) {
-          throw new Error('dsh-runtime-kit: finish-line unavailable')
+        let decision
+        try {
+          if (!await ensureRunnerCapability(ledger, identity, payload.signal)) {
+            throw new Error('dsh-runtime-kit: finish-line unavailable')
+          }
+          decision = await client.stop(identity, payload.signal)
+        } catch (error) {
+          // A repository checkout the turn removed owns no stop boundary; see
+          // `retireRemovedCheckout`. The session anchor is not retired here.
+          if (ledger !== headerLedger && await retireRemovedCheckout(ledger, error)) continue
+          throw carriedProviderError(error)
         }
-        const decision = await carryDshProviderError(() => client.stop(identity, payload.signal))
         try {
           acceptCorrelation(ledger, decision.correlationId)
         } catch {

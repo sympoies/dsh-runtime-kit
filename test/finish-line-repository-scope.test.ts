@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { Context } from '@deepseek-ai/cordis'
@@ -90,11 +94,16 @@ function leaseProvider(overrides = {}) {
   })
 }
 
-function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
+function finishLineClient({ stopAction = () => 'allow', repositories, unavailable = () => false } = {}) {
   const opens = []
   const edits = []
   const stops = []
   const releases = []
+  // The nils transport spawns agent-hook inside the identity's checkout, so a
+  // request it cannot serve fails with this exact generic error.
+  const transport = request => {
+    if (unavailable(request)) throw new Error('dsh-runtime-kit: finish-line unavailable')
+  }
   return {
     opens,
     edits,
@@ -103,6 +112,7 @@ function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
     client: {
       async open(request) {
         opens.push(structuredClone(request))
+        transport(request)
         if (repositories !== undefined && !repositories.some(root => request.cwd === root || request.cwd.startsWith(`${root}/`))) {
           return { kind: 'not-in-repository' }
         }
@@ -120,6 +130,7 @@ function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
       async run() { throw new Error('unexpected validation run') },
       async stop(request) {
         stops.push(structuredClone(request))
+        transport(request)
         const action = stopAction(request, edits)
         return {
           action,
@@ -132,6 +143,7 @@ function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
       },
       async release(request) {
         releases.push(structuredClone(request))
+        transport(request)
         return { correlationId }
       },
       abandonOpen() {},
@@ -149,7 +161,7 @@ function finishLineClient({ stopAction = () => 'allow', repositories } = {}) {
  * with the exact wiring the default bundle installs, so the seam under test is
  * the production one rather than an injected double.
  */
-async function harness(overrides = {}, { stopAction, onWrite, repositories, coordinator: coordinatorOptions } = {}) {
+async function harness(overrides = {}, { stopAction, onWrite, repositories, unavailable, coordinator: coordinatorOptions } = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -157,7 +169,7 @@ async function harness(overrides = {}, { stopAction, onWrite, repositories, coor
   await ctx.plugin(WorkspaceLease)
   ctx.workspaceLease.registerProvider(leaseProvider(overrides))
 
-  const transport = finishLineClient({ stopAction, repositories })
+  const transport = finishLineClient({ stopAction, repositories, unavailable })
   const coordinator = createFinishLineCoordinator(ctx, {
     ...coordinatorOptions,
     client: transport.client,
@@ -427,6 +439,106 @@ test('an admitted edit registers its generation before the tool body runs', asyn
 
   assert.equal(result.isError, false, result.error?.message)
   assert.deepEqual(editsAtBody, [REPO_B.root])
+})
+
+/**
+ * Resolve writes to the fixed repositories plus one real on-disk checkout, so
+ * a test can remove that checkout the way `git worktree remove` does.
+ */
+async function withScratchCheckout(t) {
+  const root = await mkdtemp(join(tmpdir(), 'finish-line-scratch-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const scratch = { workspaceKey: 'key:scratch', root }
+  return {
+    root,
+    resolve: async request => {
+      if (request.toolName !== 'write') return { kind: 'not-required' }
+      const path = request.arguments?.file_path
+      const target = [REPO_A, REPO_B, scratch].find(candidate => path?.startsWith(candidate.root))
+      return target === undefined ? { kind: 'not-required' } : { kind: 'targets', targets: [target] }
+    },
+    // What the real transport does: every request for that checkout fails
+    // once the directory it must run in is gone.
+    unavailable: request => request.cwd === root && !existsSync(root),
+  }
+}
+
+test('a checkout removed during the turn is retired instead of making the stop boundary unavailable', async (t) => {
+  const scratch = await withScratchCheckout(t)
+  const { ctx, coordinator, transport } = await harness({ resolve: scratch.resolve }, {
+    unavailable: scratch.unavailable,
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  for (const [index, path] of [`${REPO_B.root}/src/index.js`, `${scratch.root}/evidence.json`].entries()) {
+    const result = await write(ctx, agent, path, `call:${index}`)
+    assert.equal(result.isError, false, result.error?.message)
+  }
+  assert.deepEqual(transport.edits.map(edit => edit.cwd), [REPO_B.root, scratch.root])
+
+  // The turn deletes its scratch worktree after delivering from another one.
+  await rm(scratch.root, { recursive: true, force: true })
+
+  assert.equal(await coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), true)
+
+  // The checkouts that still exist keep their stop boundary and are released;
+  // the removed one owns nothing left to validate or release.
+  assert.deepEqual(
+    transport.stops.map(stop => stop.cwd).filter(cwd => cwd !== scratch.root).sort(),
+    [REPO_A.root, REPO_B.root],
+  )
+  assert.deepEqual(transport.releases.map(release => release.cwd).sort(), [REPO_A.root, REPO_B.root])
+  assert.equal(coordinator.degraded, false)
+  assert.equal(coordinator.trackedSessions, 0)
+
+  // The next turn of the same session is not held by the retired checkout.
+  assert.equal(await coordinator.turnStopping({
+    agent,
+    turn: 2,
+    signal: new AbortController().signal,
+  }, true), true)
+})
+
+test('an existing checkout whose stop cannot be evaluated still fails closed', async (t) => {
+  const scratch = await withScratchCheckout(t)
+  const { ctx, coordinator, transport } = await harness({ resolve: scratch.resolve }, {
+    unavailable: request => request.cwd === scratch.root && transport.stops.some(stop => stop.cwd === scratch.root),
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${scratch.root}/evidence.json`, 'call:scratch')
+  assert.equal(result.isError, false, result.error?.message)
+
+  await assert.rejects(coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), /finish-line unavailable/u)
+  assert.deepEqual(transport.releases, [])
+})
+
+test('releasing a removed checkout does not degrade the release boundary', async (t) => {
+  const scratch = await withScratchCheckout(t)
+  const { ctx, coordinator, transport } = await harness({ resolve: scratch.resolve }, {
+    unavailable: scratch.unavailable,
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${scratch.root}/evidence.json`, 'call:scratch')
+  assert.equal(result.isError, false, result.error?.message)
+  await rm(scratch.root, { recursive: true, force: true })
+
+  await coordinator.agentDisposed(agent)
+
+  assert.equal(coordinator.degraded, false)
+  assert.equal(coordinator.trackedSessions, 0)
 })
 
 class StubHarnessError extends Error {
