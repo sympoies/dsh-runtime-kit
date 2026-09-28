@@ -14,6 +14,7 @@ import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { TestInbox } from './helpers/test-inbox.ts'
 
 import { createFinishLineCoordinator } from '../dist/src/finish-line/index.js'
+import { DshFinishLineProviderError } from '../dist/src/finish-line/nils-client.js'
 import {
   WORKSPACE_LEASE_PROTOCOL_VERSION,
   WorkspaceLease,
@@ -514,6 +515,58 @@ test('an existing checkout whose stop cannot be evaluated still fails closed', a
 
   const result = await write(ctx, agent, `${scratch.root}/evidence.json`, 'call:scratch')
   assert.equal(result.isError, false, result.error?.message)
+
+  await assert.rejects(coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), /finish-line unavailable/u)
+  assert.deepEqual(transport.releases, [])
+})
+
+test('a provider denial for a removed checkout still fails closed', async (t) => {
+  // A provider-authored denial proves nils ran inside the checkout, so it is
+  // never evidence that the checkout is gone.
+  class SessionHarnessError extends Error {
+    constructor(message, code) { super(message); this.code = code }
+  }
+  const scratch = await withScratchCheckout(t)
+  const { ctx, coordinator, transport } = await harness({ resolve: scratch.resolve }, {
+    coordinator: { HarnessError: SessionHarnessError },
+  })
+  const agent = stubAgent('session-1', REPO_A.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${scratch.root}/evidence.json`, 'call:scratch')
+  assert.equal(result.isError, false, result.error?.message)
+  const stop = transport.client.stop
+  transport.client.stop = async request => {
+    if (request.cwd === scratch.root) {
+      throw new DshFinishLineProviderError('finish-line-session-active', 'the repository owner is still active')
+    }
+    return stop(request)
+  }
+  await rm(scratch.root, { recursive: true, force: true })
+
+  await assert.rejects(coordinator.turnStopping({
+    agent,
+    turn: 1,
+    signal: new AbortController().signal,
+  }, true), error => error instanceof SessionHarnessError && error.code === 'DSH_FINISH_LINE_PROVIDER')
+  assert.deepEqual(transport.releases, [])
+})
+
+test('a removed session-anchor checkout still fails closed at stop', async (t) => {
+  const scratch = await withScratchCheckout(t)
+  const { ctx, coordinator, transport } = await harness({ resolve: scratch.resolve }, {
+    unavailable: scratch.unavailable,
+  })
+  const agent = stubAgent('session-1', scratch.root)
+  publish(ctx, agent)
+
+  const result = await write(ctx, agent, `${scratch.root}/evidence.json`, 'call:anchor')
+  assert.equal(result.isError, false, result.error?.message)
+  await rm(scratch.root, { recursive: true, force: true })
 
   await assert.rejects(coordinator.turnStopping({
     agent,

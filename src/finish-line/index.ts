@@ -407,8 +407,10 @@ export function createFinishLineCoordinator(ctx: Context, options: {client: Fini
  * only after a request has already failed. A provider-authored denial proves
  * nils ran inside the checkout, so it never qualifies; otherwise an absent path
  * retires the ledger locally, while any checkout that still exists keeps
- * failing closed. The provider's durable record for that checkout is left to
- * its own lease expiry.
+ * failing closed. Only a ledger holding a runner capability reaches this check,
+ * and nils binds every capability to the exact Git top-level, so the absent
+ * path is the checkout root; a moved checkout is retired the same way. The
+ * provider's durable record for that checkout is left to its own lease expiry.
  */
   async function retireRemovedCheckout(ledger: SessionLedger, failure: unknown) {
     if (failure instanceof DshFinishLineProviderError) return false

@@ -367,6 +367,12 @@ Every nils request runs inside the ledger's checkout, so when a capability
 refresh, stop, or release request for it fails without a provider-authored
 denial and its path is absent (`ENOENT` or `ENOTDIR`), the coordinator retires
 that ledger locally instead of ending the turn as `finish-line unavailable`.
+Only a ledger that holds a runner capability reaches this rule, and nils binds
+every capability to the exact canonical Git top-level, so an absent path means
+the checkout root itself is gone rather than a subdirectory. A checkout moved or
+renamed during the turn also leaves its old path absent and is retired the same
+way; an edit or validation at its new path opens a new ledger with its own
+obligation.
 Release applies the same rule to every ledger rather than degrading release
 for the whole process. Nothing remains that this or a later turn could
 validate, and the provider's durable record for that checkout is left to its
