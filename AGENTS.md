@@ -58,6 +58,11 @@ uses the same repository policy.
 - Commits, worktrees, pull requests, reviews, and merges must use the governed
   delivery surfaces. Do not bypass signing, hooks, checkout leases, review
   convergence, or protected-branch controls.
+- Before finishing, handing off, or abandoning work, reduce the `agent-out`
+  run directory to receipts, trimmed logs, and identity records. Delete
+  dependency trees, build output, source clones, superseded installed trees,
+  and isolated homes; see
+  [run artifact retention](docs/development-testing.md#run-artifact-retention).
 
 ## Documentation and history
 

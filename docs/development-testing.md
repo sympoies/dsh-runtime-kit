@@ -303,6 +303,67 @@ Do not retain prompts, raw model responses, credentials, auth state, session
 tokens, private identifiers, machine-local paths, or private topology in the
 repository, issues, commits, or public logs.
 
+## Run artifact retention
+
+Agent work writes scratch output and evidence into its `agent-out project` run
+directory. Before a task finishes, is handed off, or abandons an attempt, the
+agent that created the run reduces it to what a reviewer needs. Anything the
+receipt does not cite is deleted by that agent; host cleanup is not the
+mechanism.
+
+Keep:
+
+- receipts, result JSON, `test-first-evidence.json`, and skill-usage records;
+- the failing and final logs, trimmed to the relevant stage;
+- identity records instead of trees: repository, tag or ref, and commit;
+  artifact name, size, and `sha256`; file listings with digests for an
+  installed tree;
+- the screenshots or recordings a receipt cites;
+- an artifact that a pending next layer must consume, named in the receipt,
+  until that layer completes.
+
+Delete from the run directory before finishing:
+
+- dependency trees and package stores: `node_modules`, `.pnpm-store`, npm,
+  pnpm, and uv caches, `.venv`, and `uv-env`;
+- build output: Cargo `target/`, `dist/`, `build/`, `.next`, and `.turbo`.
+  Point `CARGO_TARGET_DIR` and similar settings at the managed worktree, not at
+  the run directory;
+- source clones and candidate checkouts; record the repository, tag, and
+  commit instead;
+- extracted archives, and downloaded archives of published releases; keep the
+  URL and digest;
+- installed or packaged trees from superseded attempts: delete an attempt's
+  tree when the next attempt starts, and keep only the listing and digest of
+  the accepted one;
+- isolated `HOME`, `AGENT_HOME`, DSH home, and browser profile directories.
+  These also hold copied provider auth, so delete them as soon as no pending
+  layer needs them;
+- traces and videos of passing browser runs, core dumps, and heap snapshots.
+
+The pending-layer exception overrides every item above: a checkout, isolated
+home, installed tree, or candidate archive that the receipt names as input to a
+pending attestation, resume, or publication review stays until that layer
+completes. On handoff, keep what the receiving agent needs to resume and name
+it in the handoff. The rule covers only run directories the agent created;
+never delete shared host caches such as `~/.npm`, the pnpm store, or
+`~/.cache/uv`, managed worktrees, or another agent's runs.
+
+Measured on the shared development host: runtime-kit runs held 39 GB after one
+month. A single compatibility run kept full `dsh-source` and `dsh-candidate`
+checkouts of 2.3 GB each plus TUI consumer and pnpm probe trees; after the
+receipt, only their commits, package digests, and results were needed.
+
+Create isolated homes inside the run directory, or in a `mktemp -d` directory
+removed by an exit trap. Never leave an agent home or DSH state under `/tmp`
+after the run. A run directory larger than 500 MB when the task finishes needs
+a reason in its receipt; otherwise it is a cleanup defect to fix before
+delivery.
+
+The host removes project runs older than 30 days (`agent-out cleanup plan
+--include-projects --project-retention-days 30`). That is a backstop for
+forgotten runs, not a place to park large scratch.
+
 ## Self-improvement loop
 
 Treat recurring development friction as product evidence:
