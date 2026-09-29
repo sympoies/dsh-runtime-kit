@@ -360,7 +360,25 @@ operation the provider proved touches no repository registers no edit generation
 anywhere, so a non-repository write creates no Git validation obligation. A
 session anchored outside every repository likewise owns no stop boundary: its
 shell commands run as ordinary host operations, and only the repositories the
-turn edited are checked at stop. When
+turn edited are checked at stop. A repository ledger other than the session
+anchor whose checkout directory no longer exists, typically a linked worktree
+the turn removed after delivering from it, likewise owns no stop boundary.
+Every nils request runs inside the ledger's checkout, so when a capability
+refresh, stop, or release request for it fails without a provider-authored
+denial and its path is absent (`ENOENT` or `ENOTDIR`), the coordinator retires
+that ledger locally instead of ending the turn as `finish-line unavailable`.
+Only a ledger that holds a runner capability reaches this rule, and nils binds
+every capability to the exact canonical Git top-level, so an absent path means
+the checkout root itself is gone rather than a subdirectory. A checkout moved or
+renamed during the turn also leaves its old path absent and is retired the same
+way; an edit or validation at its new path opens a new ledger with its own
+obligation.
+Release applies the same rule to every ledger rather than degrading release
+for the whole process. Nothing remains that this or a later turn could
+validate, and the provider's durable record for that checkout is left to its
+own lease expiry. A checkout that still exists keeps failing closed: a failed
+request still rejects the stop, and an unsatisfied validation still blocks it.
+When
 the target projection itself fails, the ledger propagates the workspace-lease
 service's own typed cause rather than replacing it with a finish-line reason:
 that service denies the same execution with that cause immediately afterwards,
@@ -535,7 +553,8 @@ not the JavaScript Session object: an immediate same-ID resume awaits the prior
 release and open-token rotation before it can begin finish-line work. The
 coordinator retries once and deletes the strong Session ledger only after a
 matching response; an
-unrecoverable release closes later admission. Edit begin tokens are retained
+unrecoverable release closes later admission, except for a removed checkout,
+which is retired as described above. Edit begin tokens are retained
 only across an ambiguous immediate retry and explicitly abandoned on poison.
 
 At awaited `agent/turn-stopping`, the coordinator calls the typed nils stop
