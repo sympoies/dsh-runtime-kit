@@ -9,7 +9,7 @@
 > [`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json),
 > and [Compatibility](compatibility.md). See the
 > [development log](devlog/README.md) and the retained
-> [terminal execution state](plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md)
+> [terminal execution state](https://github.com/sympoies/dsh-runtime-kit/blob/44b8dced6ae96dd2ae3b5223bc7fae8664a4a6e3/docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md)
 > for the completed outcome.
 
 The additive DSH runtime is staged behind executable gates:
