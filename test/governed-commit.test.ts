@@ -143,6 +143,8 @@ test('governed commit binds a literal semantic-commit argv to the authenticated 
   const result = await tool.execute(args, execution({ arguments: args }))
 
   assert.equal(tool.name, 'runtime_kit_governed_commit')
+  assert.match(tool.description, /session cwd/u)
+  assert.match(tool.description, /semantic-commit commit --repo/u)
   assert.equal(tool.parameters.additionalProperties, false)
   assert.deepEqual(subject.resolutions.map(value => value.command), ['semantic-commit'])
   assert.equal(subject.spawns.length, 1)
