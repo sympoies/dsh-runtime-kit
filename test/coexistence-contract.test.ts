@@ -134,24 +134,17 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   )
 })
 
-test('retained migration docs define isolated coexistence instead of repository retirement', () => {
+test('maintained docs define isolated coexistence instead of repository retirement', () => {
   const read = relative => readFileSync(join(projectRoot, relative), 'utf8')
-  const source = read('docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-discussion-source.md')
-  const plan = read('docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-plan.md')
-  const state = read('docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-execution-state.md')
   const readme = read('README.md')
+  const migration = read('docs/migration.md')
 
-  for (const document of [source, plan, state, readme]) {
+  for (const document of [readme, migration]) {
     assert.match(document, /Codex[\s\S]{0,120}Claude Code[\s\S]{0,180}agent-runtime-kit[\s\S]{0,80}nils-cli/i)
     assert.match(document, /DSH[\s\S]{0,180}dsh-runtime-kit[\s\S]{0,80}nils-cli/i)
+    assert.match(document, /native `headless` profile/i)
+    assert.doesNotMatch(document, /old repository is then archived\/read-only|Retire active agent-runtime-kit usage|will replace `agent-runtime-kit`/i)
   }
-  assert.match(plan, /Task 6\.2: Activate the local DSH profile reversibly/)
-  assert.match(plan, /Task 6\.3: Prove coexistence isolation and close dispatch/)
-  assert.match(state, /agent-runtime-kit remains active for Codex and Claude\s+Code/i)
-  assert.doesNotMatch(source, /old repository is then archived\/read-only/i)
-  assert.doesNotMatch(plan, /Retire active agent-runtime-kit usage/i)
-  assert.doesNotMatch(state, /Retire active old runtime/i)
-  assert.doesNotMatch(readme, /will replace `agent-runtime-kit`/i)
 })
 
 test('the package owns a DSH-only docs catalog and explicit isolated activation contract', () => {
@@ -161,7 +154,6 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
   const context = read('agent-docs/PROJECT_DEV_EDIT.md')
   const patch = read('cordis.patch.yml')
   const operations = read('docs/operations.md')
-  const plan = read('docs/plans/2026-08-18-dsh-runtime-kit-migration/dsh-runtime-kit-migration-plan.md')
 
   assert.ok(manifest.files.includes('agent-docs'))
   assert.match(catalog, /context = "project-dev"/)
@@ -189,5 +181,4 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
   assert.match(operations, /native `headless` profile/i)
   assert.match(operations, /link count[\s\S]{0,120}one/i)
   assert.match(operations, /Codex[\s\S]{0,120}Claude[\s\S]{0,180}(?:unchanged|untouched)/i)
-  assert.match(plan, /native `headless` profile/i)
 })
