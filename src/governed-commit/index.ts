@@ -319,7 +319,7 @@ export function createGovernedCommitTool(ctx: Context, config: {
 
   const definition: ToolDefinition = {
     name: 'runtime_kit_governed_commit',
-    description: 'Create one governed commit from the staged changes in this session-owned non-default managed worktree.',
+    description: 'Create one governed commit from the staged changes in the session cwd, a non-default managed worktree. It takes no repository path; for any other worktree, including one added during this session, run `semantic-commit commit --repo <absolute worktree path>` in Bash.',
     parameters: {
       type: 'object',
       properties: {

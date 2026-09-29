@@ -60,8 +60,10 @@ authoritative.
   session `artifact_*` tools, not hand-built scratch directories. Pass provider
   Markdown by file, never shell interpolation.
 - Use `git-cli worktree` for managed worktrees, `runtime_kit_governed_commit`
-  (backed by `semantic-commit`) for commits, and `forge-cli` for provider
-  records. Do not use raw commit, worktree, or PR creation paths.
+  (backed by `semantic-commit`) for commits in the session cwd, and `forge-cli`
+  for provider records. Commit in any other worktree with
+  `semantic-commit commit --repo <absolute worktree path>`. Do not use raw
+  commit, worktree, or PR creation paths.
 - Author tracked commits in a session-owned non-default managed worktree. Use
   a repository's supported default-branch path only with the user's explicit
   authorization for it; raw default-branch commits are refused. Never

@@ -40,6 +40,9 @@ test('the DSH home instructions keep the shared home rules and only DSH-native r
   ]) {
     assert.ok(home.includes(surface), `home instructions must name ${surface}`)
   }
+  // The governed commit tool is bound to the session cwd; other worktrees commit by path.
+  assert.match(home, /runtime_kit_governed_commit[^.]*session cwd/u)
+  assert.match(home, /semantic-commit commit --repo/u)
   for (const foreign of [
     /AGENT_DOCS\.toml/u,
     /intent-cards/u,
