@@ -125,7 +125,7 @@ async function run() {
 
   const objective = privateJson(join(root, 'objective.json'), {
     schema_version: 'main-agent.objective-packet.v1',
-    tier: 'L0',
+    tier: 'direct',
     objective_summary: 'exercise the dsh lane orchestration acceptance scenarios',
     objective: { goal: 'two isolated lanes, one review round, one closeout' },
     done_criteria: ['both lanes accepted', 'run closed'],
@@ -135,7 +135,7 @@ async function run() {
     work_context: {
       schema_version: 'agent-session.work-context-input.v1',
       intent: 'implementation',
-      tier: 'L0',
+      tier: 'direct',
       repositories: ['example/e2e'],
       summary: 'acceptance run for the dsh lane orchestration scenarios',
     },

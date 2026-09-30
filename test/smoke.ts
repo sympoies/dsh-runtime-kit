@@ -109,7 +109,7 @@ assert.equal(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.29.0')
-assert.equal(nilsCompatibility.validated_release, '1.30.2')
+assert.equal(nilsCompatibility.validated_release, '1.31.1')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -649,7 +649,7 @@ description = "packed native Main Agent lane"
   const closeoutFile = join(nativeRoot, 'closeout.json')
   writeFileSync(objectiveFile, `${JSON.stringify({
     schema_version: 'main-agent.objective-packet.v1',
-    tier: 'L0',
+    tier: 'direct',
     objective_summary: 'prove the packed native host workspace lane',
     objective: { goal: 'complete one reviewed native DSH lane' },
     done_criteria: ['lane accepted', 'run closed'],
@@ -659,7 +659,7 @@ description = "packed native Main Agent lane"
     work_context: {
       schema_version: 'agent-session.work-context-input.v1',
       intent: 'project-dev',
-      tier: 'L2',
+      tier: 'program',
       repositories: ['example/native-smoke'],
       summary: 'DSH project-dev session',
     },

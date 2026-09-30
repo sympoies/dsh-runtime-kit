@@ -18,7 +18,7 @@ const BASELINE_SCOPE_UNAVAILABLE = new Set([
   'uncovered-mutation-scope',
 ])
 const BASELINE_INTENT = 'project-dev'
-const BASELINE_TIER = 'program/plan'
+const BASELINE_TIER = 'program'
 const BASELINE_SUMMARY = 'DSH project-dev session'
 const AGENT_SESSION_BASENAME = 'agent-session'
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
