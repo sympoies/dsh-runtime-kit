@@ -38,10 +38,13 @@ export function createDshHistoryModuleResolver(profileRoot: string): DshHistoryM
   const scopes: Require[] = [profile]
   const installation = tryResolve(profile, '@deepseek-ai/dsh/package.json')
   if (installation !== undefined) scopes.push(createRequire(installation))
+  // Bundles are named by the profile and installed beside it or its DSH
+  // installation; one bundle's own dependencies never supply another bundle.
+  const bundleRoots: readonly Require[] = [...scopes]
   const bundles = manifest.dsh?.profile?.bundles
   for (const bundle of Array.isArray(bundles) ? bundles : []) {
     if (typeof bundle !== 'string') continue
-    const bundleManifest = scopes.slice(0, 2)
+    const bundleManifest = bundleRoots
       .map(scope => tryResolve(scope, `${bundle}/package.json`))
       .find(path => path !== undefined)
     if (bundleManifest !== undefined) scopes.push(createRequire(bundleManifest))

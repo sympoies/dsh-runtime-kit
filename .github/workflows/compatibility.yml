@@ -143,6 +143,11 @@ jobs:
           node "$GITHUB_WORKSPACE/dsh-runtime-kit/dist/scripts/digest-dsh-build-closure.js" \
             "$GITHUB_WORKSPACE/deepseek-harness" \
             > "$RUNNER_TEMP/pristine-dsh-build-closure.json"
+      - name: Read the v4 history fixture through the selected pristine DSH
+        working-directory: dsh-runtime-kit
+        env:
+          DSH_RUNTIME_KIT_HISTORY_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
+        run: node --test test/dsh-history-profile.test.ts
       - name: Check selected pristine DSH contract
         if: matrix.public_contract
         working-directory: dsh-runtime-kit

@@ -1,17 +1,34 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readdirSync, readFileSync } from 'node:fs'
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { DSH_HISTORY_PACKAGES } from '../dist/src/compat/dsh-history-adapter.js'
 import { createDshHistoryModuleResolver } from '../dist/src/compat/dsh-history-profile.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const HISTORY_BIN = join(ROOT, 'dist/bin/dsh-runtime-kit-history.js')
 const V4_FIXTURE = join(ROOT, 'test/fixtures/dsh-history-v4/sessions')
+const HISTORY_RUNTIME_PACKAGES = ['@deepseek-ai/cordis', ...DSH_HISTORY_PACKAGES]
+
+/** Whether the kit's own installation carries every package a history read loads. */
+function kitRelativeHistoryPackages(): boolean {
+  const require = createRequire(join(ROOT, 'package.json'))
+  return HISTORY_RUNTIME_PACKAGES.every(name => {
+    try {
+      require.resolve(`${name}/package.json`)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
 
 async function writePackage(dir: string, name: string, version: string) {
   const packageDir = join(dir, 'node_modules', ...name.split('/'))
@@ -64,6 +81,35 @@ test('resolves history packages from the profile, its DSH installation, and its 
   }
 })
 
+test('searches bundles only from the profile and its DSH installation', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-history-bundles-'))
+  try {
+    const profile = join(home, 'profile')
+    await mkdir(profile, { recursive: true })
+    await writeFile(join(profile, 'package.json'), JSON.stringify({
+      name: 'no-installation',
+      private: true,
+      dsh: { profile: { bundles: ['@fixture/bundle-a', '@fixture/bundle-b', '@fixture/bundle-nested'] } },
+    }))
+    const bundleA = await writePackage(profile, '@fixture/bundle-a', '1.0.0')
+    const bundleB = await writePackage(profile, '@fixture/bundle-b', '1.0.0')
+    await writePackage(bundleA, '@fixture/from-a', '1.0.0')
+    await writePackage(bundleB, '@fixture/from-b', '2.0.0')
+    // Reachable only through bundle-a's own dependencies, so it is not a bundle root.
+    const nested = await writePackage(bundleA, '@fixture/bundle-nested', '1.0.0')
+    await writePackage(nested, '@fixture/from-nested', '1.0.0')
+
+    const resolver = createDshHistoryModuleResolver(profile)
+    assert.equal(resolver.packageVersion('@fixture/from-a'), '1.0.0')
+    assert.equal(resolver.packageVersion('@fixture/from-b'), '2.0.0')
+    assert.equal(relative(profile, resolver.resolve('@fixture/from-b')),
+      join('node_modules/@fixture/bundle-b/node_modules/@fixture/from-b/index.js'))
+    assert.equal(resolver.packageVersion('@fixture/from-nested'), undefined)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
 test('refuses a relative or package-less profile root', async () => {
   assert.throws(() => createDshHistoryModuleResolver('profiles/workbench'), /profile root must be absolute/)
   const empty = await mkdtemp(join(tmpdir(), 'dsh-history-profile-empty-'))
@@ -106,6 +152,16 @@ test('refuses a retired DSH composition and a relative --profile-root', async ()
   }
 })
 
+test('a kit-relative read without the DSH history packages fails with no output', {
+  skip: kitRelativeHistoryPackages() && 'the kit installation carries the DSH history packages',
+}, () => {
+  for (const args of [['capabilities'], ['list', '--root', V4_FIXTURE, '--compression', 'zstd']]) {
+    const result = history(args)
+    assert.notEqual(result.status, 0)
+    assert.equal(result.stdout, '')
+  }
+})
+
 async function digestTree(root: string): Promise<string> {
   const hash = createHash('sha256')
   const walk = async (dir: string): Promise<void> => {
@@ -120,19 +176,66 @@ async function digestTree(root: string): Promise<string> {
   return hash.digest('hex')
 }
 
+/** Package directories of a built DSH source checkout, by package name. */
+function sourcePackages(sourceRoot: string): Map<string, string> {
+  const packages = new Map<string, string>()
+  const manifests = [
+    ...readdirSync(join(sourceRoot, 'packages')).flatMap(group => {
+      try {
+        return readdirSync(join(sourceRoot, 'packages', group)).map(name => join(sourceRoot, 'packages', group, name))
+      } catch {
+        return []
+      }
+    }),
+    ...readdirSync(join(sourceRoot, 'vendor')).map(name => join(sourceRoot, 'vendor', name)),
+  ]
+  for (const dir of manifests) {
+    try {
+      const { name } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name?: unknown }
+      if (typeof name === 'string') packages.set(name, dir)
+    } catch {
+      // Not a package directory.
+    }
+  }
+  return packages
+}
+
+/**
+ * A profile whose history packages link into a built DSH source checkout, so
+ * each package keeps resolving its own dependencies inside that workspace.
+ */
+async function linkSourceProfile(sourceRoot: string, into: string): Promise<string> {
+  const profile = join(into, 'source-profile')
+  await mkdir(join(profile, 'node_modules', '@deepseek-ai'), { recursive: true })
+  await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'dsh-history-source-profile', private: true }))
+  const packages = sourcePackages(sourceRoot)
+  for (const name of HISTORY_RUNTIME_PACKAGES) {
+    const dir = packages.get(name)
+    assert.ok(dir !== undefined, `the DSH source checkout has no ${name} package`)
+    await symlink(dir, join(profile, 'node_modules', ...name.split('/')), 'dir')
+  }
+  return profile
+}
+
 // The committed fixture was written by DSH's own JSONL backend (session format
-// v4, zstd). Reading it needs a real installed DSH profile, which the routine
-// gate does not stage; name one to run this row against it.
+// v4, zstd). The row reads it through, in order: an installed DSH profile, a
+// profile linked into a built DSH source checkout (the compatibility workflow
+// sets this for every selected release), or the kit's own installation. It
+// skips only when none of them carries the DSH history packages.
 const INSTALLED_PROFILE = process.env.DSH_RUNTIME_KIT_HISTORY_PROFILE_ROOT
-test('reads a DSH v4 session store read-only through an installed profile', {
-  skip: INSTALLED_PROFILE === undefined && 'set DSH_RUNTIME_KIT_HISTORY_PROFILE_ROOT to an installed DSH 0.1.7-rc.1 or 0.2.0-rc.2 profile',
+const SOURCE_ROOT = process.env.DSH_RUNTIME_KIT_HISTORY_SOURCE_ROOT
+test('reads a DSH v4 session store read-only', {
+  skip: INSTALLED_PROFILE === undefined && SOURCE_ROOT === undefined && !kitRelativeHistoryPackages()
+    && 'no DSH profile, built DSH source checkout, or kit installation carries the DSH history packages',
 }, async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'dsh-history-v4-'))
   try {
     const root = join(workspace, 'sessions')
     await cp(V4_FIXTURE, root, { recursive: true })
     const before = await digestTree(root)
-    const profileArgs = ['--profile-root', INSTALLED_PROFILE!]
+    const profileRoot = INSTALLED_PROFILE
+      ?? (SOURCE_ROOT === undefined ? undefined : await linkSourceProfile(SOURCE_ROOT, workspace))
+    const profileArgs = profileRoot === undefined ? [] : ['--profile-root', profileRoot]
 
     const listed = history(['list', '--root', root, '--compression', 'zstd', ...profileArgs])
     assert.equal(listed.status, 0, listed.stderr)

@@ -165,7 +165,17 @@ authenticated compatibility staging targets. Pass `--profile-root
 boots — its hoisted dependencies, its DSH installation, then its
 `dsh.profile.bundles`, which is where DSH carries the session persistence
 backend. Without it, the packages resolve from the installation that carries
-the runtime-kit copy.
+the runtime-kit copy, and an installation without them refuses every operation
+with no output.
+
+`agent-session` runs a profile's `dsh_history.command` with only
+`<operation> --root <dir> --compression <zstd|none>` and passes no
+`--profile-root`. A DSH composition therefore exposes its store to Agent Console
+through a composition-owned wrapper command that execs this adapter with
+`--profile-root` for its own profile; the DSH Workbench install provides it as
+its history face. Point `dsh_history.command` at that wrapper, not at this
+executable, unless the runtime-kit installation itself carries the DSH history
+packages.
 
 The adapter never creates, resumes, mutates, or deletes a DSH session; resuming
 one belongs to the DSH TUI and the session daemon. Callers must use absolute
