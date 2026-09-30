@@ -572,7 +572,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
   }, undefined, 2)}\n`
   if (path === 'main-agent-objective.json') return `${JSON.stringify({
     schema_version: 'main-agent.objective-packet.v1',
-    tier: 'L0',
+    tier: 'direct',
     objective_summary: `prove ${scenario} uses one native managed DSH lane`,
     objective: { goal: 'complete one isolated implementation assignment and close its lane' },
     done_criteria: [
@@ -587,7 +587,7 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
     work_context: {
       schema_version: 'agent-session.work-context-input.v1',
       intent: 'project-dev',
-      tier: 'L2',
+      tier: 'program',
       repositories: [mainAgent!.repository],
       summary: 'DSH project-dev session',
     },
