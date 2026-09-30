@@ -27,8 +27,6 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { parse as parseYaml } from 'yaml'
 
-import { agentConsoleRc7ProfileContract } from '../compat/agent-console.js'
-import { inspectDshTuiPristine } from '../compat/dsh-tui-pristine.js'
 import { inspectCanonicalPackageArtifact } from '../compat/package-artifact.js'
 import {
   assertProvenanceOutsideSources,
@@ -134,11 +132,6 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
 ))
-const DSH_TUI_PRISTINE = JSON.parse(readFileSync(
-  packageAsset('compatibility', 'dsh-tui-pristine.json'),
-  'utf8',
-))
-const AGENT_CONSOLE_CONTRACT = agentConsoleRc7ProfileContract()
 const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
 const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
 const SUPERVISOR_SETTLEMENT_MS = 7_000
@@ -1604,29 +1597,6 @@ function assertLifecycleCompatibility(lifecycle: ReturnType<typeof packageLifecy
   }
 }
 
-/**
- * Agent Console is promoted as one exact DSH/TUI/runtime-kit tuple. A DSH
- * release being generally reviewed is therefore insufficient for mutations of
- * its profile: the profile contract must have advanced to that exact revision
- * first. Headless profiles retain the rolling compatibility policy above.
- */
-function assertProfileToolchainCompatibility(profile: string, toolchain: ReturnType<typeof resolveToolchain>) {
-  if (profile !== AGENT_CONSOLE_CONTRACT.profile) return
-  if (toolchain.dsh.version === AGENT_CONSOLE_CONTRACT.dsh.version
-    && toolchain.dsh.source_revision === AGENT_CONSOLE_CONTRACT.dsh.revision) return
-  throw new OperationsError(
-    'agent-console-dsh-mismatch',
-    'Agent Console mutations require the exact DSH release in the reviewed profile contract',
-    65,
-    {
-      actual_version: toolchain.dsh.version,
-      actual_revision: toolchain.dsh.source_revision,
-      required_version: AGENT_CONSOLE_CONTRACT.dsh.version,
-      required_revision: AGENT_CONSOLE_CONTRACT.dsh.revision,
-    },
-  )
-}
-
 function packPackageSpec(packageSpec: string, cwd: string, npmBin: string, home: string) {
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-pack-'))
   try {
@@ -2115,7 +2085,6 @@ function assertTargetAgentHome(paths: ReturnType<typeof pathsFor>, target: unkno
 }
 
 function buildMutationPlan(operation: string, profile: string, paths: ReturnType<typeof pathsFor>, actual: ReturnType<typeof readActual>, stateRead: ReturnType<typeof readState>, requestedTarget: ReturnType<typeof resolveTarget> | null, runtimeRoot: string, toolchain: ReturnType<typeof resolveToolchain>) {
-  if (operation !== 'remove') assertProfileToolchainCompatibility(profile, toolchain)
   const state = stateRead.value
   if (stateRead.version === 1) {
     throw new OperationsError(
@@ -4064,39 +4033,6 @@ function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string
   }
 }
 
-/**
- * Pristine installed package state of the Agent Console TUI for this profile.
- *
- * The current Agent Console contract requires upstream-published TUI bytes.
- * Other profiles do not carry that exact package constraint.
- */
-function agentConsoleTuiDoctor(profile: string, paths: ReturnType<typeof pathsFor>) {
-  // Every branch carries the same identifying fields, so a consumer keying on
-  // `schema_version` never has to special-case the non-inspection outcomes.
-  const base = {
-    schema_version: 'dsh-runtime-kit.dsh-tui-pristine-inspection.v2',
-    package_name: AGENT_CONSOLE_CONTRACT.tui.package,
-    version: AGENT_CONSOLE_CONTRACT.tui.version,
-  }
-  if (profile !== AGENT_CONSOLE_CONTRACT.profile) {
-    return { ...base, ok: true, status: 'not-applicable' }
-  }
-  try {
-    return inspectDshTuiPristine({
-      packageRoot: join(paths.profileDir, 'node_modules', ...AGENT_CONSOLE_CONTRACT.tui.package.split('/')),
-      manifest: DSH_TUI_PRISTINE,
-    })
-  } catch {
-    // A malformed packaged manifest is a packaging defect, not an observation.
-    return {
-      ...base,
-      ok: false,
-      status: 'manifest-invalid',
-      error: 'the packaged DSH TUI pristine manifest is invalid',
-    }
-  }
-}
-
 function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook: ReturnType<typeof resolveAgentHookRuntime>, agentDocs: {agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}, dshBin: string, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
@@ -4127,7 +4063,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
         ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
         : { ok: false, error: activationInput.error },
       policy: { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null },
-      agent_console_tui: agentConsoleTuiDoctor(profile, paths),
       dsh,
     }
   }
@@ -4200,7 +4135,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     dsh.ok === true ? dsh.version : undefined,
   )
   const lifecycle = lifecycleDiagnostic(paths, profile, state, stateRead.version, actual, activationInput)
-  const agentConsoleTui = agentConsoleTuiDoctor(profile, paths)
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
@@ -4208,7 +4142,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     && docs.ok
     && activation.ok
     && dsh.ok
-    && agentConsoleTui.ok
     && lifecycle.error === undefined
   // A downgraded seam is visible, not failing: the profile is healthy, and the
   // advisory tells an operator (and acceptance) that this profile must not
@@ -4228,7 +4161,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     policy,
     agent_docs: docs,
     activation,
-    agent_console_tui: agentConsoleTui,
     dsh,
   }
 }
@@ -4703,9 +4635,6 @@ export function main(argv: string[] = process.argv.slice(2)) {
       if (!parsed.values.repair) {
         print(envelope(diagnostic, diagnostic.status === 'healthy'), format)
         return diagnostic.status === 'healthy' ? 0 : 65
-      }
-      if (profile === AGENT_CONSOLE_CONTRACT.profile) {
-        assertProfileToolchainCompatibility(profile, resolveToolchain(dshBin, home))
       }
       let planned
       try {

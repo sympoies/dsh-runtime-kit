@@ -130,9 +130,8 @@ record the public link beside that patch in its manifest `upstream_reference`
 field. The link is the removal signal: once the fix is released and the supported
 version has moved, remove the patch through its normal authenticated lifecycle.
 
-Both `compatibility/dsh-patches.json` and `compatibility/dsh-tui-patches.json`
-accept the field on their patch entry. A patch with no upstream counterpart
-records only its state:
+`compatibility/dsh-patches.json` accepts the field on its patch entry. A patch
+with no upstream counterpart records only its state:
 
 ```json
 "upstream_reference": {

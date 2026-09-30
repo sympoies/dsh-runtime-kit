@@ -217,10 +217,6 @@ Verify the installed state and composed layer before running a task:
 the pinned DSH release, and healthy authenticated companion/document probes.
 The dumped composition must contain a non-empty runtime-kit bundle layer.
 
-For Agent Console, prepare its named profile through the same setup and doctor
-sequence, then give that profile to the driver. The result contract is the same;
-only the DSH front door changes.
-
 ## Drive one or more tasks
 
 Select only scenarios whose declared `folder_kind` matches the explicit

@@ -954,11 +954,7 @@ function nilsIdentity(name: 'agent-hook' | 'agent-docs', path: string | undefine
  * tells an operator the report could not be produced rather than what is wrong.
  */
 export function healthCode(doctor: JsonRecord | undefined, identities: JsonRecord) {
-  // `agent_console_tui` belongs in this list: it is the only check that can be
-  // the sole failing conjunct in an otherwise healthy profile, so omitting it
-  // would classify a reverted TUI repair as `doctor-unavailable` and send the
-  // operator after an unrelated companion.
-  for (const name of ['agent_hook', 'agent_docs', 'activation', 'dsh', 'lifecycle', 'agent_console_tui']) {
+  for (const name of ['agent_hook', 'agent_docs', 'activation', 'dsh', 'lifecycle']) {
     const part = record(doctor?.[name])
     if (part?.ok === false || typeof part?.error === 'string') {
       if ((name === 'agent_hook' || name === 'agent_docs')

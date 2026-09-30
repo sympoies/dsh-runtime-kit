@@ -6,14 +6,12 @@ adds governed development workflows, selective project context, specialist
 review, and safe lifecycle operations through Cordis and DSH extension
 interfaces plus reviewed, version-scoped downstream patches.
 
-The package is a DSH bundle plus exact DSH source and installed-TUI package
-patches, not a fork or copied preset. The DSH patch is maintained here; the TUI
-patch remains only until its separately tracked upstream repair is released.
-DSH uses
-dsh-runtime-kit plus [nils-cli](https://github.com/sympoies/nils-cli), while
-Codex and Claude Code continue to use agent-runtime-kit plus nils-cli and are
-not modified by DSH activation. DSH continues to own the agent loop, sessions,
-tools, sandbox, approvals, skills, and subagents.
+The package is a DSH bundle plus exact, reviewed DSH source patches, not a fork
+or copied preset. DSH uses dsh-runtime-kit plus
+[nils-cli](https://github.com/sympoies/nils-cli), while Codex and Claude Code
+continue to use agent-runtime-kit plus nils-cli and are not modified by DSH
+activation. DSH continues to own the agent loop, sessions, tools, sandbox,
+approvals, skills, and subagents.
 
 For repository maintenance, start with
 [`DEVELOPMENT.md`](DEVELOPMENT.md). Detailed build, package, patch, smoke,
@@ -91,7 +89,6 @@ compatibility, acceptance, and delivery procedures are in the
 | Dependency | Supported version |
 | --- | --- |
 | DeepSeek Harness (generic/headless) | `0.1.6-alpha.2` or `0.1.7-rc.1` |
-| Agent Console candidate | DSH `0.1.6-alpha.2` + pristine dsh-TUI `0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
 | nils-cli | `1.29.0` minimum; exactly validated through `1.31.1` |
@@ -143,54 +140,14 @@ its authenticated patch.
 
 ## Install and activate
 
-The candidate package supports the native `headless` profile on either retained
-generic DSH release, `0.1.6-alpha.2` or `0.1.7-rc.1`. Its Agent Console
-contract targets DSH `0.1.6-alpha.2` and pristine dsh-TUI `0.10.2`. The
-currently deployed Agent Console remains on its earlier generation:
+The package supports the native `headless` profile on either retained generic
+DSH release, `0.1.6-alpha.2` or `0.1.7-rc.1`. Unknown profile names contain
+only the base bundle; they are not equivalent to `headless`.
 
-- DSH `0.1.2-rc.1` and Agent Console's `dsh-tui` profile with
-  `@deepseek-ai/dsh-base`,
-  `@deepseek-harness-tui/dsh-tui@0.10.1`, then
-  `@sympoies/dsh-runtime-kit` revision
-  `481f521f561b065ca8ec05da59be6415b837f75b` in that order.
-
-Do not install this candidate artifact into the deployed Agent Console generation: its
-generic peer window no longer includes DSH `0.1.2-rc.1`. Generic DSH admission
-does not promote Agent Console. Before `setup`, `update`, `rollback`, or
-`doctor --repair` may mutate `dsh-tui`, runtime-kit also requires the running
-DSH version and source revision to match the exact Agent Console contract. A
-Agent Console deployment must validate and replace its DSH, TUI, runtime-kit
-artifact, profile, and configuration as one independently rollbackable
-generation.
-
-Unknown profile names contain only the base bundle. They are neither equivalent
-to `headless` nor accepted as Agent Console profiles. The machine-readable
-Agent Console boundary is
-[`compatibility/agent-console.json`](compatibility/agent-console.json).
-With pnpm 11, the Agent Console provisioner must use the adjacent
-[`compatibility/agent-console-pnpm-workspace.yaml`](compatibility/agent-console-pnpm-workspace.yaml)
-installation contract before installing the TUI. It preserves DSH's native
-profile linker and peer settings while recording the TUI release's explicit
-`false` lifecycle decisions. Those package-install decisions do not restrict
-the agent's host CLI or `PATH`.
-
-The candidate profile composes base, the consumer-owned compatibility bundle,
-the authenticated 0.10.2 archive, and runtime-kit in that order. The
-compatibility bundle supplies a disabled legacy row needed by TUI's unchanged
-Cordis patch; the profile's own patch disables TUI's obsolete code-runtime row.
-Check the installed TUI against `compatibility/dsh-tui-pristine.json` after the
-profile is complete. Before every TUI launch, restrict retained history data:
-
-```sh
-dsh-runtime-kit-tui-history
-```
-
-The preflight keeps the TUI package byte-for-byte pristine. It restricts
-owner-owned legacy history directories and files to 0700/0600 before the TUI
-reads them, preserves content, and refuses symlinked or foreign-owned paths.
-The published TUI still displays its unverified-DSH-version warning because its
-peer declaration ends before 0.1.6; deployment requires functional evidence
-for this exact pair.
+Runtime-kit does not compose a TUI profile. Agent Console DSH sessions use the
+separately released DSH Workbench (`sympoies/dsh-workbench`), which pins exact
+DSH, dsh-TUI, and runtime-kit revisions in one reviewed contract and validates
+and rolls them back as one generation.
 
 ### Agent Console history adapter
 
@@ -258,20 +215,9 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh --profile headless "run the requested task"
 ```
 
-For Agent Console, first let its provisioner create the exact `dsh-tui`
-base/TUI profile, then run the same preview/apply/doctor sequence with
-`--profile dsh-tui`. Launch the TUI through the owner launcher:
-
-```sh
-dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
-  dsh-tui
-```
-
-That composition retains the TUI's `userQuestions` interaction service and
-adds runtime-kit tools, skills, and `mainAgentOrchestration`. With no reviewed
-worker override, Main Agent workers inherit the live controller route; an Agent
-Console controller on `codex-subscription/gpt-6-sol` therefore launches Sol workers.
-Runtime-kit adds only its own Cordis row: the host remains responsible for an
+The installed bundle adds runtime-kit tools, skills, and
+`mainAgentOrchestration`. With no reviewed worker override, Main Agent workers
+inherit the live controller route. Runtime-kit adds only its own Cordis row: the host remains responsible for an
 explicit `DSH_PERMISSION_MODE`, the matching approval policy, and environment-
 name credential references.
 

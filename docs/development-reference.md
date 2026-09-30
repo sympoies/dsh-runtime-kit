@@ -9,9 +9,8 @@ the declared validation gate live in the root
 This reference documents the public, out-of-tree Sympoies runtime layer for
 DeepSeek Harness. Changes use public Cordis and DSH interfaces by default. The
 sole source-level exception is the reviewed, version-scoped patch owned by
-`compatibility/dsh-patches.json`. The Agent Console 0.1.6 candidate keeps the
-published TUI package pristine, with a consumer-owned compatibility bundle and
-history preflight. Neither boundary is a fork or vendored upstream source.
+`compatibility/dsh-patches.json`. That boundary is not a fork or vendored
+upstream source.
 
 ## Prerequisites
 
@@ -22,10 +21,7 @@ history preflight. Neither boundary is a fork or vendored upstream source.
   host default; `.npmrc` sets `engine-strict` and the acceptance runner refuses
   older Node outright.
 - A pristine DeepSeek Harness `0.1.6-alpha.2` or `0.1.7-rc.1` source
-  checkout for generic compatibility, patch, and packed smoke validation. The
-  running Agent Console generation remains bound to the exact DSH and prior
-  runtime-kit artifact recorded by its deployment. The candidate smoke also
-  exercises the DSH `0.1.6-alpha.2` / pristine TUI `0.10.2` tuple.
+  checkout for generic compatibility, patch, and packed smoke validation.
 - A released nils-cli version accepted by
   [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) when
   exercising the real policy, agent-docs, Git, review, or delivery boundaries.
@@ -74,10 +70,9 @@ the source-of-truth list below; they are not automatic model context.
 
 - `package.json` owns package entrypoints, supported Node versions, scripts,
   bundled files, and the closed DSH/Cordis peer ranges.
-- `compatibility/dsh.json`, `compatibility/dsh-patches.json`,
-  `compatibility/dsh-tui-patches.json`, and `compatibility/nils-cli.json` own
-  the validated upstream revisions, released nils artifacts, public export
-  surface, and promotion budgets.
+- `compatibility/dsh.json`, `compatibility/dsh-patches.json`, and
+  `compatibility/nils-cli.json` own the validated upstream revisions, released
+  nils artifacts, public export surface, and promotion budgets.
 - `policy/rule-parity.yaml` owns the frozen public source inventory.
 - `policy/runtime-rule-parity.yaml` owns the current migration projection. It
   does not create a JavaScript policy engine or make a capability executable.
@@ -91,8 +86,8 @@ the source-of-truth list below; they are not automatic model context.
 - `docs/test-first-evidence.md` and `docs/devlog/` retain evidence and history;
   they do not override current code, manifests, or normative documentation.
 
-Keep DSH/TUI-version-specific adaptation isolated under `src/compat/`,
-`patches/deepseek-harness/`, and `patches/dsh-tui/`. Rules that
+Keep DSH-version-specific adaptation isolated under `src/compat/` and
+`patches/deepseek-harness/`. Rules that
 belong to the shared deterministic policy boundary must be implemented in
 nils-cli rather than duplicated in this package.
 
@@ -265,23 +260,6 @@ and overlapping mutation in two linked worktrees:
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
 npm run test:workspace-lease-native-smoke
-```
-
-The exact Agent Console smoke exercises this candidate's DSH 0.1.6 / pristine
-TUI 0.10.2 tuple. The TUI peer declaration does not yet name 0.1.6, so the
-test supplies functional evidence for the accepted warning. The smoke composes
-base + consumer compatibility + TUI + runtime-kit, verifies the complete
-published TUI file tree, and runs the consumer-owned history preflight. It
-disables only the interactive front door in its test overlay, and boots the
-real selected runtime to prove `userQuestions`,
-runtime-kit tools/skills, and Main Agent service together:
-
-```sh
-DSH_SOURCE_ROOT=/path/to/deepseek-harness \
-AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
-AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
-DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE='<contract-pinned released specifier>' \
-npm run test:smoke
 ```
 
 The smoke must not contact or mutate an external provider. It may create

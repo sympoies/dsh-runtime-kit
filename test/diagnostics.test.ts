@@ -143,11 +143,7 @@ test('typed governed commit rejection outranks a follow-up finish-line stop', ()
   assert.equal(outcome.receipt, 'session.typed_errors[0]')
 })
 
-test('a reverted Agent Console TUI repair is classified as itself, not as an unavailable doctor', () => {
-  // The designed-for case: a profile mutation reverted the TUI repair and every
-  // other check is healthy. If `agent_console_tui` were absent from the
-  // enumerated set, this would fall through to `doctor-unavailable` and tell the
-  // operator to repair an unrelated companion or activation.
+test('a sole failing doctor check is classified as itself, not as an unavailable doctor', () => {
   const healthy = { ok: true }
   const doctor = {
     status: 'needs-attention',
@@ -155,27 +151,10 @@ test('a reverted Agent Console TUI repair is classified as itself, not as an una
     agent_docs: healthy,
     activation: healthy,
     dsh: healthy,
-    lifecycle: {},
-    agent_console_tui: {
-      ok: false,
-      status: 'pristine',
-      error: 'the reviewed repair is not applied to the installed package',
-    },
+    lifecycle: { error: 'declared lifecycle is invalid' },
   }
-  assert.equal(healthCode(doctor, {}), 'agent-console-tui-unhealthy')
-
-  const outcome = classifySessionOutcome({
-    doctor_status: 'needs-attention',
-    doctor_code: healthCode(doctor, {}),
-    exit_code: 65,
-  })
-  assert.notEqual(outcome.code, 'doctor-unavailable')
-
-  // A healthy TUI repair must not manufacture a code.
-  assert.equal(
-    healthCode({ ...doctor, agent_console_tui: { ok: true, status: 'patched' } }, {}),
-    undefined,
-  )
+  assert.equal(healthCode(doctor, {}), 'lifecycle-unhealthy')
+  assert.equal(healthCode({ ...doctor, lifecycle: {} }, {}), undefined)
 })
 
 test('pre-model runtime-health failure keeps its allowlisted typed code', () => {
