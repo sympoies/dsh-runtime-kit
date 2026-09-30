@@ -1,8 +1,8 @@
 # Repository policy
 
 This repository owns the public, out-of-tree Sympoies runtime layer for
-DeepSeek Harness (DSH). `CLAUDE.md` imports this file so every supported agent
-uses the same repository policy.
+DeepSeek Harness (DSH). Every supported agent, including Claude Code, reads
+this file natively as the repository policy.
 
 ## Invariants
 

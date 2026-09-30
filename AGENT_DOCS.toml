@@ -69,5 +69,5 @@ description = "Run the complete routine repository gate once for the final candi
 [path_classes]
 production = ["AGENT_DOCS.toml", ".github/workflows/compatibility.yml", "package.json", "package-lock.json", "index.ts", "policy.ts", "tsconfig.json", "cordis.patch.yml", ".agents/**", "bin/**", "src/**", "scripts/**", "policy/**", "compatibility/**", "patches/**", "agent-docs/**", "agents/**", "skills/**"]
 test = ["test/**"]
-docs = ["AGENTS.md", "CLAUDE.md", "PROJECT_DEV_EDIT.md", "README.md", "DEVELOPMENT.md", "LICENSE", "docs/**"]
+docs = ["AGENTS.md", "PROJECT_DEV_EDIT.md", "README.md", "DEVELOPMENT.md", "LICENSE", "docs/**"]
 unmatched = "unknown"

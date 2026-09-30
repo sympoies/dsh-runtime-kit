@@ -398,7 +398,7 @@ test('repository agent-docs semantic smoke is wired to the documented product en
     'utf8',
   )
 
-  assert.equal(readFileSync(join(projectRoot, 'CLAUDE.md'), 'utf8'), '@AGENTS.md\n')
+  assert.equal(existsSync(join(projectRoot, 'CLAUDE.md')), false)
   assert.doesNotMatch(contributorEditContract, /DeepSeek|\bDSH\b|DSH runtime/iu)
   assert.equal(
     packageManifest.scripts['test:agent-docs-catalog'],
@@ -412,8 +412,7 @@ test('repository agent-docs semantic smoke is wired to the documented product en
   assert.match(development, /--phase edit[\s\\]+\n\s+--strict --require-declared-intent/u)
   assert.match(development, /docs\/development-reference\.md/u)
   assert.match(developmentReference, /Two catalogs intentionally coexist\./u)
-  assert.match(developmentReference, /\| Harness \| `AGENTS\.md` \| Codex, Hermes, DSH/u)
-  assert.match(developmentReference, /\| Harness \| `CLAUDE\.md` → `@AGENTS\.md` \| Claude/u)
+  assert.match(developmentReference, /\| Harness \| `AGENTS\.md` \| Codex, Claude, Hermes, DSH/u)
   assert.match(
     developmentReference,
     /\| Root catalog \| `PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,

@@ -33,7 +33,7 @@ npm ci --ignore-scripts
 ```
 
 Before editing, load the repository policy through the product-native entrypoint
-(`AGENTS.md`, or Claude's `CLAUDE.md` import) and run the declared edit-phase
+(`AGENTS.md`) and run the declared edit-phase
 preflight. `--require-declared-intent` prevents a missing or undiscovered root
 catalog from passing as an empty success:
 
@@ -50,12 +50,11 @@ repository contributor routing and must not be copied over the root catalog.
 
 | Owner | Document | Products | Intent / phase | Required | Load timing |
 | --- | --- | --- | --- | --- | --- |
-| Harness | `AGENTS.md` | Codex, Hermes, DSH | session policy | yes | Loaded by each harness at session start; it is deliberately not duplicated in either catalog. |
-| Harness | `CLAUDE.md` → `@AGENTS.md` | Claude | session policy | yes | Claude loads its native project entrypoint at session start, which imports the complete repository policy from `AGENTS.md`; neither file is duplicated in a catalog. |
+| Harness | `AGENTS.md` | Codex, Claude, Hermes, DSH | session policy | yes | Loaded by each harness at session start; it is deliberately not duplicated in either catalog. |
 | Root catalog | `PROJECT_DEV_EDIT.md` | Codex, Claude, Hermes | `project-dev` / `edit` | yes | Loaded on every repository edit preflight as the runtime-neutral compact contributor contract. |
 | Root catalog | `docs/development-testing.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | yes | Mandatory ordered validation, receipt, owner-routing, and self-improvement contract for runtime-kit development. |
 | Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Concise routine maintenance principles, validation, and reference routing; it is not mandatory prompt context. |
-| Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`, imported by Claude through `CLAUDE.md`) makes reading it mandatory before proposing work outside this repository. |
+| Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`) makes reading it mandatory before proposing work outside this repository. |
 | Packaged DSH catalog | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Loaded from the activated DSH home catalog. DSH is excluded from the root document entries so it never receives a duplicate copy. |
 | Packaged DSH home | kit-managed `<dshHome>/AGENTS.md` (source: `agent-home/AGENTS.md`) | DSH | session policy | yes | DSH's native instruction loader reads it at session start in every composition. It is home-scope runtime policy for DSH sessions, not repository contributor policy, and is in neither catalog. |
 

@@ -12,7 +12,6 @@ the project-local `project-runtime-development` skill.
 ## Before editing
 
 - Read [`AGENTS.md`](AGENTS.md), the canonical repository policy.
-  [`CLAUDE.md`](CLAUDE.md) imports it for Claude Code.
 - Load the required compact edit contract and declared validation:
 
   ```sh
