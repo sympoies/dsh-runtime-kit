@@ -90,7 +90,7 @@ for (const product of ['codex', 'claude', 'hermes']) {
   }
 }
 
-assert.equal(readFileSync(join(projectRoot, 'CLAUDE.md'), 'utf8'), '@AGENTS.md\n')
+assert.equal(existsSync(join(projectRoot, 'CLAUDE.md')), false)
 assert.doesNotMatch(
   readFileSync(join(projectRoot, 'PROJECT_DEV_EDIT.md'), 'utf8'),
   /DeepSeek|\bDSH\b|DSH runtime/iu,
