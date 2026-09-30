@@ -117,7 +117,7 @@ const LEGACY_LIFECYCLE_MANIFEST = Object.freeze({
   activation_assets: LEGACY_ACTIVATION_ASSETS,
 })
 
-const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.6-alpha.2', '0.1.7-rc.1']
+const DEFAULT_FIXTURE_DSH_RELEASES = ['0.1.7-rc.1', '0.2.0-rc.2']
 
 function stageBundle(root, version, options = {}) {
   const dir = join(root, `bundle-${version}`)
@@ -137,7 +137,7 @@ function stageBundle(root, version, options = {}) {
         (options.dshReleases ?? DEFAULT_FIXTURE_DSH_RELEASES).map(release => [release, {
           ref: `refs/tags/dsh-v${release}`,
           revision: 'a'.repeat(40),
-          cordis: release === '0.1.7-rc.1' ? '4.0.4' : '4.0.2',
+          cordis: '4.0.4',
         }]),
       ),
       retired_operations_toolchains: {
@@ -299,7 +299,7 @@ function normalizeExecutableModes(root) {
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  console.log('0.1.6-alpha.2')
+  console.log('0.1.7-rc.1')
   process.exit(0)
 }
 const home = process.env.DSH_HOME
@@ -1265,10 +1265,10 @@ test('operations bind toolchain and activate the exact versioned policy and docs
   try {
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
     assert.equal(setup.preview.plan.runtime_root, realpathSync(subject.runtimeRoot))
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.6-alpha.2')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.7-rc.1')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      'ddefc45fbc7f8e46dd73185e68295696d1297887',
+      '46a7f68b0922371ce7144b668b90e377d8e799f4',
     )
     assert.match(setup.preview.plan.toolchain.dsh.executable_sha256, /^[a-f0-9]{64}$/)
     assert.match(setup.preview.plan.toolchain.pnpm.executable_sha256, /^[a-f0-9]{64}$/)
@@ -1534,24 +1534,24 @@ test('a package must ship exactly the DSH home instructions its lifecycle declar
   }
 })
 
-test('operations bind the exact reviewed DSH 0.1.7-rc.1 toolchain identity', () => {
+test('operations bind the exact reviewed DSH 0.2.0-rc.2 toolchain identity', () => {
   const subject = fixture()
   try {
     const source = readFileSync(subject.dsh, 'utf8')
-    assert.match(source, /console\.log\('0\.1\.6-alpha\.2'\)/)
+    assert.match(source, /console\.log\('0\.1\.7-rc\.1'\)/)
     writeFileSync(subject.dsh, source.replace(
-      "console.log('0.1.6-alpha.2')",
       "console.log('0.1.7-rc.1')",
+      "console.log('0.2.0-rc.2')",
     ))
     chmodSync(subject.dsh, 0o755)
 
     const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.1.7-rc.1')
+    assert.equal(setup.preview.plan.toolchain.dsh.version, '0.2.0-rc.2')
     assert.equal(
       setup.preview.plan.toolchain.dsh.source_revision,
-      '46a7f68b0922371ce7144b668b90e377d8e799f4',
+      '639ed015397290b3745d163aafe02ffee4aa3f84',
     )
-    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.1.7-rc.1')
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.dsh.version, '0.2.0-rc.2')
   } finally {
     subject.cleanup()
   }
@@ -1560,7 +1560,7 @@ test('operations bind the exact reviewed DSH 0.1.7-rc.1 toolchain identity', () 
   try {
     const source = readFileSync(retired.dsh, 'utf8')
     writeFileSync(retired.dsh, source.replace(
-      "console.log('0.1.6-alpha.2')",
+      "console.log('0.1.7-rc.1')",
       "console.log('0.1.5-alpha.2')",
     ))
     chmodSync(retired.dsh, 0o755)
@@ -1587,7 +1587,7 @@ test('update reads only an explicitly retired predecessor toolchain receipt', ()
     const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
     assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
     assert.equal(preview.value.data.plan.action, 'update')
-    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.6-alpha.2')
+    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.7-rc.1')
 
     const unknown = structuredClone(predecessor)
     unknown.last_applied.plan.toolchain.dsh.source_revision = 'f'.repeat(40)
@@ -1607,11 +1607,11 @@ test('update reads only an explicitly retired predecessor toolchain receipt', ()
     assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
     const transitioned = JSON.parse(readFileSync(statePath, 'utf8'))
     assert.equal(transitioned.current.installed_version, '2.0.0')
-    assert.equal(transitioned.last_applied.plan.toolchain.dsh.version, '0.1.6-alpha.2')
+    assert.equal(transitioned.last_applied.plan.toolchain.dsh.version, '0.1.7-rc.1')
 
     const dshSource = readFileSync(subject.dsh, 'utf8')
     writeFileSync(subject.dsh, dshSource.replace(
-      "console.log('0.1.6-alpha.2')",
+      "console.log('0.1.7-rc.1')",
       "console.log('0.1.2-rc.1')",
     ))
     chmodSync(subject.dsh, 0o755)
@@ -1651,8 +1651,8 @@ test('a dsh-tui profile follows the rolling reviewed DSH window like any other p
   try {
     const source = readFileSync(subject.dsh, 'utf8')
     writeFileSync(subject.dsh, source.replace(
-      "console.log('0.1.6-alpha.2')",
       "console.log('0.1.7-rc.1')",
+      "console.log('0.2.0-rc.2')",
     ))
     chmodSync(subject.dsh, 0o755)
 
@@ -1661,7 +1661,7 @@ test('a dsh-tui profile follows the rolling reviewed DSH window like any other p
     ])
     assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
     assert.equal(preview.value.data.mode, 'dry-run')
-    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.7-rc.1')
+    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.2.0-rc.2')
   } finally {
     subject.cleanup()
   }
@@ -2739,7 +2739,7 @@ test('doctor requires the validated nils release for every reviewed DSH row', ()
   try {
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.1.6-alpha.2\\n')
+process.stdout.write('0.1.7-rc.1\\n')
 `)
     chmodSync(subject.dsh, 0o755)
 
@@ -2752,7 +2752,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const oldNils = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(oldNils.status, 65, oldNils.stderr)
     assert.equal(oldNils.value.data.status, 'needs-attention')
-    assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: '0.1.6-alpha.2' })
+    assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: '0.1.7-rc.1' })
     assert.equal(oldNils.value.data.agent_docs.ok, false)
     assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.31\.1/)
 
@@ -2779,7 +2779,7 @@ process.stdout.write('agent-docs 1.29.0 (v1.29.0, test)\\n')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.1.7-rc.1\\n')
+process.stdout.write('0.2.0-rc.2\\n')
 `)
     chmodSync(subject.dsh, 0o755)
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
@@ -2790,7 +2790,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const retained = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(retained.status, 65, retained.stderr)
     assert.equal(retained.value.data.status, 'needs-attention')
-    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.1.7-rc.1' })
+    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.2.0-rc.2' })
     assert.equal(retained.value.data.agent_docs.ok, false)
     assert.match(retained.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.31\.1/)
   } finally {
@@ -4007,7 +4007,7 @@ test('subprocesses receive a minimal environment and child stderr cannot echo se
     const hostile = join(subject.root, 'hostile-dsh.mjs')
     writeFileSync(hostile, `#!/usr/bin/env node
 if (process.argv[2] === '--version') {
-  process.stdout.write('0.1.6-alpha.2\\n')
+  process.stdout.write('0.1.7-rc.1\\n')
   process.exit(0)
 }
 const sentinel = process.env.RUNTIME_KIT_SECRET_SENTINEL ?? '<absent>'
@@ -4061,7 +4061,7 @@ import { spawnSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  process.stdout.write('0.1.6-alpha.2\\n')
+  process.stdout.write('0.1.7-rc.1\\n')
   process.exit(0)
 }
 const observed = {
@@ -4125,7 +4125,7 @@ test('the published package declares its profile lifecycle without install-time 
   const dshCompatibility = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'dsh.json'), 'utf8'))
   assert.deepEqual(
     Object.keys(dshCompatibility.validated_releases).sort(),
-    ['0.1.6-alpha.2', '0.1.7-rc.1'],
+    ['0.1.7-rc.1', '0.2.0-rc.2'],
   )
 })
 
@@ -4152,7 +4152,7 @@ test('reviewed plans bind the declared lifecycle and refuse a package whose decl
     assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
     assert.equal(rejected.value.error.code, 'package-incompatible-dsh')
     assert.deepEqual(rejected.value.error.details, {
-      dsh_version: '0.1.6-alpha.2',
+      dsh_version: '0.1.7-rc.1',
       declared_dsh_releases: ['0.1.1-rc.2'],
     })
     assert.deepEqual(readFileSync(join(subject.profileDir, 'package.json')), manifestBefore)
@@ -4525,7 +4525,7 @@ test('recovery finalization repeats the health probes and re-checks the bound to
     // another release this engine reviews, so the declared compatibility
     // recorded at preview cannot be bypassed by finalization.
     const source = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.7-rc.1')"))
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.7-rc.1')", "console.log('0.2.0-rc.2')"))
     chmodSync(subject.dsh, 0o755)
     const drifted = run(subject, [
       'doctor', '--profile', 'work', '--repair', '--apply',
@@ -4663,12 +4663,12 @@ test('doctor reports every declared owned and generated surface', () => {
 test('a rollback plan binds the lifecycle declared by the retained prior artifact', () => {
   const subject = fixture()
   try {
-    const narrow = stageBundle(subject.root, '1.0.1', { dshReleases: ['0.1.6-alpha.2'] })
+    const narrow = stageBundle(subject.root, '1.0.1', { dshReleases: ['0.1.7-rc.1'] })
     applyPlan(subject, ['setup', '--profile', 'work', '--package', narrow])
     applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
     const rollback = run(subject, ['rollback', '--profile', 'work'])
     assert.equal(rollback.status, 0, rollback.stderr)
-    assert.deepEqual(rollback.value.data.plan.lifecycle.dsh_releases, ['0.1.6-alpha.2'])
+    assert.deepEqual(rollback.value.data.plan.lifecycle.dsh_releases, ['0.1.7-rc.1'])
     assert.equal(
       rollback.value.data.plan.lifecycle.sha256,
       sha256(readFileSync(join(narrow, 'compatibility', 'profile-lifecycle.json'))),
@@ -4676,7 +4676,7 @@ test('a rollback plan binds the lifecycle declared by the retained prior artifac
 
     // A host the prior package never declared refuses rollback at preview.
     const source = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, source.replace("console.log('0.1.6-alpha.2')", "console.log('0.1.7-rc.1')"))
+    writeFileSync(subject.dsh, source.replace("console.log('0.1.7-rc.1')", "console.log('0.2.0-rc.2')"))
     chmodSync(subject.dsh, 0o755)
     const refused = run(subject, ['rollback', '--profile', 'work'])
     assert.equal(refused.status, 65, `${refused.stdout}\n${refused.stderr}`)

@@ -540,7 +540,7 @@ test('the process supervisor outlives the canary-wide execution deadline', async
 test('authoritative acceptance selects the release-matched DSH host launcher', () => {
   const args = ['--profile', 'authoritative-unpatched']
   assert.deepEqual(authoritativeDshInvocation({
-    dshVersion: '0.1.6-alpha.2',
+    dshVersion: '0.1.7-rc.1',
     nodeBin: '/trusted/node',
     dshBin: '/reviewed/apps/cli/lib/bin.js',
     pnpmBin: '/trusted/pnpm',
@@ -550,7 +550,7 @@ test('authoritative acceptance selects the release-matched DSH host launcher', (
     args: ['/reviewed/apps/cli/lib/bin.js', ...args],
   })
   assert.deepEqual(authoritativeDshInvocation({
-    dshVersion: '0.1.7-rc.1',
+    dshVersion: '0.2.0-rc.2',
     nodeBin: '/trusted/node',
     dshBin: '/reviewed/apps/cli/lib/bin.js',
     pnpmBin: '/trusted/pnpm',

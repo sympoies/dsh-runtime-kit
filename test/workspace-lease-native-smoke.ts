@@ -322,7 +322,6 @@ function sessionEvents(session) {
 }
 
 const marker = ${JSON.stringify(marker)}
-const v4Session = ${dshManifest.version === '0.1.7-rc.1'}
 const root = process.env.DSH_WORKSPACE_LEASE_NATIVE_ROOT
 const linked = process.env.DSH_WORKSPACE_LEASE_NATIVE_LINKED
 const dirty = process.env.DSH_WORKSPACE_LEASE_NATIVE_DIRTY
@@ -614,9 +613,7 @@ export function apply(ctx) {
           && event.data.message.source.callId === 'workspace-native-dirty-goal')
       dirtyGoalResult = {
         tool_succeeded: goalEvent?.type === 'tool/result'
-          && (v4Session
-            ? goalEvent.data.message.isError === false
-            : goalEvent.data.message.content[0]?.isError === false),
+          && goalEvent.data.message.isError === false,
         goal: goal === undefined ? null : {
           objective: goal.objective,
           phase: goal.phase,
@@ -748,9 +745,7 @@ export function apply(ctx) {
           && event.data.message.source.callId === 'workspace-native-approved-takeover')
       approvedTakeoverResult = {
         tool_succeeded: takeoverEvent?.type === 'tool/result'
-          && (v4Session
-            ? takeoverEvent.data.message.isError === false
-            : takeoverEvent.data.message.content[0]?.isError === false),
+          && takeoverEvent.data.message.isError === false,
         prompts: approvedTakeoverPrompts,
         approvalPolicy: sessionEvents(liveSuccessor.agent.session)
           .findLast(event => event.type === 'approval/policy')?.data.policy,
@@ -804,9 +799,7 @@ export function apply(ctx) {
   })()
 }
 `, { mode: 0o600 })
-  const permissionPresetOverlay = dshManifest.version === '0.1.7-rc.1'
-    ? '- id: permission\n  config:\n    defaultPreset: danger-full-access\n'
-    : ''
+  const permissionPresetOverlay = '- id: permission\n  config:\n    defaultPreset: danger-full-access\n'
   writeFileSync(overlayPath, `
 - id: dsh-runtime-kit
   disabled: true

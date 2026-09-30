@@ -1,5 +1,80 @@
+diff --git a/packages/boot/app-boot/src/index.ts b/packages/boot/app-boot/src/index.ts
+index 188cb334..e575de2d 100644
+--- a/packages/boot/app-boot/src/index.ts
++++ b/packages/boot/app-boot/src/index.ts
+@@ -297,7 +297,13 @@ export async function reconcileProfilePatches(
+   for (const [index, result] of results.entries()) {
+     if (result.status === 'rejected' && !previousFibers[index]?.failed) throw result.reason
+   }
+-  ctx.emit('app-boot/config-reload')
++  // The private Include owns reconciliation, including its notification.
++  // A service-triggered reload must not borrow composition-root event authority.
++  const owner = entry.fiber
++  if (owner === undefined || owner.state !== FIBER_ACTIVE) {
++    throw new Error(`${binName}: profile reload requires an active Include owner`)
++  }
++  owner.ctx.emit('app-boot/config-reload')
+   return failures.map(inactiveDiagnostic)
+ }
+ 
+@@ -751,6 +757,7 @@ const requiredStartupEntryIds = new Set<string>([
+   'headless-runner',
+   'acp',
+   'sdk-jsonrpc-server',
++  'dsh-runtime-kit',
+ ])
+ 
+ /** Render plugin stacks, nested causes, and aggregate member failures once per error. */
+diff --git a/packages/boot/app-boot/tests/app-boot.spec.ts b/packages/boot/app-boot/tests/app-boot.spec.ts
+index f291e45c..246bbcc8 100644
+--- a/packages/boot/app-boot/tests/app-boot.spec.ts
++++ b/packages/boot/app-boot/tests/app-boot.spec.ts
+@@ -563,6 +563,7 @@ describe('auditStartupEntries', () => {
+     'headless-runner',
+     'acp',
+     'sdk-jsonrpc-server',
++    'dsh-runtime-kit',
+   ]
+ 
+   interface FakeEntry {
+diff --git a/packages/boot/app-boot/tests/user-patches.spec.ts b/packages/boot/app-boot/tests/user-patches.spec.ts
+index 465f9d82..f61db866 100644
+--- a/packages/boot/app-boot/tests/user-patches.spec.ts
++++ b/packages/boot/app-boot/tests/user-patches.spec.ts
+@@ -331,6 +331,31 @@ describe('Loader entry disabled interpolation', () => {
+ })
+ 
+ describe('profile reconciliation settlement', () => {
++  it('notifies reload through the private Include owner without granting root events', async () => {
++    const dir = tmp()
++    writeFileSync(join(dir, 'cordis.yml'), '[]\n')
++    const ctx = await boot(NAME, join(dir, 'cordis.yml'), [])
++    let reloads = 0
++    ctx.on('app-boot/config-reload', () => { reloads++ })
++    const events = Reflect.get(ctx.events, Symbol.for('cordis.original')) ?? ctx.events
++    const original = events.emit
++    Object.defineProperty(events, 'emit', { configurable: true, value: function (...args: unknown[]) {
++      if (this.ctx === ctx && (args[0] === 'app-boot/config-reload' || args[0] === 'root-probe')) {
++        throw new Error('root.events.emit denied')
++      }
++      return Reflect.apply(original, this, args)
++    } })
++    try {
++      expect(() => Reflect.apply(ctx.emit, ctx, ['root-probe'])).toThrow('root.events.emit denied')
++      expect(await reconcileProfilePatches(ctx, [], NAME)).toEqual([])
++      expect(reloads).toBe(1)
++      expect(() => Reflect.apply(ctx.emit, ctx, ['root-probe'])).toThrow('root.events.emit denied')
++    } finally {
++      Object.defineProperty(events, 'emit', { configurable: true, value: original })
++      await ctx.fiber.dispose()
++    }
++  })
++
+   it('retains unchanged import diagnostics across profile reconciliation', async () => {
+     const dir = tmp()
+     writeFileSync(join(dir, 'cordis.yml'), '[]\n')
 diff --git a/packages/core/agent-loop/src/agent.ts b/packages/core/agent-loop/src/agent.ts
-index 4ea7593551..9fd24cf2b3 100644
+index 2f68565c..78eed592 100644
 --- a/packages/core/agent-loop/src/agent.ts
 +++ b/packages/core/agent-loop/src/agent.ts
 @@ -16,7 +16,7 @@ import type {
@@ -11,15 +86,15 @@ index 4ea7593551..9fd24cf2b3 100644
  import {
    LlmError,
    createAssistantMessage,
-@@ -24,6 +24,7 @@ import {
+@@ -25,6 +25,7 @@ import {
    markAgentLoopRequest,
  } from '@deepseek-ai/dsh-llm'
- import { deepFreeze } from '@deepseek-ai/dsh-util-values'
+ import { assertNever, deepFreeze } from '@deepseek-ai/dsh-util-values'
 +import type { JsonValue } from '@deepseek-ai/dsh-util-values'
  import type { Scope } from '@deepseek-ai/dsh-scope'
  import { createScope } from '@deepseek-ai/dsh-scope'
- import type { EpochHeader, RequestContext, Session, SessionId, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
-@@ -59,6 +60,15 @@ type PreparedStep =
+ import type { EpochHeader, RequestContext, Session, SessionId, SessionSeq, TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+@@ -60,6 +61,15 @@ type PreparedStep =
      assembly: PromptAssembly
    }
  
@@ -35,7 +110,7 @@ index 4ea7593551..9fd24cf2b3 100644
  /** Remove adapter-derived values before plugins propose the next request config. */
  function requestProposal(header: EpochHeader): LlmCallConfig {
    if (header.adapterDefaults === undefined) return header.config
-@@ -464,8 +474,32 @@ export class ReactLoopAgent implements Agent {
+@@ -509,8 +519,32 @@ export class ReactLoopAgent implements Agent {
            continue
          }
  
@@ -69,7 +144,7 @@ index 4ea7593551..9fd24cf2b3 100644
            source: {
              provider: request.provider,
              model: request.model,
-@@ -477,7 +511,7 @@ export class ReactLoopAgent implements Agent {
+@@ -522,7 +556,7 @@ export class ReactLoopAgent implements Agent {
            () => this.session.append('assistant/message', {
              turn,
              step,
@@ -78,7 +153,7 @@ index 4ea7593551..9fd24cf2b3 100644
              ...live.usage === undefined ? {} : { usage: live.usage },
              stream: live.stream,
            }, { surfaceOp: 'append' }).seq,
-@@ -487,7 +521,9 @@ export class ReactLoopAgent implements Agent {
+@@ -532,7 +566,9 @@ export class ReactLoopAgent implements Agent {
          const toolCalls = message.content.filter(block => block.type === 'tool-call')
          if (toolCalls.length === 0) return { kind: 'completed' }
          const { concluded } = await executeToolCalls(
@@ -90,7 +165,7 @@ index 4ea7593551..9fd24cf2b3 100644
          )
          return concluded ? { kind: 'completed' } : null
 diff --git a/packages/core/agent-loop/src/tool-calls.ts b/packages/core/agent-loop/src/tool-calls.ts
-index e6aca31f56..5a4887dcef 100644
+index c12de68d1..31623552 100644
 --- a/packages/core/agent-loop/src/tool-calls.ts
 +++ b/packages/core/agent-loop/src/tool-calls.ts
 @@ -20,6 +20,7 @@ import { assertNever } from '@deepseek-ai/dsh-util-values'
@@ -169,10 +244,10 @@ index e6aca31f56..5a4887dcef 100644
    }
    /* v8 ignore next -- unreachable: a non-aborted group commits every started call */
 diff --git a/packages/core/tools/src/index.ts b/packages/core/tools/src/index.ts
-index 6be7be61e2..cae8d3beff 100644
+index ca89f370..152e07b8 100644
 --- a/packages/core/tools/src/index.ts
 +++ b/packages/core/tools/src/index.ts
-@@ -133,6 +133,17 @@ declare module '@deepseek-ai/cordis' {
+@@ -140,6 +140,17 @@ declare module '@deepseek-ai/cordis' {
    }
  
    interface Events {
@@ -190,7 +265,7 @@ index 6be7be61e2..cae8d3beff 100644
      /**
       * Allow, deny, cancel, or ask before dispatch. `next()` delegates to allow;
       * `cancel` selects the canonical pre-dispatch cancellation result, and missing
-@@ -281,6 +292,23 @@ export interface ToolDefinition extends ToolSchema {
+@@ -298,6 +309,23 @@ export interface ToolDefinition extends ToolSchema {
    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined
  }
  
@@ -214,7 +289,7 @@ index 6be7be61e2..cae8d3beff 100644
  /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
  export interface ToolResult {
    /** The final model-facing content (or the rendered error text on failure). */
-@@ -334,6 +362,40 @@ export interface ToolExecutionInput {
+@@ -351,6 +379,40 @@ export interface ToolExecutionInput {
    readonly signal: AbortSignal
  }
  
@@ -255,7 +330,7 @@ index 6be7be61e2..cae8d3beff 100644
  /**
   * Scheduling mode for one pending call. `parallel` may overlap with siblings;
   * `exclusive` runs alone and forms an ordering barrier.
-@@ -452,15 +514,15 @@ export interface ToolRuntimeScheduler {
+@@ -469,15 +531,15 @@ export interface ToolRuntimeScheduler {
    dispatch(exec: ToolRunContext): Promise<ScheduledToolDispatch>
    /** Run post-execute and definition-owned content finalization, then materialize and notify. */
    finalize(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult>
@@ -271,10 +346,10 @@ index 6be7be61e2..cae8d3beff 100644
   */
 -export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
 +export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol.for('@deepseek-ai/dsh-tools.scheduler')
-
+ 
  /** Canonical error code for cancellation after a tool body was invoked. */
  export const TOOL_ABORTED = 'ABORTED'
-@@ -595,6 +657,8 @@ export type PreToolDecision =
+@@ -613,6 +675,8 @@ export type PreToolDecision =
  /**
   * Post-dispatch decision: accept, replace one projection, attach context for the
   * next request, or block by turning corrective feedback into an error result.
@@ -283,7 +358,7 @@ index 6be7be61e2..cae8d3beff 100644
   */
  export type PostToolDecision =
    | { kind: 'accept'; content?: ContentBlock[]; value?: never; additionalContexts?: UserMessage[] }
-@@ -757,7 +821,7 @@ class ToolLayer implements ScopeLayer {
+@@ -775,7 +839,7 @@ class ToolLayer implements ScopeLayer {
  
  /** Approval decision plus whether the approval channel reported cancellation. */
  interface ToolAskResolution {
@@ -292,7 +367,7 @@ index 6be7be61e2..cae8d3beff 100644
    readonly approvalCancelled: boolean
  }
  
-@@ -765,6 +829,49 @@ interface ToolAskResolution {
+@@ -783,6 +847,49 @@ interface ToolAskResolution {
  interface ToolCancellationState {
    readonly callerSignal: AbortSignal
    bodyInvoked: boolean
@@ -342,10 +417,10 @@ index 6be7be61e2..cae8d3beff 100644
  }
  
  /** One dispatch-scoped fused signal plus listener cleanup after the body settles. */
-@@ -810,6 +917,16 @@ export class ToolRuntime extends Service {
-   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
-   /** Definition-owned final content transform snapshotted before policy begins. */
+@@ -830,6 +937,16 @@ export class ToolRuntime extends Service {
    private contentFinalizers = new WeakMap<ToolRunContext, ToolDefinition['finalizeContent']>()
+   /** Execution-prepared content installed before post-execute policy. */
+   private contentProjectors = new WeakMap<ToolRunContext, ToolDefinition['projectContent']>()
 +  /** Exact callable/output contract captured before extensible policy begins. */
 +  private executionDefinitions = new WeakMap<ToolRunContext, ToolDefinitionSnapshot>()
 +  /** Exact-definition prerequisite bound by policy to one registry-owned execution. */
@@ -359,7 +434,7 @@ index 6be7be61e2..cae8d3beff 100644
    private readonly layers = new ScopedLayers(
      scope => new ToolLayer(scope),
      () => { this.ctx.emit('tools/change') },
-@@ -838,6 +955,80 @@ export class ToolRuntime extends Service {
+@@ -858,6 +975,80 @@ export class ToolRuntime extends Service {
      }
    }
  
@@ -440,7 +515,7 @@ index 6be7be61e2..cae8d3beff 100644
    /**
     * The prompt statement of the `ptc` executor collapse, registered wherever
     * {@link sdkSection} is and rendering empty outside an effective `ptc`.
-@@ -1121,6 +1312,49 @@ export class ToolRuntime extends Service {
+@@ -1141,6 +1332,49 @@ export class ToolRuntime extends Service {
      )
    }
  
@@ -490,7 +565,7 @@ index 6be7be61e2..cae8d3beff 100644
    /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
    private guardReason(exec: ToolExecution): string | undefined {
      const globalReason = this.layers.global.guardReason(exec)
-@@ -1355,12 +1589,12 @@ export class ToolRuntime extends Service {
+@@ -1376,12 +1610,12 @@ export class ToolRuntime extends Service {
          const dispatched = await this.dispatchScheduledExecution(prepared.exec)
          return dispatched.kind === 'post-result'
            ? await this.finalizeScheduledExecution(prepared.exec, dispatched.result)
@@ -505,11 +580,12 @@ index 6be7be61e2..cae8d3beff 100644
        /* v8 ignore next -- closed-union exhaustiveness guard */
        default:
          return assertNever(prepared, 'scheduled tool preparation')
-@@ -1412,20 +1646,31 @@ export class ToolRuntime extends Service {
+@@ -1433,22 +1667,33 @@ export class ToolRuntime extends Service {
      // the same retained path), while the `UNKNOWN_TOOL` denial and the
      // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
      // could never execute).
 -    const capturedFinalizer = visible?.finalizeContent?.bind(visible)
+     const capturedProjector = visible?.projectContent?.bind(visible)
 -    const finalizerFor = (): ToolDefinition['finalizeContent'] | undefined =>
 -      collapsed && !signal.aborted ? undefined : capturedFinalizer
 +    let capturedDefinition: ToolDefinitionSnapshot | undefined
@@ -530,6 +606,7 @@ index 6be7be61e2..cae8d3beff 100644
 +      this.executionStages.set(execution, 'created')
        this.deferredContexts.set(execution, deferredContexts)
        this.contentFinalizers.set(execution, finalizerFor())
+       if (!collapsed) this.contentProjectors.set(execution, capturedProjector)
 +      if (capturedDefinition !== undefined) {
 +        this.executionDefinitions.set(execution, capturedDefinition)
 +      }
@@ -540,7 +617,7 @@ index 6be7be61e2..cae8d3beff 100644
        })
        if (collapsed) {
          // The collapse denies the call before the policy pipeline, but a
-@@ -1452,6 +1697,8 @@ export class ToolRuntime extends Service {
+@@ -1475,6 +1720,8 @@ export class ToolRuntime extends Service {
        return { kind: 'ready', exec: execution }
      } catch (error: unknown) {
        const execution: MutableToolRunContext = { ...base, arguments: undefined }
@@ -549,7 +626,7 @@ index 6be7be61e2..cae8d3beff 100644
        this.contentFinalizers.set(execution, finalizerFor())
        return { kind: 'final-result', exec: execution, result: toolErrorResult(error) }
      }
-@@ -1472,47 +1719,88 @@ export class ToolRuntime extends Service {
+@@ -1495,47 +1742,88 @@ export class ToolRuntime extends Service {
      next: (prepared: ScheduledToolPreparation) => T | PromiseLike<T>,
    ): Promise<T> {
      const created = this.createExecution(input)
@@ -632,7 +709,7 @@ index 6be7be61e2..cae8d3beff 100644
      } catch (error: unknown) {
 -      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
 +      prepared = { kind: 'final-result', exec, result: toolErrorResult(error) }
-     }
++    }
 +    this.markPreparedExecution(exec, prepared.kind)
 +    return next(prepared)
 +  }
@@ -647,7 +724,7 @@ index 6be7be61e2..cae8d3beff 100644
 +    const current = this.executionStages.get(exec)
 +    if (current === undefined || !expected.includes(current)) {
 +      throw new Error(`dsh-tools: scheduler execution cannot ${operation} from its current stage`)
-+    }
+     }
 +    this.executionStages.set(exec, next)
 +  }
 +
@@ -663,7 +740,7 @@ index 6be7be61e2..cae8d3beff 100644
    }
  
    /** Whether the original caller signal is currently aborted. */
-@@ -1520,7 +1808,7 @@ export class ToolRuntime extends Service {
+@@ -1543,7 +1831,7 @@ export class ToolRuntime extends Service {
      const state = this.cancellationStates.get(exec)
      /* v8 ignore next -- only registry-minted executions reach the staged scheduler methods */
      if (state === undefined) throw new Error('tool registry scheduler invariant violated: missing cancellation state')
@@ -672,7 +749,7 @@ index 6be7be61e2..cae8d3beff 100644
    }
  
    /** Canonical cancellation outcome selected by whether the tool body started. */
-@@ -1533,6 +1821,142 @@ export class ToolRuntime extends Service {
+@@ -1556,6 +1844,142 @@ export class ToolRuntime extends Service {
        : toolAbortedBeforeDispatchResult(prior)
    }
  
@@ -815,7 +892,7 @@ index 6be7be61e2..cae8d3beff 100644
    /**
     * Dispatch the registered body with the original caller signal fused back
     * into any around-wrapper replacement. Cancellation never abandons the body:
-@@ -1552,7 +1976,12 @@ export class ToolRuntime extends Service {
+@@ -1575,7 +1999,12 @@ export class ToolRuntime extends Service {
      }
      exec.signal = signal
      try {
@@ -829,7 +906,7 @@ index 6be7be61e2..cae8d3beff 100644
        if (!tool) throw new ToolNotFoundError(exec.name)
        state.bodyInvoked = true
        const returned = await tool.execute(exec.arguments, exec)
-@@ -1561,7 +1990,9 @@ export class ToolRuntime extends Service {
+@@ -1584,7 +2013,9 @@ export class ToolRuntime extends Service {
          ? toolAbortedResult(result)
          : result
      } catch (error: unknown) {
@@ -840,7 +917,7 @@ index 6be7be61e2..cae8d3beff 100644
      } finally {
        fused.dispose()
        exec.signal = wrapperSignal
-@@ -1576,14 +2007,56 @@ export class ToolRuntime extends Service {
+@@ -1599,14 +2030,56 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async dispatchScheduledExecution(exec: ToolRunContext): Promise<ScheduledToolDispatch> {
@@ -897,7 +974,7 @@ index 6be7be61e2..cae8d3beff 100644
        const deferredContexts = this.deferredContexts.get(exec)
        /* v8 ignore next -- dispatch only receives executions minted by this registry's prepare stage */
        if (deferredContexts === undefined) throw new Error('tool registry scheduler invariant violated: unprepared execution')
-@@ -1616,17 +2089,77 @@ export class ToolRuntime extends Service {
+@@ -1639,23 +2112,88 @@ export class ToolRuntime extends Service {
     * @internal
     */
    private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
@@ -908,14 +985,31 @@ index 6be7be61e2..cae8d3beff 100644
 +      'finalize',
 +    )
      try {
--      const postResult = await this.postExecute(exec, result)
+-      const project = this.contentProjectors.get(exec)
+-      this.contentProjectors.delete(exec)
+-      const content = project?.(exec, result)
+-      const projected = content === undefined
+-        ? result
+-        : this.markCanonical(exec, this.materializeFinalResult({ ...result, content }))
+-      const postResult = await this.postExecute(exec, projected)
 -      return this.finishScheduledExecution(
 -        exec,
 -        this.callerCancelled(exec) && !postResult.isError
 -          ? this.cancellationResult(exec, postResult)
 -          : postResult,
 -      )
-+      return await this.finalizeScheduledResult(exec, result)
++      let projected: ToolExecutionResult
++      try {
++        const project = this.contentProjectors.get(exec)
++        this.contentProjectors.delete(exec)
++        const content = project?.(exec, result)
++        projected = content === undefined
++          ? result
++          : this.markCanonical(exec, this.materializeFinalResult({ ...result, content }))
++      } catch (error: unknown) {
++        return await this.finishScheduledResult(exec, toolErrorResult(error))
++      }
++      return await this.finalizeScheduledResult(exec, projected)
 +    } finally {
 +      this.transitionExecution(exec, ['finalizing'], 'finished', 'complete finalization')
 +    }
@@ -933,7 +1027,7 @@ index 6be7be61e2..cae8d3beff 100644
      } catch (error: unknown) {
 -      return this.finishScheduledExecution(exec, toolErrorResult(error))
 +      return await this.finishScheduledResult(exec, toolErrorResult(error))
-     }
++    }
 +
 +    const candidate = this.callerCancelled(exec) && !postResult.isError
 +      ? this.cancellationResult(exec, postResult)
@@ -977,13 +1071,13 @@ index 6be7be61e2..cae8d3beff 100644
 +      } catch (error: unknown) {
 +        this.warnPrerequisiteCompletion(exec, errorMessage(error))
 +      }
-+    }
+     }
 +    this.notifyResult(exec, finalResult)
 +    return finalResult
    }
  
    /**
-@@ -1637,7 +2170,45 @@ export class ToolRuntime extends Service {
+@@ -1666,7 +2204,45 @@ export class ToolRuntime extends Service {
     * @returns the materialized final result.
     * @internal
     */
@@ -1030,7 +1124,7 @@ index 6be7be61e2..cae8d3beff 100644
      let materializedResult: ToolExecutionResult
      try {
        materializedResult = this.materializeFinalResult(result)
-@@ -1650,10 +2221,18 @@ export class ToolRuntime extends Service {
+@@ -1679,10 +2255,18 @@ export class ToolRuntime extends Service {
      } catch (error: unknown) {
        finalResult = this.materializeFinalResult(toolErrorResult(error))
      }
@@ -1050,7 +1144,7 @@ index 6be7be61e2..cae8d3beff 100644
    /** Apply the snapshotted tool-owned content transform without exposing other result fields. */
    private applyFinalContent(exec: ToolRunContext, result: ToolExecutionResult): ToolExecutionResult {
      const finalizeContent = this.contentFinalizers.get(exec)
-@@ -1753,6 +2332,15 @@ export class ToolRuntime extends Service {
+@@ -1783,6 +2367,15 @@ export class ToolRuntime extends Service {
        scopeTarget(this, exec.agent), 'tools/post-execute', exec, result,
        () => Promise.resolve<PostToolDecision>({ kind: 'accept' }),
      )
@@ -1066,7 +1160,7 @@ index 6be7be61e2..cae8d3beff 100644
      const decisionContexts = decision.additionalContexts ?? []
      if (decision.kind === 'block') {
        const message = failureMessageFromContent(decision.feedback)
-@@ -1774,8 +2362,7 @@ export class ToolRuntime extends Service {
+@@ -1804,8 +2397,7 @@ export class ToolRuntime extends Service {
        if (result.isError) {
          throw new TypeError('tools/post-execute cannot replace the value of a failed result')
        }
@@ -1076,7 +1170,7 @@ index 6be7be61e2..cae8d3beff 100644
        const replaced = this.createSuccessResult(exec, tool, decision.value)
        return this.markCanonical(exec, {
          ...replaced,
-@@ -1792,6 +2379,14 @@ export class ToolRuntime extends Service {
+@@ -1822,6 +2414,14 @@ export class ToolRuntime extends Service {
    /** Registry-normalized results and the exact dispatch that validated each value. */
    private readonly canonicalResults = new WeakMap<object, ToolExecutionToken>()
  
@@ -1091,7 +1185,7 @@ index 6be7be61e2..cae8d3beff 100644
    /** Mark one registry-normalized result as canonical only for its owning dispatch. */
    private markCanonical<T extends ToolExecutionResult>(exec: ToolExecution, result: T): T {
      this.canonicalResults.set(result, exec.token)
-@@ -1799,7 +2394,7 @@ export class ToolRuntime extends Service {
+@@ -1829,7 +2429,7 @@ export class ToolRuntime extends Service {
    }
  
    /** Snapshot, validate, render, and optionally project one successful body value. */
@@ -1100,7 +1194,7 @@ index 6be7be61e2..cae8d3beff 100644
      const detached = snapshotToolValue(tool.name, candidate)
      const violations = validateJsonSchemaValue(tool.output.schema, detached, 'value')
      if (violations.length > 0) throw new ToolOutputError(tool.name, violations)
-@@ -1843,8 +2438,7 @@ export class ToolRuntime extends Service {
+@@ -1873,8 +2473,7 @@ export class ToolRuntime extends Service {
          ...result.additionalContexts !== undefined ? { additionalContexts: result.additionalContexts } : {},
        })
      }
@@ -1111,10 +1205,10 @@ index 6be7be61e2..cae8d3beff 100644
      return this.markCanonical(exec, {
        ...normalized,
 diff --git a/packages/core/tools/src/ptc.ts b/packages/core/tools/src/ptc.ts
-index 7c7a80c6fe..bfddec0b22 100644
+index 00d6abcd..b5150f03 100644
 --- a/packages/core/tools/src/ptc.ts
 +++ b/packages/core/tools/src/ptc.ts
-@@ -628,7 +628,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
+@@ -635,7 +635,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
                if (parked === undefined) return
                const result = parked.kind === 'post-result'
                  ? await scheduler.finalize(parked.exec, parked.result)
@@ -1123,8 +1217,31 @@ index 7c7a80c6fe..bfddec0b22 100644
                if (!result.isError && result.content.some(block => block.type === 'image')) {
                  exec.deferContext(createUserMessage({
                    content: result.content,
+diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
+index dab5d430..dc416bd4 100644
+--- a/packages/core/tools/tests/tools.spec.ts
++++ b/packages/core/tools/tests/tools.spec.ts
+@@ -10,7 +10,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+ import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
+ import ToolRuntime, {
+   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
+-  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
++  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER,
+   type InferArgs, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
+   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
+ } from '@deepseek-ai/dsh-tools'
+@@ -62,6 +62,9 @@ describe('ToolRuntime', () => {
+       await ctx.fiber.dispose()
+     }
+   })
++  it('shares the scheduler boundary across package instances', () => {
++    expect(TOOL_RUNTIME_SCHEDULER).toBe(Symbol.for('@deepseek-ai/dsh-tools.scheduler'))
++  })
+ 
+   it('registers tools, exposes schemas, and feeds the system-prompt assembly', async () => {
+     const ctx = await setup()
 diff --git a/packages/fs/fs-sandbox/src/index.ts b/packages/fs/fs-sandbox/src/index.ts
-index 60dd6b3bad..014c2e03d3 100644
+index 60dd6b3b..014c2e03 100644
 --- a/packages/fs/fs-sandbox/src/index.ts
 +++ b/packages/fs/fs-sandbox/src/index.ts
 @@ -31,7 +31,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -1149,7 +1266,7 @@ index 60dd6b3bad..014c2e03d3 100644
      for (const root of writableRoots(policy)) {
        if (await isPathUnder(fresh.targetKey, root)) {
 diff --git a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
-index e445c47553..bee9db571d 100644
+index e445c475..bee9db57 100644
 --- a/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 +++ b/packages/fs/fs-sandbox/tests/fs-sandbox.spec.ts
 @@ -241,3 +241,28 @@ describe('FsError identity', () => {
@@ -1182,19 +1299,19 @@ index e445c47553..bee9db571d 100644
 +  })
 +})
 diff --git a/packages/fs/tool-fs/src/sandbox.ts b/packages/fs/tool-fs/src/sandbox.ts
-index c388d5f340..32dd81a211 100644
+index 6b815e57..4d6014a6 100644
 --- a/packages/fs/tool-fs/src/sandbox.ts
 +++ b/packages/fs/tool-fs/src/sandbox.ts
 @@ -13,7 +13,7 @@
  import type { Context } from '@deepseek-ai/cordis'
  import type { ToolExecution } from '@deepseek-ai/dsh-tools'
  import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
--import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-+import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeEscalationArgs, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, normalizeEscalationArgs, sandboxDenialMarker, sandboxPermissionsDescription } from '@deepseek-ai/dsh-sandbox'
  import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
  import { FsError } from '@deepseek-ai/dsh-fs'
  
-@@ -86,9 +86,13 @@ export class FsSandboxController {
+@@ -85,9 +85,13 @@ export class FsSandboxController {
     *   unsandboxed backend.
     */
    async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
@@ -1210,7 +1327,7 @@ index c388d5f340..32dd81a211 100644
        return standingPolicy
      }
      if (this.escalationModes.length === 0) {
-@@ -96,7 +100,7 @@ export class FsSandboxController {
+@@ -95,7 +99,7 @@ export class FsSandboxController {
      }
      const policy = standingPolicy as SandboxExecutionPolicy
      const approvedMode = await approveEscalation(
@@ -1220,7 +1337,7 @@ index c388d5f340..32dd81a211 100644
          approver: this.ctx.get('approval'),
          agent: exec.agent,
 diff --git a/packages/fs/tool-fs/tests/tools.spec.ts b/packages/fs/tool-fs/tests/tools.spec.ts
-index f3f685f38e..330ef8a6cb 100644
+index f9cd0f36..234176c2 100644
 --- a/packages/fs/tool-fs/tests/tools.spec.ts
 +++ b/packages/fs/tool-fs/tests/tools.spec.ts
 @@ -9,7 +9,7 @@ import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -1232,7 +1349,7 @@ index f3f685f38e..330ef8a6cb 100644
  import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
  import { ToolCallId } from '@deepseek-ai/dsh-llm'
  import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
-@@ -907,6 +907,29 @@ describe('sandbox escalation API (write/edit)', () => {
+@@ -908,6 +908,29 @@ describe('sandbox escalation API (write/edit)', () => {
      }])
    })
  
@@ -1263,7 +1380,7 @@ index f3f685f38e..330ef8a6cb 100644
      const { ctx, fs } = await setupConfining()
      fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
 diff --git a/packages/goal/goal/src/index.ts b/packages/goal/goal/src/index.ts
-index 48a02e485c..2d8fa31ecd 100644
+index 48a02e48..2d8fa31e 100644
 --- a/packages/goal/goal/src/index.ts
 +++ b/packages/goal/goal/src/index.ts
 @@ -59,9 +59,16 @@ export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
@@ -1292,10 +1409,10 @@ index 48a02e485c..2d8fa31ecd 100644
        agent,
        ref,
 diff --git a/packages/goal/goal/tests/goal.spec.ts b/packages/goal/goal/tests/goal.spec.ts
-index 5bf72d11bf..bc693344f7 100644
+index 06e31d71..d6033ccf 100644
 --- a/packages/goal/goal/tests/goal.spec.ts
 +++ b/packages/goal/goal/tests/goal.spec.ts
-@@ -343,6 +343,44 @@ describe('GoalService mutations', () => {
+@@ -351,6 +351,44 @@ describe('GoalService mutations', () => {
      expect(() => ctx.goals.resume(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_TRANSITION' }))
    })
  
@@ -1341,10 +1458,10 @@ index 5bf72d11bf..bc693344f7 100644
      const phases = ['paused', 'blocked'] as const
      for (const phase of phases) {
 diff --git a/packages/llm/llm/src/index.ts b/packages/llm/llm/src/index.ts
-index e17e2011e7..61e1585537 100644
+index d67245d2..4c746e1c 100644
 --- a/packages/llm/llm/src/index.ts
 +++ b/packages/llm/llm/src/index.ts
-@@ -194,6 +194,12 @@ export interface PreparedAdapterCall {
+@@ -199,6 +199,12 @@ export interface PreparedAdapterCall {
    stream(options: GenerateOptions): AsyncIterable<StreamChunk>
  }
  
@@ -1357,7 +1474,7 @@ index e17e2011e7..61e1585537 100644
  /**
   * Provider-wire adapter for the harness message and stream vocabulary. Register implementations
   * with `ctx.llm.registerAdapter(providers, adapter)`. Every provider HTTP request must include
-@@ -336,6 +342,7 @@ export interface DirectoryRegistrationHandle {
+@@ -342,6 +348,7 @@ export interface DirectoryRegistrationHandle {
  export class LlmRuntime extends TypertRemoteService {
    private adapters = new Map<string, AdapterRegistration>()
    private directory = new Map<string, LlmConfigurableProvider>()
@@ -1365,7 +1482,7 @@ index e17e2011e7..61e1585537 100644
    private discoveries = new Map<
      string,
      (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
-@@ -345,6 +352,35 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -351,6 +358,35 @@ export class LlmRuntime extends TypertRemoteService {
      super(ctx, 'llm')
    }
  
@@ -1401,7 +1518,7 @@ index e17e2011e7..61e1585537 100644
    /** Notify topology observers without letting one broken listener veto the commit. */
    private emitAdaptersUpdated(): void {
      // Cordis emit uses Array.map: one synchronous throw starves later
-@@ -1111,16 +1147,32 @@ export class LlmRuntime extends TypertRemoteService {
+@@ -1136,16 +1172,32 @@ export class LlmRuntime extends TypertRemoteService {
      return this.streamWithRegistration(options)
    }
  
@@ -1437,10 +1554,10 @@ index e17e2011e7..61e1585537 100644
  }
  
 diff --git a/packages/llm/llm/tests/service.spec.ts b/packages/llm/llm/tests/service.spec.ts
-index 74265c6510..0feba1c3d8 100644
+index 5179e88c..f4815bcb 100644
 --- a/packages/llm/llm/tests/service.spec.ts
 +++ b/packages/llm/llm/tests/service.spec.ts
-@@ -531,6 +531,87 @@ describe('LlmRuntime', () => {
+@@ -603,6 +603,87 @@ describe('LlmRuntime', () => {
      })()).rejects.toBe(consumerFailure)
    })
  
@@ -1529,10 +1646,10 @@ index 74265c6510..0feba1c3d8 100644
      const cleanup = new Error('cleanup failed')
      let cleanupCalls = 0
 diff --git a/packages/sandbox/sandbox-local/src/index.ts b/packages/sandbox/sandbox-local/src/index.ts
-index 037dc90079..c5d77660df 100644
+index 45028746..c076ad63 100644
 --- a/packages/sandbox/sandbox-local/src/index.ts
 +++ b/packages/sandbox/sandbox-local/src/index.ts
-@@ -326,6 +326,13 @@ export class LocalSandboxProvider extends SandboxProvider {
+@@ -334,6 +334,13 @@ export class LocalSandboxProvider extends SandboxProvider {
        })
      }
      const selected = this.selectRunner(policy.mode)
@@ -1547,7 +1664,7 @@ index 037dc90079..c5d77660df 100644
      return Promise.resolve<ConfinedArgv>({
        argv: [...runnerArgv, '--', ...argv],
 diff --git a/packages/sandbox/sandbox-local/src/profiles.ts b/packages/sandbox/sandbox-local/src/profiles.ts
-index 23c10d5f82..4cec6b80cc 100644
+index 23c10d5f..4cec6b80 100644
 --- a/packages/sandbox/sandbox-local/src/profiles.ts
 +++ b/packages/sandbox/sandbox-local/src/profiles.ts
 @@ -5,7 +5,7 @@
@@ -1578,7 +1695,7 @@ index 23c10d5f82..4cec6b80cc 100644
    return ['-p', forms.join(' ')]
  }
 diff --git a/packages/sandbox/sandbox-local/tests/local.spec.ts b/packages/sandbox/sandbox-local/tests/local.spec.ts
-index 41a33b5ff6..5df7f804af 100644
+index 41a33b5f..5df7f804 100644
 --- a/packages/sandbox/sandbox-local/tests/local.spec.ts
 +++ b/packages/sandbox/sandbox-local/tests/local.spec.ts
 @@ -84,6 +84,13 @@ describe('profile dialects', () => {
@@ -1637,7 +1754,7 @@ index 41a33b5ff6..5df7f804af 100644
      // The safety property moves to execution time: an unusable sandbox-exec
      // refuses to run the command, and the wrap's runnerFailureRules let
 diff --git a/packages/sandbox/sandbox-policy/src/index.ts b/packages/sandbox/sandbox-policy/src/index.ts
-index e97796db5c..a3310a6685 100644
+index e97796db..a3310a66 100644
 --- a/packages/sandbox/sandbox-policy/src/index.ts
 +++ b/packages/sandbox/sandbox-policy/src/index.ts
 @@ -20,7 +20,7 @@
@@ -1724,7 +1841,7 @@ index e97796db5c..a3310a6685 100644
     * Read the session override without applying the deployment default.
     * @param session - session whose log supplies the override.
 diff --git a/packages/sandbox/sandbox-policy/tests/policy.spec.ts b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
-index 7d75fe263c..39f53ee2f3 100644
+index 7d75fe26..39f53ee2 100644
 --- a/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 +++ b/packages/sandbox/sandbox-policy/tests/policy.spec.ts
 @@ -15,7 +15,7 @@ import SandboxPolicyService, { SANDBOX_MODES, setSandboxMode } from '@deepseek-a
@@ -1778,7 +1895,7 @@ index 7d75fe263c..39f53ee2f3 100644
      try {
        const lexical = join(root, 'lexical')
 diff --git a/packages/sandbox/sandbox/src/escalation.ts b/packages/sandbox/sandbox/src/escalation.ts
-index f1cd91b58c..5e7ac1a1d0 100644
+index 9e01fcbe..781f030f 100644
 --- a/packages/sandbox/sandbox/src/escalation.ts
 +++ b/packages/sandbox/sandbox/src/escalation.ts
 @@ -60,6 +60,45 @@ export function validateEscalationArgs(sandboxPermissions: string | undefined, j
@@ -1828,16 +1945,17 @@ index f1cd91b58c..5e7ac1a1d0 100644
   * The model-facing denial marker — the one vocabulary both enforcing families
   * teach and report, so the model recognizes a policy denial identically
 diff --git a/packages/sandbox/sandbox/src/index.ts b/packages/sandbox/sandbox/src/index.ts
-index 4f026c8e72..76eb5278bd 100644
+index 3cc0ec9f..6f3e78c9 100644
 --- a/packages/sandbox/sandbox/src/index.ts
 +++ b/packages/sandbox/sandbox/src/index.ts
-@@ -14,11 +14,13 @@ export {
+@@ -14,12 +14,14 @@ export {
    WIDER_MODES,
    approveEscalation,
    escalationHintMarker,
 +  isNonWideningSandboxEcho,
 +  normalizeEscalationArgs,
    sandboxDenialMarker,
+   sandboxPermissionsDescription,
    validateEscalationArgs,
  } from './escalation.ts'
 -export type { EscalationApproval, EscalationApprover, EscalationOutcome, EscalationRequest } from './escalation.ts'
@@ -1847,7 +1965,7 @@ index 4f026c8e72..76eb5278bd 100644
  
  /**
   * File-effect policy for confined processes. `read-only` permits only required
-@@ -41,6 +43,12 @@ export interface SandboxExecutionPolicy {
+@@ -42,6 +44,12 @@ export interface SandboxExecutionPolicy {
    mode: SandboxMode
    /** Absolute root directory `workspace-write` may write under. */
    workspaceRoot: string
@@ -1861,7 +1979,7 @@ index 4f026c8e72..76eb5278bd 100644
     * Opaque identity of the calling session (the branded `dsh-session`
     * SessionId). Backends key per-session state off it (e.g. windows-acl gives
 diff --git a/packages/sandbox/sandbox/src/roots.ts b/packages/sandbox/sandbox/src/roots.ts
-index 1215f3dac1..556fad85ec 100644
+index 1215f3da..556fad85 100644
 --- a/packages/sandbox/sandbox/src/roots.ts
 +++ b/packages/sandbox/sandbox/src/roots.ts
 @@ -15,6 +15,7 @@
@@ -1884,7 +2002,7 @@ index 1215f3dac1..556fad85ec 100644
 +  )))]
 +}
 diff --git a/packages/sandbox/sandbox/tests/escalation.spec.ts b/packages/sandbox/sandbox/tests/escalation.spec.ts
-index 3a3c886d03..c6f8195bc5 100644
+index 0223dc0a..55414a06 100644
 --- a/packages/sandbox/sandbox/tests/escalation.spec.ts
 +++ b/packages/sandbox/sandbox/tests/escalation.spec.ts
 @@ -12,6 +12,8 @@ import {
@@ -1894,9 +2012,9 @@ index 3a3c886d03..c6f8195bc5 100644
 +  isNonWideningSandboxEcho,
 +  normalizeEscalationArgs,
    sandboxDenialMarker,
+   sandboxPermissionsDescription,
    validateEscalationArgs,
- } from '@deepseek-ai/dsh-sandbox'
-@@ -42,6 +44,23 @@ describe('validateEscalationArgs', () => {
+@@ -43,6 +45,23 @@ describe('validateEscalationArgs', () => {
    })
  })
  
@@ -1920,53 +2038,125 @@ index 3a3c886d03..c6f8195bc5 100644
  describe('the model-facing markers', () => {
    it('the denial marker names the mode', () => {
      expect(sandboxDenialMarker('read-only')).toBe('[sandbox: file access denied under read-only mode]')
+diff --git a/packages/shell/bash-local/src/index.ts b/packages/shell/bash-local/src/index.ts
+index 373c7397..18bc701f 100644
+--- a/packages/shell/bash-local/src/index.ts
++++ b/packages/shell/bash-local/src/index.ts
+@@ -170,6 +170,7 @@ export class LocalBashExecutor extends ShellExecutor {
+       // snapshot beats both the caller's env and the terminal overrides; the
+       // subprocess service merges the whole map after its ambient scrub.
+       env: { ...ENV_OVERRIDES, ...spec.env, ...spec.dshEnv },
++      parentEnv: spec.sandboxPolicy?.mode === 'danger-full-access' ? 'full' : 'scrubbed',
+     }
+   }
+ 
+diff --git a/packages/shell/bash-local/tests/executor.spec.ts b/packages/shell/bash-local/tests/executor.spec.ts
+index 84ce1381..55813275 100644
+--- a/packages/shell/bash-local/tests/executor.spec.ts
++++ b/packages/shell/bash-local/tests/executor.spec.ts
+@@ -174,6 +174,32 @@ describe('LocalBashExecutor.run', () => {
+     expect('env' in spec).toBe(false)
+     expect('dshEnv' in spec).toBe(false)
+   })
++
++  it('selects ambient credentials from the effective call policy, not the deployment default', async () => {
++    const previousMode = process.env.DSH_PERMISSION_MODE
++    const previousCanary = process.env.DSH_CANARY_API_KEY
++    try {
++      process.env.DSH_PERMISSION_MODE = 'danger-full-access'
++      process.env.DSH_CANARY_API_KEY = 'ambient-canary'
++      const { bash } = await setup()
++      for (const [mode, expected] of [
++        ['read-only', 'absent'],
++        ['workspace-write', 'absent'],
++        ['danger-full-access', 'ambient-canary'],
++      ] as const) {
++        const result = await run(bash, bash.resolve({
++          command: 'printf "%s" "${DSH_CANARY_API_KEY:-absent}"',
++          sandboxPolicy: { mode, workspaceRoot: process.cwd() },
++        }))
++        expect(result.stdout.text).toBe(expected)
++      }
++    } finally {
++      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
++      else process.env.DSH_PERMISSION_MODE = previousMode
++      if (previousCanary === undefined) delete process.env.DSH_CANARY_API_KEY
++      else process.env.DSH_CANARY_API_KEY = previousCanary
++    }
++  })
+ })
+ 
+ describe('LocalBashExecutor.start (background process handles)', () => {
 diff --git a/packages/shell/tool-bash/src/index.ts b/packages/shell/tool-bash/src/index.ts
-index a539ca7e4c..32d6f7e043 100644
+index 8226ad29..6596d4f2 100644
 --- a/packages/shell/tool-bash/src/index.ts
 +++ b/packages/shell/tool-bash/src/index.ts
-@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
+@@ -23,7 +23,7 @@ import type { JobId, JobRegistry, JobView } from '@deepseek-ai/dsh-jobs'
  import type {} from '@deepseek-ai/dsh-user-approval'
  import type {} from '@deepseek-ai/dsh-shell-env'
  import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
--import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
-+import { ESCALATION_TARGETS, approveEscalation, normalizeEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+-import { ESCALATION_TARGETS, approveEscalation, sandboxPermissionsDescription, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
++import { ESCALATION_TARGETS, approveEscalation, normalizeEscalationArgs, sandboxPermissionsDescription } from '@deepseek-ai/dsh-sandbox'
  import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
  import { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-shell'
- import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-@@ -61,9 +61,6 @@ function validateBashArgs(args: BashToolArgs): void {
+ import type { ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
+@@ -70,7 +70,7 @@ interface BashToolArgs {
+   justification?: string
+ }
+ 
+-function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undefined): void {
++function validateBashArgs(args: BashToolArgs): void {
+   if (args.command.trim().length === 0) {
+     throw new Error('invalid command: expected a non-empty string')
+   }
+@@ -80,11 +80,6 @@ function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undef
    if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
      throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
    }
--  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
--  // the shared rule both enforcing families validate identically.
--  validateEscalationArgs(args.sandbox_permissions, args.justification)
+-  if (args.sandbox_permissions !== undefined && args.sandbox_permissions === effectiveMode) return
+-  const justification = args.sandbox_permissions === undefined && args.justification?.trim() === ''
+-    ? undefined
+-    : args.justification
+-  validateEscalationArgs(args.sandbox_permissions, justification)
  }
  
- function bashDescription(backgroundEnabled: boolean, escalationModes: readonly SandboxMode[]): string {
-@@ -330,8 +327,13 @@ export function apply(ctx: Context, config: Config = {}): void {
-       validateBashArgs(args)
-       // Description is display metadata; workdir defaults to the caller's session.
-       const standingPolicy = resolveSandboxPolicy(exec)
--      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
--        ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
-+      const escalation = normalizeEscalationArgs(
-+        args.sandbox_permissions,
-+        args.justification,
-+        standingPolicy?.mode,
-+      )
-+      const approvedMode = escalation !== undefined
-+        ? await approveBashEscalation(escalation.sandboxPermissions, escalation.justification, exec, standingPolicy)
-         : undefined
-       const policy = approvedMode === undefined
-         ? standingPolicy
+ function bashDescription(): string {
+@@ -478,11 +473,24 @@ export function apply(ctx: Context, config: Config = {}): void {
+         }],
+       },
+       async execute(args: BashToolArgs, exec) {
++        validateBashArgs(args)
+         // Description is display metadata; workdir defaults to the caller's session.
+         const standingPolicy = resolveSandboxPolicy(exec)
+-        validateBashArgs(args, standingPolicy?.mode)
+-        const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+-          ? await approveBashEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
++        const repeatedModeWithoutReason = standingPolicy?.mode !== undefined
++          && args.sandbox_permissions === standingPolicy.mode
++          && (args.justification === undefined || args.justification.trim().length === 0)
++        const emptyReasonWithoutMode = args.sandbox_permissions === undefined
++          && args.justification !== undefined
++          && args.justification.trim().length === 0
++        const escalation = repeatedModeWithoutReason || emptyReasonWithoutMode
++          ? undefined
++          : normalizeEscalationArgs(
++            args.sandbox_permissions,
++            args.justification,
++            standingPolicy?.mode,
++          )
++        const approvedMode = escalation !== undefined
++          ? await approveBashEscalation(escalation.sandboxPermissions, escalation.justification, exec, standingPolicy)
+           : undefined
+         const policy = approvedMode === undefined
+           ? standingPolicy
 diff --git a/packages/shell/tool-bash/tests/tools.spec.ts b/packages/shell/tool-bash/tests/tools.spec.ts
-index 34697d37b6..b9895ce43e 100644
+index 95dd7664..46b4f874 100644
 --- a/packages/shell/tool-bash/tests/tools.spec.ts
 +++ b/packages/shell/tool-bash/tests/tools.spec.ts
-@@ -646,6 +646,19 @@ describe('sandbox escalation through the generic task producer', () => {
-     expect(bash.modes).toEqual([mode])
+@@ -782,6 +782,18 @@ describe('sandbox escalation through the generic task producer', () => {
+       await ctx.fiber.dispose()
+     }
    })
- 
 +  it('treats the schema-default mode with a blank reason as ordinary under full access', async () => {
 +    const { ctx, bash } = await setupSandboxed()
 +    const result = await call(ctx, 'bash', {
@@ -1979,12 +2169,11 @@ index 34697d37b6..b9895ce43e 100644
 +    expect(result.isError).toBe(false)
 +    expect(bash.modes).toEqual(['danger-full-access'])
 +  })
-+
+ 
    it('fails closed when approval cannot be routed', async () => {
      const withoutService = await setupSandboxed()
-     expect(text(await call(withoutService.ctx, 'bash', escalate, sandboxAgent()))).toContain('no approval service')
 diff --git a/packages/subagent/subagent-in-process-driver/src/index.ts b/packages/subagent/subagent-in-process-driver/src/index.ts
-index 91348b2da9..f687a0c51c 100644
+index dbaac326..6e4294ed 100644
 --- a/packages/subagent/subagent-in-process-driver/src/index.ts
 +++ b/packages/subagent/subagent-in-process-driver/src/index.ts
 @@ -121,13 +121,17 @@ export async function startInProcessRun(
@@ -2010,7 +2199,7 @@ index 91348b2da9..f687a0c51c 100644
    }
  
 diff --git a/packages/subagent/subagent-spawn-in-process/src/index.ts b/packages/subagent/subagent-spawn-in-process/src/index.ts
-index 73811155c1..f0d13e2e23 100644
+index 73811155..f0d13e2e 100644
 --- a/packages/subagent/subagent-spawn-in-process/src/index.ts
 +++ b/packages/subagent/subagent-spawn-in-process/src/index.ts
 @@ -46,6 +46,7 @@ class SpawnInProcessProvider implements SubagentProvider {
@@ -2022,7 +2211,7 @@ index 73811155c1..f0d13e2e23 100644
    readonly inheritsParentContext = false
  
 diff --git a/packages/subagent/subagent/src/child-agent.ts b/packages/subagent/subagent/src/child-agent.ts
-index 1455f5037c..10690d324f 100644
+index 0004567a..4d094fdd 100644
 --- a/packages/subagent/subagent/src/child-agent.ts
 +++ b/packages/subagent/subagent/src/child-agent.ts
 @@ -8,12 +8,14 @@
@@ -2051,7 +2240,7 @@ index 1455f5037c..10690d324f 100644
  // documented `ctx.get` pattern), never as a hard dep. A rosterless deployment
 @@ -28,6 +31,7 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
  // them through the tool registry's global layer.
- import type {} from '@deepseek-ai/dsh-agent-presets'
+ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
  import { delegationDepthOf } from './depth.ts'
 +import type { RestrictedRoleAuthority } from './types.ts'
  
@@ -2254,7 +2443,7 @@ index 1455f5037c..10690d324f 100644
  
  /** Policy seeded onto a child session's log at the delegation boundary. */
 diff --git a/packages/subagent/subagent/src/continuation-activation.ts b/packages/subagent/subagent/src/continuation-activation.ts
-index d995e9f2b4..c9d12eb5ef 100644
+index d995e9f2..c9d12eb5 100644
 --- a/packages/subagent/subagent/src/continuation-activation.ts
 +++ b/packages/subagent/subagent/src/continuation-activation.ts
 @@ -14,6 +14,7 @@ import type {
@@ -2324,7 +2513,7 @@ index d995e9f2b4..c9d12eb5ef 100644
        pool,
        releaseSlot,
 diff --git a/packages/subagent/subagent/src/continuation.ts b/packages/subagent/subagent/src/continuation.ts
-index 87fae7096a..812ee340a5 100644
+index 87fae709..812ee340 100644
 --- a/packages/subagent/subagent/src/continuation.ts
 +++ b/packages/subagent/subagent/src/continuation.ts
 @@ -15,9 +15,9 @@
@@ -2745,7 +2934,7 @@ index 87fae7096a..812ee340a5 100644
        })
      } catch (error: unknown) {
 diff --git a/packages/subagent/subagent/src/descriptor.ts b/packages/subagent/subagent/src/descriptor.ts
-index de9191cc50..95b873ccf1 100644
+index de9191cc..95b873cc 100644
 --- a/packages/subagent/subagent/src/descriptor.ts
 +++ b/packages/subagent/subagent/src/descriptor.ts
 @@ -25,6 +25,7 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
@@ -2879,12 +3068,12 @@ index de9191cc50..95b873ccf1 100644
    const snapshot = snapshotJsonValue(candidate)
    if (snapshot === undefined) {
 diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
-index 5d2941be6a..abe112f125 100644
+index 6654c1c0..ed81fc79 100644
 --- a/packages/subagent/subagent/src/index.ts
 +++ b/packages/subagent/subagent/src/index.ts
-@@ -29,13 +29,16 @@
-  * @module @deepseek-ai/dsh-subagent
+@@ -30,12 +30,15 @@
   */
+ import type { Volatile } from '@deepseek-ai/cordis'
  
 -import { Context } from '@deepseek-ai/cordis'
 +import { createHash, randomUUID } from 'node:crypto'
@@ -2892,7 +3081,6 @@ index 5d2941be6a..abe112f125 100644
 +import { Context, FiberState } from '@deepseek-ai/cordis'
 +import type { Fiber } from '@deepseek-ai/cordis'
  import z from '@deepseek-ai/schemastery'
- import type {} from '@deepseek-ai/dsh-settings'
  import type {} from '@deepseek-ai/dsh-attachment'
  import { scopeTarget } from '@deepseek-ai/dsh-scope'
  import type { Scoped } from '@deepseek-ai/dsh-scope'
@@ -2901,7 +3089,7 @@ index 5d2941be6a..abe112f125 100644
  import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
  import type { Agent } from '@deepseek-ai/dsh-agent'
  import type { SessionId } from '@deepseek-ai/dsh-session'
-@@ -56,7 +59,18 @@ import type {
+@@ -55,7 +58,18 @@ import type {
    ContinuableCreateSpec,
    ContinuableStart,
    ContinuableStartSpec,
@@ -2920,7 +3108,7 @@ index 5d2941be6a..abe112f125 100644
    SubagentCapabilities,
    SubagentInterruptAuthority,
    SubagentProvider,
-@@ -70,7 +84,8 @@ import { SubagentError } from './error.ts'
+@@ -69,7 +83,8 @@ import { SubagentError } from './error.ts'
  import { assertSubagentMaxDepth } from './depth.ts'
  import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
  import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
@@ -2929,8 +3117,8 @@ index 5d2941be6a..abe112f125 100644
 +import type { ContinuableSetupContribution, SubagentReportOptions } from './continuation.ts'
  import type { SubagentDelivery } from './inbox.ts'
  import { listChildren as listSubagentChildren, listDescendants as listSubagentDescendants } from './list-children.ts'
- import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
-@@ -88,7 +103,18 @@ export type {
+ import type { SubagentDescendantListEntry } from './list-children.ts'
+@@ -89,7 +104,18 @@ export type {
    ContinuableCreateSpec,
    ContinuableStart,
    ContinuableStartSpec,
@@ -2949,7 +3137,7 @@ index 5d2941be6a..abe112f125 100644
    SubagentCapabilities,
    SubagentInterruptAuthority,
    SubagentProvider,
-@@ -127,6 +153,7 @@ export {
+@@ -129,6 +155,7 @@ export {
  } from './child-agent.ts'
  export type { ChildComposition, DelegatedPolicyOverrides } from './child-agent.ts'
  export type { AgentMessageSource, SubagentSettledMessageSource } from './continuation-messages.ts'
@@ -2957,7 +3145,7 @@ index 5d2941be6a..abe112f125 100644
  export type * from './control-types.ts'
  export type { SubagentDescendantListEntry } from './list-children.ts'
  export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
-@@ -173,6 +200,201 @@ declare module '@deepseek-ai/cordis' {
+@@ -175,6 +202,201 @@ declare module '@deepseek-ai/cordis' {
    }
  }
  
@@ -3159,9 +3347,9 @@ index 5d2941be6a..abe112f125 100644
  /**
   * Durable attribution of one browser-authored follow-up. The Session
   * Controller declares this `user-rpc` message source and depends on this
-@@ -202,7 +424,18 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -203,7 +425,18 @@ export class SubagentRuntime extends TypertRemoteService {
+     maxActiveSubagents: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(8).volatile(),
    })
-   private settingsSource: () => Config
    private providers = new Map<string, SubagentProvider>()
 +  private workspaceProviders = new Map<string, ContinuableWorkspaceProvider>()
 +  private roles = new Map<string, RegisteredRole>()
@@ -3178,8 +3366,8 @@ index 5d2941be6a..abe112f125 100644
    /**
     * The contained lifecycle-edge publisher. Built here because scoped dispatch
     * keys its carrier by this exact service instance, whose own context filter
-@@ -223,14 +456,19 @@ export class SubagentRuntime extends TypertRemoteService {
-     })
+@@ -215,14 +448,19 @@ export class SubagentRuntime extends TypertRemoteService {
+     super(ctx, 'subagents')
      this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
      ctx.inject(['agents'], (childCtx: Context) => {
 +      this.agentRegistry = childCtx.agents
@@ -3189,8 +3377,8 @@ index 5d2941be6a..abe112f125 100644
 +        prepareWorkspace: request => this.prepareWorkspace(request),
 +        activateWorkspace: request => this.activateWorkspace(request),
          observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
--      }, () => (this.settingsSource() as Required<Config>).maxActiveSubagents)
-+      }, () => (this.settingsSource() as Required<Config>).maxActiveSubagents, this.setupRegistry)
+-      }, () => this.config.maxActiveSubagents.get())
++      }, () => this.config.maxActiveSubagents.get(), this.setupRegistry)
        this.continuations = manager
        childCtx.effect(() => () => {
          /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -3199,10 +3387,10 @@ index 5d2941be6a..abe112f125 100644
        }, 'subagents.continuationBinding()')
      })
      ctx.inject(['sessionProjections'], (projectionCtx) => {
-@@ -238,6 +476,35 @@ export class SubagentRuntime extends TypertRemoteService {
-       projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
-       projectionCtx.sessionProjections.register(subagentIdentityProjectionDefinition)
-     })
+@@ -234,6 +472,35 @@ export class SubagentRuntime extends TypertRemoteService {
+     // Archive admission: this runtime is the owner that knows which live
+     // children descend from a Session and how a parent stops them.
+     ctx.inject(['agents'], (agentsCtx: Context) => { installSubagentArchiveAdmission(agentsCtx) })
 +    ctx.on('internal/status', (fiber) => {
 +      if (fiber.state === FiberState.UNLOADING && this.hasLifecycleAncestor(fiber)) {
 +        this.beginRoleShutdown()
@@ -3235,7 +3423,7 @@ index 5d2941be6a..abe112f125 100644
    }
  
    /**
-@@ -311,6 +578,18 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -310,6 +577,18 @@ export class SubagentRuntime extends TypertRemoteService {
        : this.requireContinuations().queuePrompt(parent, childId, content, source, signal)
    }
  
@@ -3254,7 +3442,7 @@ index 5d2941be6a..abe112f125 100644
    /**
     * Interrupt one live continuable child's current turn under a human parent
     * address or an exact live ancestor Agent. Fire-and-return: the cancel
-@@ -330,6 +609,95 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -329,6 +608,95 @@ export class SubagentRuntime extends TypertRemoteService {
      this.continuations?.interrupt(targetSessionId, authority)
    }
  
@@ -3350,7 +3538,7 @@ index 5d2941be6a..abe112f125 100644
    /**
     * Close continuable admission below exact live parent Agents, stop only their
     * visible descendant Activations synchronously, then await admitted scoped
-@@ -576,6 +944,297 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -544,6 +912,297 @@ export class SubagentRuntime extends TypertRemoteService {
      return [...this.providers.keys()]
    }
  
@@ -3648,7 +3836,7 @@ index 5d2941be6a..abe112f125 100644
    /**
     * Establish a published child on the named provider. Capability and semantic
     * checks run before delegation. Provider ownership lasts until its promise
-@@ -589,6 +1248,9 @@ export class SubagentRuntime extends TypertRemoteService {
+@@ -557,6 +1216,9 @@ export class SubagentRuntime extends TypertRemoteService {
     * @returns the published holder-owned run.
     */
    async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
@@ -3659,7 +3847,7 @@ index 5d2941be6a..abe112f125 100644
      this.assertCapabilities(provider, request)
      assertSubagentMaxDepth(request.maxDepth)
 diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
-index 1b9ce56c3f..df0a5de1ac 100644
+index 48ac0df1..d985c339 100644
 --- a/packages/subagent/subagent/src/types.ts
 +++ b/packages/subagent/subagent/src/types.ts
 @@ -47,6 +47,8 @@ export interface ContinuableStartSpec {
@@ -3802,10 +3990,10 @@ index 1b9ce56c3f..df0a5de1ac 100644
     * Optional static provider-owned provider/model route for one-shot Agent
     * options. Consumers merge tool/model overrides over these values before
 diff --git a/packages/subagent/subagent/tests/continuation.spec.ts b/packages/subagent/subagent/tests/continuation.spec.ts
-index 7f37523cd7..591684981d 100644
+index 3078d28e..c15d9d8b 100644
 --- a/packages/subagent/subagent/tests/continuation.spec.ts
 +++ b/packages/subagent/subagent/tests/continuation.spec.ts
-@@ -500,6 +500,158 @@ describe('continuable activation capacity', () => {
+@@ -519,6 +519,158 @@ describe('continuable activation capacity', () => {
  })
  
  describe('SubagentRuntime.startContinuable', () => {
@@ -3964,7 +4152,7 @@ index 7f37523cd7..591684981d 100644
    it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
      const { ctx, parent, adapter } = await setup([textResponse('first answer')])
      const enqueued: { id: MessageId; loggedYet: boolean }[] = []
-@@ -589,7 +741,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -608,7 +760,7 @@ describe('SubagentRuntime.startContinuable', () => {
      expect(descriptorIndex).toBeLessThan(turnStartIndex)
      const descriptor = loaded.events[descriptorIndex] as SessionEvent<'subagent/descriptor'>
      expect(descriptor.data).toEqual({
@@ -3973,7 +4161,7 @@ index 7f37523cd7..591684981d 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -780,7 +932,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -799,7 +951,7 @@ describe('SubagentRuntime.startContinuable', () => {
      const descriptor = child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')
  
      expect(descriptor?.data).toEqual({
@@ -3982,7 +4170,7 @@ index 7f37523cd7..591684981d 100644
        mode: 'continuable',
        provider: 'spawn',
        label: 'child task',
-@@ -814,7 +966,7 @@ describe('SubagentRuntime.startContinuable', () => {
+@@ -833,7 +985,7 @@ describe('SubagentRuntime.startContinuable', () => {
  
      expect(child.session.snapshotEvents().find(event => event.type === 'subagent/descriptor')?.data)
        .toEqual({
@@ -3992,7 +4180,7 @@ index 7f37523cd7..591684981d 100644
          provider: 'spawn',
          label: 'child task',
 diff --git a/packages/subprocess/subprocess-local/src/index.ts b/packages/subprocess/subprocess-local/src/index.ts
-index ff03daebdf..12689a96a6 100644
+index 7b11f4f8..3138607e 100644
 --- a/packages/subprocess/subprocess-local/src/index.ts
 +++ b/packages/subprocess/subprocess-local/src/index.ts
 @@ -57,6 +57,11 @@ const requireNodePty = createLazyRequire<typeof NodePty>('node-pty', import.meta
@@ -4007,7 +4195,7 @@ index ff03daebdf..12689a96a6 100644
    /** Live handles retained for normal disposal and synchronous host-exit finalization. */
    private live = new Set<LocalSubprocessHandle>()
    /** Live terminals retained through normal quiescence or host-exit finalization. */
-@@ -190,6 +195,15 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
+@@ -194,6 +199,15 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
          : launchWindowsJob(spec, env)
        handle = bindManagedProcess(spec, launch, binding)
      }
@@ -4023,8 +4211,29 @@ index ff03daebdf..12689a96a6 100644
      this.live.add(handle)
      const control = handle.control
      if (control !== undefined) {
+diff --git a/packages/subprocess/subprocess-local/src/runner-launch.ts b/packages/subprocess/subprocess-local/src/runner-launch.ts
+index 381219ba..36f099d6 100644
+--- a/packages/subprocess/subprocess-local/src/runner-launch.ts
++++ b/packages/subprocess/subprocess-local/src/runner-launch.ts
+@@ -298,14 +298,14 @@ function validateNoNullByte(property: string, value: string, argument = false):
+  * @returns complete target environment after Node-equivalent validation.
+  */
+ export function targetEnvironment(
+-  spec: Pick<SubprocessSpawnSpec, 'argv' | 'cwd' | 'env'> & { stdio?: SubprocessSpawnSpec['stdio'] },
++  spec: Pick<SubprocessSpawnSpec, 'argv' | 'cwd' | 'env' | 'parentEnv'> & { stdio?: SubprocessSpawnSpec['stdio'] },
+ ): Record<string, string> {
+   spec.argv.forEach((value, index) => {
+     validateNoNullByte(index === 0 ? 'file' : `args[${String(index - 1)}]`, value, true)
+   })
+   validateNoNullByte('options.cwd', spec.cwd)
+   const env = Object.fromEntries(
+-    Object.entries(childEnv(spec.env)).filter((entry): entry is [string, string] => entry[1] !== undefined),
++    Object.entries(childEnv(spec.env, spec.parentEnv)).filter((entry): entry is [string, string] => entry[1] !== undefined),
+   )
+   for (const [key, value] of Object.entries(env)) {
+     validateNoNullByte(`options.env['${key}']`, key)
 diff --git a/packages/subprocess/subprocess-local/src/spawn.ts b/packages/subprocess/subprocess-local/src/spawn.ts
-index 9862a0d0dd..5db17df711 100644
+index ed9baa20..ffe0907b 100644
 --- a/packages/subprocess/subprocess-local/src/spawn.ts
 +++ b/packages/subprocess/subprocess-local/src/spawn.ts
 @@ -10,6 +10,25 @@
@@ -4053,7 +4262,7 @@ index 9862a0d0dd..5db17df711 100644
  import { setTimeout as sleepMs } from 'node:timers/promises'
  import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-@@ -34,15 +53,19 @@ type SpawnProcess = (
+@@ -34,15 +53,23 @@ type SpawnProcess = (
  ) => ChildProcess
  
  /**
@@ -4062,24 +4271,29 @@ index 9862a0d0dd..5db17df711 100644
 - * deliberately restores or overrides an entry; an explicit `undefined`
 - * tombstone removes an ordinary ambient entry.
 - * @param extra - explicit caller entries and tombstones, merged after the scrub.
-+ * Build a child environment: danger-full-access inherits the complete host
-+ * environment, while every other permission mode keeps the upstream scrubbed
-+ * base. Explicit caller entries then override the selected base using the
++ * Build a child environment from the caller's effective environment selection.
++ * Only an explicit full-access selection inherits the complete host environment;
++ * all other calls keep the upstream scrubbed base. Explicit caller entries then override the selected base using the
 + * target platform's environment-key semantics. A string deliberately restores
 + * or overrides an entry; an explicit `undefined` tombstone removes an ordinary
 + * ambient entry.
 + * @param extra - explicit caller entries and tombstones, merged after the base.
++ * @param parentEnv - effective selection for this call, independent of the process default.
   * @returns the environment to hand to `spawn` for the child process.
   */
- export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
+-export function childEnv(extra?: Readonly<NodeJS.ProcessEnv>): NodeJS.ProcessEnv {
 -  const env = scrubbedParentEnv()
-+  const env = process.env.DSH_PERMISSION_MODE === 'danger-full-access'
++export function childEnv(
++  extra?: Readonly<NodeJS.ProcessEnv>,
++  parentEnv: 'scrubbed' | 'full' = 'scrubbed',
++): NodeJS.ProcessEnv {
++  const env = parentEnv === 'full'
 +    ? { ...process.env }
 +    : scrubbedParentEnv()
    if (process.platform !== 'win32') return { ...env, ...extra }
    let entries: [string, string | undefined][] = Object.entries(env)
    for (const [key, value] of Object.entries(extra ?? {})) {
-@@ -63,10 +86,14 @@ export interface SpawnInternals {
+@@ -65,10 +92,14 @@ export interface SpawnInternals {
    taskkill?: (pid: number) => void
    /** Host platform override for signalling decisions. */
    platform?: NodeJS.Platform
@@ -4094,7 +4308,7 @@ index 9862a0d0dd..5db17df711 100644
  /**
   * Local-only synchronous final termination used by the owning service during
   * host exit and as the last fallback after failed normal disposal. It is
-@@ -439,32 +466,253 @@ export function bindManagedProcess(
+@@ -445,32 +476,253 @@ export function bindManagedProcess(
    }
  }
  
@@ -4334,7 +4548,8 @@ index 9862a0d0dd..5db17df711 100644
 +  const spawnOptions: SpawnOptions = {
 +    ...(executableFd === undefined ? {} : { argv0: program as string }),
      cwd: spec.cwd,
-     env: controlEnvironment(childEnv(spec.env), spec.stdio.control),
+-    env: controlEnvironment(childEnv(spec.env), spec.stdio.control),
++    env: controlEnvironment(childEnv(spec.env, spec.parentEnv), spec.stdio.control),
      stdio,
      detached: platform !== 'win32',
      windowsHide: platform === 'win32',
@@ -4351,7 +4566,7 @@ index 9862a0d0dd..5db17df711 100644
    const direct = directChildResult(child)
    const pid = child.pid
    const owner = fallbackOwner(
-@@ -475,7 +723,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -481,7 +733,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
      internals.linuxProcessGroupHasLiveMembers ?? linuxProcessGroupHasLiveMembers,
      direct,
    )
@@ -4360,7 +4575,7 @@ index 9862a0d0dd..5db17df711 100644
      stdin: child.stdin,
      stdout: child.stdout,
      stderr: child.stderr,
-@@ -483,4 +731,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
+@@ -489,4 +741,9 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
      direct,
      owner,
    }, binding)
@@ -4371,13 +4586,13 @@ index 9862a0d0dd..5db17df711 100644
 +  return handle
  }
 diff --git a/packages/subprocess/subprocess-local/tests/spawn.spec.ts b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-index d57e66a6cd..9bb604b408 100644
+index dc77e0b4..75742568 100644
 --- a/packages/subprocess/subprocess-local/tests/spawn.spec.ts
 +++ b/packages/subprocess/subprocess-local/tests/spawn.spec.ts
-@@ -1,6 +1,20 @@
- import { OutputCollector } from '../src/output.ts'
+@@ -1,6 +1,21 @@
+ import { logSpillFailure, OutputCollector, type SpillOptions } from '../src/output.ts'
  import { spawn as nodeSpawn, spawnSync as nodeSpawnSync } from 'node:child_process'
--import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync } from 'node:fs'
+-import { mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 +import {
 +  chmodSync,
 +  closeSync,
@@ -4392,11 +4607,12 @@ index d57e66a6cd..9bb604b408 100644
 +  rmdirSync,
 +  statSync,
 +  unlinkSync,
++  writeFileSync,
 +} from 'node:fs'
  import { tmpdir } from 'node:os'
  import { dirname, join } from 'node:path'
  import { afterAll, describe, expect, it, vi } from 'vitest'
-@@ -14,6 +28,7 @@ import {
+@@ -14,6 +29,7 @@ import {
  } from '../src/spawn.ts'
  import type { SubprocessHandle, SubprocessOutputReader } from '@deepseek-ai/dsh-subprocess'
  import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -4404,14 +4620,17 @@ index d57e66a6cd..9bb604b408 100644
  import { waitWithAbort } from '../src/managed-owner.ts'
  
  vi.mock('node:child_process', async (importOriginal) => {
-@@ -64,22 +79,47 @@ function shellArgv(command: string): string[] {
+@@ -64,26 +80,51 @@ function shellArgv(command: string): string[] {
    }
  }
  
--const { failNextClose, failNextUnlink } = vi.hoisted(() => ({
-+const { failNextClose, failNextUnlink, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
+-const { failNextClose, failNextUnlink, failNextWrite, failNextOpen, unlinked } = vi.hoisted(() => ({
++const { failNextClose, failNextUnlink, failNextWrite, failNextOpen, unlinked, failUnlinkPath, foreignOwnerPath, replaceTransientOnClose } = vi.hoisted(() => ({
    failNextClose: { value: false },
    failNextUnlink: { value: false },
+   failNextWrite: { value: false },
+   failNextOpen: { value: false },
+   unlinked: [] as string[],
 +  failUnlinkPath: { value: undefined as string | undefined },
 +  foreignOwnerPath: { value: undefined as string | undefined },
 +  replaceTransientOnClose: { parent: undefined as string | undefined, path: undefined as string | undefined },
@@ -4446,6 +4665,7 @@ index d57e66a6cd..9bb604b408 100644
        actual.closeSync(fd)
      },
      unlinkSync(path: Parameters<typeof actual.unlinkSync>[0]): void {
+       unlinked.push(String(path))
 +      if (String(path) === failUnlinkPath.value) {
 +        failUnlinkPath.value = undefined
 +        throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
@@ -4453,7 +4673,7 @@ index d57e66a6cd..9bb604b408 100644
        if (failNextUnlink.value) {
          failNextUnlink.value = false
          throw Object.assign(new Error('simulated EIO on unlink'), { code: 'EIO' })
-@@ -197,6 +237,305 @@ describe('spawnSubprocess', () => {
+@@ -221,6 +262,306 @@ describe('spawnSubprocess', () => {
      expect(result.stderr.text).toBe('')
    })
  
@@ -4463,10 +4683,11 @@ index d57e66a6cd..9bb604b408 100644
 +    try {
 +      process.env.DSH_PERMISSION_MODE = 'danger-full-access'
 +      process.env.DSH_HOST_ENV_TOKEN = 'ambient-canary'
-+      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBe('ambient-canary')
-+      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: 'explicit-override' }).DSH_HOST_ENV_TOKEN)
++      expect(spawnModule.childEnv(undefined, 'full').DSH_HOST_ENV_TOKEN).toBe('ambient-canary')
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: 'explicit-override' }, 'full').DSH_HOST_ENV_TOKEN)
 +        .toBe('explicit-override')
-+      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: undefined }).DSH_HOST_ENV_TOKEN).toBeUndefined()
++      expect(spawnModule.childEnv({ DSH_HOST_ENV_TOKEN: undefined }, 'full').DSH_HOST_ENV_TOKEN).toBeUndefined()
++      expect(spawnModule.childEnv().DSH_HOST_ENV_TOKEN).toBeUndefined()
 +    } finally {
 +      if (previousMode === undefined) delete process.env.DSH_PERMISSION_MODE
 +      else process.env.DSH_PERMISSION_MODE = previousMode
@@ -4760,7 +4981,7 @@ index d57e66a6cd..9bb604b408 100644
      const result = await finish(spawnSubprocess(spec('echo oops >&2')))
      expect(result.exitCode).toBe(0)
 diff --git a/packages/subprocess/subprocess/src/index.ts b/packages/subprocess/subprocess/src/index.ts
-index 6dbbc62719..98729fdd0e 100644
+index 6dbbc627..98729fdd 100644
 --- a/packages/subprocess/subprocess/src/index.ts
 +++ b/packages/subprocess/subprocess/src/index.ts
 @@ -115,6 +115,14 @@ declare module '@deepseek-ai/cordis' {
@@ -4802,51 +5023,16 @@ index 6dbbc62719..98729fdd0e 100644
    /**
     * Allocate a real terminal and start one owned process session. This is the
     * only non-pipe process primitive: implementations own terminal byte I/O,
-diff --git a/packages/boot/app-boot/src/index.ts b/packages/boot/app-boot/src/index.ts
-index 6164f6f080a9e44e7778aff6f06701c6d9b6c7f2..724c957061a79b51586d1d762741853c7bff5049 100644
---- a/packages/boot/app-boot/src/index.ts
-+++ b/packages/boot/app-boot/src/index.ts
-@@ -696,6 +696,7 @@ const requiredStartupEntryIds = new Set<string>([
-   'headless-runner',
-   'acp',
-   'sdk-jsonrpc-server',
-+  'dsh-runtime-kit',
- ])
+diff --git a/packages/subprocess/subprocess/src/types.ts b/packages/subprocess/subprocess/src/types.ts
+index a005330f..d362f21a 100644
+--- a/packages/subprocess/subprocess/src/types.ts
++++ b/packages/subprocess/subprocess/src/types.ts
+@@ -104,6 +104,8 @@ export interface SubprocessSpawnSpec {
+    * tombstone that removes an ordinary ambient entry from the child.
+    */
+   env?: NodeJS.ProcessEnv | undefined
++  /** Inherit ambient entries only when the caller's effective policy grants full access. */
++  parentEnv?: 'scrubbed' | 'full' | undefined
+ }
  
- /** Render plugin stacks, nested causes, and aggregate member failures once per error. */
-diff --git a/packages/boot/app-boot/tests/app-boot.spec.ts b/packages/boot/app-boot/tests/app-boot.spec.ts
-index ba841a95f161b36fb72fb6b317ae4383df13f734..f6d4a905a29e2855611528bec10427fe33eef1fa 100644
---- a/packages/boot/app-boot/tests/app-boot.spec.ts
-+++ b/packages/boot/app-boot/tests/app-boot.spec.ts
-@@ -513,6 +513,7 @@ describe('auditStartupEntries', () => {
-     'headless-runner',
-     'acp',
-     'sdk-jsonrpc-server',
-+    'dsh-runtime-kit',
-   ]
- 
-   interface FakeEntry {
-diff --git a/packages/core/tools/tests/tools.spec.ts b/packages/core/tools/tests/tools.spec.ts
-index 6caf233ce9..e767dc3ae5 100644
---- a/packages/core/tools/tests/tools.spec.ts
-+++ b/packages/core/tools/tests/tools.spec.ts
-@@ -9,7 +9,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
- import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
- import ToolRuntime, {
-   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
--  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
-+  TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER,
-   type InferArgs, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
-   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
- } from '@deepseek-ai/dsh-tools'
-@@ -38,6 +38,10 @@ const echoTool = defineTool({
- })
-
- describe('ToolRuntime', () => {
-+  it('shares the scheduler boundary across package instances', () => {
-+    expect(TOOL_RUNTIME_SCHEDULER).toBe(Symbol.for('@deepseek-ai/dsh-tools.scheduler'))
-+  })
-+
-   it('registers tools, exposes schemas, and feeds the system-prompt assembly', async () => {
-     const ctx = await setup()
-     ctx.tools.register(echoTool)
+ /**
