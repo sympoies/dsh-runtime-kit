@@ -88,8 +88,8 @@ compatibility, acceptance, and delivery procedures are in the
 
 | Dependency | Supported version |
 | --- | --- |
-| DeepSeek Harness (generic/headless) | `0.1.6-alpha.2` or `0.1.7-rc.1` |
-| Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
+| DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
+| Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
 | nils-cli | `1.29.0` minimum; exactly validated through `1.31.1` |
 
@@ -109,11 +109,7 @@ authenticated companion snapshots, one optional synchronous GoalService
 acceptance call, and normalization only for a concretized blank, non-widening
 sandbox schema echo before native Bash or filesystem dispatch. Real escalation
 requests retain DSH's strict validation and approval path. The patch does not
-copy or fork DSH. On 0.1.6-alpha.2 it also makes an enabled `dsh-runtime-kit`
-row a required startup entry, so a failed health or policy activation cannot
-degrade into an optional-plugin warning, and gives the new tool scheduler a
-process-wide identity so separately installed profile packages share the same
-execution boundary. The
+copy or fork DSH. The
 packaged lifecycle command verifies the exact Git revision, patch digest,
 before/after file hashes, and the complete checkout status:
 
@@ -135,13 +131,13 @@ pnpm --dir /absolute/deepseek-harness run build:lib:host
 
 Patch receipts attest source state and therefore report `runtime_rebuilt:
 false`; the rebuild and pristine CLI check are required before source reversal
-is considered complete. CI also exercises the retained 0.1.6 tools canary with
+is considered complete. CI also exercises the retained 0.1.7 tools canary with
 its authenticated patch.
 
 ## Install and activate
 
 The package supports the native `headless` profile on either retained generic
-DSH release, `0.1.6-alpha.2` or `0.1.7-rc.1`. Unknown profile names contain
+DSH release, `0.1.7-rc.1` or `0.2.0-rc.2`. Unknown profile names contain
 only the base bundle; they are not equivalent to `headless`.
 
 Runtime-kit does not compose a TUI profile. Agent Console DSH sessions use the
