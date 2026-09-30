@@ -633,37 +633,6 @@ function applyPlan(subject, args, extraEnv = {}) {
   return { preview: preview.value.data, applied: applied.value.data }
 }
 
-test('doctor fails closed when the pristine Agent Console TUI is absent or edited', () => {
-  const subject = fixture()
-  try {
-    const missing = run(subject, ['doctor', '--profile', 'dsh-tui'])
-    assert.equal(missing.value.data.agent_console_tui.ok, false)
-    assert.equal(missing.value.data.agent_console_tui.status, 'absent')
-    assert.equal(missing.value.data.agent_console_tui.package_name, '@deepseek-harness-tui/dsh-tui')
-    assert.equal(missing.value.data.status, 'needs-attention')
-
-    // A hand-built stand-in with the expected name/version is still drift.
-    const version = '0.10.2'
-    const packageRoot = join(
-      subject.home, 'profiles', 'dsh-tui',
-      'node_modules', '@deepseek-harness-tui', 'dsh-tui',
-    )
-    mkdirSync(packageRoot, { recursive: true })
-    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
-      name: '@deepseek-harness-tui/dsh-tui',
-      version,
-    }))
-    const unsupported = run(subject, ['doctor', '--profile', 'dsh-tui'])
-    assert.equal(unsupported.value.data.agent_console_tui.ok, false)
-    assert.equal(unsupported.value.data.agent_console_tui.status, 'drift')
-    assert.equal(unsupported.value.data.agent_console_tui.version, version)
-    assert.equal(unsupported.value.data.agent_console_tui.path, 'package.json')
-    assert.equal(unsupported.value.data.status, 'needs-attention')
-  } finally {
-    subject.cleanup()
-  }
-})
-
 test('POSIX command containment does not depend on an external setsid executable', () => {
   if (process.platform === 'win32') return
   const subject = fixture()
@@ -932,18 +901,10 @@ test('base operations-state v1 migrates explicitly before update rollback and re
     // Every doctor.v1 payload carries the same keys, whichever branch built it.
     assert.deepEqual(diagnosed.value.data.advisories, [])
     assert.deepEqual(diagnosed.value.data.policy, { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null })
-    assert.deepEqual(
-      diagnosed.value.data.agent_console_tui,
-      {
-        schema_version: 'dsh-runtime-kit.dsh-tui-pristine-inspection.v2',
-        package_name: '@deepseek-harness-tui/dsh-tui',
-        version: '0.10.2',
-        ok: true,
-        status: 'not-applicable',
-      },
-      'a non-Agent-Console profile carries no pristine package check, '
-        + 'and still reports the same identifying fields as every other branch',
-    )
+    assert.deepEqual(Object.keys(diagnosed.value.data).sort(), [
+      'activation', 'advisories', 'agent_docs', 'agent_hook', 'dsh', 'lifecycle',
+      'observed', 'owned_status', 'policy', 'profile', 'recovery', 'schema_version', 'status',
+    ])
     const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
     assert.equal(preview.status, 0, preview.stderr)
     assert.equal(preview.value.data.plan.schema_version, 'dsh-runtime-kit.operations-plan.v2')
@@ -1685,7 +1646,7 @@ test('update reads only an explicitly retired predecessor toolchain receipt', ()
   }
 })
 
-test('Agent Console mutation rejects a different reviewed DSH before profile mutation', () => {
+test('a dsh-tui profile follows the rolling reviewed DSH window like any other profile', () => {
   const subject = fixture()
   try {
     const source = readFileSync(subject.dsh, 'utf8')
@@ -1695,27 +1656,12 @@ test('Agent Console mutation rejects a different reviewed DSH before profile mut
     ))
     chmodSync(subject.dsh, 0o755)
 
-    const rejected = run(subject, [
+    const preview = run(subject, [
       'setup', '--profile', 'dsh-tui', '--package', subject.v1,
     ])
-    assert.equal(rejected.status, 65, `${rejected.stdout}\n${rejected.stderr}`)
-    assert.equal(rejected.value.error.code, 'agent-console-dsh-mismatch')
-    assert.deepEqual(rejected.value.error.details, {
-      actual_version: '0.1.7-rc.1',
-      actual_revision: '46a7f68b0922371ce7144b668b90e377d8e799f4',
-      required_version: '0.1.6-alpha.2',
-      required_revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
-    })
-    assert.equal(existsSync(join(subject.home, 'profiles', 'dsh-tui')), false)
-    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'dsh-tui.json')), false)
-    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
-
-    const repair = run(subject, ['doctor', '--profile', 'dsh-tui', '--repair'])
-    assert.equal(repair.status, 65, `${repair.stdout}\n${repair.stderr}`)
-    assert.equal(repair.value.error.code, 'agent-console-dsh-mismatch')
-    assert.equal(existsSync(join(subject.home, 'profiles', 'dsh-tui')), false)
-    assert.equal(existsSync(join(subject.home, 'runtime-kit', 'state', 'dsh-tui.json')), false)
-    assert.equal(existsSync(join(subject.runtimeRoot, 'activation.json')), false)
+    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+    assert.equal(preview.value.data.mode, 'dry-run')
+    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.7-rc.1')
   } finally {
     subject.cleanup()
   }

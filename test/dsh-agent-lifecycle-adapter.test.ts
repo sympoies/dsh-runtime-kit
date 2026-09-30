@@ -81,7 +81,7 @@ test('shipped integration drivers consume the release-aware lifecycle adapter', 
   const smokeSource = readFileSync(join(projectRoot, 'test/smoke.ts'), 'utf8')
   assert.match(
     smokeSource,
-    /lifecycleModuleSpecifier = agentConsoleTuiPackage === undefined[\s\S]*pathToFileURL\(join\(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle\.js'\)\)/u,
+    /lifecycleModuleSpecifier = pathToFileURL\(\s*join\(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle\.js'\),?\s*\)/u,
     'the temporary headless driver must import the built adapter by file URL',
   )
   const acceptanceSource = readFileSync(

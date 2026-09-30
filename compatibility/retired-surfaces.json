@@ -238,14 +238,48 @@
     {
       "id": "agent-console-single-release-pin",
       "category": "compatibility",
-      "status": "retained",
-      "summary": "The Agent Console profile pins one exact DSH release and TUI artifact rather than the three-release window.",
-      "paths": ["src/compat/agent-console.js", "compatibility/agent-console.json"],
-      "replacement": { "owner": "runtime-kit", "contract": "exact Agent Console composition (DSH 0.1.2-rc.1, dsh-tui 0.10.1)" },
-      "first_supported": { "runtime_kit": "dsh-tui beta.4 promotion", "nils_cli": "1.27.34" },
-      "compatibility_window": "intentionally narrower than the headless window",
-      "rollback": "n/a",
-      "rationale": "The UI boundary is documented as exact; widening it requires TUI validation on every release."
+      "status": "removed",
+      "summary": "The Agent Console candidate pinned one exact DSH release and pristine dsh-TUI artifact in a runtime-kit dsh-tui profile composition, with its exact-DSH mutation gate, doctor TUI inspection, and the older TUI history repair tooling. Runtime-kit no longer composes a TUI; a profile named dsh-tui follows the rolling headless window like any other profile.",
+      "paths": [
+        "src/compat/agent-console.ts",
+        "src/operations/index.ts",
+        "src/diagnostics/index.ts",
+        "index.ts",
+        "package.json",
+        "test/smoke.ts"
+      ],
+      "removed_files": [
+        "src/compat/agent-console.ts",
+        "src/compat/agent-console-artifact.ts",
+        "src/compat/dsh-tui-pristine.ts",
+        "src/compat/dsh-tui-history.ts",
+        "src/compat/dsh-tui-patch.ts",
+        "bin/dsh-runtime-kit-tui-history.ts",
+        "scripts/manage-dsh-tui-patch.ts",
+        "patches/dsh-tui",
+        "compatibility/agent-console.json",
+        "compatibility/agent-console-pnpm-workspace.yaml",
+        "compatibility/dsh-tui-016-profile-compat",
+        "compatibility/dsh-tui-pristine.json",
+        "compatibility/dsh-tui-patches.json"
+      ],
+      "identifiers": [
+        "AgentConsoleProfileCompatibilityError",
+        "agentConsoleRc7ProfileContract",
+        "inspectAgentConsoleRc7Profile",
+        "agent-console-profile",
+        "agent_console_tui",
+        "agent-console-dsh-mismatch",
+        "dsh-runtime-kit-tui-history",
+        "dsh-runtime-kit-manage-dsh-tui-patch",
+        "DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE",
+        "dsh-tui-pristine.json",
+        "dsh-tui-patches.json"
+      ],
+      "replacement": { "owner": "runtime-kit", "contract": "Agent Console DSH sessions are served by the separately released DSH Workbench composition (sympoies/dsh-workbench), which pins exact DSH, dsh-TUI, and runtime-kit revisions in one reviewed contract and imports none of the removed surfaces" },
+      "first_supported": { "runtime_kit": "44b8dced6ae96dd2ae3b5223bc7fae8664a4a6e3 (DSH Workbench 0.1.7 accepted graph)", "nils_cli": "1.29.0" },
+      "compatibility_window": "none; runtime-kit ships no TUI composition, and the headless DSH window in compatibility/dsh.json is unchanged",
+      "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
     },
     {
       "id": "identical-per-release-patch-artifacts",

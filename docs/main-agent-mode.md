@@ -44,9 +44,6 @@ Mode simply never activates and the rest of the bundle is unaffected.
   Agent, model-visible cwd argument, or serializable bearer reference exists.
 - **Route inheritance**: absent an explicit reviewed `workerProvider` or
   `workerModel`, the child copies the live controller's provider and model.
-  The supported Agent Console composition verifies
-  `codex-subscription/gpt-6-sol` on both controller and worker; the TUI provider
-  picker does not weaken this binding.
 - **Authority**: each lane child gets a monotonic deny-only tool guard for
   delegation and lane-management tools (visibility filtering alone is not
   authority), installed through `registerContinuableSetup` for the exact

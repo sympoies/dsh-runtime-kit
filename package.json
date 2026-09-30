@@ -7,17 +7,13 @@
   "bin": {
     "dsh-runtime-kit": "./dist/bin/dsh-runtime-kit.js",
     "dsh-runtime-kit-history": "./dist/bin/dsh-runtime-kit-history.js",
-    "dsh-runtime-kit-tui-history": "./dist/bin/dsh-runtime-kit-tui-history.js",
     "dsh-runtime-kit-acceptance-fixture": "./dist/bin/dsh-runtime-kit-acceptance-fixture.js",
     "dsh-runtime-kit-launch": "./dist/bin/dsh-runtime-kit-launch.js",
     "dsh-runtime-kit-check-parity": "./dist/scripts/check-rule-parity-source.js",
-    "dsh-runtime-kit-manage-dsh-patch": "./dist/scripts/manage-dsh-patch.js",
-    "dsh-runtime-kit-manage-dsh-tui-patch": "./dist/scripts/manage-dsh-tui-patch.js"
+    "dsh-runtime-kit-manage-dsh-patch": "./dist/scripts/manage-dsh-patch.js"
   },
   "exports": {
     ".": "./dist/index.js",
-    "./agent-console-profile": "./dist/src/compat/agent-console.js",
-    "./tui-history": "./dist/src/compat/dsh-tui-history.js",
     "./dsh-agent-lifecycle": "./dist/src/compat/dsh-agent-lifecycle.js",
     "./governed-commit": "./dist/src/governed-commit/index.js",
     "./composition": "./dist/src/composition/index.js",
@@ -101,7 +97,6 @@
     "test:operations-smoke": "node test/operations-smoke.ts",
     "check:compatibility": "node dist/scripts/check-dsh-compatibility.js",
     "dsh-patch": "node dist/scripts/manage-dsh-patch.js",
-    "dsh-tui-patch": "node dist/scripts/manage-dsh-tui-patch.js",
     "pack:compatibility-peers": "node dist/scripts/pack-dsh-compatibility-peers.js",
     "stage:compatibility-peers": "node dist/scripts/stage-dsh-compatibility-peers.js",
     "acceptance": "node dist/scripts/run-acceptance.js",

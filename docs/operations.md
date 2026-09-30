@@ -7,79 +7,13 @@ and health checks around those native operations.
 
 ## Activation boundary
 
-This candidate supports DSH's native `headless` profile and the exact Agent
-Console DSH `0.1.6-alpha.2` / dsh-TUI `0.10.2` profile in
-[`compatibility/agent-console.json`](../compatibility/agent-console.json).
-The running Agent Console still uses its earlier generation until the whole
-host profile is promoted. DSH initializes an unknown profile name with only
-`@deepseek-ai/dsh-base`; that is not either supported composition. `headless`
-composes the base and headless agent bundles. The candidate Agent Console
-profile must compose base, the consumer-owned `dsh-tui-016-profile-compat`
-bundle, the authenticated pristine TUI, and runtime-kit in that order. Its
-profile patch disables `dsh-tui-code-runtime`; the compatibility bundle
-supplies the disabled `workflow-worker-thread` row expected by unchanged TUI.
-Save the complete pre-activation profile and owner-only runtime root as the
-rollback point.
-
-Before the first TUI install under pnpm 11, provision the profile from
-[`compatibility/agent-console-pnpm-workspace.yaml`](../compatibility/agent-console-pnpm-workspace.yaml).
-It preserves DSH's native profile settings and carries the release-owned
-explicit lifecycle decision:
-
-```yaml
-allowBuilds:
-  '@google/genai': false
-  esbuild: false
-  koffi: false
-  protobufjs: false
-```
-
-These transitive install scripts are not required at runtime. This deployment
-setting prevents pnpm from rejecting the install and does not create a host
-CLI, `PATH`, or agent-execution allowlist. The 0.10 line's image decoders —
-required `sixel` and optional `sharp` — add no install, preinstall, postinstall,
-or prepare script of their own, so the denial set above is complete for this
-release.
-
-For the 0.1.6 candidate, authenticate the installed TUI against
-`compatibility/dsh-tui-pristine.json` after the final bundle is installed.
-Run the owner-owned history preflight before every TUI launch:
-
-```sh
-dsh-runtime-kit-tui-history
-```
-
-The preflight preserves history content and restricts its directory/file modes
-to 0700/0600 before TUI reads them; symlinks and foreign-owned paths fail
-closed. The TUI package stays pristine. Its published peer declaration still
-warns that DSH 0.1.6 is unverified, so this exact pair needs functional
-acceptance.
-
-The following repair rule applies only to the previously deployed 0.10.1
-generation. `dsh plugin add` reconciles that profile by
-re-materializing its package tree from the pnpm store, so a later bundle add
-can silently restore the pristine TUI bytes and discard an already-applied
-repair. This is release-independent — reproduced by digest on both
-`0.10.0-beta.4` and `0.10.1` — and depends on pnpm store state: the repair
-survived when the TUI package was already materialized in the resolved store,
-and was discarded when that add had just fetched it. Since pnpm derives its
-store from `HOME` unless `PNPM_HOME` pins it, do not treat a local run that
-preserved the repair as proof that the next one will. Re-apply the repair after
-every profile mutation that touches the `dsh-tui` profile — including
-runtime-kit's own `update` and `rollback`, see
-[Update, rollback, and remove](#update-rollback-and-remove) — and re-check the
-receipt before starting the service.
-
-The required receipt state is `after: "patched"`. Check it before service
-start. The 0.10 line already includes dsh-TUI #593's asynchronous history persistence
-and upstream's own live-Session compatibility facade, so the former
-`session.events` adaptation is no longer applied and the repair now has exactly
-one authenticated target: it restricts legacy history paths as one transaction.
-Reverse the same patch before replacing the
-package; never edit the installed target by hand. On first history append,
-the patch preserves legacy entries while restricting owner-owned data paths to
-0700/0600; an unexpected type, owner, or symlink is refused without following
-it.
+This package supports DSH's native `headless` profile. DSH initializes an
+unknown profile name with only `@deepseek-ai/dsh-base`; that is not a supported
+composition. `headless` composes the base and headless agent bundles.
+Runtime-kit does not compose a TUI profile: Agent Console DSH sessions use the
+separately released DSH Workbench, which owns its exact DSH, dsh-TUI, and
+runtime-kit pins. Save the complete pre-activation profile and owner-only
+runtime root as the rollback point.
 
 Runtime-kit also requires one authenticated source patch in the selected DSH
 checkout. This is an operator/deployment action, never an agent-authored shell
@@ -157,10 +91,7 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   --apply --expected-plan-digest <plan-digest> --format json
 ```
 
-For the Agent Console composition, substitute `--profile dsh-tui` only after
-its provisioner has authenticated the exact TUI package and profile bundle
-order. Setup does not reinterpret an arbitrary custom profile as `headless` or
-silently add the TUI surface.
+Setup does not reinterpret an arbitrary custom profile as `headless`.
 
 Registry targets must use an exact version. A local target must be a directory
 whose manifest is exactly `@sympoies/dsh-runtime-kit` with an exact version.
@@ -384,30 +315,19 @@ specialist-review health may be degraded while independent runtime-kit tools
 continue to operate. The complete state and recovery contract is in
 [Native runtime health](runtime-health.md).
 
-For Agent Console, run doctor with `--profile dsh-tui`, inspect the composed
-tree with `dsh --profile dsh-tui --dump-config`, then invoke `dsh-tui` through
-the same launcher. The composed evidence must satisfy
-`inspectAgentConsoleRc7Profile`: the official `userQuestions` and TUI rows,
-runtime-kit tools/skills/Main Agent service, separated controller/lane tool
-surfaces, and the inherited controller/worker route must all be present. Route
-evidence contains only `provider` and `model`; credential-shaped or other
-extensions are rejected rather than copied into a serializable inspection.
-
-## Agent Console authority boundary
+## Host authority boundary
 
 Runtime-kit's patch owns only the `dsh-runtime-kit` row. It does not rewrite
-`sandbox-policy`, `approval`, provider rows, or credential stores. The Agent
-Console launch surface must set `DSH_PERMISSION_MODE` explicitly; supported
-pairs are `workspace-write` + `ask`, `danger-full-access` + `never`, or
+`sandbox-policy`, `approval`, provider rows, or credential stores. A host
+launch surface such as Agent Console must set `DSH_PERMISSION_MODE`
+explicitly; supported pairs are `workspace-write` + `ask`, `danger-full-access` + `never`, or
 `danger-full-access` + `ask`. The last pair keeps full host access while
 allowing an exact worktree takeover request to reach the user. Provider credentials remain environment-name
 references such as `DSH_CODEX_PROXY_TOKEN`; raw credential values are not part
 of profile evidence.
 
-The candidate UI boundary is exact: DSH `0.1.6-alpha.2`, dsh-tui
-`0.10.2`, and the ordered four-bundle composition. Other DSH/TUI releases, arbitrary custom
-profiles, and live lane re-adoption after a harness restart remain outside this
-contract. Managed continuation metadata can reconstruct an exact host-issued
+Live lane re-adoption after a harness restart remains outside this contract.
+Managed continuation metadata can reconstruct an exact host-issued
 workspace only when its registered provider reauthenticates the same persisted
 cwd and renews the nils workspace lease; stale liveness sidecars never grant
 that authority. Under WorkspaceLease v2 that anchor is context only: a denied
@@ -416,23 +336,11 @@ several repositories without restarting.
 
 Deployment atomicity is scoped to an independently rollbackable lane, not to
 every service that happens to use DSH. The generic/headless lane may therefore
-advance while Agent Console waits for a compatible released TUI, provided the
-lanes do not share a mutable DSH installation, profile home, runtime root, or
-activation target. An excluded lane is frozen completely: do not replace its
-DSH, TUI, runtime-kit artifact, profile, or configuration, and do not report
-whole-stack convergence.
-
-This is still fail closed. `setup`, `update`, `rollback`, and `doctor --repair`
-compare the running DSH version and source revision with
-`compatibility/agent-console.json` before mutating `dsh-tui`. A mismatch is a
-typed `agent-console-dsh-mismatch` refusal and leaves the profile, receipts,
-and activation untouched. A future workbench promotion changes its exact DSH,
-TUI, runtime-kit, profile, and configuration generation together; rollback
-restores that lane's prior complete generation.
-
-The TUI pin is an exact release, never npm's moving `latest` tag. Keep the
-deployed 0.10.1 profile and receipt as the rollback generation until the new
-host profile passes launch, agent-session attach, and history validation.
+advance independently of a separately released host composition such as DSH
+Workbench, provided the lanes do not share a mutable DSH installation, profile
+home, runtime root, or activation target. An excluded lane is frozen
+completely: do not replace its DSH, runtime-kit artifact, profile, or
+configuration, and do not report whole-stack convergence.
 
 ## Doctor
 
@@ -440,29 +348,6 @@ Doctor verifies DSH, the exact installed package tree, the active asset set,
 the DSH-only policy and agent-docs roots, receipt state, and the released nils
 executables. Missing, drifted, cross-home, unsafe, or ambiguous state fails
 closed.
-
-On the candidate `dsh-tui` profile doctor authenticates the installed TUI
-package against `compatibility/dsh-tui-pristine.json` and reports it as
-`agent_console_tui`. The check is read-only and never mutates the package.
-
-| Status | Meaning |
-| --- | --- |
-| `pristine` | the TUI-owned installed files match the authenticated published archive; the only healthy state |
-| `absent` | the TUI package is not installed in this profile |
-| `unsupported` | package identity or path is outside the reviewed set |
-| `drift` | a reviewed package file has changed |
-| `not-applicable` | any profile other than `dsh-tui` |
-
-Every status except `pristine` and `not-applicable` makes the profile
-`needs-attention`, so a TUI package changed by `update`, `rollback`, or collateral
-restore cannot pass as healthy. A symlinked package root, symlinked
-intermediate directory, or non-regular target is reported as `unsupported`
-rather than followed.
-
-Clear a failing status by rerunning the consumer's authenticated provisioner
-and verifying the complete profile. `doctor --repair` is scoped to interrupted
-runtime-kit operations and owner-record adoption; it does not restore TUI
-package files.
 
 Management plans bind the reported DSH version to the matching exact source
 revision in `compatibility/dsh.json`. Only releases present in that reviewed
@@ -490,19 +375,6 @@ Rollback restores the exact previous runtime-kit target and matching activation
 assets. Remove delegates the package mutation to DSH, removes only
 runtime-kit-owned receipts and unreferenced assets, and preserves unrelated
 bundles, user patches, private skills, and provider configuration.
-
-On the candidate `dsh-tui` profile, `update`, `rollback`, and collateral
-restore can re-materialize the package tree. After any such mutation, require
-doctor's `agent_console_tui.status: "pristine"` and the four-bundle profile
-inspection before restarting. The launch wrapper runs
-`dsh-runtime-kit-tui-history` before the TUI reads retained input history.
-The earlier 0.10.1 generation instead requires its exact package repair when
-restored as a rollback target.
-
-`doctor` enforces this rather than leaving it to operator discipline. It
-reports package inspection as `agent_console_tui`; a missing or drifted TUI
-package leaves the profile `needs-attention`, so the change cannot pass
-as healthy. See [Doctor](#doctor) for the reported states.
 
 ## Interrupted operations and repair
 

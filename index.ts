@@ -32,11 +32,6 @@ import {
 
 export { plusOneTool }
 export { applyMainAgentMode, mainAgentMode } from './src/main-agent/index.js'
-export {
-  AgentConsoleProfileCompatibilityError,
-  agentConsoleRc7ProfileContract,
-  inspectAgentConsoleRc7Profile,
-} from './src/compat/agent-console.js'
 export { onDshSessionStart } from './src/compat/dsh-agent-lifecycle.js'
 
 // `ctx.skills` reaches the Cordis `Context` interface through a module

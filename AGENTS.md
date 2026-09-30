@@ -12,7 +12,7 @@ uses the same repository policy.
   `compatibility/dsh-patches.json`.
 - Patch apply and reverse must fail closed on unknown revisions, content drift,
   or unrelated checkout changes. Keep version-specific adapters under
-  `src/compat/`, `patches/deepseek-harness/`, and `patches/dsh-tui/`.
+  `src/compat/` and `patches/deepseek-harness/`.
 - Before proposing work outside this repository, read
   `docs/policies/upstream-contribution.md` and exhaust its downstream-first
   order. Agents may only draft third-party issues or PRs; a human submits them

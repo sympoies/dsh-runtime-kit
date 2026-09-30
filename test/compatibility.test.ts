@@ -372,24 +372,6 @@ test('peer receipts bind patched identity and retain legacy pristine identity', 
   }
 })
 
-test('the Agent Console candidate stays within the validated headless release window', () => {
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  const agentConsole = JSON.parse(readFileSync(
-    join(projectRoot, 'compatibility', 'agent-console.json'),
-    'utf8',
-  ))
-  const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
-  const workflow = readFileSync(join(projectRoot, '.github', 'workflows', 'compatibility.yml'), 'utf8')
-
-  assert.equal(manifest.validated_releases[agentConsole.dsh.version]?.revision, agentConsole.dsh.revision)
-  for (const [name, range] of Object.entries(packageManifest.peerDependencies)) {
-    if (name === '@deepseek-ai/cordis') continue
-    assert.equal(range.split(' || ').includes(agentConsole.dsh.version), true)
-  }
-  assert.doesNotMatch(workflow, /Run exact Agent Console TUI composition smoke/)
-  assert.doesNotMatch(workflow, /DSH_RUNTIME_KIT_AGENT_CONSOLE_TUI_PACKAGE/)
-})
-
 test('selected DSH non-workspace runtime dependencies are exact and lockfile-bound', () => {
   const expected = {
     '@standard-schema/spec': '1.1.0',
