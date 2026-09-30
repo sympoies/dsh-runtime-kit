@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   dshHistoryCapabilities,
+  dshHistoryRevisionModifiedAt,
   listDshHistorySessions,
   projectDshHistorySummary,
   readDshHistorySummarySnapshots,
@@ -85,40 +86,43 @@ function backend(): DshHistoryBackend {
   }
 }
 
-test('reports the adapter schema and refuses a drifted DSH composition', () => {
-  const versions = {
-    '@deepseek-ai/dsh-session': '0.1.2-rc.1',
-    '@deepseek-ai/dsh-session-persistence-jsonl': '0.1.2-rc.1',
-    '@deepseek-ai/dsh-session-query': '0.1.2-rc.1',
-    '@deepseek-ai/dsh-session-title': '0.1.2-rc.1',
+const HISTORY_PACKAGES = [
+  '@deepseek-ai/dsh-session',
+  '@deepseek-ai/dsh-session-persistence-jsonl',
+  '@deepseek-ai/dsh-session-query',
+  '@deepseek-ai/dsh-session-title',
+]
+
+test('reports the adapter schema for each supported DSH release and refuses a drifted composition', () => {
+  for (const release of ['0.1.7-rc.1', '0.2.0-rc.2']) {
+    const versions = Object.fromEntries(HISTORY_PACKAGES.map(name => [name, release]))
+    assert.deepEqual(dshHistoryCapabilities(versions), {
+      adapter_schema: 'dsh-runtime-kit.history.v1',
+      session_format: `dsh-session@${release}`,
+      operations: ['list', 'summaries', 'messages'],
+    })
+    assert.throws(
+      () => dshHistoryCapabilities({ ...versions, '@deepseek-ai/dsh-session-query': '0.1.7-rc.2' }),
+      /unsupported DSH history package version/,
+    )
   }
-  assert.deepEqual(dshHistoryCapabilities(versions), {
-    adapter_schema: 'dsh-runtime-kit.history.v1',
-    session_format: 'dsh-session@0.1.2-rc.1',
-    operations: ['list', 'summaries', 'messages'],
-  })
-  assert.throws(
-    () => dshHistoryCapabilities({ ...versions, '@deepseek-ai/dsh-session-query': '0.1.2-rc.2' }),
-    /unsupported DSH history package version/,
-  )
 })
 
-test('reports 0.1.6-alpha.2 history when every package matches that release', () => {
-  const versions = Object.fromEntries([
-    '@deepseek-ai/dsh-session',
-    '@deepseek-ai/dsh-session-persistence-jsonl',
-    '@deepseek-ai/dsh-session-query',
-    '@deepseek-ai/dsh-session-title',
-  ].map(name => [name, '0.1.6-alpha.2']))
-  assert.deepEqual(dshHistoryCapabilities(versions), {
-    adapter_schema: 'dsh-runtime-kit.history.v1',
-    session_format: 'dsh-session@0.1.6-alpha.2',
-    operations: ['list', 'summaries', 'messages'],
-  })
-  assert.throws(
-    () => dshHistoryCapabilities({ ...versions, '@deepseek-ai/dsh-session-query': '0.1.5-alpha.2' }),
-    /unsupported DSH history package version/,
-  )
+test('refuses history compositions from retired DSH releases', () => {
+  for (const retired of ['0.1.2-rc.1', '0.1.6-alpha.2']) {
+    assert.throws(
+      () => dshHistoryCapabilities(Object.fromEntries(HISTORY_PACKAGES.map(name => [name, retired]))),
+      /unsupported DSH history package version/,
+    )
+  }
+})
+
+test('reads the modification time from a current or historical JSONL revision', () => {
+  const current = '64512:19837978:315:1790595458738612590:1790765536018602992'
+  assert.equal(dshHistoryRevisionModifiedAt(current), 1790595458738)
+  assert.equal(dshHistoryRevisionModifiedAt(`${current}:historical-corpus`), 1790595458738)
+  assert.throws(() => dshHistoryRevisionModifiedAt('memory:session-persistence-jsonl:3'), /unsupported DSH session revision/)
+  assert.throws(() => dshHistoryRevisionModifiedAt('1:2:3:x:5'), /unsupported DSH session revision/)
 })
 
 test('lists only top-level sessions without reading transcript bodies', async () => {

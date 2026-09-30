@@ -282,6 +282,41 @@
       "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
     },
     {
+      "id": "dsh-history-retired-release-reader",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "The Agent Console history adapter accepted only the retired DSH 0.1.2-rc.1 and 0.1.6-alpha.2 session stores that the retired dsh-tui profile carried. It now follows the rolling DSH window and can resolve the store backend from an explicit DSH profile with --profile-root.",
+      "paths": [
+        "src/compat/dsh-history-adapter.ts",
+        "src/compat/dsh-history-profile.ts",
+        "bin/dsh-runtime-kit-history.ts"
+      ],
+      "identifiers": [
+        "DSH_HISTORY_VERSIONS"
+      ],
+      "replacement": { "owner": "runtime-kit", "contract": "dsh-runtime-kit-history over compatibility/dsh.json validated_releases. agent-session invokes a dsh_history command with only <operation> --root <dir> --compression <zstd|none>, so a DSH composition exposes the store through a composition-owned wrapper command (the DSH Workbench install's history face) that adds --profile-root for its profile" },
+      "first_supported": { "runtime_kit": "history adapter profile resolution", "nils_cli": "1.29.0 through a composition-owned wrapper command; agent-session passes no --profile-root itself" },
+      "compatibility_window": "DSH 0.1.7-rc.1 and 0.2.0-rc.2 session stores, read through a wrapper that names the profile or through a kit installation that carries the DSH history packages; an installed pre-0.1.7 composition keeps the runtime-kit revision it was installed with",
+      "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
+    },
+    {
+      "id": "dsh-history-pre-v4-revision-parser",
+      "category": "compatibility",
+      "status": "removed",
+      "summary": "The history adapter parsed the DSH 0.1.6 JSONL revision and carried pre-0.1.7 listing and inspection branches (listSnapshots, inspect, locate). No supported release provides them; the v4 revision parser replaces them.",
+      "paths": [
+        "bin/dsh-runtime-kit-history.ts",
+        "src/compat/dsh-history-adapter.ts"
+      ],
+      "identifiers": [
+        "currentGenerationModifiedAt"
+      ],
+      "replacement": { "owner": "runtime-kit", "contract": "dshHistoryRevisionModifiedAt over the v4 JSONL revision dev:ino:size:mtimeNs:ctimeNs, with the historical corpus suffix" },
+      "first_supported": { "runtime_kit": "history adapter profile resolution", "nils_cli": "1.29.0" },
+      "compatibility_window": "none; DSH 0.1.7-rc.1 and 0.2.0-rc.2 JSONL backends expose only list and the v4 revision",
+      "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
+    },
+    {
       "id": "identical-per-release-patch-artifacts",
       "category": "compatibility",
       "status": "retained",
