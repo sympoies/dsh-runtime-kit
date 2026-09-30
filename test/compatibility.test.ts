@@ -766,6 +766,30 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   )
   assert.equal(importCalls, 0)
 
+  // Both supported releases share Cordis 4.0.4, so only the homogeneous-set
+  // check refuses a peer set that mixes them.
+  let mixedImports = 0
+  await assert.rejects(
+    loadDshRc7Runtime({
+      importModule: async specifier => {
+        mixedImports += 1
+        return modules[specifier]
+      },
+      packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
+        ? '0.1.7-rc.1'
+        : specifier === '@deepseek-ai/cordis'
+          ? '4.0.4'
+          : '0.2.0-rc.2',
+    }),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+      && assert.deepEqual(
+        [...error.diagnostic.missing],
+        ['@deepseek-ai/dsh-tools:version:0.2.0-rc.2'],
+      ) === undefined,
+  )
+  assert.equal(mixedImports, 0)
+
   // The installed peers come from the registry, which never carries the
   // downstream execution-boundary patch, so the sandbox echo classifier the
   // contract now requires is absent on a plain install. Accept either a

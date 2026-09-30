@@ -1556,70 +1556,79 @@ test('operations bind the exact reviewed DSH 0.2.0-rc.2 toolchain identity', () 
     subject.cleanup()
   }
 
-  const retired = fixture()
-  try {
-    const source = readFileSync(retired.dsh, 'utf8')
-    writeFileSync(retired.dsh, source.replace(
-      "console.log('0.1.7-rc.1')",
-      "console.log('0.1.5-alpha.2')",
-    ))
-    chmodSync(retired.dsh, 0o755)
-    const rejected = run(retired, ['setup', '--profile', 'work', '--package', retired.v1])
-    assert.equal(rejected.status, 70)
-    assert.equal(rejected.value.error.code, 'command-unavailable')
-  } finally {
-    retired.cleanup()
+  // A retired operations toolchain authenticates completed receipts only; it
+  // never admits a live host.
+  for (const retiredVersion of ['0.1.5-alpha.2', '0.1.6-alpha.2']) {
+    const retired = fixture()
+    try {
+      const source = readFileSync(retired.dsh, 'utf8')
+      writeFileSync(retired.dsh, source.replace(
+        "console.log('0.1.7-rc.1')",
+        `console.log('${retiredVersion}')`,
+      ))
+      chmodSync(retired.dsh, 0o755)
+      const rejected = run(retired, ['setup', '--profile', 'work', '--package', retired.v1])
+      assert.equal(rejected.status, 70, retiredVersion)
+      assert.equal(rejected.value.error.code, 'command-unavailable', retiredVersion)
+    } finally {
+      retired.cleanup()
+    }
   }
 })
 
 test('update reads only an explicitly retired predecessor toolchain receipt', () => {
-  const subject = fixture()
-  try {
-    applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
-    const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
-    const predecessor = JSON.parse(readFileSync(statePath, 'utf8'))
-    predecessor.last_applied.plan.toolchain.dsh.version = '0.1.2-rc.1'
-    predecessor.last_applied.plan.toolchain.dsh.source_revision = 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'
-    predecessor.last_applied.plan_digest = sha256(stableJson(predecessor.last_applied.plan))
-    writeJson(statePath, predecessor)
-    chmodSync(statePath, 0o600)
+  for (const [retiredVersion, retiredRevision] of [
+    ['0.1.2-rc.1', 'a66e4702047846cdaa10c66c9d3df3951f5ea70d'],
+    ['0.1.6-alpha.2', 'ddefc45fbc7f8e46dd73185e68295696d1297887'],
+  ]) {
+    const subject = fixture()
+    try {
+      applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
+      const statePath = join(subject.home, 'runtime-kit', 'state', 'work.json')
+      const predecessor = JSON.parse(readFileSync(statePath, 'utf8'))
+      predecessor.last_applied.plan.toolchain.dsh.version = retiredVersion
+      predecessor.last_applied.plan.toolchain.dsh.source_revision = retiredRevision
+      predecessor.last_applied.plan_digest = sha256(stableJson(predecessor.last_applied.plan))
+      writeJson(statePath, predecessor)
+      chmodSync(statePath, 0o600)
 
-    const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
-    assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
-    assert.equal(preview.value.data.plan.action, 'update')
-    assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.7-rc.1')
+      const preview = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      assert.equal(preview.status, 0, `${preview.stdout}\n${preview.stderr}`)
+      assert.equal(preview.value.data.plan.action, 'update')
+      assert.equal(preview.value.data.plan.toolchain.dsh.version, '0.1.7-rc.1')
 
-    const unknown = structuredClone(predecessor)
-    unknown.last_applied.plan.toolchain.dsh.source_revision = 'f'.repeat(40)
-    unknown.last_applied.plan_digest = sha256(stableJson(unknown.last_applied.plan))
-    writeJson(statePath, unknown)
-    chmodSync(statePath, 0o600)
-    const rejected = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
-    assert.equal(rejected.status, 65)
-    assert.equal(rejected.value.error.code, 'invalid-operations-state')
+      const unknown = structuredClone(predecessor)
+      unknown.last_applied.plan.toolchain.dsh.source_revision = 'f'.repeat(40)
+      unknown.last_applied.plan_digest = sha256(stableJson(unknown.last_applied.plan))
+      writeJson(statePath, unknown)
+      chmodSync(statePath, 0o600)
+      const rejected = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      assert.equal(rejected.status, 65)
+      assert.equal(rejected.value.error.code, 'invalid-operations-state')
 
-    writeJson(statePath, predecessor)
-    chmodSync(statePath, 0o600)
-    const applied = run(subject, [
-      'update', '--profile', 'work', '--package', subject.v2,
-      '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
-    ])
-    assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
-    const transitioned = JSON.parse(readFileSync(statePath, 'utf8'))
-    assert.equal(transitioned.current.installed_version, '2.0.0')
-    assert.equal(transitioned.last_applied.plan.toolchain.dsh.version, '0.1.7-rc.1')
+      writeJson(statePath, predecessor)
+      chmodSync(statePath, 0o600)
+      const applied = run(subject, [
+        'update', '--profile', 'work', '--package', subject.v2,
+        '--apply', '--expected-plan-digest', preview.value.data.plan_digest,
+      ])
+      assert.equal(applied.status, 0, `${applied.stdout}\n${applied.stderr}`)
+      const transitioned = JSON.parse(readFileSync(statePath, 'utf8'))
+      assert.equal(transitioned.current.installed_version, '2.0.0')
+      assert.equal(transitioned.last_applied.plan.toolchain.dsh.version, '0.1.7-rc.1')
 
-    const dshSource = readFileSync(subject.dsh, 'utf8')
-    writeFileSync(subject.dsh, dshSource.replace(
-      "console.log('0.1.7-rc.1')",
-      "console.log('0.1.2-rc.1')",
-    ))
-    chmodSync(subject.dsh, 0o755)
-    const retiredRuntime = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
-    assert.equal(retiredRuntime.status, 70)
-    assert.equal(retiredRuntime.value.error.code, 'command-unavailable')
-  } finally {
-    subject.cleanup()
+      const dshSource = readFileSync(subject.dsh, 'utf8')
+      writeFileSync(subject.dsh, dshSource.replace(
+        "console.log('0.1.7-rc.1')",
+        `console.log('${retiredVersion}')`,
+      ))
+      chmodSync(subject.dsh, 0o755)
+      const retiredRuntime = run(subject, ['update', '--profile', 'work', '--package', subject.v2])
+      assert.equal(retiredRuntime.status, 70)
+      assert.equal(retiredRuntime.value.error.code, 'command-unavailable')
+    } finally {
+      subject.cleanup()
+    }
   }
 
   const pendingSubject = fixture()
