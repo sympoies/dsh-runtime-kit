@@ -1,7 +1,10 @@
+import { SUPPORTED_DSH_VERSIONS } from './contract.js'
+
 const PREVIEW_CHARS = 240
 const MESSAGE_CHARS = 16 * 1024
 const DSH_HISTORY_SCHEMA = 'dsh-runtime-kit.history.v1'
-const DSH_HISTORY_VERSIONS = new Set(['0.1.2-rc.1', '0.1.6-alpha.2'])
+// History reads follow the same rolling release window as the rest of the kit.
+const DSH_HISTORY_VERSIONS = new Set(SUPPORTED_DSH_VERSIONS)
 
 export const DSH_HISTORY_PACKAGES = [
   '@deepseek-ai/dsh-session',
@@ -78,6 +81,23 @@ export function dshHistoryCapabilities(versions: Readonly<Record<string, string 
     session_format: `dsh-session@${version}`,
     operations: ['list', 'summaries', 'messages'],
   }
+}
+
+/**
+ * The JSONL backend's revision is `dev:ino:size:mtimeNs:ctimeNs`; a session
+ * still stored in an older format appends a corpus token. Only the file
+ * modification time is read from it.
+ */
+export function dshHistoryRevisionModifiedAt(revision: unknown): number {
+  const fields = String(revision).split(':')
+  if (fields.length < 5 || fields.slice(0, 5).some(field => !/^\d+$/u.test(field))) {
+    throw new Error('unsupported DSH session revision')
+  }
+  const milliseconds = Number(BigInt(fields[3]) / 1_000_000n)
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
+    throw new Error('invalid DSH session modification time')
+  }
+  return milliseconds
 }
 
 function isoDate(value: number): string {

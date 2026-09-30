@@ -155,18 +155,23 @@ only the explicit session ids requested by `agent-session`, project visible
 user and assistant text, and exclude injected user-role events. Every response
 uses the versioned `dsh-runtime-kit.history.v1` JSON envelope.
 
-The four DSH history packages are pinned by the Agent Console DSH composition.
-Every adapter operation refuses an installed version other than the exact
-supported composition. They are supplied by the outer DSH installation rather
-than declared as runtime-kit dependencies, so the adapter does not widen the
+The four DSH history packages must all come from one supported DSH release
+(`0.1.7-rc.1` or `0.2.0-rc.2`); every adapter operation refuses any other
+composition. They are supplied by the outer DSH installation rather than
+declared as runtime-kit dependencies, so the adapter does not widen the
 runtime-kit's public rolling-window peer surface or pre-populate the
-authenticated compatibility staging targets.
+authenticated compatibility staging targets. Pass `--profile-root
+<dshHome>/profiles/<name>` to read the store through the packages that profile
+boots — its hoisted dependencies, its DSH installation, then its
+`dsh.profile.bundles`, which is where DSH carries the session persistence
+backend. Without it, the packages resolve from the installation that carries
+the runtime-kit copy.
 
-The adapter never creates, resumes, mutates, or deletes a DSH session. DSH
-history remains non-resumable in Agent Console. Callers must use an absolute
-session root, invoke the executable directly without a shell, bound its process,
-time, and output, and treat an unavailable or malformed adapter as a partial
-history result rather than a DSH launch failure.
+The adapter never creates, resumes, mutates, or deletes a DSH session; resuming
+one belongs to the DSH TUI and the session daemon. Callers must use absolute
+session and profile roots, invoke the executable directly without a shell, bound
+its process, time, and output, and treat an unavailable or malformed adapter as
+a partial history result rather than a DSH launch failure.
 
 The package is not yet published to the npm registry. Until a release is
 available, pack a reviewed source checkout and install that exact local tarball

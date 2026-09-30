@@ -282,6 +282,24 @@
       "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
     },
     {
+      "id": "dsh-history-retired-release-reader",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "The Agent Console history adapter accepted only the retired DSH 0.1.2-rc.1 and 0.1.6-alpha.2 session stores that the retired dsh-tui profile carried. It now follows the rolling DSH window, resolves the store backend from an explicit DSH profile, and drops the per-release revision parser and pre-0.1.7 listing and inspection branches.",
+      "paths": [
+        "src/compat/dsh-history-adapter.ts",
+        "src/compat/dsh-history-profile.ts",
+        "bin/dsh-runtime-kit-history.ts"
+      ],
+      "identifiers": [
+        "currentGenerationModifiedAt"
+      ],
+      "replacement": { "owner": "runtime-kit", "contract": "dsh-runtime-kit-history over compatibility/dsh.json validated_releases, with --profile-root naming the DSH profile whose persistence backend reads the store" },
+      "first_supported": { "runtime_kit": "history adapter profile resolution", "nils_cli": "1.29.0" },
+      "compatibility_window": "DSH 0.1.7-rc.1 and 0.2.0-rc.2 session stores; an installed pre-0.1.7 composition keeps the runtime-kit revision it was installed with",
+      "rollback": "Reinstall the previous reviewed runtime-kit revision pinned by the deployment through the digest-reviewed rollback operation."
+    },
+    {
       "id": "identical-per-release-patch-artifacts",
       "category": "compatibility",
       "status": "retained",

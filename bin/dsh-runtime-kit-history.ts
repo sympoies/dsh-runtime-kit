@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
-import { stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { isAbsolute } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import {
   DSH_HISTORY_PACKAGES,
   dshHistoryCapabilities,
+  dshHistoryRevisionModifiedAt,
   listDshHistorySessions,
   readDshHistorySummarySnapshots,
   readDshHistoryMessages,
@@ -14,8 +15,7 @@ import {
   type DshHistoryBackend,
   type DshHistoryMessageDirection,
 } from '../src/compat/dsh-history-adapter.js'
-
-const require = createRequire(import.meta.url)
+import { createDshHistoryModuleResolver } from '../src/compat/dsh-history-profile.js'
 
 function fail(message: string, code = 64): never {
   process.stderr.write(`dsh-runtime-kit-history: ${message}\n`)
@@ -34,21 +34,34 @@ function option(args: string[], name: string, required = false) {
   return value
 }
 
-/** The pinned 0.1.6 JSONL backend encodes file mtime in its opaque revision. */
-function currentGenerationModifiedAt(revision: unknown): number {
-  const fields = String(revision).split(':')
-  if (fields.length !== 5 || fields.some(field => !/^\d+$/u.test(field))) {
-    throw new Error('unsupported DSH 0.1.6 session revision')
-  }
-  const milliseconds = Number(BigInt(fields[3]) / 1_000_000n)
-  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) {
-    throw new Error('invalid DSH 0.1.6 session modification time')
-  }
-  return milliseconds
+type Modules = {
+  load(specifier: string): Promise<any>
+  packageVersion(packageName: string): string | undefined
 }
 
-async function createBackend(root: string, compression: string): Promise<{ backend: DshHistoryBackend, dispose(): Promise<void> }> {
-  const load = (specifier: string) => import(specifier)
+/**
+ * Without `--profile-root` the DSH packages come from the installation that
+ * carries this runtime-kit copy; with it they come from that DSH profile.
+ */
+function historyModules(profileRoot: string | undefined): Modules {
+  if (profileRoot === undefined) {
+    const require = createRequire(import.meta.url)
+    return {
+      load: specifier => import(specifier),
+      packageVersion: packageName => {
+        const manifest = require(`${packageName}/package.json`) as { version?: unknown }
+        return typeof manifest.version === 'string' ? manifest.version : undefined
+      },
+    }
+  }
+  const resolver = createDshHistoryModuleResolver(profileRoot)
+  return {
+    load: specifier => import(pathToFileURL(resolver.resolve(specifier)).href),
+    packageVersion: packageName => resolver.packageVersion(packageName),
+  }
+}
+
+async function createBackend(modules: Modules, root: string, compression: string): Promise<{ backend: DshHistoryBackend, dispose(): Promise<void> }> {
   const [
     { Context },
     { SessionStore, foldSurface },
@@ -56,11 +69,11 @@ async function createBackend(root: string, compression: string): Promise<{ backe
     { SessionQueryEngine },
     { foldSessionTitle },
   ] = await Promise.all([
-    load('@deepseek-ai/cordis'),
-    load('@deepseek-ai/dsh-session'),
-    load('@deepseek-ai/dsh-session-persistence-jsonl'),
-    load('@deepseek-ai/dsh-session-query'),
-    load('@deepseek-ai/dsh-session-title'),
+    modules.load('@deepseek-ai/cordis'),
+    modules.load('@deepseek-ai/dsh-session'),
+    modules.load('@deepseek-ai/dsh-session-persistence-jsonl'),
+    modules.load('@deepseek-ai/dsh-session-query'),
+    modules.load('@deepseek-ai/dsh-session-title'),
   ])
   const JsonlSessionPersistence = persistenceModule.JsonlSessionPersistence ?? persistenceModule.default
   class ReadOnlySessionQuery extends SessionQueryEngine {
@@ -76,41 +89,17 @@ async function createBackend(root: string, compression: string): Promise<{ backe
   return {
     backend: {
       listSnapshots: async signal => {
-        if (typeof persistence.listSnapshots !== 'function') {
-          const snapshots = await persistence.list({ signal })
-          return snapshots.map((snapshot: any) => ({
-            header: snapshot.header,
-            revision: String(snapshot.revision),
-            updatedAt: currentGenerationModifiedAt(snapshot.revision),
-          }))
-        }
-        const snapshots = await persistence.listSnapshots(signal)
-        const listed = []
-        for (let index = 0; index < snapshots.length; index += 32) {
-          signal?.throwIfAborted()
-          const batch = await Promise.all(snapshots.slice(index, index + 32).map(async (snapshot: any) => {
-            try {
-              const metadata = await stat(persistence.locate(snapshot.header).path, { bigint: true })
-              return {
-                header: snapshot.header,
-                revision: String(snapshot.revision),
-                updatedAt: Number(metadata.mtimeNs / 1_000_000n),
-              }
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-              return undefined
-            }
-          }))
-          listed.push(...batch.filter(item => item !== undefined))
-        }
-        return listed
+        const snapshots = await persistence.list({ signal })
+        return snapshots.map((snapshot: any) => ({
+          header: snapshot.header,
+          revision: String(snapshot.revision),
+          updatedAt: dshHistoryRevisionModifiedAt(snapshot.revision),
+        }))
       },
       readSummarySnapshots: (ids, signal) => readDshHistorySummarySnapshots(ids, {
         inspect: async (sessionId, inspectSignal) => {
           inspectSignal?.throwIfAborted()
-          return typeof persistence.inspect === 'function'
-            ? persistence.inspect(sessionId, inspectSignal)
-            : query.readSession(sessionId)
+          return query.readSession(sessionId)
         },
         foldSurface: events => foldSurface(events).nodes,
         foldTitle: events => foldSessionTitle(events)?.title,
@@ -124,15 +113,18 @@ async function createBackend(root: string, compression: string): Promise<{ backe
 async function main() {
   const [command, ...args] = process.argv.slice(2)
   if (!['capabilities', 'list', 'summaries', 'messages'].includes(command ?? '')) {
-    fail('usage: dsh-runtime-kit-history <capabilities|list|summaries|messages> [--root <directory>] [options]')
+    fail('usage: dsh-runtime-kit-history <capabilities|list|summaries|messages> [--profile-root <directory>] [--root <directory>] [options]')
   }
-  const versions = Object.fromEntries(DSH_HISTORY_PACKAGES.map(packageName => {
-    const manifest = require(`${packageName}/package.json`) as { version?: unknown }
-    return [packageName, typeof manifest.version === 'string' ? manifest.version : undefined]
-  }))
+  const profileRoot = option(args, '--profile-root')
+  if (profileRoot !== undefined && !isAbsolute(profileRoot)) fail('--profile-root must be absolute')
+  const modules = historyModules(profileRoot)
+  const versions = Object.fromEntries(DSH_HISTORY_PACKAGES.map(packageName => [
+    packageName,
+    modules.packageVersion(packageName),
+  ]))
   const capabilities = dshHistoryCapabilities(versions)
   if (command === 'capabilities') {
-    if (args.length > 0) fail('capabilities accepts no additional arguments')
+    if (args.length > 0) fail('capabilities accepts no arguments other than --profile-root')
     process.stdout.write(`${JSON.stringify({ schema_version: 'dsh-runtime-kit.history.v1', data: capabilities })}\n`)
     return
   }
@@ -151,7 +143,7 @@ async function main() {
   if (command === 'messages' && sessionIds.length !== 1) fail('messages requires exactly one --session-id')
   if (!['forward', 'latest', 'older'].includes(direction)) fail('--direction must be forward, latest, or older')
 
-  const mounted = await createBackend(root, compression)
+  const mounted = await createBackend(modules, root, compression)
   try {
     const data = command === 'list'
       ? await listDshHistorySessions(mounted.backend, AbortSignal.timeout(2_000))

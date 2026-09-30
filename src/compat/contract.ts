@@ -40,7 +40,9 @@ const RETIRED_OPERATIONS_TOOLCHAINS = Object.freeze({
     cordis: '4.0.2',
   }),
 })
-const SUPPORTED_DSH_VERSION_RANGE = Object.keys(SUPPORTED_DSH_RELEASES).join(' || ')
+/** The rolling window of DSH releases this runtime-kit validates, newest last. */
+export const SUPPORTED_DSH_VERSIONS: readonly string[] = Object.freeze(Object.keys(SUPPORTED_DSH_RELEASES))
+const SUPPORTED_DSH_VERSION_RANGE = SUPPORTED_DSH_VERSIONS.join(' || ')
 const SUPPORTED_CORDIS_RELEASES = Object.freeze(['4.0.4'])
 const SUPPORTED_CORDIS_VERSION_RANGE = SUPPORTED_CORDIS_RELEASES.join(' || ')
 const DSH_SUPPORT_POLICY = Object.freeze({
