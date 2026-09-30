@@ -4,8 +4,8 @@ The supported runtime is deliberately exact:
 
 | Surface | Supported version |
 | --- | --- |
-| DeepSeek Harness (generic/headless) | `0.1.6-alpha.2` or `0.1.7-rc.1` |
-| Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
+| DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
+| Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
 | nils-cli | `1.29.0` minimum; exactly validated through `1.31.1` |
 
@@ -46,11 +46,12 @@ the evicted release, retain its exact version, tag, revision, and Cordis
 identity under `retired_operations_toolchains` until those profiles have
 converged. That historical row authenticates completed receipts only and does
 not keep the release in the runtime support window. Runtime startup requires
-one homogeneous `0.1.6-alpha.2` or `0.1.7-rc.1` public peer set and validates
+one homogeneous `0.1.7-rc.1` or `0.2.0-rc.2` public peer set and validates
 the consumed public exports and service methods before registering a listener,
 tool, service, or skill. The
-reviewed compositions are exact: DSH 0.1.6 requires Cordis 4.0.2 and DSH
-0.1.7 requires Cordis 4.0.4. Mixed,
+reviewed compositions are exact: both DSH releases require Cordis 4.0.4.
+The retired `0.1.6-alpha.2` row keeps its Cordis 4.0.2 identity only for
+completed operations receipts. Mixed,
 cross-composed, or unknown peer versions
 fail closed. Incompatibility returns a typed
 `DshCompatibilityError` with code
@@ -61,8 +62,8 @@ patch and never partially activates without them.
 ## Machine-readable contract
 
 [`compatibility/dsh.json`](../compatibility/dsh.json) is authoritative for the
-pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.6-alpha.2`
-and `0.1.7-rc.1` release identities, the enforced two-release support policy, public package/export
+pinned DSH tag, reviewed `upstream-next` revision, exact `0.1.7-rc.1`
+and `0.2.0-rc.2` release identities, the enforced two-release support policy, public package/export
 surface, complete pinned workspace closure, artifact bounds, and runtime
 performance budgets. Each `validated_releases` row also declares its exact
 Cordis composition so the public contract and runtime admission stay aligned.
@@ -91,11 +92,11 @@ through a module-private DSH scope tag, which is not portable across separate
 host and installed-package module instances. Runtime-kit selects the candidate
 data-policy command only through the exact reviewed-source selector; released
 and selectorless operation never invokes it. Its release-specific
-target hashes bind those seams independently for 0.1.6-alpha.2 and
-0.1.7-rc.1; an
+target hashes bind those seams independently for 0.1.7-rc.1 and
+0.2.0-rc.2; an
 unknown or locally drifted checkout remains ineligible.
 
-The rc.1 artifact also dispatches profile reload notifications from the private
+Both artifacts also dispatch profile reload notifications from the private
 bootstrap Include's current active context. Settings mutation, package reload,
 and HMR retain their root-owned reconciliation while the installed TUI keeps
 denying plugin access to composition-root event capabilities. The notification
@@ -103,18 +104,12 @@ does not grant a root capability to the caller; an unavailable Include owner
 rejects the reload. Native owner tests and installed Workbench acceptance cover
 the welcome acknowledgement that exposed this integration boundary.
 
-The 0.1.6-alpha.2 patch also adds `dsh-runtime-kit` to DSH's present-and-enabled
-required startup entries. DSH may continue past unrelated optional plugin
-failures, but a runtime-kit activation failure remains a fatal boot refusal. It
-also gives the new tool scheduler a process-wide symbol identity so the CLI and
-an independently installed profile package reach the same scheduler boundary.
-
 Both retained releases expose the source-bearing `agent/created` event.
 The version adapter under `src/compat/` preserves repeated starts such as
 clear or compact. Patch target hashes remain release-specific wherever
 upstream source moved or changed.
 
-DSH 0.1.7 writes native session format v4 and rejects the retired
+DSH 0.1.7 and 0.2.0 write native session format v4 and rejects the retired
 `source.kind = plugin` wrapper for new messages. Runtime-kit emits
 `source.kind = dsh-runtime-kit` for its own context, steering, and queued
 prompts on both retained releases; diagnostics still recognize the earlier
@@ -122,7 +117,7 @@ wrapper in historical session records.
 
 Two authentication rules follow the newer release rather than the patch.
 Checkout authentication lists the complete index and HEAD tree, so its output
-bound scales with DSH's tracked file count. The retained 0.1.6 release declares
+bound scales with DSH's tracked file count. Both retained releases declare
 `*.cmd text eol=crlf`, the one
 sanctioned smudge boundary between an authenticated blob and its working-tree
 form, so byte-level attestation accepts a working tree that is the exact
@@ -192,14 +187,14 @@ forbidden from the controller's lane-management tools.
 ## Promotion checks
 
 The authenticated installation closure contains every production patch package
-owner as well as the public peer roots and their dependencies. Its 83 artifacts
+owner as well as the public peer roots and their dependencies. Its 84 artifacts
 include five unmodified native-system registry archives at version 0.1.2.
 The peer packer requires `--registry-artifact-root` with those exact archives;
 it verifies their pinned SHA-512 integrity and canonical package digests without
-rebuilding native binaries. The independent stager authenticates all 83 archives,
+rebuilding native binaries. The independent stager authenticates all 84 archives,
 then materializes the entry package and the matching native platform package.
-On Linux x64, `packages` lists 80 materialized packages, `verified_packages`
-lists all 83, and `skipped_optional_packages` lists the three incompatible
+On Linux x64, `packages` lists 81 materialized packages, `verified_packages`
+lists all 84, and `skipped_optional_packages` lists the three incompatible
 optional native platform packages. The pack receipt retains the full closure
 in its existing `packages` field. These installation roots do not expand the
 runtime-kit's public peer API.
@@ -228,8 +223,8 @@ evidence; it cannot silently broaden the supported range.
 
 Every Linux channel row authenticates the selected checkout before patching,
 then rebuilds and compares its complete host closure after reversal. The
-0.1.7 candidate rows also stage retained 0.1.6, apply its authenticated patch,
-and run the executable tools canary without runtime-kit. Pristine 0.1.6 is
+0.2.0 candidate rows also stage retained 0.1.7, apply its authenticated patch,
+and run the executable tools canary without runtime-kit. Pristine 0.1.7 is
 valid source-reversal evidence, but it lacks the awaited tools-finish boundary
 needed by the canary.
 
@@ -244,7 +239,7 @@ preserved cleanup failures, the 256 MiB executable
 ceiling, and stable source/target identity, runs the
 native tools/LLM boundary tests and a packed runtime-health smoke, then
 reverses the patch and authenticates the pristine candidate checkout. The
-executable rollback canary then switches to retained `0.1.6-alpha.2`, applies
+executable rollback canary then switches to retained `0.1.7-rc.1`, applies
 its authenticated patch, and runs its real tools pipeline. That
 platform-scoped smoke uses DSH's real tools pipeline to prove unauthenticated
 companion denial, project-health denial before model or adapter work,

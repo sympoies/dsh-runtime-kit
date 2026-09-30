@@ -356,9 +356,7 @@ function plainRecord(value: unknown): value is Record<string, unknown>  {
 function reviewedDshRevision(version: unknown) {
   if (typeof version !== 'string' || !plainRecord(DSH_COMPATIBILITY.validated_releases)) return null
   const release = DSH_COMPATIBILITY.validated_releases[version]
-  const expectedCordis = version === '0.1.6-alpha.2' ? '4.0.2'
-    : version === '0.1.7-rc.1' ? '4.0.4'
-      : null
+  const expectedCordis = version === '0.1.7-rc.1' || version === '0.2.0-rc.2' ? '4.0.4' : null
   if (!plainRecord(release)
     || Object.keys(release).sort().join(',') !== 'cordis,ref,revision'
     || release.cordis !== expectedCordis

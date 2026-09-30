@@ -97,20 +97,20 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
     maximum_releases: 2,
     promotion: 'add newest release and retire the oldest release in the same change',
   })
-  assert.equal(manifest.channels.pinned.version, '0.1.7-rc.1')
-  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.1.7-rc.1')
+  assert.equal(manifest.channels.pinned.version, '0.2.0-rc.2')
+  assert.equal(manifest.channels.pinned.ref, 'refs/tags/dsh-v0.2.0-rc.2')
   assert.match(manifest.channels.pinned.revision, /^[0-9a-f]{40}$/)
   assert.equal(manifest.channels['upstream-next'].ref, 'refs/heads/master')
   assert.match(manifest.channels['upstream-next'].revision, /^[0-9a-f]{40}$/)
   assert.deepEqual(manifest.validated_releases, {
-    '0.1.6-alpha.2': {
-      ref: 'refs/tags/dsh-v0.1.6-alpha.2',
-      revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
-      cordis: '4.0.2',
-    },
     '0.1.7-rc.1': {
       ref: 'refs/tags/dsh-v0.1.7-rc.1',
       revision: '46a7f68b0922371ce7144b668b90e377d8e799f4',
+      cordis: '4.0.4',
+    },
+    '0.2.0-rc.2': {
+      ref: 'refs/tags/dsh-v0.2.0-rc.2',
+      revision: '639ed015397290b3745d163aafe02ffee4aa3f84',
       cordis: '4.0.4',
     },
   })
@@ -119,6 +119,11 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
       ref: 'refs/tags/dsh-v0.1.2-rc.1',
       revision: 'a66e4702047846cdaa10c66c9d3df3951f5ea70d',
       cordis: '4.0.1',
+    },
+    '0.1.6-alpha.2': {
+      ref: 'refs/tags/dsh-v0.1.6-alpha.2',
+      revision: 'ddefc45fbc7f8e46dd73185e68295696d1297887',
+      cordis: '4.0.2',
     },
   })
   const patchManifest = validateDshPatchManifest(
@@ -158,8 +163,8 @@ test('DSH compatibility manifest enforces a rolling window of exactly two releas
   for (const [name, contract] of Object.entries(manifest.public_packages)) {
     assert.equal(packageManifest.peerDependencies[name], contract.peer)
     assert.equal(contract.peer, name === '@deepseek-ai/cordis'
-      ? '4.0.2 || 4.0.4'
-      : '0.1.6-alpha.2 || 0.1.7-rc.1')
+      ? '4.0.4'
+      : '0.1.7-rc.1 || 0.2.0-rc.2')
   }
 
   const expandedWindow = structuredClone(manifest)
@@ -637,32 +642,37 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
     importModule: async specifier => overrides?.[specifier] ?? modules[specifier],
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
       ? '4.0.4'
-      : '0.1.7-rc.1',
+      : '0.2.0-rc.2',
   })
   const loaded = await loadDshRc7Runtime(options())
   assert.equal(typeof loaded.createUserMessage, 'function')
   assert.equal(typeof loaded.isNonWideningSandboxEcho, 'function')
   assert.equal(loaded.TOOL_ABORTED, 'ABORTED')
 
-  const alpha6 = await loadDshRc7Runtime({
+  const rc1 = await loadDshRc7Runtime({
     ...options(),
     packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
-      ? '4.0.2'
-      : '0.1.6-alpha.2',
+      ? '4.0.4'
+      : '0.1.7-rc.1',
   })
-  assert.deepEqual(new Set(Object.values(alpha6.versions)), new Set(['0.1.6-alpha.2', '4.0.2']))
-
-  const rc1 = await loadDshRc7Runtime(options())
   assert.deepEqual(new Set(Object.values(rc1.versions)), new Set(['0.1.7-rc.1', '4.0.4']))
+
+  const rc2 = await loadDshRc7Runtime(options())
+  assert.deepEqual(new Set(Object.values(rc2.versions)), new Set(['0.2.0-rc.2', '4.0.4']))
 
   // A release retired by the two-release window is refused as an unreviewed
   // peer set, not admitted because it once composed.
-  for (const retired of ['0.1.2-alpha.4', '0.1.2-rc.1', '0.1.5-alpha.2']) {
+  for (const [retired, retiredCordis] of [
+    ['0.1.2-alpha.4', '4.0.4'],
+    ['0.1.2-rc.1', '4.0.4'],
+    ['0.1.5-alpha.2', '4.0.4'],
+    ['0.1.6-alpha.2', '4.0.2'],
+  ]) {
     await assert.rejects(
       loadDshRc7Runtime({
         ...options(),
         packageVersion: async specifier => specifier === '@deepseek-ai/cordis'
-          ? '4.0.4'
+          ? retiredCordis
           : retired,
       }),
       error => error instanceof DshCompatibilityError
@@ -671,8 +681,8 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   }
 
   for (const [dshVersion, cordisVersion, expectedCordisVersion] of [
-    ['0.1.6-alpha.2', '4.0.4', '4.0.2'],
     ['0.1.7-rc.1', '4.0.2', '4.0.4'],
+    ['0.2.0-rc.2', '4.0.2', '4.0.4'],
   ]) {
     let invalidCompositionImports = 0
     await assert.rejects(
@@ -723,7 +733,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.4'
-          : '0.1.7-rc.1',
+          : '0.2.0-rc.2',
     }),
     error => error instanceof DshCompatibilityError
       && assert.deepEqual(error.diagnostic, {
@@ -731,7 +741,7 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         schema_version: 'dsh-runtime-kit.dsh-compatibility-diagnostic.v1',
         compatible: false,
         code: 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH',
-        missing: ['@deepseek-ai/dsh-tools:version:0.1.7-rc.1'],
+        missing: ['@deepseek-ai/dsh-tools:version:0.2.0-rc.2'],
       }) === undefined,
   )
 
@@ -746,15 +756,39 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
         ? '0.1.2-alpha.4'
         : specifier === '@deepseek-ai/cordis'
           ? '4.0.4'
-          : '0.1.7-rc.1',
+          : '0.2.0-rc.2',
     }),
     error => error instanceof DshCompatibilityError
       && error.diagnostic.adapter === 'dsh-rolling-v1'
       && error.diagnostic.missing.includes(
-        '@deepseek-ai/dsh-subprocess:version:0.1.7-rc.1',
+        '@deepseek-ai/dsh-subprocess:version:0.2.0-rc.2',
       ),
   )
   assert.equal(importCalls, 0)
+
+  // Both supported releases share Cordis 4.0.4, so only the homogeneous-set
+  // check refuses a peer set that mixes them.
+  let mixedImports = 0
+  await assert.rejects(
+    loadDshRc7Runtime({
+      importModule: async specifier => {
+        mixedImports += 1
+        return modules[specifier]
+      },
+      packageVersion: async specifier => specifier === '@deepseek-ai/dsh-tools'
+        ? '0.1.7-rc.1'
+        : specifier === '@deepseek-ai/cordis'
+          ? '4.0.4'
+          : '0.2.0-rc.2',
+    }),
+    error => error instanceof DshCompatibilityError
+      && error.code === 'DSH_RUNTIME_KIT_INCOMPATIBLE_DSH'
+      && assert.deepEqual(
+        [...error.diagnostic.missing],
+        ['@deepseek-ai/dsh-tools:version:0.2.0-rc.2'],
+      ) === undefined,
+  )
+  assert.equal(mixedImports, 0)
 
   // The installed peers come from the registry, which never carries the
   // downstream execution-boundary patch, so the sandbox echo classifier the
@@ -774,10 +808,10 @@ test('runtime values are version-bound and missing or wrong-kind exports stay ty
   }
   if (installed !== undefined) {
     const installedVersions = new Set(Object.values(installed.versions))
-    assert.equal(['4.0.2', '4.0.4'].some(version => installedVersions.has(version)), true)
+    assert.equal(installedVersions.has('4.0.4'), true)
     assert.equal(installedVersions.size, 2)
     assert.equal(
-      ['0.1.6-alpha.2', '0.1.7-rc.1']
+      ['0.1.7-rc.1', '0.2.0-rc.2']
         .some(version => installedVersions.has(version)),
       true,
     )
@@ -1042,16 +1076,13 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(handoffStep, /GIT_CLI_BIN: .*nils-cli-v1\.31\.1-x86_64-unknown-linux-gnu\/bin\/git-cli/)
   assert.match(handoffStep, /run: npm run test:workspace-lease-native-smoke/)
   assert.equal(workflow.match(/retained patched DSH tools smoke without runtime-kit/g)?.length, 2)
-  // The retained 0.1.6 row and the 0.1.7 candidate rows use distinct
-  // release-scoped test sets, then rebuild the patched host output.
-  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 11)
+  // The retained 0.1.7 row and the 0.2.0 candidate rows run the same patched
+  // boundary suites, then rebuild the patched host output.
+  assert.equal(workflow.match(/pnpm run build:lib:host/g)?.length, 10)
+  assert.doesNotMatch(workflow, /Validate retained DSH [0-9.]+ execution boundary/)
   assert.match(
     workflow,
-    /Validate retained DSH 0\.1\.6 execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.6-alpha\.2'[\s\S]{0,700}pnpm run build:lib:host/,
-  )
-  assert.match(
-    workflow,
-    /Validate patched DSH execution boundary[\s\S]+if: matrix\.dsh_version == '0\.1\.7-rc\.1'[\s\S]{0,1300}packages\/fs\/fs-sandbox\/tests\/fs-sandbox\.spec\.ts[\s\S]{0,1300}pnpm run build:lib:host/,
+    /Validate patched DSH execution boundary\n\s+working-directory: deepseek-harness[\s\S]{0,1300}packages\/fs\/fs-sandbox\/tests\/fs-sandbox\.spec\.ts[\s\S]{0,1300}pnpm run build:lib:host/,
   )
   assert.equal(workflow.match(/pnpm run clean\n\s+pnpm run build:lib:host/g)?.length ?? 0, 0)
   assert.match(
@@ -1096,12 +1127,12 @@ test('compatibility workflow keeps selected channels and every patch release blo
   )
   assert.match(
     linuxJob,
-    /Stage retained DSH 0\.1\.6 rollback runtime[\s\S]+if: success\(\) && matrix\.dsh_version == '0\.1\.7-rc\.1'[\s\S]{0,700}git checkout --detach ddefc45fbc7f8e46dd73185e68295696d1297887/,
+    /Stage retained DSH 0\.1\.7 rollback runtime[\s\S]+if: success\(\) && matrix\.dsh_version == '0\.2\.0-rc\.2'[\s\S]{0,700}git checkout --detach 46a7f68b0922371ce7144b668b90e377d8e799f4/,
   )
-  assert.match(linuxJob, /DSH_ACCEPTANCE_DSH_VERSION=0\.1\.6-alpha\.2/)
-  assert.match(linuxJob, /Reverse retained DSH 0\.1\.6 patch/)
+  assert.match(linuxJob, /DSH_ACCEPTANCE_DSH_VERSION=0\.1\.7-rc\.1/)
+  assert.match(linuxJob, /Reverse retained DSH 0\.1\.7 patch/)
   assert.match(linuxJob, /Assert upstream checkout returned to pristine state/)
-  assert.match(linuxJob, /\|\| test "\$observed_revision" = ddefc45fbc7f8e46dd73185e68295696d1297887/)
+  assert.match(linuxJob, /\|\| test "\$observed_revision" = 46a7f68b0922371ce7144b668b90e377d8e799f4/)
   const macosArtifacts = nils.release.platforms['aarch64-apple-darwin'].artifacts
   for (const [job, artifacts] of [[linuxJob, nils.release.artifacts], [workflow.slice(linuxJob.length), macosArtifacts]]) {
     for (const leg of ['CANDIDATE', 'BASELINE']) {
@@ -1124,12 +1155,12 @@ test('compatibility workflow keeps selected channels and every patch release blo
       + '\\s+fetch-depth: 0',
     ),
   )
-  const retained = manifest.validated_releases['0.1.6-alpha.2']
-  assert.match(macosJob, /Stage retained DSH 0\.1\.6 rollback runtime/)
+  const retained = manifest.validated_releases['0.1.7-rc.1']
+  assert.match(macosJob, /Stage retained DSH 0\.1\.7 rollback runtime/)
   assert.match(macosJob, new RegExp(`git checkout --detach ${retained.revision}`))
-  assert.match(macosJob, /DSH_ACCEPTANCE_DSH_VERSION=0\.1\.6-alpha\.2/)
+  assert.match(macosJob, /DSH_ACCEPTANCE_DSH_VERSION=0\.1\.7-rc\.1/)
   assert.match(macosJob, new RegExp(`DSH_ACCEPTANCE_DSH_REVISION=${retained.revision}`))
-  assert.match(macosJob, /Reverse retained DSH 0\.1\.6 patch on macOS/)
+  assert.match(macosJob, /Reverse retained DSH 0\.1\.7 patch on macOS/)
   assert.match(macosJob, /deepseek-harness\/vendor\/cordis/)
   assert.match(macosJob, /ln -s "\$GITHUB_WORKSPACE\/deepseek-harness\/vendor\/cordis"/)
   assert.doesNotMatch(macosJob, /npm install --no-save[\s\S]{0,200}deepseek-harness\/vendor\/cordis/)
@@ -1151,11 +1182,11 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /--receipt "\$RUNNER_TEMP\/dsh-peer-pack\.json"/)
   assert.match(workflow, /npm run --silent stage:compatibility-peers/)
   assert.match(workflow, /--action apply/)
-  assert.equal(workflow.match(/packages\/core\/tools\/tests\/tools\.spec\.ts/g)?.length, 3)
+  assert.equal(workflow.match(/packages\/core\/tools\/tests\/tools\.spec\.ts/g)?.length, 2)
   assert.match(workflow, /packages\/llm\/llm\/tests\/service\.spec\.ts/)
   assert.equal(
     workflow.match(/packages\/subprocess\/subprocess-local\/tests\/spawn\.spec\.ts/g)?.length,
-    3,
+    2,
   )
   assert.match(
     workflow,
@@ -1199,7 +1230,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(runtimeSmoke, /nativeFullHostAuthorityVerified/)
   assert.match(
     runtimeSmoke,
-    /codeModeSandbox\?\.enforcement === undefined \|\| codeModeSandbox\.enforcement === 'full'[\s\S]{0,600}\['0\.1\.6-alpha\.2', '0\.1\.7-rc\.1'\]\.includes\(dshManifest\.version\)[\s\S]{0,420}enforcement: 'full'[\s\S]{0,180}: \{ logs: \[\], result: 42 \}/u,
+    /codeModeSandbox\?\.enforcement === undefined \|\| codeModeSandbox\.enforcement === 'full'[\s\S]{0,600}\['0\.1\.7-rc\.1', '0\.2\.0-rc\.2'\]\.includes\(dshManifest\.version\)[\s\S]{0,420}enforcement: 'full'[\s\S]{0,180}: \{ logs: \[\], result: 42 \}/u,
     'the packed smoke must validate the exact PTC result shape for both retained DSH releases',
   )
   assert.match(

@@ -73,16 +73,16 @@ assert.equal(manifest.name, '@sympoies/dsh-runtime-kit')
 assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
 assert.ok(manifest.files.includes('src'))
 assert.deepEqual(manifest.peerDependencies, {
-  '@deepseek-ai/cordis': '4.0.2 || 4.0.4',
-  '@deepseek-ai/dsh-agent': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-bash-local': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-fs': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-llm': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-sandbox': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-skill-filesystem': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-subagent': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-subprocess': '0.1.6-alpha.2 || 0.1.7-rc.1',
-  '@deepseek-ai/dsh-tools': '0.1.6-alpha.2 || 0.1.7-rc.1',
+  '@deepseek-ai/cordis': '4.0.4',
+  '@deepseek-ai/dsh-agent': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-bash-local': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-fs': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-llm': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-sandbox': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-skill-filesystem': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-subagent': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-subprocess': '0.1.7-rc.1 || 0.2.0-rc.2',
+  '@deepseek-ai/dsh-tools': '0.1.7-rc.1 || 0.2.0-rc.2',
 })
 const nilsCompatibility = JSON.parse(
   readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'),
@@ -1474,7 +1474,7 @@ try {
     'src/compat/performance.ts',
     'src/compat/upstream-reference.ts',
     'patches/deepseek-harness/native-execution-boundaries-v5-0-1-5-alpha-2.patch',
-    'patches/deepseek-harness/native-execution-boundaries-v5-0-1-6-alpha-2.patch',
+    'patches/deepseek-harness/native-execution-boundaries-v5-0-2-0-rc-2.patch',
     'policy/dsh-runtime-kit-v1.toml',
     'policy/rule-parity.yaml',
     'policy/runtime-rule-parity.yaml',
@@ -3511,7 +3511,7 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   )
   assert.deepEqual(
     codeModeReceipt.runCodeResult.value,
-    ['0.1.6-alpha.2', '0.1.7-rc.1'].includes(dshManifest.version)
+    ['0.1.7-rc.1', '0.2.0-rc.2'].includes(dshManifest.version)
       ? {
           logs: [],
           sandbox: {
