@@ -65,6 +65,7 @@ repository contributor routing and must not be copied over the root catalog.
 | Packaged DSH catalog | installed `BROWSER_TESTING.md` (source: `agent-docs/BROWSER_TESTING.md`) | DSH | `web-testing` | yes | Returned for intent `web-testing`; routing browser claims to the surfaces a DSH composition provides. |
 | Packaged DSH catalog | installed `MEMORY.md` (source: `agent-docs/MEMORY.md`) | DSH | `memory` | yes | Returned for intent `memory`; the personal-memory content boundary. |
 | Packaged DSH catalog | installed `UPSTREAM_CONTRIBUTION.md` (source: `agent-docs/UPSTREAM_CONTRIBUTION.md`) | DSH | `upstream-contribution` | yes | Returned for intent `upstream-contribution`; changes outside the current repository. |
+| Packaged DSH catalog | installed `PEER_COORDINATION.md` (source: `agent-docs/PEER_COORDINATION.md`) | DSH | `peer-coordination` | yes | Returned for intent `peer-coordination`; session board check, mailbox checkpoints, and disposition replies for managed peer sessions. |
 | Packaged DSH home | kit-managed `<dshHome>/AGENTS.md` (source: `agent-home/AGENTS.md`) | DSH | session policy | yes | DSH's native instruction loader reads it at session start in every composition. It is home-scope runtime policy for DSH sessions, not repository contributor policy, and is in neither catalog. |
 
 The root catalog's `project-dev` validation contract applies to Codex, Claude,

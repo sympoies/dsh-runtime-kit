@@ -135,6 +135,7 @@ try {
     ['web-testing', null, ['BROWSER_TESTING.md']],
     ['memory', null, ['MEMORY.md']],
     ['upstream-contribution', null, ['UPSTREAM_CONTRIBUTION.md']],
+    ['peer-coordination', null, ['PEER_COORDINATION.md']],
   ]
   for (const [index, [intent, phase, documents]] of packagedRoutes.entries()) {
     const routed = runJson(agentDocsBin, [

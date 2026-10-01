@@ -25,7 +25,8 @@ test('DSH keeps its native instruction loader configuration', () => {
 test('the DSH home instructions keep the shared home rules and only DSH-native routing', () => {
   const home = read('agent-home/AGENTS.md')
 
-  assert.ok(Buffer.byteLength(home) <= 4096, 'home instructions must stay compact')
+  // 4,096 held the shared rules; peer-coordination routing (#311) needs the rest.
+  assert.ok(Buffer.byteLength(home) <= 4608, 'home instructions must stay compact')
   assert.match(home, /^# /u)
   assert.match(home, /voice input as a speech transcript that may contain\s+misrecognized words/u)
   for (const surface of [
@@ -77,6 +78,7 @@ const PACKAGED_POLICIES = [
   ['BROWSER_TESTING.md', 'web-testing', null],
   ['MEMORY.md', 'memory', null],
   ['UPSTREAM_CONTRIBUTION.md', 'upstream-contribution', null],
+  ['PEER_COORDINATION.md', 'peer-coordination', null],
 ]
 // The default runtime_context budget is 20 KiB; leave room for project documents.
 const MAX_PACKAGED_BYTES_PER_CALL = 18 * 1024
@@ -148,13 +150,44 @@ test('packaged policy documents are DSH-native', () => {
   assert.match(read('agent-docs/REVIEW_CONVERGENCE.md'), /closed-set/u)
   assert.match(read('agent-docs/DEVLOG.md'), /devlog check/u)
   assert.match(read('agent-docs/MEMORY.md'), /Never store:\s+- secrets/u)
+  const peers = read('agent-docs/PEER_COORDINATION.md')
+  for (const surface of [
+    'agent-session board --state live --format json',
+    'agent-session message inbox --session "$AGENT_SESSION_ID" --state unread',
+    'agent-session message show',
+    'agent-session message reply',
+    '--if-revision',
+    'agent-session message ack',
+  ]) {
+    assert.ok(peers.includes(surface), `peer coordination must name ${surface}`)
+  }
+  for (const disposition of ['accepted', 'deferred', 'declined', 'needs-user-authority', 'completed', 'failed']) {
+    assert.ok(peers.includes(`\`${disposition}\``), `peer coordination must define ${disposition}`)
+  }
+  assert.match(peers, /five minutes/u)
+  assert.match(peers, /in-flight/u)
+  assert.match(peers, /untrusted/u)
+  assert.match(peers, /never grant/u)
+  assert.match(peers, /no automatic mailbox reminder reaches DSH sessions yet/u)
+  // Every mutating mailbox command is shown with the flags the CLI requires.
+  const commands = [...peers.replace(/\n\s*/gu, ' ').matchAll(/`agent-session message (ack|reply|send) [^`]*`/gu)]
+  assert.deepEqual([...new Set(commands.map(match => match[1]))].sort(), ['ack', 'reply', 'send'])
+  for (const [command, verb] of commands) {
+    assert.match(command, /--idempotency-key/u, `${verb} must carry --idempotency-key`)
+    if (verb !== 'send') assert.match(command, /--if-revision/u, `${verb} must carry --if-revision`)
+    if (verb !== 'ack') assert.match(command, /--body-file/u, `${verb} must carry --body-file`)
+  }
 })
 
 test('the home instructions route every packaged policy intent', () => {
   const home = read('agent-home/AGENTS.md')
   assert.match(home, /`direct`/u)
   assert.match(home, /runtime_context[^.]*`delivery`/u)
-  for (const route of ['`review`', '`devlog`', '`external-facts`', '`web-testing`', '`memory`', '`upstream-contribution`']) {
+  for (const route of ['`review`', '`devlog`', '`external-facts`', '`web-testing`', '`memory`', '`upstream-contribution`', '`peer-coordination`']) {
     assert.ok(home.includes(route), `home instructions must route ${route}`)
   }
+  // Peer coordination: checkpoints that never interrupt work, and an answer to every material request.
+  assert.match(home, /every five minutes/u)
+  assert.match(home, /in-flight/u)
+  assert.match(home, /disposition/u)
 })

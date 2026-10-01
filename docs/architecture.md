@@ -659,7 +659,8 @@ home instructions below, which DSH's own instruction loader reads. The public to
 schema allows `project-dev` with an optional `phase` of `edit` (the default,
 and the only phase the mutation prerequisite prepares), `delivery`, or
 `review`, and the phaseless `devlog`, `external-facts`, `web-testing`,
-`memory`, and `upstream-contribution` intents, plus an optional absolute
+`memory`, `upstream-contribution`, and `peer-coordination` intents, plus an
+optional absolute
 `project_path`; the transport repeats the same allowlist checks before
 spawning `agent-docs` and omits `--phase` for a phaseless intent. These resolve
 the packaged home policies in `agent-docs/` only when the model asks for them,

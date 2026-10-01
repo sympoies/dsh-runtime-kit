@@ -50,7 +50,7 @@ default 20 KiB context budget.
 | `memory.md` | Adapted: `MEMORY.md`, intent `memory`. DSH has no built-in memory store; the content boundary applies to a connected memory MCP server. The `agent-memory` candidate lifecycle is not applicable. |
 | `upstream-contribution.md` | Adapted: `UPSTREAM_CONTRIBUTION.md`, intent `upstream-contribution`, generalized from this repository's own policy. |
 | `files-hooks-validation.md` | DSH-native replacement: the nils-cli `dsh_policy` groups, the finish-line coordinator, and `PROJECT_DEV_EDIT.md`. |
-| `session-coordination.md` | Pending: S1 (#311). |
+| `session-coordination.md` | Adapted: `PEER_COORDINATION.md`, intent `peer-coordination`: the read-only board check, mailbox checkpoints at least every five minutes, and disposition replies with the session's own `agent-session` identity. No mailbox reminder reaches DSH sessions yet (sympoies/nils-cli#2011), so DSH relies on these checkpoints. Claim enforcement and recovery internals are not applicable. |
 | `code-review-delegation-codex.md` | Not applicable: Codex-only. DSH routes review through the native `review_specialists` tool. |
 | `intent-cards.md` | DSH-native replacement: the `runtime_context` intent and phase routing in the packaged home instructions. |
 | `forge-label-taxonomy.md` | Not packaged: the `workflow::tracking` and `workflow::follow-up` labels are named inline in `WORK_MODES.md` and the `issue-follow-up` skill; repositories own their label catalogs. |

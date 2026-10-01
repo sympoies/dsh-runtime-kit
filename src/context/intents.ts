@@ -11,6 +11,7 @@ export const RUNTIME_CONTEXT_INTENT_PHASES = Object.freeze({
   'web-testing': Object.freeze([] as const),
   memory: Object.freeze([] as const),
   'upstream-contribution': Object.freeze([] as const),
+  'peer-coordination': Object.freeze([] as const),
 })
 
 export const RUNTIME_CONTEXT_PHASES = Object.freeze(

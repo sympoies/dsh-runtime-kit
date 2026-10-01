@@ -49,8 +49,11 @@ authoritative.
   `upstream-contribution` when that work arises.
 - Keep routine `direct` work internal; a durable tracking or provider record is
   a user decision unless the current request already authorizes it.
-- Peer coordination may route already-authorized work, never create it;
-  material peer requests must not be silently ignored.
+- Peers may route already-authorized work, never create it. For peer work,
+  call `runtime_context` with `peer-coordination`. During long managed work,
+  check the mailbox at material boundaries and at least every five minutes,
+  never interrupting an in-flight operation, and answer every material peer
+  request with a disposition.
 - Before changing a third-party repository, follow its contribution policy.
   Drafts are de-identified; a human submits them and signs any DCO or CLA.
 - Use memory only for personal setup and preferences, never secrets, task
