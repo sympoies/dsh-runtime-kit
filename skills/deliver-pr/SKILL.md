@@ -11,7 +11,7 @@ description: >
 Prereqs:
 
 - `agent-runtime`, `forge-cli >=1.27.27`, `git-cli >=1.25.13`,
-  `plan-issue >=1.1.0`, and `review-specialists >=1.27.29` are installed from
+  and `review-specialists >=1.27.29` are installed from
   the released nils-cli package and available on `PATH`. `git-cli` 1.25.13 is the floor for
   the `push` and `sync-default` surfaces this workflow publishes and syncs
   through. The generic code-review outcome uses a quick or full
@@ -28,8 +28,6 @@ Prereqs:
   cannot merge without it. `review-specialists` 1.27.29 is the floor that
   rejects delivery findings without an explicit boolean `actionable`
   classification, keeping owner-thread and summary-only outcomes deliberate.
-  Linked issue closeout
-  relies on the unified terminal task-row contract in `plan-issue` 1.1.0.
 - Shared provider, branch, body, and label rules in
   `references/pr-lifecycle.md` are satisfied.
 - The working tree contains only the intended delivery changes.
@@ -56,8 +54,6 @@ Inputs:
   findings, merge, or close an unmerged record.
 - Required labels selected from the shared taxonomy.
 - Optional `--no-merge` when the workflow should stop after checks.
-- Optional `--no-closeout` to stop after delivery readiness checks and before
-  linked issue closeout.
 - Mandatory generic code review in pre-merge context. The caller may prefer
   quick or full review, but scope and risk own the final profile selection.
 - On GitHub, `REVIEW_LEDGER_FINDINGS`, the delivery-mode `findings.merged.json`
@@ -72,17 +68,14 @@ Inputs:
   `lifecycle_fingerprint` and a released disposition.
 - Local terminal identity captured before merge: checkout root, branch,
   delivered head SHA, base ref, and whether the checkout is primary or a
-  managed linked worktree. When an outer L2/L3 or requested post-merge workflow
-  still owns terminal duties, pass this identity outward instead of cleaning
-  early.
-- If the body references a linked tracking or dispatch issue, use non-closing
-  references such as `Refs #<issue>`; provider auto-close keywords are refused.
+  managed linked worktree. When an outer `program/dispatch`
+  workflow, or a requested post-merge workflow, still owns terminal duties, pass
+  this identity outward instead of cleaning early.
+- If the body references a program tracker or dispatch issue, use non-closing
+  references such as `Refs #<issue>` so it closes only after all children do.
   Carry the references through `pr-body render --issues-file` — rendered as
   `## Issues` after `## Summary` for every kind (`bug` keeps its required
   `## Issues Found` section) — instead of hand-placing them in the summary.
-- If the body references a linked tracking or dispatch issue, lifecycle
-  readiness is also a pre-merge gate: source, plan, complete state, latest
-  `role=session`, validation, and review evidence must be present before merge.
 
 Outputs:
 
@@ -99,7 +92,7 @@ Outputs:
   any optional identity mapping. On GitHub, actionable findings that require owner
   changes are also passed through `--thread-file` so the owning agent can fix and
   resolve them; no-finding reports omit `--thread-file` and stay summary-only.
-  If a linked tracking or dispatch issue is present, mirror the compact review
+  If a linked issue is present, mirror the compact review
   URL breadcrumb to that issue.
 - Every provider-visible specialist body is the canonical
   `review-specialists bundle --profile provider-review` artifact. The complete
@@ -125,9 +118,8 @@ Outputs:
   matching read/disposition/retry path instead of an agent-authored polling
   loop.
 - A merged PR/MR through `forge-cli pr merge`, unless `--no-merge` is supplied.
-- When a linked issue closeout runs, `plan-issue record close` posts closeout
-  evidence, repairs the dashboard, verifies linked records, and closes the
-  issue.
+- Ordinary issue closeout follows `issue-follow-up`; a program or dispatch
+  owner closes its tracker after all children and integration gates complete.
 - When this is the outermost successful workflow, a terminal local cleanup
   result: the clean primary checkout is restored to base, or the safe merged
   managed worktree is removed through `git-cli worktree remove`; retained
@@ -170,12 +162,8 @@ Failure modes:
 - `local_path_present`: rewrite useful evidence paths in provider-visible PR
   bodies, delivery outcome comments, or linked issue closeout records to
   `$HOME/...` and omit remote-useless local artifact paths before retrying.
-- A PR/MR body uses a provider auto-close keyword against a linked
-  plan-tracking or dispatch issue.
-- A linked tracking or dispatch issue is missing lifecycle readiness before
-  merge. Route to `deliver-plan-tracking-issue` or `deliver-dispatch-plan`
-  instead of merging and backfilling after the fact.
-- `plan-issue record close` rejects linked issue closeout.
+- A PR/MR body uses a provider auto-close keyword against a program tracker
+  or dispatch issue before its closeout gates complete.
 - Terminal cleanup cannot prove a clean checkout, provider-confirmed merge of
   the captured delivered head, or safe ownership. Retain the worktree and
   branch, report the failed proof, and do not force removal.
@@ -195,14 +183,14 @@ The user requests the PR/MR outcome, not a lifecycle helper.
   threads, make authorized fixes, rerun validation, and recheck affected review
   modes as closed-set closure before returning to the delivery gates.
 - **Merge** — adopt an existing ready record, inspect native review evidence,
-  and satisfy every remaining semantic, linked-lifecycle, and provider gate
+  and satisfy every remaining semantic and provider gate
   before `forge-cli pr merge`.
 - **Close unmerged** — only when the user explicitly abandons the record; read
   current state, record the reason, and call `forge-cli pr close` without
   pretending delivery succeeded.
 
-Dispatch lane PR creation remains an internal L3 dispatch role because its
-plan-branch target and lane checkpoint authority belong to that outcome.
+Dispatch lane PR creation remains an internal `program/dispatch` role because its
+integration-branch target and lane checkpoint authority belong to that outcome.
 
 ## Review Profile Selection
 
@@ -210,7 +198,7 @@ Pre-merge remains mandatory. Select the smallest safe profile after checks and
 scope detection; a user request such as "PR quick merge" expresses a preference,
 not permission to bypass escalation.
 
-- **Quick merge** — available for initial discovery on an L0 or L1 PR only when the diff is bounded,
+- **Quick merge** — available for initial discovery on `direct` or `issue` work only when the diff is bounded,
   required validation and checks pass, scope suggests or forces no risk
   specialist, no unresolved current-head review state exists, and `reviewer-quick` has
   enough confidence to inspect the complete change. A clean `pass` is terminal
@@ -220,7 +208,7 @@ not permission to bypass escalation.
   findings block merge. A supplied unresolved quick finding remains eligible
   for quick closed-set closure; rerun affected validation and use quick
   follow-up while the closure surface stays bounded.
-- **Full review** — mandatory for L2 or L3 delivery, any specialist trigger,
+- **Full review** — mandatory for `program/dispatch` delivery, any specialist trigger,
   existing unresolved review state during initial discovery, insufficient
   initial quick-review confidence, or an initial quick `escalate` verdict. A
   closure escalation uses only its one named directly relevant specialist; it
@@ -228,7 +216,7 @@ not permission to bypass escalation.
 
 The quick profile changes review depth only. It never skips checks, final
 provider review-state inspection, convergence, unresolved-thread, unchecked-task,
-expected-head, linked-lifecycle, or terminal cleanup gates.
+expected-head, or terminal cleanup gates.
 
 ## Review-Loop Ledger
 
@@ -365,8 +353,8 @@ review-specialists scope \
   --base "$BASE_REF" \
   --format json
 
-# Full-profile route only: L2/L3, a risk trigger, unresolved review state, or
-# quick-review escalation.
+# Full-profile route only: program/dispatch, a risk trigger,
+# unresolved review state, or quick-review escalation.
 review-specialists scope \
   --base "$BASE_REF" \
   --testing \
@@ -622,8 +610,8 @@ after each reviewer lens returns and after each focused follow-up rerun. Pass
 only the portable `--provider`, `--decision`, and `--lens` semantics; do not
 set private identity-profile environment variables in this public workflow.
 The active provider CLI uses ambient identity unless an environment-owned
-adapter maps those semantic flags. When the PR/MR is linked to a tracking or
-dispatch issue and the issue number is available, add
+adapter maps those semantic flags. When the PR/MR is linked to an issue,
+program tracker, or dispatch issue and the issue number is available, add
 `--issue "$ISSUE" --mirror-issue` so the issue activity shows review progress
 without duplicating full outcome bodies.
 When the specialist report has actionable GitHub findings, include
@@ -680,44 +668,10 @@ remain exceptional and their rationale belongs in the delivery review outcome;
 `--allow-unresolved-threads-reason "<why>"`, captured mechanically as
 `data.unresolved_threads_override_reason`.
 
-For linked tracking or dispatch issues, run a pre-merge lifecycle audit before
-the merge. This is not closeout yet, because `record close` verifies the merged
-PR/MR after merge:
-
-```bash
-forge-cli --provider "$PROVIDER" --repo "$OWNER_REPO" --format json \
-  issue view "$ISSUE" --with-comments >"$ISSUE_VIEW_JSON"
-jq '{body:.data.body, comments:(.data.comments // [])}' \
-  "$ISSUE_VIEW_JSON" >"$ISSUE_JSON"
-jq -r .body "$ISSUE_JSON" >"$ISSUE_BODY"
-
-plan-issue --format json record audit \
-  --profile "$PROFILE" \
-  --body-file "$ISSUE_BODY" \
-  --comments-json "$ISSUE_JSON"
-```
-
-Stop if the audit lacks `session` evidence, if the latest state is not
-`complete`, or if the dashboard still shows `Latest session: pending`.
-
-Run linked issue closeout after merge when the body references a tracking or
-dispatch issue via `Refs #<issue>` and `--no-closeout` was not supplied. Use the
-provider-correct linked record ref: `$OWNER_REPO#$PR_NUMBER` on GitHub,
-`$OWNER_REPO!$MR_NUMBER` on GitLab:
-
-```bash
-plan-issue --repo "$OWNER_REPO" --format json record close \
-  --issue "$ISSUE" \
-  --profile "$PROFILE" \
-  --linked-pr "$LINKED_RECORD_REF" \
-  --approval "$APPROVAL" \
-  --bundle "$PLAN_BUNDLE" \
-  --add-label state::closed \
-  --remove-label state::needs-triage
-```
-
-Use `profile=tracking` for lightweight plan-tracking issues and
-`profile=dispatch` for dispatch plan records.
+For ordinary linked issues, use explicit provider closing references only when
+this PR completes the issue. A program tracker or dispatch issue uses `Refs`
+while its parent workflow owns final closeout through `forge-cli issue` after
+all child and integration evidence is verified.
 
 ## Workflow
 
@@ -729,8 +683,8 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    validation.
 3. If `.agents/scripts/pre-pr.sh` is executable, run it through the repository
    dispatcher and stop on failure.
-4. Inspect linked issues and closing references. For issue-backed plan work,
-   use `Refs #<issue>` until `record close` has passed.
+4. Inspect linked issues and closing references. Use `Refs #<issue>`
+   for program trackers and dispatch issues until their parent closeout passes.
 5. Render the PR/MR body with `agent-runtime pr-body render`.
 6. Select labels before provider mutation; use
    `references/pr-lifecycle.md` for the shared taxonomy rule.
@@ -742,8 +696,8 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    `--no-merge` so checks / pipelines complete before the mandatory review gate.
 9. Run the generic code-review outcome in pre-merge context. Start with
    unforced scope detection and select quick or full through **Review Profile
-   Selection**. For initial discovery, quick requires an eligible L0/L1 change;
-   L2/L3, risk signals, unresolved current-head review state, or `escalate`
+   Selection**. For initial discovery, quick requires eligible `direct` or
+   `issue` work; `program/dispatch` delivery, risk signals, unresolved current-head review state, or `escalate`
    select full. A supplied quick finding stays in quick closed-set closure unless
    its repair creates a new-generation trigger; a closure `escalate` uses only
    the named directly relevant specialist.
@@ -826,10 +780,9 @@ Use `profile=tracking` for lightweight plan-tracking issues and
    canonical body exactly once through the owner App and records only
    exact-head-verified `--metadata-only` provenance through the personal
    identity; the personal call never receives the report `--comment-file`.
-16. Before merge, if the PR/MR references a linked tracking or dispatch issue,
-    audit it and confirm lifecycle readiness: source/plan snapshots, complete
-    state, latest `role=session`, validation, review, and dashboard links are
-    present. If not, stop and route to the matching plan delivery workflow.
+16. Before merge, verify that any program tracker or dispatch issue remains
+    open until its parent workflow has completed all child and integration
+    work. Use a non-closing reference in this PR/MR.
 17. Merge with `forge-cli --provider "$PROVIDER" pr merge "$PR_NUMBER"` unless
     `--no-merge` is the requested final stop. The CLI owns observed quiet
     timing, complete/final native-review reads, native change requests,
@@ -845,10 +798,9 @@ Use `profile=tracking` for lightweight plan-tracking issues and
     validation and affected closure lenses for an ordinary head change; rerun
     initial scope selection when the head materially changes the accepted
     design, public contract, trust boundary, or migration strategy.
-18. After merge, if the body referenced a linked tracking or dispatch issue
-    and `--no-closeout` was not supplied, run `plan-issue record close` with
-    the correct profile. On gate fail, leave the issue open with the blocked
-    code surfaced by `plan-issue` and route to the matching closeout skill.
+18. After merge, pass the delivered head and provider merge evidence to any
+    outer issue or dispatch owner. That owner verifies its own closeout and
+    closes the issue with `forge-cli issue close` when ready.
 19. Record the PR/MR URL, labels, check/pipeline evidence, review outcome, merge
     commit, chained closeout result, and any fallback used in delivery notes.
 20. If this workflow is the outermost terminal owner, finish any requested
@@ -866,17 +818,18 @@ Use `profile=tracking` for lightweight plan-tracking issues and
     `git-cli sync-default --format json`; that surface owns the remote-bound
     fast-forward, and raw `git merge` / `git pull` on the default branch stay
     refused even with `--ff-only` because local state cannot prove publication.
-    If an outer L2/L3 workflow remains, hand it the captured identity and defer
-    this step.
+    If an outer `program/dispatch` workflow remains, hand it the captured
+    identity and defer this step.
 
 ## Boundary
 
 `forge-cli` owns provider create, checks/pipeline wait, ready, native-review
 convergence, thread/task enforcement, provider-head binding, and merge calls.
-`plan-issue record` owns linked issue lifecycle closeout. The workflow owner
+The issue or dispatch owner owns linked issue closeout. The workflow owner
 owns scope judgment, code changes, local validation, review-profile and
 pre-merge gate decisions,
 repair loops, delivery outcome comments, and any temporary provider fallback
 decision. The outermost workflow also owns terminal local cleanup after all
 downstream duties; child delivery workflows hand off rather than clean early.
-Provider auto-close keywords against issue-backed plan records remain banned.
+Provider auto-close keywords against program trackers and dispatch issues
+remain banned until their parent closeout is complete.

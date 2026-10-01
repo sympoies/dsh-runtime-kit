@@ -120,7 +120,7 @@ forge-cli issue view "$ISSUE" --format json
   maintenance, a blocker checkpoint, or a durable follow-up comment.
 - Use normal implementation and PR/MR workflows when a ready-now issue has a
   clear code or docs change and validation path.
-- If the best next action is a broader plan bundle or dispatch lane, say that
+- If the best next action is a program tracker or dispatch lane, say that
   explicitly instead of silently expanding triage into planning.
 
 ## Boundary

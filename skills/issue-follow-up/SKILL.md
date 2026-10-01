@@ -33,6 +33,8 @@ Inputs:
 - Selected issue labels from the shared taxonomy.
 - Existing issue number or URL plus a request to continue, investigate, update,
   unblock, implement, or close.
+- For program mode: the program key, the child items with their target
+  repositories, dependencies, and settled decisions.
 - Optional desired state: `comment-only`, `blocked`,
   `ready-for-implementation`, `implemented-via-pr`, or `close`.
 
@@ -46,6 +48,8 @@ Outputs:
   PR/MR workflow with issue traceability preserved.
 - If unresolved: issue remains open with the blocker or next follow-up action
   recorded.
+- For program mode: one tracker issue and its linked child issues, with the
+  tracker's first checkpoint posted.
 
 Failure modes:
 
@@ -67,11 +71,10 @@ lower-level issue or PR/MR tools.
 
 - Treat `forge-cli issue` as the provider mutation surface, not a separate
   user-facing workflow choice.
-- Use the L2 plan-tracking outcome for plan-bundle lifecycle work.
 - Use normal implementation and PR/MR workflows when code/docs changes are
   ready.
-- Let the L2 or L3 parent workflow mirror review and closeout evidence when the
-  issue is part of a plan lifecycle.
+- Let a program tracker or dispatch parent record review and closeout evidence
+  when the issue belongs to that work.
 
 ## Modes
 
@@ -151,24 +154,28 @@ Use when an issue already exists and the user asks to continue it.
 6. Keep unresolved issues open. Close only when the requested outcome is complete
    or the user explicitly chooses not to continue.
 
-### Plan-Family Finding Mode
+### Program Mode
 
-Use this mode when a plan-tracking skill, CLI, driver, or catalog problem needs
-its own durable upstream follow-up. The caller supplies `TRACKER_REPO`; this
-generic workflow never hardcodes a provider account or repository.
+Use when the accepted work is a `program` under the work-modes policy
+(`runtime_context` intent `project-dev`, phase `delivery`):
+two or more independently deliverable child issues, possibly across
+repositories, held together by one tracker issue. Creating the tracker and
+children still requires the user's decision.
 
-1. Normalize the finding into surface, severity, description, reproduction,
-   expected versus actual behavior, provenance, and a fix candidate.
-2. Deduplicate before opening with `forge-cli issue list --repo
-   "$TRACKER_REPO" --label plan-issue-finding --state open --format json`.
-3. Comment on a clear existing match. Otherwise open one issue through
-   `forge-cli issue create` with `plan-issue-finding`, the shared type/area/
-   severity labels, and `state::needs-triage`.
-4. Keep implementation outside the tracker issue workflow. When the upstream
-   fix lands, post the fixing PR and validation, then close the issue.
-
-This is an internal specialization of issue follow-up, not a separate outcome
-the user must discover.
+1. Load `references/program-mode.md` for the tracker and child templates.
+2. Deduplicate across every target repository; link existing related issues
+   as children instead of duplicating them.
+3. Open the tracker first as a placeholder labeled `workflow::tracking`, then
+   each child labeled `workflow::follow-up`, then fill the tracker as
+   `references/program-mode.md` creation step 5 says: graph, body, lint.
+4. Outside a checkout of the target repository, pass
+   `--provider github --repo owner/name` to `forge-cli`.
+5. De-identify children in public repositories: reference the program key, not
+   private hosts, people, repositories, or links.
+6. Keep the tracker current through `references/program-mode.md`'s Tracker
+   Commands: tick a child when it closes, with its PR and a one-line
+   checkpoint. Close the tracker only after the closeout in
+   the work-modes policy and `references/program-mode.md` holds.
 
 ## Static HTTP Evidence
 

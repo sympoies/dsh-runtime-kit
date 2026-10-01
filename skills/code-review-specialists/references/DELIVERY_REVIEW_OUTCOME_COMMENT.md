@@ -20,9 +20,8 @@ combined approval summary.
 
 - `deliver-pr` posts the outcome on the PR/MR before merging through
   `forge-cli pr review`.
-- `deliver-plan-tracking-issue` records the PR/MR outcome comment URL in
-  issue-hosted session or validation evidence instead of duplicating the full
-  report.
+- An issue, program tracker, or dispatch child records the PR/MR outcome
+  comment URL in its checkpoint instead of duplicating the full report.
 - `code-review-specialists` supplies review evidence only. It must not post or
   update live PR/MR comments.
 

@@ -1,54 +1,44 @@
 # Dispatch Issue Record Contract
 
-Use this contract when one issue is the live runtime for plan dispatch,
-subagent task lanes, PR linkage, review evidence, and final close gates.
+## Tracker
 
-## Authority Model
+The tracker issue is the authoritative plan for one dispatch program. Its body
+contains a program key, purpose, resumption instructions, dated settled
+decisions, a phase table with one checkbox row per lane child issue, the
+dependency graph derived from those rows, open decisions, and checkpoint log.
+The work-modes policy (`runtime_context` intent `project-dev`, phase
+`delivery`) owns the base program record, and
+`issue-follow-up`'s `references/tracker-row-grammar.md` owns the phase row
+grammar.
+Use `workflow::tracking` and the applicable type and area labels.
 
-- The issue body is a mutable dashboard only.
-- Dispatch ledger and state comments are runtime truth for lanes, PR links, and
-  row status.
-- Issue-hosted source and plan snapshots are durable restart context.
-- New dispatch issues use the shared `plan-issue-record:v2 profile=dispatch`
-  marker family. `plan-issue record open` seeds source, plan, and initial state;
-  `plan-issue record post --profile dispatch --kind <role>` appends later
-  lifecycle checkpoints.
-- Do not reuse `profile=tracking` markers for dispatch issues; the audit
-  filter rejects them as unsupported for the dispatch profile.
+Create or edit the body with `forge-cli issue` and a Markdown body file, and
+read it back after mutation. Fill the graph, lint, and tick as
+`issue-follow-up`'s `references/program-mode.md` (Tracker Commands) says,
+including its manual fallback. Comments add chronology; they do not silently
+override a settled decision or dependency in the body. A checkpoint names the
+changed lane, provider PR and head, validation, review disposition, current
+blocker, and next action. Keep local worktree paths and secrets out of
+provider text.
 
-## Markers
+## Child Lanes
 
-Standalone marker lines for new dispatch records:
+Each independently reviewable lane has one child issue with the program key,
+item id, scope, acceptance, dependencies, branch/base, and owner. Keep PR,
+validation, review, and merge evidence in its comment timeline. Use
+`workflow::follow-up`. A lane may share an executor or branch only when the
+tracker explicitly records that grouping and the PR remains reviewable.
 
-- `<!-- plan-issue-record:v2 role=source profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=plan profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=state profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=session profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=validation profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=review profile=dispatch -->`
-- `<!-- plan-issue-record:v2 role=closeout profile=dispatch -->`
+The child issue closes only after its PR has merged into the integration
+branch and acceptance has been verified. Its tracker row is then ticked, with
+the lane PR and a one-line checkpoint. An abandoned lane records why its PR
+closed and which issue now owns unfinished work; no lane is silently replaced.
 
-Ignore marker strings inside copied source snapshots, fenced code blocks,
-quotes, and examples. When several valid comments share a marker, the latest
-valid comment is the current checkpoint unless a gate requires a specific URL.
+## Integration And Closeout
 
-## Checkpoint Shape
-
-State checkpoints should include status, current gate, target scope,
-`PLAN_BRANCH`, integration PR, current lane, next action, and the current
-dispatch ledger table.
-
-Validation checkpoints should include pass/fail/blocked/skipped status,
-commands or gate checks, PR/check evidence, runtime artifacts, and residual or
-follow-up disposition.
-
-Closeout checkpoints are produced by `plan-issue record close` and should
-include approval basis, merged lane PRs, merged integration PR, validation
-evidence, cleanup result, and dashboard repair status.
-
-## Dashboard
-
-The mutable issue body should stay compact and derived from material state:
-status, current sprint/gate, next action, blockers, latest dispatch
-state/session/validation links, sprint PR summary, final integration PR, and
-closeout readiness.
+The final integration PR references the tracker with `Refs` so provider
+asynchronous auto-close cannot close it early. Verify every child is closed
+or explicitly transferred, the integration PR merged at the expected head,
+checks and review are complete, and durable decisions are canonised. Post one
+final checkpoint, then call `forge-cli issue close` and read back the closed
+provider record. Retain unsafe local checkout state with its exact reason.

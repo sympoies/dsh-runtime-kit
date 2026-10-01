@@ -56,6 +56,7 @@ repository contributor routing and must not be copied over the root catalog.
 | Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Concise routine maintenance principles, validation, and reference routing; it is not mandatory prompt context. |
 | Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`) makes reading it mandatory before proposing work outside this repository. |
 | Packaged DSH catalog | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Loaded from the activated DSH home catalog. DSH is excluded from the root document entries so it never receives a duplicate copy. |
+| Packaged DSH catalog | installed `WORK_MODES.md` (source: `agent-docs/WORK_MODES.md`) | DSH | `project-dev` / `delivery` | yes | Returned only by an explicit `runtime_context` call with phase `delivery`; the named work modes that decide tracking records. |
 | Packaged DSH home | kit-managed `<dshHome>/AGENTS.md` (source: `agent-home/AGENTS.md`) | DSH | session policy | yes | DSH's native instruction loader reads it at session start in every composition. It is home-scope runtime policy for DSH sessions, not repository contributor policy, and is in neither catalog. |
 
 The root catalog's `project-dev` validation contract applies to Codex, Claude,

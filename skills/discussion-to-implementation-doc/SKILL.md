@@ -15,8 +15,8 @@ artifact is a repo-local source document that future implementation can read.
 Prereqs:
 
 - User wants to preserve discussion conclusions, review findings, risks,
-  lessons learned, or fix-later backlog for later implementation or plan
-  generation, not execute the implementation now.
+  lessons learned, or fix-later backlog for later implementation, not execute
+  the implementation now.
 - Discussion or review context is sufficient to separate confirmed facts,
   decisions, assumptions, open questions, findings, and recommendations.
 - Target workspace is available and project rules allow writing docs after required preflight.
@@ -26,36 +26,28 @@ Inputs:
 - User request and the discussion or review conclusions to preserve.
 - Relevant local code, docs, issue, ticket, test, review, validation, or runtime
   evidence for material facts when available.
-- Optional target docs area, filename, linked issue/plan/handoff, validation commands, retention intent, and project-specific documentation
+- Optional target docs area, filename, linked issue/handoff, validation commands, retention intent, and project-specific documentation
   conventions.
 
 Outputs:
 
 - A repo-local discussion / implementation-readiness source document. Place it
-  by destination — do not default it into the plan area:
-  - Default (non-plan capture): `docs/discussions/<YYYY-MM-DD>-<slug>.md` for
+  by destination:
+  - Default capture: `docs/discussions/<YYYY-MM-DD>-<slug>.md` for
     converged requirements, design, feasibility, product, architecture,
     customer-facing, review, risk, lessons-learned, or fix-later material that
-    is captured for later work but is not an executed-and-archived plan bundle.
-  - L2 plan source: only when the document will feed a plan that is executed and
-    archived, save it inside the bundle as
-    `docs/plans/<YYYY-MM-DD>-<slug>/<slug>-discussion-source.md` (or
-    `<slug>-review-source.md` for review / risk / backlog material) and include
-    the `Execution` plan lines below.
+    is captured for later work.
   - Durable canon: when the content is already authoritative knowledge rather
     than coordination, promote it to the owning domain docs area (or
     `docs/source/` for repo-wide architecture / specs / policy) — a deliberate
     promotion, not this skill's default.
-- A source artifact that a plan-tracking or dispatch delivery workflow can link
-  under `Read First` when execution sequencing is needed.
+- A source artifact that an issue or dispatch workflow can cite as context.
 - A source document that avoids unresolved open questions; report any
   non-blocking open questions in the final response instead of writing them into
   the document.
-- An `Execution` section with stable `Recommended plan` and
-  `Recommended execution state` lines only for the L2 plan-source case; omit
-  them for a `docs/discussions/` capture and for promoted canon.
-- Updated local docs index or README only when the document is intentionally promoted as retained knowledge and should be discoverable
-  outside the plan.
+- Updated local docs index or README only when the document is promoted into
+  canon; never for a `docs/discussions/` capture, which no file outside that
+  directory may link to.
 - When following the evidence-control-plane recording convention, a `skill-usage.record.v1` envelope that links the created document and validation
   evidence.
 - A short response linking the document path, listing validation run, and
@@ -67,10 +59,8 @@ Exit codes:
 
 Failure modes:
 
-- The user actually needs phased tasks, sprint grouping, PR splitting, or
-  detailed execution sequencing now; create or update the plan first, then use
-  `deliver-plan-tracking-issue` or `deliver-dispatch-plan` as appropriate for
-  the issue-backed workflow; each parent opens a missing tracker internally.
+- The user needs to execute work now; route to the appropriate direct, issue,
+  program, or dispatch workflow instead of stopping at a source document.
 - The user only needs a copy-ready prompt for a fresh session; use `handoff-session-prompt` instead.
 - Source evidence is too ambiguous to record as fact. If the ambiguity affects
   core facts, scope, requirements, acceptance criteria, or implementation
@@ -85,26 +75,20 @@ Failure modes:
      customer-facing, product, review, risk, lessons-learned, or improvement
      discussion has converged and the next implementer needs a stable
      read-first document.
-   - Do not turn the document into a task-by-task implementation plan. If execution sequencing is needed, write this document first, then use
-     the appropriate plan-tracking or dispatch workflow and link this document
-     as read-first context.
-   - Treat this document as the primary source artifact for later plan
-     generation when the source material is requirements, design, feasibility,
+   - Do not turn the document into a task-by-task implementation plan. If
+     execution sequencing is needed, use an issue or program tracker after
+     capturing the settled requirements.
+   - Treat this document as the source artifact for later implementation when
+     the source material is requirements, design, feasibility,
      product, architecture, customer-facing discussion, review findings, risks,
      lessons learned, validation guardrails, or fix-later backlog.
    - For unresolved workflow or heuristic gaps that should be versioned but are
      not ready for a fix, follow the
      [heuristic error inbox policy](../../docs/policies/heuristic-error-inbox.md)
      instead of creating an ordinary `docs/discussions/` capture.
-   - Treat `docs/discussions/<YYYY-MM-DD>-<slug>.md` as the default home. Use a
-     `docs/plans/<YYYY-MM-DD>-<slug>/` bundle only for a document that will feed
-     an executed-and-archived plan; promote into domain docs/runbooks (or
-     `docs/source/`) only when the content is durable canon.
-   - Graduating a `docs/discussions/` capture to L2: when it later needs a
-     tracked plan, move it into a `docs/plans/<YYYY-MM-DD>-<slug>/` bundle as
-     `<slug>-discussion-source.md` (retire the `docs/discussions/` original),
-     author the `<slug>-plan.md` + `<slug>-execution-state.md`, then run the
-     selected plan delivery outcome. Promotion is a move, not a copy.
+   - Treat `docs/discussions/<YYYY-MM-DD>-<slug>.md` as the default home;
+     promote into domain docs/runbooks (or `docs/source/`) only when the
+     content is durable canon.
    - Do not use the document as a session prompt. If continuity is needed, write or reference this document first, then use
      `handoff-session-prompt`.
    - Do not use a `review-evidence` CLI record as the primary artifact for this workflow. If review findings or validation records matter, attach or link
@@ -114,17 +98,12 @@ Failure modes:
    - Follow the active project's required preflight before edits.
    - Read nearby docs and local project rules before choosing a path.
    - Default: place the document at `docs/discussions/<YYYY-MM-DD>-<slug>.md`
-     for captured discussion / spec material that is not an
-     executed-and-archived plan.
-   - L2 plan source: only when the document will feed a plan that runs and is
-     archived, place it inside the bundle as
-     `docs/plans/<YYYY-MM-DD>-<slug>/<slug>-discussion-source.md` (or
-     `<slug>-review-source.md` for review / risk / backlog material).
+     for captured discussion / spec material.
    - Durable canon: promote to the owning domain docs area (or `docs/source/`
      for repo-wide) only when the content is authoritative knowledge meant to
      remain after execution.
-   - Do not invent another top-level docs area; `docs/discussions/`,
-     `docs/plans/`, and the canon homes already cover these cases.
+   - Do not invent another top-level docs area; `docs/discussions/` and the
+     canon homes already cover these cases.
 
 3. Gather and classify discussion content
    - Separate confirmed facts, decisions, findings, assumptions, inferences,
@@ -164,8 +143,8 @@ Failure modes:
        oriented
      - backlog or next fixes when preserving a fix-later record
      - risks and guardrails
-     - execution, including recommended plan path, recommended execution-state path, status, and next-task source when this document should
-       drive implementation
+     - execution status and the next issue or program record when this
+       document should drive implementation
      - retention intent, such as cleanup after execution or promotion candidate
      - read-first references
      - recommended next artifact
@@ -176,15 +155,14 @@ Failure modes:
      question would materially change the document's facts, scope, acceptance
      criteria, or next artifact, pause and ask before writing instead of
      publishing a misleading source document.
-   - For an L2 plan source only (inside `docs/plans/<YYYY-MM-DD>-<slug>/`),
-     include these stable machine-checkable lines in the `Execution` section:
-     - `Recommended plan: docs/plans/<YYYY-MM-DD>-<slug>/<slug>-plan.md`
-     - `Recommended execution state: docs/plans/<YYYY-MM-DD>-<slug>/<slug>-execution-state.md`
-     Omit the `Execution` plan lines for a `docs/discussions/` capture.
-   - When a plan's `Read First` section links a document produced by this
-     skill, use `Source type: discussion-to-implementation-doc` for both
-     `*-discussion-source.md` and `*-review-source.md`; do not use the retired
-     `review-to-improvement-doc` source type.
+   - For a `docs/discussions/` capture, the header must carry one
+     `Exit: open-issue | canonise | retire` line. There is no
+     other value and no "keep" state. Never write `Retention: Keep`,
+     `retained as the acceptance source`, or any other self-declared retention:
+     content worth keeping takes the `canonise` exit, which moves it out of
+     `docs/discussions/`. `open-issue` is complete on its own — an ordinary
+     issue retires the capture. See the work-modes policy
+     (`runtime_context` intent `project-dev`, phase `delivery`).
 
 5. Route review work when the source document needs review guidance
    - Do not run a code review workflow by default only because this skill is
@@ -200,12 +178,14 @@ Failure modes:
      the primary read-first artifact.
 
 6. Update discoverability
-   - For a `docs/plans/<YYYY-MM-DD>-<slug>/` source document, use the plan's
-     `Read First` section as the discoverability path; for a `docs/discussions/`
-     capture, link it from the PR or issue that acts on it. Do not update broad
-     indexes by default.
-   - Update the nearest docs index or README only when the document is promoted or intentionally retained after execution.
-   - Link from broader docs entrypoints only when future maintainers should find the document without prior plan/session context.
+   - For a `docs/discussions/` capture, quote its conclusion in the PR or issue
+     that acts on it. Do not update broad indexes by default.
+   - Update the nearest docs index or README only when the document is promoted
+     into canon. Never index or link a `docs/discussions/` capture from outside
+     that directory: an inbound link turns staging into storage and blocks the
+     capture's exit. Quote the conclusion in the devlog, issue, or PR instead.
+   - Link from broader docs entrypoints only when future maintainers should
+     find a canonised document without prior session context.
    - If no index exists, mention that in the final response rather than inventing broad navigation.
 
 7. Validate
@@ -236,8 +216,6 @@ Failure modes:
   follow-up, or pre-merge context plus quick, focused, or specialist depth from
   scope and delivery risk. Link any retained `review-evidence` CLI record from
   this document.
-- `deliver-plan-tracking-issue`: use when a lightweight issue-backed plan is
-  ready to open or resume, execute, and deliver.
 - `deliver-dispatch-plan`: use when implementation needs dispatch lanes,
   PR grouping, independent lane review, and final dispatch closeout.
 - `handoff-session-prompt`: use after this skill when the user wants a copy-ready prompt for a fresh session; put this document under

@@ -28,12 +28,15 @@ compatibility, acceptance, and delivery procedures are in the
 
 ## What it provides
 
-- 29 bundled public workflow skills, with native project-skill discovery and
+- 28 bundled public workflow skills, with native project-skill discovery and
   an optional private-skill directory.
 - Automatic execution-bound `project-dev-context` prerequisites for mutating
   tools, with context injected once and policy freshness checked on every call.
 - Explicit `runtime_context({ intent: "project-dev" })` delivery remains
   available without injecting a documentation corpus into every prompt.
+  `runtime_context({ intent: "project-dev", phase: "delivery" })` returns the
+  packaged delivery policy, such as the named work modes (`direct`, `issue`,
+  `program`), on demand.
   To work in another checkout, including from a session started outside a Git
   repository, use
   `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`

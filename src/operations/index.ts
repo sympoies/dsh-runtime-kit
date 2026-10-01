@@ -38,7 +38,11 @@ import {
 import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import {
   activationSha256,
+  AGENT_DOCS_FIXED_ENTRIES,
   assetSetSha256,
+  MAX_POLICY_DOCUMENTS,
+  POLICY_DOCUMENT_NAME,
+  policyDocumentsSha256,
   policyOverridesSha256,
   readActivation,
   renderAgentHookConfig,
@@ -501,14 +505,34 @@ function installedPackageDigest(paths: ReturnType<typeof pathsFor>) {
   return packageTreeDigest(paths.installedPackage, paths.profileDir)
 }
 
+/**
+ * The policy documents a package ships in `agent-docs/` beyond the catalog and
+ * the edit contract. Every other entry is refused, so the staged docs home is
+ * exactly what the reviewed package declares.
+ */
+function packagePolicyDocumentNames(packageRoot: string) {
+  const entries = readdirSync(join(packageRoot, 'agent-docs'))
+  const names = entries.filter(name => !AGENT_DOCS_FIXED_ENTRIES.includes(name)).sort()
+  const undeclared = names.find(name => !POLICY_DOCUMENT_NAME.test(name))
+  if (undeclared !== undefined) {
+    throw new OperationsError('invalid-package-spec', `package agent-docs entry ${JSON.stringify(undeclared)} is not a policy document`)
+  }
+  if (names.length > MAX_POLICY_DOCUMENTS) {
+    throw new OperationsError('invalid-package-spec', 'package agent-docs ships too many policy documents')
+  }
+  return names
+}
+
 function packageAssets(packageRoot: string) {
   const home = join(packageRoot, ...LIFECYCLE_ACTIVATION_ASSETS.home.split('/'))
-  const paths = {
+  const policyDocuments = packagePolicyDocumentNames(packageRoot)
+  const paths: Record<string, string> = {
     policy: join(packageRoot, 'policy', 'dsh-runtime-kit-v1.toml'),
     catalog: join(packageRoot, 'agent-docs', 'AGENT_DOCS.toml'),
     document: join(packageRoot, 'agent-docs', 'PROJECT_DEV_EDIT.md'),
     // An earlier package ships no home instructions; its asset set omits them.
     ...lstatMaybe(home) === null ? {} : { home },
+    ...Object.fromEntries(policyDocuments.map(name => [`agent-docs/${name}`, join(packageRoot, 'agent-docs', name)])),
   }
   const bytes = (({}) as Record<string, Buffer>)
   let total = 0
@@ -523,10 +547,14 @@ function packageAssets(packageRoot: string) {
     }
     bytes[name] = readFileSync(path)
   }
+  const policyDocumentsDigest = policyDocumentsSha256(Object.fromEntries(
+    policyDocuments.map(name => [name, sha256(bytes[`agent-docs/${name}`])]),
+  ))
   const assets = {
     ...bytes.home === undefined ? {} : { agent_home_sha256: sha256(bytes.home) },
     catalog_sha256: sha256(bytes.catalog),
     document_sha256: sha256(bytes.document),
+    ...policyDocumentsDigest === undefined ? {} : { policy_documents_sha256: policyDocumentsDigest },
     policy_sha256: sha256(bytes.policy),
   }
   return {
@@ -545,6 +573,7 @@ function assetsWithOverrides(assets: ReturnType<typeof packageAssets>, overrides
     ...assets.agent_home_sha256 === undefined ? {} : { agent_home_sha256: assets.agent_home_sha256 },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
+    ...assets.policy_documents_sha256 === undefined ? {} : { policy_documents_sha256: assets.policy_documents_sha256 },
     policy_sha256: assets.policy_sha256,
     policy_overrides_sha256: policyOverridesSha256(overrides),
   }
@@ -627,7 +656,7 @@ function readPolicyOverrides(path: string | undefined): Record<string, 'advise'>
 
 function validateAssets(value: unknown) {
   const required = ['asset_set_sha256', 'catalog_sha256', 'document_sha256', 'policy_sha256']
-  const optional = ['agent_home_sha256', 'policy_overrides_sha256']
+  const optional = ['agent_home_sha256', 'policy_documents_sha256', 'policy_overrides_sha256']
   const keys = plainRecord(value) ? Object.keys(value) : []
   const withOverrides = keys.includes('policy_overrides_sha256')
   const withHome = keys.includes('agent_home_sha256')
@@ -641,13 +670,14 @@ function validateAssets(value: unknown) {
     ...withHome ? { agent_home_sha256: ((value.agent_home_sha256) as string) } : {},
     catalog_sha256: ((value.catalog_sha256) as string),
     document_sha256: ((value.document_sha256) as string),
+    ...keys.includes('policy_documents_sha256') ? { policy_documents_sha256: ((value.policy_documents_sha256) as string) } : {},
     policy_sha256: ((value.policy_sha256) as string),
     ...withOverrides ? { policy_overrides_sha256: ((value.policy_overrides_sha256) as string) } : {},
   })
   if (expected !== value.asset_set_sha256) {
     throw new OperationsError('invalid-operations-state', 'package target activation asset digest is inconsistent')
   }
-  return ((value) as {agent_home_sha256?:string,asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_sha256:string,policy_overrides_sha256?:string})
+  return ((value) as {agent_home_sha256?:string,asset_set_sha256:string,catalog_sha256:string,document_sha256:string,policy_documents_sha256?:string,policy_sha256:string,policy_overrides_sha256?:string})
 }
 
 function readActual(paths: ReturnType<typeof pathsFor>) {
@@ -2692,6 +2722,9 @@ function manifestAssets(target: ReturnType<typeof validateTarget>) {
     policy_sha256: target.assets.policy_sha256,
     catalog_sha256: target.assets.catalog_sha256,
     document_sha256: target.assets.document_sha256,
+    ...target.assets.policy_documents_sha256 === undefined
+      ? {}
+      : { policy_documents_sha256: target.assets.policy_documents_sha256 },
     ...target.assets.agent_home_sha256 === undefined
       ? {}
       : { agent_home_sha256: target.assets.agent_home_sha256 },
@@ -2742,6 +2775,14 @@ function stagedActivationAssetsMatch(target: ReturnType<typeof validateTarget>, 
     if (sha256(readFileSync(policy)) !== target.assets.policy_sha256
       || sha256(readFileSync(catalog)) !== target.assets.catalog_sha256
       || sha256(readFileSync(document)) !== target.assets.document_sha256) return false
+    const stagedDocuments: Record<string, string> = {}
+    for (const name of readdirSync(docs)) {
+      if (AGENT_DOCS_FIXED_ENTRIES.includes(name)) continue
+      if (!POLICY_DOCUMENT_NAME.test(name)) return false
+      assertSafeStateFile(join(docs, name))
+      stagedDocuments[name] = sha256(readFileSync(join(docs, name)))
+    }
+    if (policyDocumentsSha256(stagedDocuments) !== target.assets.policy_documents_sha256) return false
     const home = join(finalRoot, 'agent-home')
     if (target.assets.agent_home_sha256 === undefined) {
       if (lstatMaybe(home) !== null) return false
@@ -2800,6 +2841,9 @@ function stageActivationAssets(paths: ReturnType<typeof pathsFor>, target: Retur
       writeFileSync(policyPath, readFileSync(join(source, 'policy', 'dsh-runtime-kit-v1.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'AGENT_DOCS.toml'), readFileSync(join(source, 'agent-docs', 'AGENT_DOCS.toml')), { mode: 0o600 })
       writeFileSync(join(docs, 'PROJECT_DEV_EDIT.md'), readFileSync(join(source, 'agent-docs', 'PROJECT_DEV_EDIT.md')), { mode: 0o600 })
+      for (const name of packagePolicyDocumentNames(source)) {
+        writeFileSync(join(docs, name), readFileSync(join(source, 'agent-docs', name)), { mode: 0o600 })
+      }
       if (target.assets.agent_home_sha256 !== undefined) {
         const home = join(temporary, 'agent-home')
         mkdirSync(home, { mode: 0o700 })

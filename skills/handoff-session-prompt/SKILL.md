@@ -151,39 +151,11 @@ You are starting a new session for this task.
 - <only unresolved items that should block or influence the work>
 ```
 
-## Plan-Tracking Handoff
+## Program Handoff
 
-When the next session resumes a plan-tracking issue governed by
-`deliver-plan-tracking-issue`, include a dedicated "Plan-tracking
-handoff" subsection inside `Known Facts` (or its own clearly labeled
-block) that dumps four concrete elements so the next agent does not have
-to re-derive run-state context:
-
-1. **Current `run-state.json` contents** — the typed run state for this
-   issue. Either paste the JSON verbatim or reference the path
-   (`<AGENT_HOME>/out/.../run-state.json`) and summarize `phase`,
-   `selected_task`, `branch`, `linked_pr`, and any `validation_*`
-   fields that are non-empty.
-2. **Last N entries of `events.jsonl`** — default N=5. Each event line
-   is the source of truth for what happened since the previous
-   checkpoint. Trim to the most recent N when the file is long, and
-   note `last_n: <N>` so the next session can read more if needed.
-3. **Open ledger rows** — every row in the bundle's
-   `<slug>-execution-state.md` `## Task Ledger` table whose
-   `Status ∈ {pending, in-progress}`. Format as `<task_id> | <status>
-   | <evidence-or-empty>` so the next agent knows exactly which
-   `plan-tooling ledger-update --task <id> --status done --evidence
-   <evidence>` calls are still owed.
-4. **Latest linked PR refs + `state` lifecycle comment URL** — the
-   `linked_pr` value(s) from the run state and the URL of the most
-   recent `state` role comment on the provider issue (via
-   `gh issue view <issue> --json comments` or the controller's
-   reconciled evidence). This lets the next session reconcile run
-   state against provider truth without re-running every gate.
-
-Keep the dump compact: the goal is the next session can call
-`plan-issue tracking status --expect-visible` once and confirm the
-handoff matches reality, not re-discover the entire history.
+When a later session resumes a program, include the tracker issue, open child
+issues, their dependency order, delivered PRs, and the latest checkpoint. Read
+current provider state before acting; the tracker is the authoritative plan.
 
 ## Quality Bar
 

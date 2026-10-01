@@ -12,7 +12,6 @@ const expectedSkills = [
   'create-skill',
   'daily-brief',
   'deliver-dispatch-plan',
-  'deliver-plan-tracking-issue',
   'deliver-pr',
   'deploy',
   'discussion-to-implementation-doc',
@@ -58,13 +57,13 @@ const expectedResources = [
   'deliver-dispatch-plan/references/POST_REVIEW_OUTCOMES.md',
   'deliver-dispatch-plan/references/TASK_LANE_CONTINUITY.md',
   'deliver-dispatch-plan/references/outcome-routing.md',
-  'deliver-dispatch-plan/references/skill-family.md',
-  'deliver-plan-tracking-issue/references/outcome-routing.md',
   'deliver-pr/references/pr-lifecycle.md',
   'guided-feature-build/references/DELEGATION_PROTOCOL.md',
   'guided-feature-build/references/prompts/architect.md',
   'guided-feature-build/references/prompts/explorer.md',
   'issue-follow-up/references/issue-lifecycle.md',
+  'issue-follow-up/references/program-mode.md',
+  'issue-follow-up/references/tracker-row-grammar.md',
   'macos-desktop/references/setup.md',
   'main-agent-mode/references/MAIN_AGENT_MODE_PROTOCOL.md',
   'setup-project/scripts/setup-project.sh',
@@ -84,7 +83,7 @@ function collectFiles(directory, prefix = '') {
   })
 }
 
-test('the public DSH bundle owns the complete 29-skill catalog', () => {
+test('the public DSH bundle owns the complete 28-skill catalog', () => {
   const actual = readdirSync(skillsRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
@@ -125,6 +124,37 @@ test('public skill instructions do not route through retired agent runtimes', ()
   assert.deepEqual(violations, [])
 })
 
+test('packaged skills route through named work modes, not the retired plan workflow', () => {
+  const retired = [
+    /plan-issue/u,
+    /plan-tooling/u,
+    /deliver-plan-tracking-issue/u,
+    /\bL[0-3]\b/u,
+  ]
+  const violations = []
+  for (const relative of collectFiles(skillsRoot)) {
+    const content = readFileSync(join(skillsRoot, relative), 'utf8')
+    for (const pattern of retired) {
+      if (pattern.test(content)) violations.push(`${relative}: ${pattern}`)
+    }
+  }
+  assert.deepEqual(violations, [])
+
+  const followUp = readFileSync(join(skillsRoot, 'issue-follow-up', 'SKILL.md'), 'utf8')
+  const dispatch = readFileSync(join(skillsRoot, 'deliver-dispatch-plan', 'SKILL.md'), 'utf8')
+  assert.match(followUp, /^### Program Mode$/mu)
+  for (const command of ['forge-cli issue tracker lint', 'forge-cli issue tracker graph', 'forge-cli issue tracker tick']) {
+    assert.ok(
+      readFileSync(join(skillsRoot, 'issue-follow-up', 'references', 'program-mode.md'), 'utf8').includes(command),
+      `program mode must document ${command}`,
+    )
+  }
+  assert.match(dispatch, /`program\/dispatch`/u)
+  for (const content of [followUp, dispatch]) {
+    assert.match(content, /runtime_context/u, 'work-mode references must resolve through runtime_context')
+  }
+})
+
 test('code review routes quick, focused, specialist, and red-team work through the native tool', () => {
   const content = readFileSync(join(skillsRoot, 'code-review-specialists', 'SKILL.md'), 'utf8')
   for (const marker of [
@@ -158,10 +188,6 @@ test('provider review publication uses one canonical App report and metadata-onl
   )
   const deliverPr = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
   const dispatch = readFileSync(join(skillsRoot, 'deliver-dispatch-plan', 'SKILL.md'), 'utf8')
-  const tracking = readFileSync(
-    join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
-    'utf8',
-  )
   const specialistContract = readFileSync(
     join(
       skillsRoot,
@@ -205,19 +231,18 @@ test('provider review publication uses one canonical App report and metadata-onl
     'REVIEW_THREAD_FILE="$REVIEW_BUNDLE_DIR/review-threads.json"',
     '--specialist-report',
     '--check-diff',
-    'command -v forge-review-publish',
     'forge-review-publish --provider github',
     'forge-cli --provider "$PROVIDER" pr review',
   ]) {
-    assert.match(tracking, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    assert.match(posting, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   }
   assert.match(deliverPr, /governed-vs-portable publication branch/u)
   assert.match(deliverPr, /forge-cli >=1\.27\.27/u)
   assert.match(deliverPr, /review-specialists >=1\.27\.29/u)
   assert.match(dispatch, /forge-cli >=1\.27\.27/u)
   assert.match(dispatch, /review-specialists >=1\.27\.29/u)
-  assert.match(tracking, /forge-cli >=1\.27\.27/u)
-  assert.match(tracking, /review-specialists >=1\.27\.29/u)
+  assert.match(dispatch, /--profile provider-review/u)
+  assert.match(dispatch, /`--metadata-only` without `--comment-file`/u)
 })
 
 test('review convergence bounds broad discovery and keeps repair review closed-set', () => {
@@ -238,7 +263,6 @@ test('review convergence bounds broad discovery and keeps repair review closed-s
   const quickReviewer = readFileSync(join(projectRoot, 'agents', 'reviewers', 'reviewer-quick.md'), 'utf8')
   const deliveryOwners = [
     'deliver-pr',
-    'deliver-plan-tracking-issue',
     'deliver-dispatch-plan',
   ].map(name => readFileSync(join(skillsRoot, name, 'SKILL.md'), 'utf8'))
 
@@ -633,10 +657,6 @@ test('integration branch delivery surfaces declare protection and exact-base own
   const triage = readFileSync(join(skillsRoot, 'worktree-triage', 'SKILL.md'), 'utf8')
   const delivery = readFileSync(join(skillsRoot, 'deliver-pr', 'SKILL.md'), 'utf8')
   const dispatch = readFileSync(join(skillsRoot, 'deliver-dispatch-plan', 'SKILL.md'), 'utf8')
-  const tracking = readFileSync(
-    join(skillsRoot, 'deliver-plan-tracking-issue', 'SKILL.md'),
-    'utf8',
-  )
   const policy = readFileSync(join(projectRoot, 'docs', 'policies', 'git-delivery.md'), 'utf8')
   const manifest = JSON.parse(readFileSync(
     join(projectRoot, 'compatibility', 'nils-cli.json'),
@@ -648,9 +668,7 @@ test('integration branch delivery surfaces declare protection and exact-base own
   assert.match(delivery, /forge-cli >=1\.27\.27/)
   assert.match(delivery, /exact base instead of falling back to the provider default/)
   assert.match(dispatch, /forge-cli >=1\.27\.27/)
-  assert.match(tracking, /forge-cli >=1\.27\.27/)
-  assert.match(tracking, /--head "\$BRANCH" --base "\$BASE_REF"/)
-  assert.doesNotMatch(tracking, /--head "\$BRANCH" --base main/)
+  assert.match(dispatch, /--expected-base "\$INTEGRATION_BRANCH"/)
   assert.match(policy, /same-head PR targeting another base\s+is not an adoptable substitute/)
 
   assert.deepEqual(

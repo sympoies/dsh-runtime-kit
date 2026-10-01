@@ -2,8 +2,8 @@
 
 ## Canonical Lane Model
 
-The dispatch ledger and latest dispatch state comment are the runtime execution
-source of truth. Once a task is assigned, its lane is defined by `Owner`,
+The tracker and lane child issue are the execution source of truth. Once a task
+is assigned, its lane is defined by `Owner`,
 `Branch`, `Worktree`, `Execution Mode`, and `PR`. For shared lanes, multiple
 task rows may share the same lane.
 
@@ -28,7 +28,7 @@ and return a blocker packet:
 
 ## Reassignment
 
-Reassignment is explicit. Use it only when the current subagent cannot continue
-or the authoritative dispatch state intentionally changes. Preserve existing
-ledger and PR linkage until the replacement lane is written back through a
-dispatch state/session comment.
+Reassignment is explicit. Use it only when the current executor cannot continue
+or the tracker intentionally changes the lane. Preserve existing PR linkage
+until the replacement owner and branch are recorded in the child issue and
+tracker checkpoint.

@@ -264,8 +264,52 @@ test('runtime_context can prepare the exact target worktree in the current DSH s
   await tool.execute({ intent: 'project-dev', project_path: target }, exec)
   assert.deepEqual(calls, [{ exec, intent: 'project-dev', projectPath: target }])
   await assert.rejects(tool.execute({ intent: 'project-dev', project_path: '../relative' }, exec))
-  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'edit' }, exec))
+  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'review' }, exec))
   assert.equal(calls.length, 1)
+})
+
+test('runtime_context resolves the project-dev delivery phase on demand', async () => {
+  const calls = []
+  const tool = createRuntimeContextTool({
+    async prepare(exec, intent, projectPath, phase) {
+      calls.push({ intent, projectPath, phase })
+      return contextDecision()
+    },
+  })
+  assert.deepEqual(tool.parameters.properties.phase.enum, ['edit', 'delivery'])
+  assert.deepEqual(tool.parameters.required, ['intent'])
+  await tool.execute({ intent: 'project-dev' }, execution())
+  await tool.execute({ intent: 'project-dev', phase: 'delivery' }, execution())
+  await tool.execute({ intent: 'project-dev', phase: 'edit', project_path: '/workspace/managed-worktree' }, execution())
+  assert.deepEqual(calls, [
+    { intent: 'project-dev', projectPath: undefined, phase: 'edit' },
+    { intent: 'project-dev', projectPath: undefined, phase: 'delivery' },
+    { intent: 'project-dev', projectPath: '/workspace/managed-worktree', phase: 'edit' },
+  ])
+
+  const subject = contextTransportHarness({
+    response: spec => contextEnvelope(spec, { phase: 'delivery' }),
+  })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
+  const result = await client.prepare(execution(), 'project-dev', undefined, 'delivery')
+  assert.equal(result.phase, 'delivery')
+  const spec = subject.specs[0]
+  assert.equal(spec.argv[spec.argv.indexOf('--phase') + 1], 'delivery')
+
+  // A decision for another phase cannot answer this request.
+  const mismatched = contextTransportHarness()
+  const mismatchedClient = createNilsContextClient(mismatched.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
+  await assert.rejects(mismatchedClient.prepare(execution(), 'project-dev', undefined, 'delivery'))
+  await assert.rejects(
+    client.prepare(execution(), 'project-dev', undefined, 'review'),
+    /runtime-context-phase-not-allowed/,
+  )
 })
 
 test('runtime_context prepares an explicitly named target from a non-repository session cwd', async () => {
@@ -526,7 +570,10 @@ test('runtime_context rejects ambiguous args and invalid execution identity befo
   for (const args of [
     null,
     {},
-    { intent: 'project-dev', phase: 'edit' },
+    { intent: 'project-dev', phase: 'review' },
+    { intent: 'project-dev', phase: '' },
+    { intent: 'project-dev', phase: 1 },
+    { intent: 'project-dev', phase: 'delivery', scope: 'home' },
     { intent: 'invalid intent' },
     { intent: 'review' },
     { intent: 'delivery' },

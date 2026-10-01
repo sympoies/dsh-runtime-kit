@@ -1634,6 +1634,7 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
     type: 'object',
     properties: {
       intent: { type: 'string', enum: ['project-dev'] },
+      phase: { type: 'string', enum: ['edit', 'delivery'], description: 'Policy phase of the intent; defaults to edit.' },
       project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
     },
     required: ['intent'],
