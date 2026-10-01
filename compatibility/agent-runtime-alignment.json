@@ -423,12 +423,13 @@
     {
       "source": "manifests/hook-rules.yaml",
       "kind": "hook-manifest",
-      "disposition": "synced",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#313",
       "dsh_paths": [
         "policy/rule-parity.yaml",
         "policy/runtime-rule-parity.yaml"
       ],
-      "note": "Every rule row maps to a DSH capability group; groups whose handlers agent-runtime-kit #179 removed carry source_removed."
+      "note": "Every rule row maps to a DSH capability group; groups whose handlers agent-runtime-kit #179 removed carry source_removed. Three of them are still selected in DSH until R1 (#313) retires them; then this entry returns to synced."
     }
   ]
 }

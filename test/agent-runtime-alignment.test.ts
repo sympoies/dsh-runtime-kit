@@ -171,6 +171,42 @@ test('the drift check reports changed paths, commits, and unrecorded sources aft
   }
 })
 
+test('the drift check reports removed sources, nested skill edits, and an unknown pin', async () => {
+  const { root, record } = await sourceFixture()
+  try {
+    await put(root, 'core/skills/group/one/references/ref.md', 'ref, changed\n')
+    await git(root, 'add', '.')
+    await git(root, 'commit', '-q', '-m', 'docs: edit a nested skill reference')
+    const nested = await checkAgentRuntimeDrift({ sourceRoot: root, ref: 'HEAD', record })
+    assert.equal(nested.drift, true)
+    assert.deepEqual(nested.changed_paths, [
+      { status: 'M', path: 'core/skills/group/one/references/ref.md', entry: 'core/skills/group/one' },
+    ])
+
+    await git(root, 'rm', '-rq', 'core/skills/group/one')
+    await git(root, 'commit', '-q', '-m', 'feat: retire a skill')
+    const removed = await checkAgentRuntimeDrift({ sourceRoot: root, ref: 'HEAD', record })
+    assert.equal(removed.drift, true)
+    assert.deepEqual(removed.removed, ['core/skills/group/one'])
+    assert.ok(removed.changed_paths.some(row => row.status === 'D' && row.entry === 'core/skills/group/one'))
+
+    const unknownPin = { ...record, source: { ...record.source, commit: '0'.repeat(40) } }
+    await assert.rejects(checkAgentRuntimeDrift({ sourceRoot: root, ref: 'HEAD', record: unknownPin }))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('the hook manifest stays open on R1 while removed reminders are still selected', () => {
+  const record = JSON.parse(read('compatibility/agent-runtime-alignment.json'))
+  const manifest = record.entries.find(entry => entry.source === 'manifests/hook-rules.yaml')
+  const runtime = read('policy/runtime-rule-parity.yaml')
+  if (/follow_up: sympoies\/dsh-runtime-kit#313/u.test(runtime)) {
+    assert.equal(manifest.disposition, 'open-issue')
+    assert.equal(manifest.issue, 'sympoies/dsh-runtime-kit#313')
+  }
+})
+
 test('a scheduled non-blocking workflow runs the drift check against agent-runtime-kit main', () => {
   const workflow = read('.github/workflows/agent-runtime-drift.yml')
   assert.match(workflow, /schedule:\s*\n\s*- cron: '[^']+'/u)
