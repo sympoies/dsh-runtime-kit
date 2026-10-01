@@ -103,6 +103,7 @@
     "benchmark:policy": "node --expose-gc dist/scripts/benchmark-policy.js",
     "benchmark:policy:real": "node dist/scripts/benchmark-policy-real.js",
     "verify:policy-source": "node dist/scripts/verify-policy-parity.js",
+    "check:agent-runtime-drift": "node dist/scripts/check-agent-runtime-drift.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "test:main-agent-e2e": "node test/main-agent-e2e.ts"

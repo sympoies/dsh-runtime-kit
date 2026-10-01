@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { parse } from 'yaml'
 
 const INVENTORY_URL = new URL('../policy/rule-parity.yaml', import.meta.url)
-const EXPECTED_RULE_ID_DIGEST = 'sha256:f715200f4f9b4474c29b12bd2fa46dfa881779e1e5e44d454ec5a3247284e4e8'
+const EXPECTED_RULE_ID_DIGEST = 'sha256:32ed163fefa87c32eac24d339ca2b79cb87dc1765f24a2075461f9fc19f4cee5'
 const EXPECTED_DISPOSITIONS = new Map(Object.entries({
   'agent-scope-lock-guard': ['policy.edit-scope.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
   'agent-session.activity.v1': ['coordination.activity.v1', 'planned', 'dsh-runtime-kit + nils-cli'],
@@ -75,16 +75,16 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
   assert.equal(inventory.schema_version, 'dsh-runtime-kit.rule-parity.v1')
   assert.deepEqual(inventory.source, {
     repository: 'github.com/sympoies/agent-runtime-kit',
-    commit: '6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1',
+    commit: '1809e49ea7f14759afde7e154c065cf38e80ee57',
     path: 'manifests/hook-rules.yaml',
     byte_canonicalization: 'lf-line-endings',
-    file_digest: 'sha256:3e5af1cc2fbbbcb937c30b7a3ccfd80eafa91f664fdaf8201fb489c0cc5c4229',
+    file_digest: 'sha256:9dddff5c4456ac45d0faf8aa02294483ea9130bc3512933986110584f9366a05',
     normalized_rule_id_digest: EXPECTED_RULE_ID_DIGEST,
-    rule_count: 102,
-    legacy_handler_count: 21,
-    legacy_registration_count: 68,
+    rule_count: 92,
+    legacy_handler_count: 17,
+    legacy_registration_count: 58,
     relocated_capability_count: 1,
-    runtime_handler_or_relocated_count: 22,
+    runtime_handler_or_relocated_count: 18,
   })
   assert.deepEqual(inventory.test_owner_repositories, {
     'dsh-runtime-kit': {
@@ -96,8 +96,8 @@ test('the frozen parity inventory exhaustively maps the legacy runtime source', 
       evidence_commit: '47c208c8740669d0f421bf6986e8716b6f3f0151',
     },
   })
-  assert.equal(inventory.rules.length, 102)
-  assert.equal(new Set(inventory.rules.map(rule => rule.id)).size, 102)
+  assert.equal(inventory.rules.length, 92)
+  assert.equal(new Set(inventory.rules.map(rule => rule.id)).size, 92)
   assert.equal(ruleIdDigest(inventory.rules), EXPECTED_RULE_ID_DIGEST)
   assertFrozenDispositions(inventory)
 

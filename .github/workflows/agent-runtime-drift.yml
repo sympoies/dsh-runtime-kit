@@ -1,0 +1,37 @@
+name: agent-runtime-kit drift
+
+# Informational only. It reports agent-runtime-kit changes to hooks, home
+# policy, and skills since the commit compatibility/agent-runtime-alignment.json
+# pins, so the DSH copies cannot silently fall behind. It never gates a pull
+# request or push.
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: sympoies/agent-runtime-kit
+          ref: main
+          path: agent-runtime-kit
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Report drift since the recorded pin
+        run: npm run check:agent-runtime-drift -- --source "$GITHUB_WORKSPACE/agent-runtime-kit" --format github

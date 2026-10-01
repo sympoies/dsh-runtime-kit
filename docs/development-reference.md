@@ -349,6 +349,40 @@ the materialized package set. Keep nonhost optional native dependencies at
 their exact registry versions and integrity in the frozen lockfile; pnpm may
 otherwise link their skipped `file:` archives as files rather than packages.
 
+## Agent-runtime-kit alignment
+
+`policy/rule-parity.yaml`, `policy/runtime-rule-parity.yaml`, and
+`compatibility/agent-runtime-alignment.json` pin one agent-runtime-kit commit.
+The record gives every skill, home policy, `AGENT_HOME.md`, the hook manifest,
+and the hook implementations a disposition (`synced`, `dsh-native`, `retired`,
+`not-applicable`, or `open-issue` with its issue) and the DSH paths that
+carry it. `test/agent-runtime-alignment.test.ts` keeps the three pins equal
+and every named DSH path present; it needs no agent-runtime-kit checkout.
+
+Report what moved since the pin from a local checkout:
+
+```sh
+npm run build
+npm run check:agent-runtime-drift -- \
+  --source /path/to/agent-runtime-kit --ref origin/main --format text
+```
+
+The report lists commits and changed paths under `AGENT_HOME.md`,
+`core/hooks/`, `core/policies/`, `core/skills/`, and
+`manifests/hook-rules.yaml`, plus sources added or removed upstream. A
+non-empty `record_mismatch_at_pin` means the record itself is wrong for its
+pin. The weekly `agent-runtime-kit drift` workflow runs the same check against
+agent-runtime-kit `main` and only emits warnings; pass `--fail-on-drift` to
+make a local run exit non-zero.
+
+To re-pin, sync or disposition each reported change, then move all three pins
+to the new commit together. Copy the pinned `manifests/hook-rules.yaml` to
+`test/fixtures/legacy-hook-rules.yaml` and its
+`tests/agent-hook/fixtures/legacy-registrations.tsv` to
+`policy/legacy-registrations.tsv`, regenerate the rule rows and counters, and
+run `npm run verify:policy-source -- /path/to/agent-runtime-kit
+/path/to/nils-cli` before the parity tests.
+
 ## Acceptance and delivery
 
 `npm run acceptance` is a trusted-code source rehearsal, not a self-issued

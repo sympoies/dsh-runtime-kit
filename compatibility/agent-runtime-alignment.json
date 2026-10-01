@@ -1,0 +1,434 @@
+{
+  "schema_version": "dsh-runtime-kit.agent-runtime-alignment.v1",
+  "source": {
+    "repository": "github.com/sympoies/agent-runtime-kit",
+    "commit": "1809e49ea7f14759afde7e154c065cf38e80ee57"
+  },
+  "watched_paths": [
+    "AGENT_HOME.md",
+    "core/hooks/",
+    "core/policies/",
+    "core/skills/",
+    "manifests/hook-rules.yaml"
+  ],
+  "entries": [
+    {
+      "source": "AGENT_HOME.md",
+      "kind": "home",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-home/AGENTS.md"
+      ],
+      "note": "DSH-native routing; no Codex or Claude invocation text."
+    },
+    {
+      "source": "core/hooks/",
+      "kind": "hooks",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#309",
+      "dsh_paths": [
+        "policy/dsh-runtime-kit-v1.toml",
+        "policy/runtime-rule-parity.yaml"
+      ],
+      "note": "The read-only guard fixes from agent-runtime-kit #180, #184, and #185 are ported in nils-cli (#2001, #2010) and reach DSH when runtime-kit adopts the release that carries them."
+    },
+    {
+      "source": "core/policies/browser-test-routing.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/BROWSER_TESTING.md"
+      ],
+      "note": "runtime_context intent web-testing."
+    },
+    {
+      "source": "core/policies/cli-tools.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/EXTERNAL_FACTS.md"
+      ],
+      "note": "Condensed into the external-facts intent; Homebrew catalog rows are not applicable."
+    },
+    {
+      "source": "core/policies/code-review-delegation-codex.md",
+      "kind": "policy",
+      "disposition": "not-applicable",
+      "dsh_paths": [],
+      "note": "Codex-only."
+    },
+    {
+      "source": "core/policies/devlog-capability.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/DEVLOG.md"
+      ],
+      "note": "runtime_context intent devlog."
+    },
+    {
+      "source": "core/policies/evidence-control-plane.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/EVIDENCE.md"
+      ],
+      "note": "project-dev phase review."
+    },
+    {
+      "source": "core/policies/execution-capsules.md",
+      "kind": "policy",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/execution-capsule/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/policies/external-facts.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/EXTERNAL_FACTS.md",
+        "docs/policies/external-facts.md"
+      ]
+    },
+    {
+      "source": "core/policies/files-hooks-validation.md",
+      "kind": "policy",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "agent-docs/PROJECT_DEV_EDIT.md",
+        "policy/dsh-runtime-kit-v1.toml"
+      ],
+      "note": "Replaced by the nils-cli dsh_policy groups and the finish-line coordinator."
+    },
+    {
+      "source": "core/policies/forge-label-taxonomy.md",
+      "kind": "policy",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "agent-docs/WORK_MODES.md",
+        "skills/issue-follow-up/references/program-mode.md"
+      ],
+      "note": "The tracking labels are named inline; repositories own their label catalogs."
+    },
+    {
+      "source": "core/policies/git-delivery.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/GIT_DELIVERY.md",
+        "docs/policies/git-delivery.md"
+      ],
+      "note": "project-dev phase delivery."
+    },
+    {
+      "source": "core/policies/intent-cards.md",
+      "kind": "policy",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "agent-home/AGENTS.md"
+      ],
+      "note": "Replaced by runtime_context intent and phase routing."
+    },
+    {
+      "source": "core/policies/memory.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/MEMORY.md"
+      ],
+      "note": "runtime_context intent memory."
+    },
+    {
+      "source": "core/policies/review-thread-convergence.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/REVIEW_CONVERGENCE.md",
+        "docs/policies/review-thread-convergence.md"
+      ],
+      "note": "project-dev phase review."
+    },
+    {
+      "source": "core/policies/session-coordination.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/PEER_COORDINATION.md"
+      ],
+      "note": "runtime_context intent peer-coordination; automatic mailbox reminders for DSH are tracked in sympoies/nils-cli#2011."
+    },
+    {
+      "source": "core/policies/upstream-contribution.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/UPSTREAM_CONTRIBUTION.md",
+        "docs/policies/upstream-contribution.md"
+      ]
+    },
+    {
+      "source": "core/policies/work-modes.md",
+      "kind": "policy",
+      "disposition": "synced",
+      "dsh_paths": [
+        "agent-docs/WORK_MODES.md"
+      ],
+      "note": "project-dev phase delivery."
+    },
+    {
+      "source": "core/skills/code-review/code-review-specialists",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#315",
+      "dsh_paths": [
+        "skills/code-review-specialists/SKILL.md"
+      ],
+      "note": "Routing through the native review_specialists tool is DSH-native and stays; the posting contract still lacks the forge-cli review-loop recovery."
+    },
+    {
+      "source": "core/skills/computer-use/macos-desktop",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#317",
+      "dsh_paths": [
+        "skills/macos-desktop/SKILL.md"
+      ],
+      "note": "Missing references/flow-fixtures.md and the adapter changes from agent-runtime-kit #42, #50, #53, and #54."
+    },
+    {
+      "source": "core/skills/conversation/discussion-to-implementation-doc",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#317",
+      "dsh_paths": [
+        "skills/discussion-to-implementation-doc/SKILL.md"
+      ],
+      "note": "Program vocabulary and capture lifecycle synced in #318; the heuristic-inbox bullet remains."
+    },
+    {
+      "source": "core/skills/conversation/guided-feature-build",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/guided-feature-build/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/conversation/handoff-session-prompt",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/handoff-session-prompt/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/conversation/main-agent-mode",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#316",
+      "dsh_paths": [
+        "skills/main-agent-mode/SKILL.md"
+      ],
+      "note": "DSH's native controller tools are intentional; outcome routing and program waves are missing."
+    },
+    {
+      "source": "core/skills/dispatch/deliver-dispatch-plan",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/deliver-dispatch-plan/SKILL.md"
+      ],
+      "note": "Synced in #318 with DSH's forge-cli and review-specialists floors and closed-set admission."
+    },
+    {
+      "source": "core/skills/issue/issue-follow-up",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/issue-follow-up/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/issue/issue-triage",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/issue-triage/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/media/image-processing",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/image-processing/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/media/screen-record",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/screen-record/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/bootstrap",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/bootstrap/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/create-project-skill",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/create-project-skill/SKILL.md"
+      ],
+      "note": "Creates DSH project skills under .agents/skills or .dsh/skills."
+    },
+    {
+      "source": "core/skills/meta/create-skill",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/create-skill/SKILL.md"
+      ],
+      "note": "Adds a skill to this package's public DSH bundle."
+    },
+    {
+      "source": "core/skills/meta/deploy",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/deploy/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/execution-capsule",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/execution-capsule/SKILL.md"
+      ],
+      "note": "The agent-runtime-kit version runs capsules through codex-cli; DSH keeps the operator path."
+    },
+    {
+      "source": "core/skills/meta/nils-cli-bump",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/nils-cli-bump/SKILL.md"
+      ],
+      "note": "Advances this package's compatibility/nils-cli.json release tuple."
+    },
+    {
+      "source": "core/skills/meta/release",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/release/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/remove-project-skill",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/remove-project-skill/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/remove-skill",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/remove-skill/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/repo-docs-boundary",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/repo-docs-boundary/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/setup-project",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/setup-project/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/meta/sync-runtime-surfaces",
+      "kind": "skill",
+      "disposition": "dsh-native",
+      "dsh_paths": [
+        "skills/sync-runtime-surfaces/SKILL.md"
+      ],
+      "note": "Installs the runtime-kit bundle into a DSH profile."
+    },
+    {
+      "source": "core/skills/meta/worktree-triage",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/worktree-triage/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/pr/deliver-pr",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#315",
+      "dsh_paths": [
+        "skills/deliver-pr/SKILL.md"
+      ],
+      "note": "Work modes synced in #318; the review-loop recovery delegation to forge-cli is missing."
+    },
+    {
+      "source": "core/skills/reporting/daily-brief",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/daily-brief/SKILL.md"
+      ]
+    },
+    {
+      "source": "core/skills/reporting/project-retro",
+      "kind": "skill",
+      "disposition": "open-issue",
+      "issue": "sympoies/dsh-runtime-kit#317",
+      "dsh_paths": [
+        "skills/project-retro/SKILL.md"
+      ],
+      "note": "Still reports HEURISTIC_SYSTEM movement instead of archival movement."
+    },
+    {
+      "source": "core/skills/reporting/topic-radar",
+      "kind": "skill",
+      "disposition": "synced",
+      "dsh_paths": [
+        "skills/topic-radar/SKILL.md"
+      ],
+      "note": "The private default profile is replaced by the generic ai-tech profile."
+    },
+    {
+      "source": "manifests/hook-rules.yaml",
+      "kind": "hook-manifest",
+      "disposition": "synced",
+      "dsh_paths": [
+        "policy/rule-parity.yaml",
+        "policy/runtime-rule-parity.yaml"
+      ],
+      "note": "Every rule row maps to a DSH capability group; groups whose handlers agent-runtime-kit #179 removed carry source_removed."
+    }
+  ]
+}
