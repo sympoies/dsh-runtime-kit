@@ -169,6 +169,14 @@ test('packaged policy documents are DSH-native', () => {
   assert.match(peers, /untrusted/u)
   assert.match(peers, /never grant/u)
   assert.match(peers, /no automatic mailbox reminder reaches DSH sessions yet/u)
+  // Every mutating mailbox command is shown with the flags the CLI requires.
+  const commands = [...peers.replace(/\n\s*/gu, ' ').matchAll(/`agent-session message (ack|reply|send) [^`]*`/gu)]
+  assert.deepEqual([...new Set(commands.map(match => match[1]))].sort(), ['ack', 'reply', 'send'])
+  for (const [command, verb] of commands) {
+    assert.match(command, /--idempotency-key/u, `${verb} must carry --idempotency-key`)
+    if (verb !== 'send') assert.match(command, /--if-revision/u, `${verb} must carry --if-revision`)
+    if (verb !== 'ack') assert.match(command, /--body-file/u, `${verb} must carry --body-file`)
+  }
 })
 
 test('the home instructions route every packaged policy intent', () => {

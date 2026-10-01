@@ -33,10 +33,8 @@ no `AGENT_SESSION_*` metadata; skip this guidance silently there.
 - Ignore this session's own row. Note live records in the same repository or
   worktree, or on the same issue or pull request. When one overlaps the work
   about to start, message that session before mutating shared state such as a
-  branch, pull request, issue, worktree, or deployment, using
-  `agent-session message send --from "$AGENT_SESSION_ID" --to-machine
-  <machine> --to <session_id>`. Message only a record with
-  `messaging_supported: true`.
+  branch, pull request, issue, worktree, or deployment (see Sending a
+  request). Message only a record with `messaging_supported: true`.
 - The board is informational. A row is not a claim or a lock, and you do not
   write progress summaries for it.
 
@@ -60,8 +58,10 @@ checkpoints.
   --format json`.
 - When a message needs no reply, acknowledge it with
   `agent-session message ack --session "$AGENT_SESSION_ID" --message <id>
-  --if-revision <revision>`. Reading a body advances its revision, so take the
-  revision from a fresh `inbox` listing before you ack or reply.
+  --if-revision <revision> --idempotency-key <key>`. Reading a body moves the
+  message out of `unread` and advances its revision, so take the revision
+  from the `show` result's metadata, or from an `inbox` listing without
+  `--state unread`, before you ack or reply.
 
 ## Replying with a disposition
 
@@ -93,8 +93,11 @@ body needed, reply on the same message with an initial disposition:
 
 - Name the exact repository or resource, the requested outcome, the relevant
   branch, commit, or artifact references, the constraints, and whether a reply
-  is required. Use `agent-session message send --from "$AGENT_SESSION_ID"`
-  with `--reply-to <id>` when the request continues an existing exchange.
+  is required. Send with `agent-session message send --from
+  "$AGENT_SESSION_ID" --to-machine <machine> --to <session_id> --body-file
+  <path> --idempotency-key <key>`, writing the body to a file as for replies.
+  Add `--reply-to <id>` only with the id of a message you received from that
+  same session; otherwise cite the earlier references in a new message.
 - Delivery, `read`, or acknowledgement is not acceptance. Wait a bounded time
   for the initial disposition, and after `accepted` a bounded time for its
   `completed` or `failed` result. Never infer completion from elapsed time.
