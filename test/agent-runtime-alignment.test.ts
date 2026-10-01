@@ -62,15 +62,15 @@ test('the alignment record pins every agent-runtime-kit skill, policy, and home 
       assert.ok(entry.dsh_paths.includes(`skills/${name}/SKILL.md`), entry.source)
     }
   }
-  // The guard fixes reach DSH only through a nils-cli release; until then the
-  // hook surface stays an open issue rather than claimed parity.
+  // The guard fixes reach DSH only through a nils-cli release; the validated
+  // release carries them, and test/policy-parity.test.ts proves it against the
+  // released agent-hook.
   assert.deepEqual(
     record.entries.find(entry => entry.source === 'core/hooks/'),
     {
       source: 'core/hooks/',
       kind: 'hooks',
-      disposition: 'open-issue',
-      issue: 'sympoies/dsh-runtime-kit#309',
+      disposition: 'synced',
       dsh_paths: ['policy/dsh-runtime-kit-v1.toml', 'policy/runtime-rule-parity.yaml'],
       note: record.entries.find(entry => entry.source === 'core/hooks/').note,
     },
