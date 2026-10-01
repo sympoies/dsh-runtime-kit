@@ -78,12 +78,12 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
   }
   const definition: ToolDefinition = {
     name: 'runtime_context',
-    description: 'Prepare one declared runtime-policy intent for the absolute target directory, regardless of this DSH session\'s starting cwd. The edit phase is the default; request the delivery phase before durable tracking, commits, pull requests, reviews, or merges.',
+    description: 'Prepare one declared runtime-policy intent for the absolute target directory, regardless of this DSH session\'s starting cwd. For project-dev the edit phase is the default; request delivery before durable tracking, commits, pull requests, or merges, and review before reviewing or resolving review threads.',
     parameters: {
       type: 'object',
       properties: {
         intent: { type: 'string', enum: [...RUNTIME_CONTEXT_INTENTS] },
-        phase: { type: 'string', enum: [...RUNTIME_CONTEXT_PHASES], description: 'Policy phase of the intent; defaults to edit.' },
+        phase: { type: 'string', enum: [...RUNTIME_CONTEXT_PHASES], description: 'Policy phase of project-dev; defaults to edit. Other intents take no phase.' },
         project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
       },
       required: ['intent'],

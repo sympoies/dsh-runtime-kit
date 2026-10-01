@@ -35,8 +35,10 @@ compatibility, acceptance, and delivery procedures are in the
 - Explicit `runtime_context({ intent: "project-dev" })` delivery remains
   available without injecting a documentation corpus into every prompt.
   `runtime_context({ intent: "project-dev", phase: "delivery" })` returns the
-  packaged delivery policy, such as the named work modes (`direct`, `issue`,
-  `program`), on demand.
+  packaged delivery policy (the named work modes and Git delivery) and phase
+  `review` the review-convergence and evidence policy, on demand. The
+  `devlog`, `external-facts`, `web-testing`, `memory`, and
+  `upstream-contribution` intents return their packaged home policies.
   To work in another checkout, including from a session started outside a Git
   repository, use
   `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`

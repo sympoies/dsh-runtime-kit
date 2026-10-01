@@ -1633,8 +1633,8 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
   assert.deepEqual(subject.tool('runtime_context')?.parameters, {
     type: 'object',
     properties: {
-      intent: { type: 'string', enum: ['project-dev'] },
-      phase: { type: 'string', enum: ['edit', 'delivery'], description: 'Policy phase of the intent; defaults to edit.' },
+      intent: { type: 'string', enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution'] },
+      phase: { type: 'string', enum: ['edit', 'delivery', 'review'], description: 'Policy phase of project-dev; defaults to edit. Other intents take no phase.' },
       project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
     },
     required: ['intent'],

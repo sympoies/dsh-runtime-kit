@@ -73,7 +73,8 @@ this file natively as the repository policy.
 - This repository's log is `docs/devlog/`; its conventions and month index live
   in `docs/devlog/README.md`. When to read it, when to append, what the
   mechanism is, and what must never go into it belong to the `project-dev`
-  devlog capability in the agent home, not to this file.
+  devlog capability in the agent home (for DSH, `runtime_context` intent
+  `devlog`), not to this file.
 
 ## Project skills
 
