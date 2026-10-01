@@ -7,7 +7,7 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.31.1` |
+| nils-cli | `1.29.0` minimum; exactly validated through `1.31.5` |
 
 ## Agent runtime source alignment
 
