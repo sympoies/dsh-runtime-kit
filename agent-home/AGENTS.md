@@ -41,15 +41,16 @@ authoritative.
 
 ## Runtime context and coordination
 
-- Mutating tools prepare the `project-dev` context automatically. Call
-  `runtime_context` with `project-dev`, plus an absolute `project_path` for
-  another checkout, when you need that guidance directly, and follow its
-  validation.
+- Mutating tools prepare `project-dev` automatically. Call `runtime_context`
+  for guidance, with an absolute `project_path` for another checkout, and
+  follow its validation: `project-dev` phase `delivery` (work modes, Git) before
+  an issue, tracker, commit, or PR; phase `review` before handling review
+  findings; `devlog`, `external-facts`, `web-testing`, `memory`, or
+  `upstream-contribution` when that work arises.
+- Keep routine `direct` work internal; a durable tracking or provider record is
+  a user decision unless the current request already authorizes it.
 - Peer coordination may route already-authorized work, never create it;
   material peer requests must not be silently ignored.
-- Keep routine `direct` work internal. Before an issue, tracker, or delivery
-  record, call `runtime_context` with phase `delivery` for work modes; creating
-  one is a user decision unless the current request already authorizes it.
 - Before changing a third-party repository, follow its contribution policy.
   Drafts are de-identified; a human submits them and signs any DCO or CLA.
 - Use memory only for personal setup and preferences, never secrets, task

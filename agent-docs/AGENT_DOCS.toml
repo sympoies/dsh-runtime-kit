@@ -17,3 +17,78 @@ phase = "delivery"
 required = true
 when = "always"
 notes = "Named work modes: direct, issue, program, and program/dispatch tracking records"
+
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "GIT_DELIVERY.md"
+product = "dsh"
+phase = "delivery"
+required = true
+when = "always"
+notes = "Git mutation owners, delivery refusals and modes, commit and worktree rules, terminal cleanup"
+
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "REVIEW_CONVERGENCE.md"
+product = "dsh"
+phase = "review"
+required = true
+when = "always"
+notes = "Discovery and closure generations, finding triage, and the review stopping rule"
+
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "EVIDENCE.md"
+product = "dsh"
+phase = "review"
+required = true
+when = "always"
+notes = "When evidence is warranted, test-first discipline, and artifact retention"
+
+[[document]]
+context = "devlog"
+scope = "home"
+path = "DEVLOG.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "When to read and append to a repository development log, and what never goes into it"
+
+[[document]]
+context = "external-facts"
+scope = "home"
+path = "EXTERNAL_FACTS.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "Verifying external and time-sensitive claims, citation tags, and command-line defaults"
+
+[[document]]
+context = "web-testing"
+scope = "home"
+path = "BROWSER_TESTING.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "Routing browser claims to the surfaces a DSH composition provides"
+
+[[document]]
+context = "memory"
+scope = "home"
+path = "MEMORY.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "Personal memory content boundary and use when a memory server is connected"
+
+[[document]]
+context = "upstream-contribution"
+scope = "home"
+path = "UPSTREAM_CONTRIBUTION.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "Escalation order and gates for changes outside the current repository"

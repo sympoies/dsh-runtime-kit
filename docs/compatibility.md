@@ -28,7 +28,30 @@ The source changes were checked against DSH by behavior and owner:
 | Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` for inspecting the session's repository. The v2 lease permits an explicitly resolved dirty target to pass to another session after release and terminal operations. With nils-cli v1.28.46, an idle live foreign owner may transfer an exact-target lease after one approval; active operations and stale conflicts stay fenced. A session started outside Git uses `runtime_context` with the target path directly. |
 | Artifact routing and portable path hook | DSH provides session-owned `artifact_*` tools. The released nils-cli v1.28.43 native `portable-paths-scan` group also rejects hand-built `agent-out` directories and repo-local `.cache` scratch for DSH; the rule is not reimplemented in JavaScript. |
 | Coordination, health, skills, docs prompt, and finish-line hooks | DSH uses native coordination and runtime-health surfaces, selective `runtime_context`, and its nils/runtime-kit finish-line coordinator. macOS Bash and symlink fixes apply to the host-hook launchers, not to DSH's subprocess adapter. |
-| Devlog, upstream, Git delivery, review, browser, evidence, and work-tier documents | DSH follows the repository's `AGENT_DOCS.toml`, `docs/policies/`, and owning runbooks. Codex/Claude-only invocation text is not copied into the DSH catalog. |
+| Devlog, upstream, Git delivery, review, browser, evidence, memory, and work-mode documents | DSH sessions in any repository receive DSH-native adaptations from the packaged `agent-docs/` catalog through `runtime_context`; see the home-policy dispositions below. A repository's own catalog adds project documents only for the products it names. Codex/Claude-only invocation text is not copied. |
+
+### Home-policy dispositions
+
+Each agent-runtime-kit home policy reaches DSH sessions as a packaged
+adaptation, through a DSH-native replacement, or not at all. Packaged
+documents live in `agent-docs/` and resolve through `runtime_context`; every
+intent and phase stays within 18 KiB of packaged documents so a call fits the
+default 20 KiB context budget.
+
+| agent-runtime-kit policy | DSH disposition |
+| --- | --- |
+| `work-modes.md` | Adapted: `WORK_MODES.md`, `project-dev` phase `delivery`. |
+| `git-delivery.md` | Adapted: `GIT_DELIVERY.md`, `project-dev` phase `delivery`. Codex/Claude hook mechanics and the inline waiver are omitted; DSH's guards are the nils-cli `dsh_policy` groups. |
+| `review-thread-convergence.md` | Adapted: `REVIEW_CONVERGENCE.md`, `project-dev` phase `review`. |
+| `evidence-control-plane.md` | Adapted: `EVIDENCE.md`, `project-dev` phase `review`, with session `artifact_*` storage. |
+| `devlog-capability.md` | Adapted: `DEVLOG.md`, intent `devlog`. It is not part of `delivery` because work modes and Git delivery already fill that phase's budget. |
+| `external-facts.md` and `cli-tools.md` | Adapted together: `EXTERNAL_FACTS.md`, intent `external-facts`, with the command-line defaults a DSH session can use. The Homebrew catalog, browser CLI wrappers, and Codex/Claude tool rows are not applicable. |
+| `browser-test-routing.md` | Adapted: `BROWSER_TESTING.md`, intent `web-testing`. DSH has no built-in browser; the document routes to a mounted browser-use provider, the project's own harness, or a stated blocker. |
+| `memory.md` | Adapted: `MEMORY.md`, intent `memory`. DSH has no built-in memory store; the content boundary applies to a connected memory MCP server. The `agent-memory` candidate lifecycle is not applicable. |
+| `upstream-contribution.md` | Adapted: `UPSTREAM_CONTRIBUTION.md`, intent `upstream-contribution`, generalized from this repository's own policy. |
+| `files-hooks-validation.md` | DSH-native replacement: the nils-cli `dsh_policy` groups, the finish-line coordinator, and `PROJECT_DEV_EDIT.md`. |
+| `session-coordination.md` | Pending: S1 (#311). |
+| `code-review-delegation-codex.md` | Not applicable: Codex-only. DSH routes review through the native `review_specialists` tool. |
 
 The nils-cli v1.28.25 to v1.28.40 source comparison found no repair for the
 wrong-intent incident. DSH PR #263 repaired intent recovery in runtime-kit;

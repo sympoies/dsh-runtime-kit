@@ -264,7 +264,7 @@ test('runtime_context can prepare the exact target worktree in the current DSH s
   await tool.execute({ intent: 'project-dev', project_path: target }, exec)
   assert.deepEqual(calls, [{ exec, intent: 'project-dev', projectPath: target }])
   await assert.rejects(tool.execute({ intent: 'project-dev', project_path: '../relative' }, exec))
-  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'review' }, exec))
+  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'release' }, exec))
   assert.equal(calls.length, 1)
 })
 
@@ -276,7 +276,7 @@ test('runtime_context resolves the project-dev delivery phase on demand', async 
       return contextDecision()
     },
   })
-  assert.deepEqual(tool.parameters.properties.phase.enum, ['edit', 'delivery'])
+  assert.deepEqual(tool.parameters.properties.phase.enum, ['edit', 'delivery', 'review'])
   assert.deepEqual(tool.parameters.required, ['intent'])
   await tool.execute({ intent: 'project-dev' }, execution())
   await tool.execute({ intent: 'project-dev', phase: 'delivery' }, execution())
@@ -307,9 +307,50 @@ test('runtime_context resolves the project-dev delivery phase on demand', async 
   })
   await assert.rejects(mismatchedClient.prepare(execution(), 'project-dev', undefined, 'delivery'))
   await assert.rejects(
-    client.prepare(execution(), 'project-dev', undefined, 'review'),
+    client.prepare(execution(), 'project-dev', undefined, 'release'),
     /runtime-context-phase-not-allowed/,
   )
+})
+
+test('runtime_context resolves phaseless policy intents and the project-dev review phase', async () => {
+  const calls = []
+  const tool = createRuntimeContextTool({
+    async prepare(exec, intent, projectPath, phase) {
+      calls.push({ intent, phase })
+      return contextDecision({ intent })
+    },
+  })
+  for (const intent of ['devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution']) {
+    await tool.execute({ intent }, execution())
+    await assert.rejects(tool.execute({ intent, phase: 'edit' }, execution()), /runtime-context-phase-not-allowed/)
+  }
+  await tool.execute({ intent: 'project-dev', phase: 'review' }, execution())
+  assert.deepEqual(calls, [
+    { intent: 'devlog', phase: undefined },
+    { intent: 'external-facts', phase: undefined },
+    { intent: 'web-testing', phase: undefined },
+    { intent: 'memory', phase: undefined },
+    { intent: 'upstream-contribution', phase: undefined },
+    { intent: 'project-dev', phase: 'review' },
+  ])
+
+  // A phaseless intent sends no --phase and accepts a decision without one.
+  const subject = contextTransportHarness({
+    response: spec => {
+      const envelope = contextEnvelope(spec, { intent: 'memory' })
+      delete envelope.data.decision.phase
+      return envelope
+    },
+  })
+  const client = createNilsContextClient(subject.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
+  const result = await client.prepare(execution(), 'memory')
+  assert.equal(result.intent, 'memory')
+  assert.equal(Object.hasOwn(result, 'phase'), false)
+  assert.equal(subject.specs[0].argv.includes('--phase'), false)
+  assert.equal(subject.specs[0].argv[subject.specs[0].argv.indexOf('--intent') + 1], 'memory')
 })
 
 test('runtime_context prepares an explicitly named target from a non-repository session cwd', async () => {
@@ -570,7 +611,7 @@ test('runtime_context rejects ambiguous args and invalid execution identity befo
   for (const args of [
     null,
     {},
-    { intent: 'project-dev', phase: 'review' },
+    { intent: 'project-dev', phase: 'release' },
     { intent: 'project-dev', phase: '' },
     { intent: 'project-dev', phase: 1 },
     { intent: 'project-dev', phase: 'delivery', scope: 'home' },
@@ -585,7 +626,7 @@ test('runtime_context rejects ambiguous args and invalid execution identity befo
 
   assert.deepEqual(tool.parameters.properties.intent, {
     type: 'string',
-    enum: ['project-dev'],
+    enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution'],
   })
 
   const subject = contextTransportHarness()

@@ -2,9 +2,15 @@ const INTENT_PATTERN = /^[A-Za-z0-9._/-]+$/
 const MAX_INTENT_BYTES = 128
 
 // The first phase of each intent is its default and the one the automatic
-// mutation prerequisite prepares; later phases resolve only on demand.
+// mutation prerequisite prepares; later phases resolve only on demand. An
+// intent with no phases resolves its packaged documents without `--phase`.
 export const RUNTIME_CONTEXT_INTENT_PHASES = Object.freeze({
-  'project-dev': Object.freeze(['edit', 'delivery'] as const),
+  'project-dev': Object.freeze(['edit', 'delivery', 'review'] as const),
+  devlog: Object.freeze([] as const),
+  'external-facts': Object.freeze([] as const),
+  'web-testing': Object.freeze([] as const),
+  memory: Object.freeze([] as const),
+  'upstream-contribution': Object.freeze([] as const),
 })
 
 export const RUNTIME_CONTEXT_PHASES = Object.freeze(
@@ -31,11 +37,20 @@ export function normalizeRuntimeContextIntent(value: unknown) {
   return ((intent) as keyof typeof RUNTIME_CONTEXT_INTENT_PHASES)
 }
 
-export function runtimeContextPhase(value: unknown, phase?: unknown): string {
+export function runtimeContextPhase(value: unknown, phase?: unknown): string | undefined {
   const phases: readonly string[] = RUNTIME_CONTEXT_INTENT_PHASES[normalizeRuntimeContextIntent(value)]
   if (phase === undefined) return phases[0]
   if (typeof phase !== 'string' || !phases.includes(phase)) {
     throw new TypeError('dsh-runtime-kit:runtime-context-phase-not-allowed')
+  }
+  return phase
+}
+
+/** The phase the automatic mutation prerequisite prepares for an intent. */
+export function runtimeContextPrerequisitePhase(value: unknown): string {
+  const phase = runtimeContextPhase(value)
+  if (phase === undefined) {
+    throw new TypeError('dsh-runtime-kit:runtime-context-prerequisite-phase-missing')
   }
   return phase
 }

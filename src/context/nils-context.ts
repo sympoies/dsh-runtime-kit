@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 
-import { runtimeContextPhase } from './intents.js'
+import { runtimeContextPhase, runtimeContextPrerequisitePhase } from './intents.js'
 import { resolveAuthenticatedNilsExecution } from '../nils/authenticated-execution.js'
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
 import {
@@ -411,7 +411,7 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
         '--state-home', stateHome,
         '--intent', intent,
       )
-      argv.push('--phase', phase)
+      if (phase !== undefined) argv.push('--phase', phase)
       argv.push('--request-id', requestId, '--max-bytes', String(maxBytes), '--format', 'json')
       const decision = await executeCommand(
         exec,
@@ -425,7 +425,7 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
     },
 
     async beginPrerequisite(exec: ToolRunContext, intent: string, binding: {agentId: string, workspaceGeneration: string, callId: string, turn: number, step: number, toolName: string, definitionId: string}) {
-      const phase = runtimeContextPhase(intent)
+      const phase = runtimeContextPrerequisitePhase(intent)
       const scope = executionScope(exec)
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId

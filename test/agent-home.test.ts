@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 
@@ -64,47 +64,97 @@ test('the home instructions record their upstream provenance outside the model-f
   assert.ok(architecture.includes('agent-home/AGENTS.md'), 'architecture must name the packaged document')
 })
 
-test('the packaged catalog routes the work-modes policy to the project-dev delivery phase', () => {
-  const catalog = read('agent-docs/AGENT_DOCS.toml')
-  const entries = catalog.split(/^\[\[document\]\]$/mu).slice(1)
-  const workModes = entries.find(entry => /^path = "WORK_MODES\.md"$/mu.test(entry))
-  assert.ok(workModes, 'the packaged catalog must declare WORK_MODES.md')
-  assert.match(workModes, /^context = "project-dev"$/mu)
-  assert.match(workModes, /^scope = "home"$/mu)
-  assert.match(workModes, /^product = "dsh"$/mu)
-  assert.match(workModes, /^phase = "delivery"$/mu)
-  assert.match(workModes, /^required = true$/mu)
+// Every packaged policy document, the runtime_context intent that returns it,
+// and its phase (`null` for a phaseless intent).
+const PACKAGED_POLICIES = [
+  ['PROJECT_DEV_EDIT.md', 'project-dev', 'edit'],
+  ['WORK_MODES.md', 'project-dev', 'delivery'],
+  ['GIT_DELIVERY.md', 'project-dev', 'delivery'],
+  ['REVIEW_CONVERGENCE.md', 'project-dev', 'review'],
+  ['EVIDENCE.md', 'project-dev', 'review'],
+  ['DEVLOG.md', 'devlog', null],
+  ['EXTERNAL_FACTS.md', 'external-facts', null],
+  ['BROWSER_TESTING.md', 'web-testing', null],
+  ['MEMORY.md', 'memory', null],
+  ['UPSTREAM_CONTRIBUTION.md', 'upstream-contribution', null],
+]
+// The default runtime_context budget is 20 KiB; leave room for project documents.
+const MAX_PACKAGED_BYTES_PER_CALL = 18 * 1024
+
+function catalogEntries() {
+  return read('agent-docs/AGENT_DOCS.toml').split(/^\[\[document\]\]$/mu).slice(1).map(entry => ({
+    path: entry.match(/^path = "([^"]+)"$/mu)?.[1],
+    context: entry.match(/^context = "([^"]+)"$/mu)?.[1],
+    phase: entry.match(/^phase = "([^"]+)"$/mu)?.[1] ?? null,
+    scope: entry.match(/^scope = "([^"]+)"$/mu)?.[1],
+    product: entry.match(/^product = "([^"]+)"$/mu)?.[1],
+    required: /^required = true$/mu.test(entry),
+  }))
+}
+
+test('the packaged catalog routes every home policy to one DSH-native intent and phase', () => {
+  const entries = catalogEntries()
+  assert.deepEqual(
+    entries.map(entry => [entry.path, entry.context, entry.phase]).sort(),
+    [...PACKAGED_POLICIES].sort(),
+  )
+  for (const entry of entries) {
+    assert.equal(entry.scope, 'home', `${entry.path} must be home scope`)
+    assert.equal(entry.product, 'dsh', `${entry.path} must be DSH-only`)
+    assert.equal(entry.required, true, `${entry.path} must be required to be returned`)
+  }
   // The edit-phase prerequisite injects only the compact edit contract.
-  const edit = entries.filter(entry => /^phase = "edit"$/mu.test(entry))
-  assert.deepEqual(edit.map(entry => entry.match(/^path = "([^"]+)"$/mu)?.[1]), ['PROJECT_DEV_EDIT.md'])
+  assert.deepEqual(entries.filter(entry => entry.phase === 'edit').map(entry => entry.path), ['PROJECT_DEV_EDIT.md'])
+  const packaged = readdirSync(join(projectRoot, 'agent-docs')).filter(name => name.endsWith('.md')).sort()
+  assert.deepEqual(packaged, PACKAGED_POLICIES.map(([path]) => path).sort())
+})
 
-  const policy = read('agent-docs/WORK_MODES.md')
-  assert.ok(Buffer.byteLength(policy) <= 12 * 1024, 'work modes must fit the default runtime_context budget')
-  for (const heading of [
-    '# Work modes',
-    '## Tracking modes',
-    '## Authority',
-    '## Execution mapping',
-    '## Program records',
-    '## Program closeout',
-    '## Capture lifecycle',
-  ]) {
-    assert.ok(policy.includes(`\n${heading}\n`) || policy.startsWith(`${heading}\n`), `work modes must keep ${heading}`)
+test('every runtime_context intent and phase fits the default context budget', () => {
+  const totals = new Map()
+  for (const [path, intent, phase] of PACKAGED_POLICIES) {
+    const key = `${intent}:${phase ?? 'default'}`
+    totals.set(key, (totals.get(key) ?? 0) + Buffer.byteLength(read(`agent-docs/${path}`)))
   }
+  for (const [key, bytes] of totals) {
+    assert.ok(bytes <= MAX_PACKAGED_BYTES_PER_CALL, `${key} returns ${bytes} bytes`)
+  }
+})
+
+test('packaged policy documents are DSH-native', () => {
+  for (const [path] of PACKAGED_POLICIES) {
+    const policy = read(`agent-docs/${path}`)
+    assert.match(policy, /^# /u, `${path} must open with a title`)
+    for (const foreign of [
+      /core\/policies/u,
+      /AGENT_HOME\.md|AGENT_DOCS\.toml/u,
+      /CLAUDE\.md|Codex|Claude|Hermes/u,
+      /agent-out|agent-runtime\b/u,
+      /plan-issue|plan-tooling|\bL[0-3]\b/u,
+      /task-tools|browser-test|session-coordination/u,
+      /[^\x00-\x7F]/u,
+    ]) {
+      assert.doesNotMatch(policy, foreign, `${path} must not contain ${foreign}`)
+    }
+  }
+  const workModes = read('agent-docs/WORK_MODES.md')
   for (const mode of ['`direct`', '`issue`', '`program`', '`program/dispatch`']) {
-    assert.ok(policy.includes(mode), `work modes must name ${mode}`)
+    assert.ok(workModes.includes(mode), `work modes must name ${mode}`)
   }
-  for (const foreign of [
-    /core\/policies/u,
-    /AGENT_HOME\.md|AGENT_DOCS\.toml/u,
-    /CLAUDE\.md|Codex|Claude|Hermes/u,
-    /agent-out|agent-runtime/u,
-    /plan-issue|plan-tooling|\bL[0-3]\b/u,
-  ]) {
-    assert.doesNotMatch(policy, foreign)
+  const delivery = read('agent-docs/GIT_DELIVERY.md')
+  for (const surface of ['runtime_kit_governed_commit', 'semantic-commit commit --repo', 'git-cli worktree', 'git-cli push', 'git-cli sync-default', 'forge-cli repo push-default', '[default-delivery: blocked]', '[default-delivery: unverified]']) {
+    assert.ok(delivery.includes(surface), `git delivery must name ${surface}`)
   }
+  assert.match(read('agent-docs/EVIDENCE.md'), /artifact_/u)
+  assert.match(read('agent-docs/REVIEW_CONVERGENCE.md'), /closed-set/u)
+  assert.match(read('agent-docs/DEVLOG.md'), /devlog check/u)
+  assert.match(read('agent-docs/MEMORY.md'), /Never store:\s+- secrets/u)
+})
 
+test('the home instructions route every packaged policy intent', () => {
   const home = read('agent-home/AGENTS.md')
   assert.match(home, /`direct`/u)
   assert.match(home, /runtime_context[^.]*`delivery`/u)
+  for (const route of ['`review`', '`devlog`', '`external-facts`', '`web-testing`', '`memory`', '`upstream-contribution`']) {
+    assert.ok(home.includes(route), `home instructions must route ${route}`)
+  }
 })

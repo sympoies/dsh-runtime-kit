@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -120,26 +120,45 @@ try {
     readFileSync(join(docsHome, 'PROJECT_DEV_EDIT.md'), 'utf8'),
   )
 
-  const delivery = runJson(agentDocsBin, [
-    '--docs-home', docsHome,
-    '--project-path', projectRoot,
-    '--worktree-fallback', 'local-only',
-    'session', 'context',
-    '--session-id', 'repository-catalog-smoke',
-    '--product', 'dsh',
-    '--state-home', join(temporaryRoot, 'agent-docs-state'),
-    '--intent', 'project-dev',
-    '--phase', 'delivery',
-    '--request-id', 'repository-catalog-smoke-delivery',
-    '--format', 'json',
-  ])
-  assert.equal(delivery.ok, true)
-  assert.equal(delivery.data.decision.verified, true)
-  assert.equal(delivery.data.decision.phase, 'delivery')
-  assert.deepEqual(
-    delivery.data.decision.documents.map(document => [document.source, document.content]),
-    [['home', readFileSync(join(docsHome, 'WORK_MODES.md'), 'utf8')]],
-  )
+  // Every packaged intent and phase resolves for DSH in a repository that
+  // declares no catalog of its own, returning exactly the packaged documents.
+  const bareRepository = join(temporaryRoot, 'bare-repository')
+  mkdirSync(bareRepository)
+  const initialized = spawnSync('git', ['init', '--quiet', bareRepository], { encoding: 'utf8' })
+  assert.equal(initialized.status, 0, initialized.stderr)
+  assert.equal(existsSync(join(bareRepository, 'AGENT_DOCS.toml')), false)
+  const packagedRoutes = [
+    ['project-dev', 'delivery', ['WORK_MODES.md', 'GIT_DELIVERY.md']],
+    ['project-dev', 'review', ['REVIEW_CONVERGENCE.md', 'EVIDENCE.md']],
+    ['devlog', null, ['DEVLOG.md']],
+    ['external-facts', null, ['EXTERNAL_FACTS.md']],
+    ['web-testing', null, ['BROWSER_TESTING.md']],
+    ['memory', null, ['MEMORY.md']],
+    ['upstream-contribution', null, ['UPSTREAM_CONTRIBUTION.md']],
+  ]
+  for (const [index, [intent, phase, documents]] of packagedRoutes.entries()) {
+    const routed = runJson(agentDocsBin, [
+      '--docs-home', docsHome,
+      '--project-path', bareRepository,
+      '--worktree-fallback', 'local-only',
+      'session', 'context',
+      '--session-id', 'repository-catalog-smoke',
+      '--product', 'dsh',
+      '--state-home', join(temporaryRoot, 'agent-docs-state'),
+      '--intent', intent,
+      ...phase === null ? [] : ['--phase', phase],
+      '--request-id', `repository-catalog-smoke-route-${index}`,
+      '--format', 'json',
+    ])
+    assert.equal(routed.ok, true)
+    assert.equal(routed.data.decision.verified, true)
+    assert.equal(routed.data.decision.phase, phase ?? undefined)
+    assert.deepEqual(
+      routed.data.decision.documents.map(document => [document.source, document.content]).sort(),
+      documents.map(name => ['home', readFileSync(join(docsHome, name), 'utf8')]).sort(),
+      `${intent}${phase === null ? '' : `/${phase}`} must return its packaged documents`,
+    )
+  }
 
   const hookState = join(temporaryRoot, 'agent-hook-state')
   const hookEnvironment = {
