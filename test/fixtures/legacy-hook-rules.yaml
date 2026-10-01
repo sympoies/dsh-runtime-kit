@@ -1,8 +1,8 @@
 {
   "schema_version": "agent-runtime-kit.hook-rules.v1",
   "policy_bundle": "core/policies/agent-hook/runtime-kit-v1.toml",
-  "legacy_handler_count": 21,
-  "legacy_registration_count": 68,
+  "legacy_handler_count": 17,
+  "legacy_registration_count": 58,
   "rules": [
     {
       "id": "runtime.shared.pre-tool-use.bash.read-only-shadow",
@@ -266,32 +266,6 @@
       "legacy_handler": "block-project-memory-write"
     },
     {
-      "id": "runtime.codex.pre-tool-use.bash.memory-write-principle-reminder",
-      "products": [
-        "codex"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "Bash",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "memory-write-principle-reminder"
-      },
-      "mode": "enforce",
-      "priority": 190,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/memory.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "memory-write-principle-reminder"
-    },
-    {
       "id": "runtime.codex.pre-tool-use.bash.portable-paths-scan",
       "products": [
         "codex"
@@ -420,32 +394,6 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "typed-capability",
       "legacy_handler": "block-project-memory-write"
-    },
-    {
-      "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.memory-write-principle-reminder",
-      "products": [
-        "codex"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "Write|Edit|NotebookEdit|apply_patch",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "memory-write-principle-reminder"
-      },
-      "mode": "enforce",
-      "priority": 110,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/memory.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "memory-write-principle-reminder"
     },
     {
       "id": "runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.mcp-secret-scan",
@@ -682,32 +630,6 @@
       "legacy_handler": null
     },
     {
-      "id": "runtime.codex.user-prompt-submit.all.skill-usage-reminder",
-      "products": [
-        "codex"
-      ],
-      "events": [
-        "UserPromptSubmit"
-      ],
-      "matcher": null,
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "skill-usage-reminder"
-      },
-      "mode": "enforce",
-      "priority": 130,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/hooks/README.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "skill-usage-reminder"
-    },
-    {
       "id": "runtime.codex.session-start.startup-resume-clear.session-start-healthcheck",
       "products": [
         "codex"
@@ -732,32 +654,6 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "typed-capability",
       "legacy_handler": "session-start-healthcheck"
-    },
-    {
-      "id": "runtime.codex.stop.all.stop-pre-pr-reminder",
-      "products": [
-        "codex"
-      ],
-      "events": [
-        "Stop"
-      ],
-      "matcher": null,
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "stop-pre-pr-reminder"
-      },
-      "mode": "enforce",
-      "priority": 100,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "agent-runtime-kit.pr-readiness-cache",
-      "transformation": "system-message",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/git-delivery.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "stop-pre-pr-reminder"
     },
     {
       "id": "runtime.codex.stop.all.agent-scope-lock-guard",
@@ -914,58 +810,6 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "relocated-startup-capability",
       "legacy_handler": null
-    },
-    {
-      "id": "runtime.claude.user-prompt-submit.all.skill-usage-reminder",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "UserPromptSubmit"
-      ],
-      "matcher": null,
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "skill-usage-reminder"
-      },
-      "mode": "enforce",
-      "priority": 130,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/hooks/README.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "skill-usage-reminder"
-    },
-    {
-      "id": "runtime.claude.stop.all.stop-pre-pr-reminder",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "Stop"
-      ],
-      "matcher": null,
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "stop-pre-pr-reminder"
-      },
-      "mode": "enforce",
-      "priority": 100,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "agent-runtime-kit.pr-readiness-cache",
-      "transformation": "system-message",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/git-delivery.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "stop-pre-pr-reminder"
     },
     {
       "id": "runtime.claude.stop.all.agent-scope-lock-guard",
@@ -1228,32 +1072,6 @@
       "legacy_handler": "semantic-commit-body-gate"
     },
     {
-      "id": "runtime.claude.pre-tool-use.bash.block-claude-coauthor-trailer",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "Bash",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "block-claude-coauthor-trailer"
-      },
-      "mode": "enforce",
-      "priority": 160,
-      "failure_posture": "closed",
-      "timeout_posture": "closed",
-      "override_class": "downgrade-only",
-      "state_owner": "none",
-      "transformation": "block",
-      "recovery": "config-downgrade-or-exact-capability",
-      "docs": "core/policies/git-delivery.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "block-claude-coauthor-trailer"
-    },
-    {
       "id": "runtime.claude.pre-tool-use.bash.block-direct-pr-create",
       "products": [
         "claude"
@@ -1384,32 +1202,6 @@
       "legacy_handler": "block-project-memory-write"
     },
     {
-      "id": "runtime.claude.pre-tool-use.bash.memory-write-principle-reminder",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "Bash",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "memory-write-principle-reminder"
-      },
-      "mode": "enforce",
-      "priority": 220,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/memory.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "memory-write-principle-reminder"
-    },
-    {
       "id": "runtime.claude.pre-tool-use.bash.portable-paths-scan",
       "products": [
         "claude"
@@ -1512,32 +1304,6 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "typed-capability",
       "legacy_handler": "block-project-memory-write"
-    },
-    {
-      "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.memory-write-principle-reminder",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "Write|Edit|NotebookEdit",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "memory-write-principle-reminder"
-      },
-      "mode": "enforce",
-      "priority": 120,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/memory.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "memory-write-principle-reminder"
     },
     {
       "id": "runtime.claude.pre-tool-use.write-edit-notebook-edit.agent-scope-lock-guard",
@@ -1694,32 +1460,6 @@
       "test_owner": "tests/hooks/test_shared_hooks.py",
       "disposition": "typed-capability",
       "legacy_handler": "block-project-memory-write"
-    },
-    {
-      "id": "runtime.claude.pre-tool-use.multi-edit.memory-write-principle-reminder",
-      "products": [
-        "claude"
-      ],
-      "events": [
-        "PreToolUse"
-      ],
-      "matcher": "MultiEdit",
-      "capability": {
-        "id": "runtime-kit.handler.v1",
-        "handler_id": "memory-write-principle-reminder"
-      },
-      "mode": "enforce",
-      "priority": 110,
-      "failure_posture": "open",
-      "timeout_posture": "warn",
-      "override_class": "free",
-      "state_owner": "none",
-      "transformation": "additional-context",
-      "recovery": "config-or-exact-capability",
-      "docs": "core/policies/memory.md",
-      "test_owner": "tests/hooks/test_shared_hooks.py",
-      "disposition": "typed-capability",
-      "legacy_handler": "memory-write-principle-reminder"
     },
     {
       "id": "runtime.claude.pre-tool-use.multi-edit.agent-scope-lock-guard",

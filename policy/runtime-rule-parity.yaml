@@ -1,18 +1,18 @@
 schema_version: dsh-runtime-kit.runtime-rule-parity.v1
 source:
   repository: https://github.com/sympoies/agent-runtime-kit
-  commit: 6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1
+  commit: 1809e49ea7f14759afde7e154c065cf38e80ee57
   manifest: manifests/hook-rules.yaml
   manifest_schema: agent-runtime-kit.hook-rules.v1
-  manifest_sha256: 3e5af1cc2fbbbcb937c30b7a3ccfd80eafa91f664fdaf8201fb489c0cc5c4229
+  manifest_sha256: 9dddff5c4456ac45d0faf8aa02294483ea9130bc3512933986110584f9366a05
   legacy_registrations: tests/agent-hook/fixtures/legacy-registrations.tsv
-  legacy_registrations_sha256: 72f8a60432af949de9a47a3c2a3d542db0c7a2abc88f0fdafc8a602d8dc9b676
+  legacy_registrations_sha256: e7564eb158bdc5571684a99e61e362bc9d200b9ac58d6467e39d61bb6c92856a
   counts:
-    rules: 102
-    handler_capability_registrations: 70
-    handler_ids: 22
-    legacy_registrations: 68
-    legacy_handler_ids: 21
+    rules: 92
+    handler_capability_registrations: 60
+    handler_ids: 18
+    legacy_registrations: 58
+    legacy_handler_ids: 17
 capability_groups:
   - id: execution-read-only
     disposition: dsh-native
@@ -74,6 +74,9 @@ capability_groups:
       - nils-cli:crates/agent-scope-lock/tests/integration/cli.rs#validate-scope
       - dsh-runtime-kit:test/smoke.ts#task-3.2-policy
   - id: block-claude-coauthor-trailer
+    source_removed:
+      by: sympoies/agent-runtime-kit#179
+      follow_up: null
     disposition: provider-obsolete
     migration_task: "3.1"
     status: retired
@@ -188,6 +191,9 @@ capability_groups:
       - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-privacy-corpus
       - dsh-runtime-kit:test/plugin-contract.test.ts#task-3.3-native-context
   - id: memory-write-principle-reminder
+    source_removed:
+      by: sympoies/agent-runtime-kit#179
+      follow_up: sympoies/dsh-runtime-kit#313
     disposition: nils-capability
     migration_task: "3.3"
     status: implemented
@@ -240,6 +246,9 @@ capability_groups:
       - dsh-runtime-kit:test/runtime-health-provider.test.ts#authenticated-nils-providers
     stronger_replacement: DSH now authenticates and probes runtime companions at bundle load, audits project docs before every session-associated model stream enters the llm/stream waterfall, and exposes only typed redacted host state; the legacy prompt-context health rule is no longer selected.
   - id: skill-usage-reminder
+    source_removed:
+      by: sympoies/agent-runtime-kit#179
+      follow_up: sympoies/dsh-runtime-kit#313
     disposition: nils-capability
     migration_task: "3.3"
     status: implemented
@@ -250,6 +259,9 @@ capability_groups:
       - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-lifecycle
       - dsh-runtime-kit:test/plugin-contract.test.ts#task-3.3-native-context
   - id: stop-pre-pr-reminder
+    source_removed:
+      by: sympoies/agent-runtime-kit#179
+      follow_up: sympoies/dsh-runtime-kit#313
     disposition: nils-capability
     migration_task: "3.3"
     status: implemented
@@ -372,15 +384,6 @@ rules:
     source_key: handler:block-project-memory-write
     legacy: true
     source_digest: 3a2f2e25c4706ea51a52be18c4237d5ff1c0d5b56c6667fbf1b8fe74ee9e62b6
-  - id: runtime.codex.pre-tool-use.bash.memory-write-principle-reminder
-    products:
-      - codex
-    events:
-      - PreToolUse
-    matcher: Bash
-    source_key: handler:memory-write-principle-reminder
-    legacy: true
-    source_digest: d0d637f55b6b0d2e4ba963b06f22646b987697b493b6b69b2739e15b4e7370c6
   - id: runtime.codex.pre-tool-use.bash.portable-paths-scan
     products:
       - codex
@@ -426,15 +429,6 @@ rules:
     source_key: handler:block-project-memory-write
     legacy: true
     source_digest: 4765e5e553bcf5a803bd5427515c7e3e3e16f61e2ce62343137650a75b7636d2
-  - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.memory-write-principle-reminder
-    products:
-      - codex
-    events:
-      - PreToolUse
-    matcher: Write|Edit|NotebookEdit|apply_patch
-    source_key: handler:memory-write-principle-reminder
-    legacy: true
-    source_digest: 85b60c8a4cafd61a43ec1fd334717ecc3c11c3f788f28a6345d3006b2be03f81
   - id: runtime.codex.pre-tool-use.write-edit-notebook-edit-apply-patch.mcp-secret-scan
     products:
       - codex
@@ -516,15 +510,6 @@ rules:
     source_key: handler:user-prompt-agent-memory
     legacy: false
     source_digest: fb092a6a7dff1de32a080c048c99ec5dea011ad8e48b2aac01ab9cbc254439c5
-  - id: runtime.codex.user-prompt-submit.all.skill-usage-reminder
-    products:
-      - codex
-    events:
-      - UserPromptSubmit
-    matcher: null
-    source_key: handler:skill-usage-reminder
-    legacy: true
-    source_digest: 3763ee4496874b7ef65fcd4f0b78bdf6242c81ecaab69f265001f152c08e4bce
   - id: runtime.codex.session-start.startup-resume-clear.session-start-healthcheck
     products:
       - codex
@@ -534,15 +519,6 @@ rules:
     source_key: handler:session-start-healthcheck
     legacy: true
     source_digest: 2ae5a2e23a4fea0c32f6d5f8ff681930b18fa4433aa6c4a5e0efb9eb3e7a4e3b
-  - id: runtime.codex.stop.all.stop-pre-pr-reminder
-    products:
-      - codex
-    events:
-      - Stop
-    matcher: null
-    source_key: handler:stop-pre-pr-reminder
-    legacy: true
-    source_digest: da8e9053f69cea5bd63e6dd536fa017e4319142ef2b5ab9b9a090801f0ac8ff1
   - id: runtime.codex.stop.all.agent-scope-lock-guard
     products:
       - codex
@@ -597,24 +573,6 @@ rules:
     source_key: handler:user-prompt-agent-memory
     legacy: false
     source_digest: ecc39e7eb79cc1ad620232c65274928e1a815b85478359574ea8ac522437b60c
-  - id: runtime.claude.user-prompt-submit.all.skill-usage-reminder
-    products:
-      - claude
-    events:
-      - UserPromptSubmit
-    matcher: null
-    source_key: handler:skill-usage-reminder
-    legacy: true
-    source_digest: 050023c7fd79c9073244a8e966f14eb59612f1b8fffeacae104731644bb8f451
-  - id: runtime.claude.stop.all.stop-pre-pr-reminder
-    products:
-      - claude
-    events:
-      - Stop
-    matcher: null
-    source_key: handler:stop-pre-pr-reminder
-    legacy: true
-    source_digest: cb448df0db22ade7bd97179abe3881273740b91716ea1425e24fa75c2913b10e
   - id: runtime.claude.stop.all.agent-scope-lock-guard
     products:
       - claude
@@ -705,15 +663,6 @@ rules:
     source_key: handler:semantic-commit-body-gate
     legacy: true
     source_digest: f80e70e4998a0b629c9a5585c90000b8f520615b9259a76b8f86137045a62823
-  - id: runtime.claude.pre-tool-use.bash.block-claude-coauthor-trailer
-    products:
-      - claude
-    events:
-      - PreToolUse
-    matcher: Bash
-    source_key: handler:block-claude-coauthor-trailer
-    legacy: true
-    source_digest: 2138ed6e93babb622b0dcda3ebfd21fae48aa6d12662bc27f6624b55db38628f
   - id: runtime.claude.pre-tool-use.bash.block-direct-pr-create
     products:
       - claude
@@ -759,15 +708,6 @@ rules:
     source_key: handler:block-project-memory-write
     legacy: true
     source_digest: 7d73a10aaf41e78072a607bd789fbd8d7d02dd98477ca0e88666957492fd10ad
-  - id: runtime.claude.pre-tool-use.bash.memory-write-principle-reminder
-    products:
-      - claude
-    events:
-      - PreToolUse
-    matcher: Bash
-    source_key: handler:memory-write-principle-reminder
-    legacy: true
-    source_digest: bd8882c457870a83b88f3a66627e11eb9ef65b4a31b500c63f5d81d3d55711b2
   - id: runtime.claude.pre-tool-use.bash.portable-paths-scan
     products:
       - claude
@@ -804,15 +744,6 @@ rules:
     source_key: handler:block-project-memory-write
     legacy: true
     source_digest: 820ccdb4f9a1a9e3211c49401be2c93b5b813f4121d9a9f7d52819cb34bc3d30
-  - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.memory-write-principle-reminder
-    products:
-      - claude
-    events:
-      - PreToolUse
-    matcher: Write|Edit|NotebookEdit
-    source_key: handler:memory-write-principle-reminder
-    legacy: true
-    source_digest: 9a0c69b6b3c1a8471829443026bc102f41f9a04e0628e481501c10d4453366a5
   - id: runtime.claude.pre-tool-use.write-edit-notebook-edit.agent-scope-lock-guard
     products:
       - claude
@@ -867,15 +798,6 @@ rules:
     source_key: handler:block-project-memory-write
     legacy: true
     source_digest: 01eac4e7366a28ce23641b8b3456a2f46325c20afedbe9b42bd447737beeaeca
-  - id: runtime.claude.pre-tool-use.multi-edit.memory-write-principle-reminder
-    products:
-      - claude
-    events:
-      - PreToolUse
-    matcher: MultiEdit
-    source_key: handler:memory-write-principle-reminder
-    legacy: true
-    source_digest: 801a68b532f3406bf780c751a651966a1fcdbb4bf2f6c7724880b838eea33fd7
   - id: runtime.claude.pre-tool-use.multi-edit.agent-scope-lock-guard
     products:
       - claude

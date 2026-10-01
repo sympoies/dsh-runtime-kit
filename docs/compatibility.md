@@ -12,12 +12,27 @@ The supported runtime is deliberately exact:
 ## Agent runtime source alignment
 
 The frozen source inventory under `policy/rule-parity.yaml` and
-`policy/runtime-rule-parity.yaml` now names `sympoies/agent-runtime-kit`
-`6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1`. Since the previous
-`79d6b93f9df812e9cfd151ee03fc3d0ce44a0081` boundary, its hook manifest
-added one Claude `MultiEdit` portable-path registration: 102 rules and 68
-legacy registrations. DSH does not execute Claude hook matchers; the row is
-recorded in parity so new source registrations cannot be silently missed.
+`policy/runtime-rule-parity.yaml` names `sympoies/agent-runtime-kit`
+`1809e49ea7f14759afde7e154c065cf38e80ee57`. Since the previous
+`6bf6aaefeeca59ba2b83c5bc79920b8798bf49c1` boundary, the only hook-manifest
+change is agent-runtime-kit #179, which retired four handlers: 92 rules and 58
+legacy registrations remain. The four capability groups stay in the runtime
+parity inventory with `source_removed`: `block-claude-coauthor-trailer` was
+already retired in DSH, and the three reminders that DSH still selects
+(`memory-write-principle-reminder`, `skill-usage-reminder`,
+`stop-pre-pr-reminder`) retire under #313.
+
+`compatibility/agent-runtime-alignment.json` pins the same commit and gives
+every agent-runtime-kit skill, home policy, `AGENT_HOME.md`, the hook
+manifest, and the hook implementations one disposition: `synced`,
+`dsh-native`, `retired`, `not-applicable`, or `open-issue` with its issue.
+At this pin the hook implementations stay `open-issue` (#309): the read-only
+guard fixes from agent-runtime-kit #180, #184, and #185 are ported in nils-cli
+and reach DSH only when runtime-kit adopts the release that carries them. Work
+modes and session coordination are synced as packaged DSH documents.
+`npm run check:agent-runtime-drift` and the weekly `agent-runtime-kit drift`
+workflow report every watched change after the pin; see the
+[development reference](development-reference.md#agent-runtime-kit-alignment).
 
 The source changes were checked against DSH by behavior and owner:
 

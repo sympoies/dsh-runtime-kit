@@ -28,21 +28,22 @@ function filesUnder(path) {
   return files
 }
 
-test('policy parity freezes the exact 102-rule source with distinct legacy counters', () => {
+test('policy parity freezes the exact 92-rule source with distinct legacy counters', () => {
   const inventory = loadInventory()
   assert.equal(inventory.schema_version, 'dsh-runtime-kit.runtime-rule-parity.v1')
   assert.deepEqual(inventory.source.counts, {
-    rules: 102,
-    handler_capability_registrations: 70,
-    handler_ids: 22,
-    legacy_registrations: 68,
-    legacy_handler_ids: 21,
+    rules: 92,
+    handler_capability_registrations: 60,
+    handler_ids: 18,
+    legacy_registrations: 58,
+    legacy_handler_ids: 17,
   })
   assert.match(inventory.source.commit, /^[0-9a-f]{40}$/)
   assert.match(inventory.source.manifest_sha256, /^[0-9a-f]{64}$/)
-  assert.equal(inventory.rules.length, 102)
-  assert.equal(new Set(inventory.rules.map((rule) => rule.id)).size, 102)
-  assert.equal(new Set(inventory.rules.map((rule) => rule.source_digest)).size, 102)
+  assert.equal(inventory.source.commit, '1809e49ea7f14759afde7e154c065cf38e80ee57')
+  assert.equal(inventory.rules.length, 92)
+  assert.equal(new Set(inventory.rules.map((rule) => rule.id)).size, 92)
+  assert.equal(new Set(inventory.rules.map((rule) => rule.source_digest)).size, 92)
   const handlerRules = inventory.rules.filter((rule) => rule.source_key.startsWith('handler:'))
   const legacyRules = inventory.rules.filter((rule) => rule.legacy)
   assert.equal(handlerRules.length, inventory.source.counts.handler_capability_registrations)
@@ -122,9 +123,29 @@ test('every source row resolves to one completed migration with active implement
     assert.ok(rule.products.length > 0, rule.id)
     assert.ok(rule.events.length > 0, rule.id)
   }
+  // A group whose source handler was removed upstream keeps its DSH
+  // disposition, names the removing change, and has no live source row.
+  const removedGroups = [...groups.values()].filter((group) => group.source_removed !== undefined)
   assert.deepEqual(
-    new Set(inventory.rules.map((rule) => rule.source_key)),
-    new Set(sourceKeyOwners.keys()),
+    Object.fromEntries(removedGroups.map((group) => [group.id, group.source_removed])),
+    {
+      'block-claude-coauthor-trailer': { by: 'sympoies/agent-runtime-kit#179', follow_up: null },
+      'memory-write-principle-reminder': { by: 'sympoies/agent-runtime-kit#179', follow_up: 'sympoies/dsh-runtime-kit#313' },
+      'skill-usage-reminder': { by: 'sympoies/agent-runtime-kit#179', follow_up: 'sympoies/dsh-runtime-kit#313' },
+      'stop-pre-pr-reminder': { by: 'sympoies/agent-runtime-kit#179', follow_up: 'sympoies/dsh-runtime-kit#313' },
+    },
+  )
+  const liveSourceKeys = new Set(inventory.rules.map((rule) => rule.source_key))
+  for (const group of removedGroups) {
+    for (const sourceKey of group.source_keys) assert.equal(liveSourceKeys.has(sourceKey), false, sourceKey)
+  }
+  assert.deepEqual(
+    liveSourceKeys,
+    new Set(
+      [...groups.values()]
+        .filter((group) => group.source_removed === undefined)
+        .flatMap((group) => group.source_keys),
+    ),
   )
 })
 
@@ -159,7 +180,7 @@ test('the checked-in legacy registration snapshot is exact and bound to the inve
   const fixture = readFileSync(join(root, 'policy', 'legacy-registrations.tsv'), 'utf8')
   const lines = fixture.trimEnd().split('\n')
   assert.equal(lines[0], '# agent-runtime-kit.legacy-hook-registrations.v1')
-  assert.equal(lines.length - 1, 68)
+  assert.equal(lines.length - 1, 58)
   assert.equal(sha256(fixture), inventory.source.legacy_registrations_sha256)
 
   const projected = inventory.rules
