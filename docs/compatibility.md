@@ -7,7 +7,7 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.31.5` |
+| nils-cli | `1.29.0` minimum; exactly validated through `1.31.7` |
 
 ## Agent runtime source alignment
 
@@ -26,10 +26,21 @@ already retired in DSH, and the three reminders that DSH still selects
 every agent-runtime-kit skill, home policy, `AGENT_HOME.md`, the hook
 manifest, and the hook implementations one disposition: `synced`,
 `dsh-native`, `retired`, `not-applicable`, or `open-issue` with its issue.
-At this pin the hook implementations stay `open-issue` (#309): the read-only
-guard fixes from agent-runtime-kit #180, #184, and #185 are ported in nils-cli
-and reach DSH only when runtime-kit adopts the release that carries them. Work
-modes and session coordination are synced as packaged DSH documents.
+The read-only guard fixes from agent-runtime-kit #180, #184, and #185 reach
+DSH through nils-cli 1.31.7 (sympoies/nils-cli#2001 and #2010). DSH's Bash tool
+now admits quoted command substitutions, backticks, `[`/`test` operands,
+`if`/`while`/`for` blocks, here-document bodies, installed `git-<name>`
+extensions such as `git lfs`, and non-committing `semantic-commit --help`,
+`--dry-run`, and `--validate-only` forms. A direct `git commit`, the same
+hidden in a substitution, after a precommand modifier assignment, or in a
+here-document, and an unsafe default-branch push still block. DSH stays
+stricter than the source where nils-cli refuses an unclassifiable form: `case`
+blocks, subshells, `$((...))`, process substitution, `git mergetool`, and
+`PATH=` prefixes on Git builtins. A `[[ ... ]]` test is admitted by the Git
+guards but still refused by the project-memory and secret-scan guards, and
+`semantic-commit commit --help` by the commit body gate, so the hook
+implementations stay `open-issue` (#309) for that residual. Work modes and
+session coordination are synced as packaged DSH documents.
 `npm run check:agent-runtime-drift` and the weekly `agent-runtime-kit drift`
 workflow report every watched change after the pin; see the
 [development reference](development-reference.md#agent-runtime-kit-alignment).

@@ -30,7 +30,7 @@
         "policy/dsh-runtime-kit-v1.toml",
         "policy/runtime-rule-parity.yaml"
       ],
-      "note": "The read-only guard fixes from agent-runtime-kit #180, #184, and #185 are ported in nils-cli (#2001, #2010) and reach DSH when runtime-kit adopts the release that carries them."
+      "note": "The read-only guard fixes from agent-runtime-kit #180, #184, and #185 reach DSH through nils-cli 1.31.7 (#2001, #2010). Residual: a [[ ... ]] test is still refused by the project-memory and secret-scan guards, and semantic-commit commit --help by the body gate."
     },
     {
       "source": "core/policies/browser-test-routing.md",

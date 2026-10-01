@@ -329,3 +329,113 @@ test('the released agent-hook inventory agrees with the packaged tier declaratio
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+// Read-only shells the agent runtime kit admits (agent-runtime-kit #180, #184,
+// #185, ported in nils-cli #2001 and #2010) must reach DSH's Bash tool, while
+// direct commits and unsafe default-branch delivery stay blocked.
+const READ_ONLY_SHELLS = Object.freeze([
+  `printf '%s\\n' "$(git rev-parse HEAD)"`,
+  '[ -x /usr/bin/git ] && echo yes',
+  'if [ -e tracked.txt ]; then echo ok; fi',
+  'while false; do echo never; done',
+  'git dshprobe --version',
+  'semantic-commit --help',
+])
+const GOVERNED_MUTATIONS = Object.freeze([
+  'git commit -m x',
+  'echo "$(git commit -m x)"',
+  'echo `git commit -m x`',
+  'nocorrect x=1 git commit -m y',
+  'git push origin main',
+])
+
+test('the released agent-hook admits read-only shells and still blocks governed Git mutations at the DSH tool boundary', async (t) => {
+  const agentHook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? process.env.AGENT_HOOK_BIN
+  if (agentHook === undefined) {
+    t.skip('set AGENT_HOOK_BIN to the released agent-hook; CI runs this against the validated nils-cli release')
+    return
+  }
+  const { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, chmodSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { spawnSync } = await import('node:child_process')
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-guard-parity-'))
+  const git = (args, options = {}) => {
+    const result = spawnSync('git', args, { encoding: 'utf8', ...options })
+    assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`)
+  }
+  try {
+    const hookRoot = join(temporary, 'agent-hook')
+    const docsHome = join(temporary, 'agent-docs')
+    const bin = join(temporary, 'bin')
+    for (const directory of [hookRoot, docsHome, join(temporary, 'docs-state'), join(temporary, 'state'), bin]) {
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+    }
+    const policyPath = join(hookRoot, 'policy.toml')
+    copyFileSync(task32PolicyPath, policyPath)
+    chmodSync(policyPath, 0o600)
+    const configPath = join(hookRoot, 'config.toml')
+    writeFileSync(configPath, `schema_version = "agent-hook.config.v1"\n\n[policy]\npath = ${JSON.stringify(policyPath)}\ndigest = "sha256:${sha256(readFileSync(policyPath))}"\n`, { mode: 0o600 })
+    for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
+      copyFileSync(join(root, 'agent-docs', name), join(docsHome, name))
+    }
+    // An installed Git extension is discovered as a `git-<name>` program on PATH.
+    writeFileSync(join(bin, 'git-dshprobe'), '#!/bin/sh\necho probe\n', { mode: 0o755 })
+
+    // A checkout on its default branch, with the remote HEAD cached locally.
+    const remote = join(temporary, 'remote.git')
+    const repository = join(temporary, 'repository')
+    git(['init', '-q', '--bare', '-b', 'main', remote])
+    git(['init', '-q', '-b', 'main', repository])
+    writeFileSync(join(repository, 'tracked.txt'), 'tracked\n')
+    git(['-C', repository, 'add', 'tracked.txt'])
+    git(['-C', repository, '-c', 'commit.gpgsign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '-m', 'fixture'])
+    git(['-C', repository, 'remote', 'add', 'origin', remote])
+    git(['-C', repository, 'push', '-q', 'origin', 'main'])
+    git(['-C', repository, 'remote', 'set-head', 'origin', 'main'])
+
+    let step = 0
+    const dispatch = command => {
+      step += 1
+      const ingress = {
+        schema_version: 'agent-hook.dsh-ingress.v2',
+        event: 'tools/pre-execute',
+        call_id: `guard-parity-${step}`,
+        cwd: repository,
+        subject: {
+          session_id: 'guard-parity',
+          turn: 1,
+          step,
+          agent_docs_home: docsHome,
+          agent_docs_state_home: join(temporary, 'docs-state'),
+        },
+        tool: { name: 'bash', arguments: { command, workdir: repository } },
+      }
+      const result = spawnSync(agentHook, [
+        '--config', configPath,
+        '--policy', policyPath,
+        '--state-dir', join(temporary, 'state'),
+        'dispatch', '--product', 'dsh', '--format', 'json',
+      ], {
+        cwd: repository,
+        encoding: 'utf8',
+        input: JSON.stringify(ingress),
+        env: { HOME: join(temporary, 'home'), PATH: `${bin}:/usr/bin:/bin` },
+      })
+      const envelope = JSON.parse(result.stdout)
+      return { status: result.status, action: envelope.data?.action }
+    }
+
+    const misclassified = []
+    for (const command of READ_ONLY_SHELLS) {
+      const decision = dispatch(command)
+      if (decision.status !== 0 || decision.action === 'block') misclassified.push(`blocked read-only: ${command}`)
+    }
+    for (const command of GOVERNED_MUTATIONS) {
+      const decision = dispatch(command)
+      if (decision.status !== 1 || decision.action !== 'block') misclassified.push(`admitted mutation: ${command}`)
+    }
+    assert.deepEqual(misclassified, [])
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
