@@ -13,9 +13,10 @@ validation.
   while one parent retains scope, integration, validation, and final synthesis.
 - Use parallel execution only for genuinely independent read-only passes or
   isolated implementation lanes with non-overlapping ownership.
-- Escalate to the formal L3 dispatch outcome when independent lane PRs need a
-  shared provider-visible coordination spine. Delegation alone does not make a
-  task L3.
+- Escalate to a `program` tracker when independent lane PRs need a shared
+  provider-visible coordination spine, and to the formal `program/dispatch`
+  outcome only when those lanes must integrate on a shared branch before main.
+  Delegation alone does not make a task `program`.
 
 An explicit user preference may constrain the selection, but it never weakens
 active project rules, write isolation, or lifecycle ownership.

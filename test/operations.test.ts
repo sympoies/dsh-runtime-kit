@@ -179,6 +179,9 @@ function stageBundle(root, version, options = {}) {
     `# DSH project-dev ${version}\n`,
     { mode: 0o600 },
   )
+  for (const [name, content] of Object.entries(options.policyDocuments ?? {})) {
+    writeFileSync(join(dir, 'agent-docs', name), content, { mode: 0o600 })
+  }
   if (options.agentHome !== false) {
     mkdirSync(join(dir, 'agent-home'), { mode: 0o700 })
     writeFileSync(join(dir, 'agent-home', 'AGENTS.md'), `# DSH home instructions ${version}\n`, { mode: 0o600 })
@@ -1349,6 +1352,73 @@ test('activation stages the packaged DSH home instructions and rolls back to a p
     assert.equal(drifted.status, 65)
     assert.equal(drifted.value.data.activation.ok, false)
     assert.match(drifted.value.data.activation.error, /agent home document digest/u)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('activation stages packaged policy documents and rolls back to a package without them', () => {
+  const subject = fixture()
+  try {
+    const documents = {
+      'WORK_MODES.md': '# Work modes\n',
+      'ZETA_POLICY.md': '# Zeta\n',
+    }
+    const withDocuments = stageBundle(subject.root, '3.0.0', { policyDocuments: documents })
+    const expected = sha256(JSON.stringify(Object.fromEntries(
+      Object.entries(documents).map(([name, content]) => [name, sha256(content)]),
+    )))
+    const setup = applyPlan(subject, ['setup', '--profile', 'work', '--package', withDocuments])
+    assert.equal(setup.preview.plan.target.assets.policy_documents_sha256, expected)
+    const activationPath = join(subject.runtimeRoot, 'activation.json')
+    const first = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(first.assets.policy_documents_sha256, expected)
+    for (const [name, content] of Object.entries(documents)) {
+      const staged = join(subject.runtimeRoot, first.agent_docs.home, name)
+      assert.equal(readFileSync(staged, 'utf8'), content)
+      assert.equal(lstatSync(staged).mode & 0o777, 0o600)
+    }
+
+    // A package without policy documents keeps the accepted digest shape.
+    const update = applyPlan(subject, ['update', '--profile', 'work', '--package', subject.v2])
+    assert.equal(Object.hasOwn(update.preview.plan.target.assets, 'policy_documents_sha256'), false)
+    const second = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(Object.hasOwn(second.assets, 'policy_documents_sha256'), false)
+    assert.deepEqual(
+      readdirSync(join(subject.runtimeRoot, second.agent_docs.home)).sort(),
+      ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md'],
+    )
+
+    applyPlan(subject, ['rollback', '--profile', 'work'])
+    const rolledBack = JSON.parse(readFileSync(activationPath, 'utf8'))
+    assert.equal(rolledBack.asset_set_sha256, first.asset_set_sha256)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).status, 0)
+
+    const staged = join(subject.runtimeRoot, rolledBack.agent_docs.home, 'WORK_MODES.md')
+    writeFileSync(staged, '# replaced\n', { mode: 0o600 })
+    const drifted = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(drifted.status, 65)
+    assert.equal(drifted.value.data.activation.ok, false)
+    assert.match(drifted.value.data.activation.error, /policy documents digest/u)
+
+    writeFileSync(staged, documents['WORK_MODES.md'], { mode: 0o600 })
+    writeFileSync(join(subject.runtimeRoot, rolledBack.agent_docs.home, 'EXTRA.md'), '# planted\n', { mode: 0o600 })
+    const planted = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(planted.status, 65)
+    assert.match(planted.value.data.activation.error, /policy documents digest/u)
+  } finally {
+    subject.cleanup()
+  }
+})
+
+test('a package with an undeclared agent-docs entry is refused before activation', () => {
+  const subject = fixture()
+  try {
+    const invalid = stageBundle(subject.root, '3.1.0', { policyDocuments: { 'notes.txt': 'x\n' } })
+    const refused = run(subject, ['setup', '--profile', 'work', '--package', invalid])
+    assert.notEqual(refused.status, 0)
+    assert.equal(refused.value.error.code, 'invalid-package-spec')
+    assert.match(refused.value.error.message, /agent-docs/u)
   } finally {
     subject.cleanup()
   }

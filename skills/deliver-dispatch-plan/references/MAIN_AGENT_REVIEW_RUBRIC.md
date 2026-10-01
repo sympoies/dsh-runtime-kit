@@ -8,8 +8,8 @@ reviewing unless an explicit corrective-fix exception is documented.
 
 ## Inputs
 
-- Runtime-truth dispatch ledger row and latest dispatch state comment
-- Assigned task prompt, plan task snippet, and dispatch record
+- Tracker decision and the lane child issue's latest checkpoint
+- Assigned task packet and lane acceptance
 - PR diff and PR body
 - Validation evidence and provider checks
 - Optional `code-review-specialists` report for high-risk, broad,

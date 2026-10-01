@@ -526,7 +526,13 @@ rollback, health, or a new receipt.
 
 The package copies its DSH policy, compact `agent-docs/` catalog, and DSH home
 instructions (`agent-home/AGENTS.md`) into a content-addressed immutable asset
-set beneath the runtime root. Activation then installs the home instructions as
+set beneath the runtime root. Besides the catalog and `PROJECT_DEV_EDIT.md`,
+`agent-docs/` may ship at most 32 policy documents named `[A-Z][A-Z0-9_]*.md`,
+such as `WORK_MODES.md`; any other entry is refused as `invalid-package-spec`.
+Their name-to-digest map joins the asset-set digest as
+`policy_documents_sha256` only when the package ships one, so an earlier
+target keeps its accepted digest, and doctor reports a planted, missing, or
+changed document as a policy documents digest mismatch. Activation then installs the home instructions as
 the kit-managed `AGENTS.md` of the DSH home the operation targets
 (`DSH_HOME`, or the dispatcher's `--dsh-home`), recording each written digest
 in `runtime-kit/agent-home.json`. An existing `AGENTS.md` that matches no

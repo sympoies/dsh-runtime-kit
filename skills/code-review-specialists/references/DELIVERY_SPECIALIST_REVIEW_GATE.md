@@ -9,9 +9,6 @@ without making low-level close skills mandatory review orchestrators.
 - `deliver-pr` owns this mandatory gate for end-to-end delivery.
 - `deliver-pr` also owns explicit provider close or merge requests when the
   selected lifecycle path requires them.
-- `deliver-plan-tracking-issue` relies on this delivery gate for each PR, then adds
-  issue-visible evidence, runtime-finding disposition, lifecycle completion, and
-  closeout requirements.
 - `deliver-dispatch-plan` uses `code-review-specialists` in pre-merge context
   with the full specialist profile before the parent decision for dispatch PRs.
 - `code-review-specialists` remains read-only. It supplies scope detection,
@@ -45,7 +42,7 @@ delivery context; quick or full is the review profile inside that context.
 
 Initial quick discovery is eligible only when all of these are true:
 
-- The outer work is L0 or L1, not L2 or L3 plan/dispatch delivery.
+- The outer work is `direct` or `issue`, not `program/dispatch` delivery.
 - The diff is bounded and ordinary, required validation and provider checks
   pass, and there is no unresolved current-head finding, change request, or
   review thread.
@@ -86,7 +83,8 @@ posting order in `REVIEW_OUTCOME_POSTING_CONTRACT.md`.
 
 ## Full Pre-Merge Profile
 
-Use the full profile for every L2/L3 PR and whenever quick eligibility fails.
+Use the full profile for every `program/dispatch` PR and
+whenever quick eligibility fails.
 
 1. Run deterministic scope detection with forced minimum lenses:
 

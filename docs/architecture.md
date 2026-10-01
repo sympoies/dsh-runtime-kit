@@ -656,10 +656,12 @@ catalog. The runtime-context plugin attaches nothing to the system prompt or
 session-start event, and it does not duplicate the same document through
 `deferContext()`. The only session-start instructions are the separate DSH
 home instructions below, which DSH's own instruction loader reads. The public tool
-schema allows only `project-dev`, which deterministically selects phase `edit`,
-plus an optional absolute `project_path`;
-the transport repeats the same allowlist check before spawning `agent-docs`.
-Workflow code will prepare review and delivery phases at their own boundaries.
+schema allows only `project-dev`, an optional `phase` of `edit` (the default,
+and the only phase the mutation prerequisite prepares) or `delivery`, plus an
+optional absolute `project_path`; the transport repeats the same allowlist
+checks before spawning `agent-docs`. The `delivery` phase resolves the packaged
+delivery policy, such as `agent-docs/WORK_MODES.md`, only when the model asks
+for it, so the automatic edit-phase injection stays the compact edit contract.
 Context cancellation, timeout, and disposal join the complete child process
 tree. Unknown quiescence permanently closes this context surface but does not
 change the independent monotonic policy-transport state.

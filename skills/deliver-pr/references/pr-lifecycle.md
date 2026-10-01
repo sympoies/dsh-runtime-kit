@@ -45,12 +45,13 @@ skill's next action.
 ## Review And Merge Gates
 
 - End-to-end delivery runs the mandatory pre-merge review gate before merge.
-  Eligible L0/L1 routine changes may use a terminal quick pass; L2/L3 work,
-  specialist triggers, unresolved review state, or quick escalation use the full
-  profile. Both profiles retain the same provider merge gates.
+  Eligible `direct` or `issue` routine changes may use a terminal quick pass;
+  `program/dispatch` work, specialist triggers, unresolved
+  review state, or quick escalation use the full profile. Both profiles retain
+  the same provider merge gates.
 - Close-only workflows run review only when the user asked for it or when the
-  PR/MR would finalize issue-backed plan work.
-- Before merging a PR/MR that finalizes a tracking or dispatch issue, verify
-  source/plan evidence, complete state, latest session, validation, review, and
-  dashboard links. Route incomplete records to the matching plan delivery or
-  closeout skill instead of merging and backfilling.
+  PR/MR would finalize a program child or dispatch lane.
+- A PR/MR that belongs to a program tracker or dispatch issue references it
+  with `Refs`; the parent workflow verifies child and integration evidence and
+  closes the tracker through `forge-cli issue` instead of the PR merge closing
+  it.

@@ -47,8 +47,9 @@ authoritative.
   validation.
 - Peer coordination may route already-authorized work, never create it;
   material peer requests must not be silently ignored.
-- Creating durable tracking or provider records is a user decision unless the
-  current request already authorizes it.
+- Keep routine `direct` work internal. Before an issue, tracker, or delivery
+  record, call `runtime_context` with phase `delivery` for work modes; creating
+  one is a user decision unless the current request already authorizes it.
 - Before changing a third-party repository, follow its contribution policy.
   Drafts are de-identified; a human submits them and signs any DCO or CLA.
 - Use memory only for personal setup and preferences, never secrets, task

@@ -120,6 +120,27 @@ try {
     readFileSync(join(docsHome, 'PROJECT_DEV_EDIT.md'), 'utf8'),
   )
 
+  const delivery = runJson(agentDocsBin, [
+    '--docs-home', docsHome,
+    '--project-path', projectRoot,
+    '--worktree-fallback', 'local-only',
+    'session', 'context',
+    '--session-id', 'repository-catalog-smoke',
+    '--product', 'dsh',
+    '--state-home', join(temporaryRoot, 'agent-docs-state'),
+    '--intent', 'project-dev',
+    '--phase', 'delivery',
+    '--request-id', 'repository-catalog-smoke-delivery',
+    '--format', 'json',
+  ])
+  assert.equal(delivery.ok, true)
+  assert.equal(delivery.data.decision.verified, true)
+  assert.equal(delivery.data.decision.phase, 'delivery')
+  assert.deepEqual(
+    delivery.data.decision.documents.map(document => [document.source, document.content]),
+    [['home', readFileSync(join(docsHome, 'WORK_MODES.md'), 'utf8')]],
+  )
+
   const hookState = join(temporaryRoot, 'agent-hook-state')
   const hookEnvironment = {
     ...process.env,

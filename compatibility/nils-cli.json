@@ -375,24 +375,6 @@
       ]
     },
     {
-      "id": "plan-issue.tracking",
-      "binary": "plan-issue",
-      "status": "released",
-      "validation": "skill-declared",
-      "contracts": [
-        "plan issue tracking and closeout"
-      ]
-    },
-    {
-      "id": "plan-tooling.ledger",
-      "binary": "plan-tooling",
-      "status": "released",
-      "validation": "skill-declared",
-      "contracts": [
-        "dispatch lane ledger"
-      ]
-    },
-    {
       "id": "agent-run.project-script",
       "binary": "agent-run",
       "status": "released",

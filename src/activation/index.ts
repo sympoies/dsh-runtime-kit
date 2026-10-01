@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -34,19 +34,40 @@ export function validatePolicyOverrides(value: unknown): Record<string, 'advise'
   return sorted
 }
 
+/** The catalog and edit contract every packaged `agent-docs` directory carries. */
+export const AGENT_DOCS_FIXED_ENTRIES = Object.freeze(['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md'])
+/** Name of any further policy document the packaged catalog may route. */
+export const POLICY_DOCUMENT_NAME = /^[A-Z][A-Z0-9_]{0,63}\.md$/
+export const MAX_POLICY_DOCUMENTS = 32
+
+/**
+ * Digest of the packaged policy documents beyond the edit contract: a JSON
+ * object of file name to content digest, in name order. It is `undefined`
+ * when there are none, so a package without them keeps its asset-set digest.
+ */
+export function policyDocumentsSha256(documents: Record<string, string>) {
+  const names = Object.keys(documents).sort()
+  if (names.length === 0) return undefined
+  return activationSha256(JSON.stringify(Object.fromEntries(names.map(name => [name, documents[name]]))))
+}
+
 /**
  * Digest of an activation asset set. The DSH home instructions digest joins the
- * set only when the package ships that document, and the override digest only
+ * set only when the package ships that document, the policy documents digest
+ * only when it ships further policy documents, and the override digest only
  * when overrides exist, so an earlier target keeps the digest the accepted
  * baseline computed.
  */
-export function assetSetSha256(assets: {agent_home_sha256?: string, catalog_sha256: string, document_sha256: string, policy_sha256: string, policy_overrides_sha256?: string}) {
+export function assetSetSha256(assets: {agent_home_sha256?: string, catalog_sha256: string, document_sha256: string, policy_documents_sha256?: string, policy_sha256: string, policy_overrides_sha256?: string}) {
   return activationSha256(JSON.stringify({
     ...assets.agent_home_sha256 === undefined
       ? {}
       : { agent_home_sha256: assets.agent_home_sha256 },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
+    ...assets.policy_documents_sha256 === undefined
+      ? {}
+      : { policy_documents_sha256: assets.policy_documents_sha256 },
     policy_sha256: assets.policy_sha256,
     ...assets.policy_overrides_sha256 === undefined
       ? {}
@@ -203,6 +224,27 @@ function activationPath(root: string, relativePath: string, kind: 'directory'|'f
   return exact
 }
 
+/**
+ * Digest of the policy documents in an activated docs home. Every entry must
+ * be the catalog, the edit contract, or a policy document owned like the rest
+ * of the asset set, so a planted or replaced document changes the digest.
+ */
+function activatedPolicyDocumentsSha256(root: string, docsHome: string) {
+  const documents: Record<string, string> = {}
+  const entries = readdirSync(join(root, docsHome))
+  if (entries.length > AGENT_DOCS_FIXED_ENTRIES.length + MAX_POLICY_DOCUMENTS) {
+    throw new TypeError('activation policy documents digest does not match: too many entries')
+  }
+  for (const name of entries) {
+    if (AGENT_DOCS_FIXED_ENTRIES.includes(name)) continue
+    if (!POLICY_DOCUMENT_NAME.test(name)) {
+      throw new TypeError('activation policy documents digest does not match: undeclared entry')
+    }
+    documents[name] = activationSha256(readFileSync(activationPath(root, `${docsHome}/${name}`, 'file')))
+  }
+  return policyDocumentsSha256(documents)
+}
+
 function verifyDigest(path: string, expected: string, label: string) {
   if (!DIGEST.test(expected) || activationSha256(readFileSync(path)) !== expected) {
     throw new TypeError(`${label} digest does not match activation provenance`)
@@ -234,6 +276,7 @@ export function readActivation(root: string) {
     || !DIGEST.test(assets.policy_sha256)
     || !DIGEST.test(assets.catalog_sha256)
     || !DIGEST.test(assets.document_sha256)
+    || (assets.policy_documents_sha256 !== undefined && !DIGEST.test(assets.policy_documents_sha256))
     || (assets.policy_overrides_sha256 !== undefined && !DIGEST.test(assets.policy_overrides_sha256))
     || (activation.policy_overrides === undefined) !== (assets.policy_overrides_sha256 === undefined)
     || (assets.agent_home_sha256 !== undefined && !DIGEST.test(assets.agent_home_sha256))
@@ -288,6 +331,9 @@ export function readActivation(root: string) {
   verifyDigest(policy, assets.policy_sha256, 'policy')
   verifyDigest(catalog, assets.catalog_sha256, 'agent-docs catalog')
   verifyDigest(document, assets.document_sha256, 'agent-docs document')
+  if (activatedPolicyDocumentsSha256(canonicalRoot, docs.home) !== assets.policy_documents_sha256) {
+    throw new TypeError('activation policy documents digest does not match activation provenance')
+  }
   if (homeDocument !== undefined) verifyDigest(homeDocument, assets.agent_home_sha256, 'agent home document')
   const expectedSet = assetSetSha256({
     ...assets.agent_home_sha256 === undefined
@@ -295,6 +341,9 @@ export function readActivation(root: string) {
       : { agent_home_sha256: ((assets.agent_home_sha256) as string) },
     catalog_sha256: assets.catalog_sha256,
     document_sha256: assets.document_sha256,
+    ...assets.policy_documents_sha256 === undefined
+      ? {}
+      : { policy_documents_sha256: ((assets.policy_documents_sha256) as string) },
     policy_sha256: assets.policy_sha256,
     ...assets.policy_overrides_sha256 === undefined
       ? {}

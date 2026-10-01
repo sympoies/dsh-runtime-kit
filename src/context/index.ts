@@ -5,13 +5,15 @@ export type ToolDefinition = import('@deepseek-ai/dsh-tools').ToolDefinition
 import {
   normalizeRuntimeContextIntent,
   RUNTIME_CONTEXT_INTENTS,
+  RUNTIME_CONTEXT_PHASES,
+  runtimeContextPhase,
 } from './intents.js'
 
 export type ContextDocument = { source: 'home' | 'project', scope: 'home' | 'project' | 'global', content: string }
 
 export type ContextDecision = { schema_version: 'decision.context.v1', request_id: string, product: 'dsh', intent: string, reason: 'prepared' | 'already-current', verified: true, documents: ContextDocument[], document_count: number, total_bytes: number }
 
-export type ContextClient = { prepare: (exec: import('@deepseek-ai/dsh-tools').ToolRunContext, intent: string, projectPath?: string) => Promise<ContextDecision> }
+export type ContextClient = { prepare: (exec: import('@deepseek-ai/dsh-tools').ToolRunContext, intent: string, projectPath?: string, phase?: string) => Promise<ContextDecision> }
 
 function validDocument(value: unknown): value is ContextDocument  {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -76,11 +78,12 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
   }
   const definition: ToolDefinition = {
     name: 'runtime_context',
-    description: 'Prepare one declared runtime-policy intent for the absolute target directory, regardless of this DSH session\'s starting cwd.',
+    description: 'Prepare one declared runtime-policy intent for the absolute target directory, regardless of this DSH session\'s starting cwd. The edit phase is the default; request the delivery phase before durable tracking, commits, pull requests, reviews, or merges.',
     parameters: {
       type: 'object',
       properties: {
         intent: { type: 'string', enum: [...RUNTIME_CONTEXT_INTENTS] },
+        phase: { type: 'string', enum: [...RUNTIME_CONTEXT_PHASES], description: 'Policy phase of the intent; defaults to edit.' },
         project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
       },
       required: ['intent'],
@@ -127,16 +130,17 @@ export function createRuntimeContextTool(client: ContextClient): ToolDefinition 
       }
       const record = ((args) as Record<string, unknown>)
       if (!Object.hasOwn(record, 'intent')
-        || Object.keys(record).some(key => key !== 'intent' && key !== 'project_path')) {
-        throw new TypeError('runtime_context expects one intent and an optional project_path')
+        || Object.keys(record).some(key => !['intent', 'phase', 'project_path'].includes(key))) {
+        throw new TypeError('runtime_context expects one intent, an optional phase, and an optional project_path')
       }
       const intent = normalizeRuntimeContextIntent(record.intent)
+      const phase = runtimeContextPhase(intent, record.phase)
       const projectPath = record.project_path
       if (projectPath !== undefined && (typeof projectPath !== 'string'
         || !isAbsolute(projectPath) || projectPath.includes('\0'))) {
         throw new TypeError('runtime_context project_path must be an absolute path')
       }
-      return sanitizeDecision(await client.prepare(exec, intent, projectPath), intent)
+      return sanitizeDecision(await client.prepare(exec, intent, projectPath, phase), intent)
     },
   }
   return Object.freeze(definition)

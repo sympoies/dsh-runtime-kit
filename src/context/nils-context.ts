@@ -393,8 +393,8 @@ export function createNilsContextClient(ctx: Context, config: { agentDocs?: stri
   }
 
   return Object.freeze({
-    async prepare(exec: ToolRunContext, intent: string, projectPath?: string) {
-      const phase = runtimeContextPhase(intent)
+    async prepare(exec: ToolRunContext, intent: string, projectPath?: string, requestedPhase?: string) {
+      const phase = runtimeContextPhase(intent, requestedPhase)
       const scope = executionScope(exec)
       const principal = resolveManagedSessionPrincipal(ctx, scope.sessionId, managedSessionBridge)
       const sessionId = principal?.sessionId ?? scope.sessionId

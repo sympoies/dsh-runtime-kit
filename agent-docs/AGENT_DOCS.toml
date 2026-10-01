@@ -7,3 +7,13 @@ phase = "edit"
 required = true
 when = "always"
 notes = "Compact DSH-native project development guidance"
+
+[[document]]
+context = "project-dev"
+scope = "home"
+path = "WORK_MODES.md"
+product = "dsh"
+phase = "delivery"
+required = true
+when = "always"
+notes = "Named work modes: direct, issue, program, and program/dispatch tracking records"

@@ -51,7 +51,8 @@ Failure modes:
 - The request is a trivial change, a hotfix, or already fully specified — use
   direct implementation instead of this conductor.
 - The work needs durable issue tracking, multiple delivery lanes, or PR
-  grouping — hand off to the plan-tracking or dispatch workflow instead.
+  grouping — hand off to the `issue`, `program`, or `program/dispatch`
+  workflow instead.
 - Active project rules conflict with the requested implementation path.
 
 ## Outcome Routing
