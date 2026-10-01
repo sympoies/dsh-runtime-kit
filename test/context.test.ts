@@ -320,7 +320,7 @@ test('runtime_context resolves phaseless policy intents and the project-dev revi
       return contextDecision({ intent })
     },
   })
-  for (const intent of ['devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution']) {
+  for (const intent of ['devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution', 'peer-coordination']) {
     await tool.execute({ intent }, execution())
     await assert.rejects(tool.execute({ intent, phase: 'edit' }, execution()), /runtime-context-phase-not-allowed/)
   }
@@ -331,6 +331,7 @@ test('runtime_context resolves phaseless policy intents and the project-dev revi
     { intent: 'web-testing', phase: undefined },
     { intent: 'memory', phase: undefined },
     { intent: 'upstream-contribution', phase: undefined },
+    { intent: 'peer-coordination', phase: undefined },
     { intent: 'project-dev', phase: 'review' },
   ])
 
@@ -636,7 +637,7 @@ test('runtime_context rejects ambiguous args and invalid execution identity befo
 
   assert.deepEqual(tool.parameters.properties.intent, {
     type: 'string',
-    enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution'],
+    enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution', 'peer-coordination'],
   })
 
   const subject = contextTransportHarness()

@@ -92,3 +92,12 @@ product = "dsh"
 required = true
 when = "always"
 notes = "Escalation order and gates for changes outside the current repository"
+
+[[document]]
+context = "peer-coordination"
+scope = "home"
+path = "PEER_COORDINATION.md"
+product = "dsh"
+required = true
+when = "always"
+notes = "Session board check, mailbox checkpoints, and disposition replies for managed peer sessions"
