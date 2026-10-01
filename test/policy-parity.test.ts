@@ -331,8 +331,9 @@ test('the released agent-hook inventory agrees with the packaged tier declaratio
 })
 
 // Read-only shells the agent runtime kit admits (agent-runtime-kit #180, #184,
-// #185, ported in nils-cli #2001 and #2010) must reach DSH's Bash tool, while
-// direct commits and unsafe default-branch delivery stay blocked.
+// #185, ported in nils-cli #2001, #2010, and #2016) must reach DSH's Bash tool,
+// while direct commits and unsafe default-branch delivery stay blocked. A
+// redirection cannot fill a semantic-commit value slot (nils-cli #2020).
 const READ_ONLY_SHELLS = Object.freeze([
   `printf '%s\\n' "$(git rev-parse HEAD)"`,
   '[ -x /usr/bin/git ] && echo yes',
@@ -342,6 +343,9 @@ const READ_ONLY_SHELLS = Object.freeze([
   "cat <<'EOF'\ngit commit -m inert\nEOF",
   'git dshprobe --version',
   'semantic-commit --help',
+  '[[ -e tracked.txt ]] && echo ok',
+  'if [[ -e tracked.txt ]]; then echo ok; fi',
+  'semantic-commit commit --help',
 ])
 const GOVERNED_MUTATIONS = Object.freeze([
   'git commit -m x',
@@ -349,6 +353,7 @@ const GOVERNED_MUTATIONS = Object.freeze([
   'echo `git commit -m x`',
   'nocorrect x=1 git commit -m y',
   'git push origin main',
+  'semantic-commit commit --type fix --subject x --body-bullet >/dev/null --dry-run',
 ])
 
 test('the released agent-hook admits read-only shells and still blocks governed Git mutations at the DSH tool boundary', async (t) => {

@@ -24,13 +24,12 @@
     {
       "source": "core/hooks/",
       "kind": "hooks",
-      "disposition": "open-issue",
-      "issue": "sympoies/dsh-runtime-kit#309",
+      "disposition": "synced",
       "dsh_paths": [
         "policy/dsh-runtime-kit-v1.toml",
         "policy/runtime-rule-parity.yaml"
       ],
-      "note": "The read-only guard fixes from agent-runtime-kit #180, #184, and #185 reach DSH through nils-cli 1.31.7 (#2001, #2010). Residual: a [[ ... ]] test is still refused by the project-memory and secret-scan guards, and semantic-commit commit --help by the body gate."
+      "note": "The read-only guard fixes from agent-runtime-kit #180, #184, and #185 reach DSH through nils-cli 1.31.8 (#2001, #2010, #2016, #2020)."
     },
     {
       "source": "core/policies/browser-test-routing.md",
