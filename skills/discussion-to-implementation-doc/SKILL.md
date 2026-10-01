@@ -157,7 +157,7 @@ Failure modes:
      publishing a misleading source document.
    - For a `docs/discussions/` capture, the header must carry one
      `Exit: open-issue | canonise | retire` line. There is no
-     fifth value and no "keep" state. Never write `Retention: Keep`,
+     other value and no "keep" state. Never write `Retention: Keep`,
      `retained as the acceptance source`, or any other self-declared retention:
      content worth keeping takes the `canonise` exit, which moves it out of
      `docs/discussions/`. `open-issue` is complete on its own — an ordinary
