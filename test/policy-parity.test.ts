@@ -338,6 +338,8 @@ const READ_ONLY_SHELLS = Object.freeze([
   '[ -x /usr/bin/git ] && echo yes',
   'if [ -e tracked.txt ]; then echo ok; fi',
   'while false; do echo never; done',
+  'for f in a b; do git log -1; done',
+  "cat <<'EOF'\ngit commit -m inert\nEOF",
   'git dshprobe --version',
   'semantic-commit --help',
 ])
@@ -360,7 +362,11 @@ test('the released agent-hook admits read-only shells and still blocks governed 
   const { spawnSync } = await import('node:child_process')
   const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-guard-parity-'))
   const git = (args, options = {}) => {
-    const result = spawnSync('git', args, { encoding: 'utf8', ...options })
+    const result = spawnSync('git', args, {
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      ...options,
+    })
     assert.equal(result.status, 0, `git ${args.join(' ')}: ${result.stderr}`)
   }
   try {
