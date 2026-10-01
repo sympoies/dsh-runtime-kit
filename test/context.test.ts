@@ -351,6 +351,16 @@ test('runtime_context resolves phaseless policy intents and the project-dev revi
   assert.equal(Object.hasOwn(result, 'phase'), false)
   assert.equal(subject.specs[0].argv.includes('--phase'), false)
   assert.equal(subject.specs[0].argv[subject.specs[0].argv.indexOf('--intent') + 1], 'memory')
+
+  // A decision prepared for some phase cannot answer a phaseless request.
+  const phased = contextTransportHarness({
+    response: spec => contextEnvelope(spec, { intent: 'memory', phase: 'edit' }),
+  })
+  const phasedClient = createNilsContextClient(phased.ctx, {
+    agentDocsHome: '/runtime/policies',
+    agentDocsStateHome: '/runtime/state',
+  })
+  await assert.rejects(phasedClient.prepare(execution(), 'memory'), /runtime-context-output-invalid/)
 })
 
 test('runtime_context prepares an explicitly named target from a non-repository session cwd', async () => {

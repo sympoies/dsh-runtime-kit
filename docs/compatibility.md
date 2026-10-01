@@ -52,6 +52,9 @@ default 20 KiB context budget.
 | `files-hooks-validation.md` | DSH-native replacement: the nils-cli `dsh_policy` groups, the finish-line coordinator, and `PROJECT_DEV_EDIT.md`. |
 | `session-coordination.md` | Pending: S1 (#311). |
 | `code-review-delegation-codex.md` | Not applicable: Codex-only. DSH routes review through the native `review_specialists` tool. |
+| `intent-cards.md` | DSH-native replacement: the `runtime_context` intent and phase routing in the packaged home instructions. |
+| `forge-label-taxonomy.md` | Not packaged: the `workflow::tracking` and `workflow::follow-up` labels are named inline in `WORK_MODES.md` and the `issue-follow-up` skill; repositories own their label catalogs. |
+| `execution-capsules.md` | Not packaged: the bundled `execution-capsule` skill carries the procedure. |
 
 The nils-cli v1.28.25 to v1.28.40 source comparison found no repair for the
 wrong-intent incident. DSH PR #263 repaired intent recovery in runtime-kit;

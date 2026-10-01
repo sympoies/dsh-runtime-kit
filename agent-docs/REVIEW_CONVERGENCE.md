@@ -40,15 +40,18 @@ it:
 | Classification | Disposition |
 | --- | --- |
 | Admitted real defect | Fix it on the same delivery branch, rerun focused validation and the affected review lens, reply with evidence, then resolve the thread. Stop and ask the user first for a security, data-loss, contract, destructive-migration, or cross-repository architecture change. |
-| Real concern not admitted to closure | Open or link a follow-up issue, or stop for an explicit critical-risk handoff. Do not extend the current repair loop. |
+| Real concern not admitted to closure | Link a follow-up issue, opening one only when the current request or work mode already authorizes provider records (otherwise ask with `ask_user_question` or report it), or stop for an explicit critical-risk handoff. Do not extend the current repair loop. |
 | No longer applies to the current code | Resolve as stale. `forge-cli pr merge` records outdated unresolved threads as stale on its own. |
-| Real but out of scope for this pass | Follow-up: create the durable record first and link it in the disposition. |
+| Real but out of scope for this pass | Follow-up: link the durable record in the disposition, creating it first only under the same authority rule. |
 | Preference or style on correct code | Accept with recorded rationale. Do not open a fix. |
 | Inherently ambiguous edge case | Pick the conservative branch once, uniformly, and document the tradeoff. |
 | Several findings on one mechanism | Replace per-case special-casing with one uniform rule. |
 
 Low and informational observations never block delivery. Evidence alone does
-not make a concern blocking; severity and admission do.
+not make a concern blocking; severity and admission do. Accept only a verified
+preference or genuine ambiguity; never use acceptance to end the loop on an
+unread or unverified finding. The stopping rule never overrides escalating a
+high-risk finding to the user.
 
 ## Stopping rule
 

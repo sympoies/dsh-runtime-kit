@@ -47,13 +47,15 @@ Each refusal names the governed surface for the operation you attempted.
 | --- | --- | --- | --- |
 | Pull request (default) | An explicit current-task request for provider delivery, or an approved workflow that owns it | Signed commit on a non-default managed-worktree branch, then `deliver-pr` | Pull request URL, delivered head, reviews and checks, provider merge read-back |
 | Direct to the default branch | The maintainer explicitly requests a direct commit and push in the current task | Exactly one signed commit on a non-default managed-worktree branch, then `forge-cli repo push-default --expected-base <full sha> --reason-file <path>` | Receipt whose observed remote SHA equals the delivered head |
-| Local default-branch commit | The maintainer explicitly requests one local-only commit in the current task | `semantic-commit default-branch` with an explicit absolute `--repo` in the clean primary checkout; no provider call | Receipt with `provider_delivered=false` |
+| Local default-branch commit | The maintainer explicitly requests one local-only commit in the current task | `semantic-commit default-branch` with an explicit absolute `--repo` in the clean primary checkout, `--expect-head` bound to the full current HEAD, and `--receipt-out` in session `artifact_*` storage outside the checkout; no provider call | Receipt with `provider_delivered=false`; never commit it |
 
 Implementation alone never authorizes provider mutation. Never infer either
 default-branch mode from a change being small, urgent, or called a hotfix; the
 authorization expires with the current task. If the change grows beyond one
-commit, its expected base moves, signing cannot be verified, or the mode is
-uncertain, keep the managed branch and ask for the delivery decision.
+commit, its expected base moves, signing cannot be verified, the checkout is
+dirty, or the mode is uncertain, keep the managed branch and ask for the
+delivery decision. If a local default-branch commit succeeds but its receipt
+cannot be finalized, keep the commit for inspection; do not reset or amend it.
 
 `forge-cli repo push-default` permits only a verified fast-forward of one
 locally verified signed commit with a bounded reason file, pinned to one push
