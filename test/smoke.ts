@@ -109,7 +109,7 @@ assert.equal(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.29.0')
-assert.equal(nilsCompatibility.validated_release, '1.31.7')
+assert.equal(nilsCompatibility.validated_release, '1.31.10')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -622,14 +622,14 @@ description = "packed native Main Agent lane"
   const controllerStart = spawnSync(agentSessionBin, [
     '--state-dir', nativeState,
     'start',
-    '--agent', 'hermes',
+    '--agent', 'claude',
     '--cwd', nativeProject,
     '--coordination-mode', 'off',
     '--format', 'json',
   ], {
     encoding: 'utf8',
     timeout: 30_000,
-    env: { ...process.env, AGENT_SESSION_HERMES_BIN: nativeProvider },
+    env: { ...process.env, AGENT_SESSION_CLAUDE_BIN: nativeProvider },
   })
   assert.equal(controllerStart.status, 0, controllerStart.stderr)
   const controller = JSON.parse(controllerStart.stdout).data
