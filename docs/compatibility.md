@@ -8,7 +8,7 @@ The supported runtime is deliberately exact:
 | Agent Console candidate | DSH `0.1.6-alpha.2` + pristine `@deepseek-harness-tui/dsh-tui@0.10.2`; deployed host remains on DSH `0.1.2-rc.1` + TUI `0.10.1` until promotion |
 | Cordis | `4.0.2` with DSH 0.1.6; `4.0.4` with DSH 0.1.7 |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.31.11` |
+| nils-cli | `1.29.0` minimum; exactly validated through `1.31.12` |
 
 ## Agent runtime source alignment
 
