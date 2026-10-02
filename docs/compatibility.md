@@ -13,6 +13,9 @@ The validated companion release is nils-cli 1.31.13. Its exact Linux x64 and
 macOS arm64 archives and consumed binary digests are recorded in
 `compatibility/nils-cli.json`; the minimum remains 1.29.0. This adoption retains
 the managed-session mailbox reminder and guard contracts admitted in 1.31.8.
+The generic Main Agent controller fixtures use an inert explicit Codex stub;
+DSH workers still use the external-runtime contract. The live-scope conflict
+scenario now verifies refusal before a worker session is created.
 
 ## Agent runtime source alignment
 

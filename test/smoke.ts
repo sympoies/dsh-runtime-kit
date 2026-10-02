@@ -558,6 +558,10 @@ async function runNativeMainAgentSmoke({ llmModuleUrl, sessionModuleUrl, profile
   mkdirSync(nativeWorktrees, { recursive: true, mode: 0o700 })
   mkdirSync(nativeState, { recursive: true, mode: 0o700 })
   writeFileSync(nativeProvider, `#!/usr/bin/env node
+if (process.argv.includes('--version')) {
+  process.stdout.write('codex 0.0.0\\n')
+  process.exit(0)
+}
 process.on('SIGINT', () => process.exit(0))
 process.on('SIGTERM', () => process.exit(0))
 setInterval(() => {}, 60_000)
@@ -593,18 +597,32 @@ description = "packed native Main Agent lane"
   const controllerStart = spawnSync(agentSessionBin, [
     '--state-dir', nativeState,
     'start',
-    '--agent', 'hermes',
+    '--agent', 'codex',
+    '--agent-bin', nativeProvider,
+    '--no-parent',
+    '--no-inherit-work',
     '--cwd', nativeProject,
     '--coordination-mode', 'off',
     '--format', 'json',
   ], {
     encoding: 'utf8',
     timeout: 30_000,
-    env: { ...process.env, AGENT_SESSION_HERMES_BIN: nativeProvider },
+    env: { ...process.env, CODEX_HOME: join(nativeRoot, 'codex') },
   })
-  assert.equal(controllerStart.status, 0, controllerStart.stderr)
+  assert.equal(controllerStart.status, 0, controllerStart.stderr
+    || JSON.parse(controllerStart.stdout || '{}').error?.code)
   const controller = JSON.parse(controllerStart.stdout).data
   nativeControllerSessions.push({ agentSessionBin, stateDir: nativeState, sessionId: controller.id })
+  assert.equal(controller.agent, 'codex')
+  assert.equal(controller.coordination_mode, 'off')
+  assert.ok(controller.session_incarnation)
+  assert.equal(controller.lineage.parent, null)
+  assert.equal(controller.lineage.depth, 0)
+  assert.equal(controller.work, undefined)
+  const controllerRecord = JSON.parse(readFileSync(
+    join(nativeState, 'sessions', controller.id, 'session.json'), 'utf8'))
+  assert.equal(controllerRecord.agent_bin, nativeProvider)
+  assert.equal(controllerRecord.runtime.launch_id, controller.session_incarnation)
   const coordination = join(nativeState, 'sessions', controller.id, 'coordination')
   const pickCoordination = async prefix => {
     const deadline = Date.now() + 30_000

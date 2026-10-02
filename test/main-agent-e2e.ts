@@ -46,6 +46,7 @@ const stateDir = join(root, 'state')
 const project = join(root, 'project')
 const laneRoot = join(root, 'lanes')
 let controllerSessionId
+let activeHarness
 mkdirSync(stateDir, { recursive: true })
 mkdirSync(laneRoot, { recursive: true })
 
@@ -64,11 +65,13 @@ try {
 } catch (error) {
   failure = error
 } finally {
+  activeHarness?.dispose()
   if (controllerSessionId !== undefined) {
     spawnSync(agentSessionCli, [
       '--state-dir', stateDir,
       'delete',
       controllerSessionId,
+      '--orphan-children',
       '--format', 'json',
     ], { encoding: 'utf8', timeout: 30_000 })
   }
@@ -100,18 +103,40 @@ async function run() {
   git('worktree', 'add', '--quiet', '-b', 'feat/lane-two', lanes.two, 'HEAD')
   git('worktree', 'add', '--quiet', '-b', 'feat/lane-overlap', lanes.overlap, 'HEAD')
 
-  // The controller identity. A DSH controller has no session record of its own
-  // (`agent-session start --agent dsh` is refused by design), so the harness
-  // mints an ordinary enforce-mode session and hands its capability to the
-  // runtime — the same trust model a tmux-hosted controller uses.
+  // Mint an isolated generic controller identity with an inert provider.
+  // DSH worker execution below still uses the external-runtime contract.
+  // This fixture makes no provider turn and does not require a serve profile.
+  const controllerProvider = join(root, 'controller-provider.mjs')
+  writeFileSync(controllerProvider, `#!/usr/bin/env node
+if (process.argv.includes('--version')) {
+  process.stdout.write('codex 0.0.0\\n')
+  process.exit(0)
+}
+process.on('SIGINT', () => process.exit(0))
+process.on('SIGTERM', () => process.exit(0))
+setInterval(() => {}, 60_000)
+`, { mode: 0o700 })
   const controller = json(execFileSync(agentSessionCli, [
     '--state-dir', stateDir, 'start',
-    '--agent', 'hermes',
+    '--agent', 'codex',
+    '--agent-bin', controllerProvider,
+    '--no-parent',
+    '--no-inherit-work',
     '--cwd', project,
     '--coordination-mode', 'enforce',
     '--format', 'json',
-  ], { encoding: 'utf8' })).data
+  ], { encoding: 'utf8', env: { ...process.env, CODEX_HOME: join(root, 'codex') } })).data
   controllerSessionId = controller.id
+  assert.equal(controller.agent, 'codex')
+  assert.equal(controller.coordination_mode, 'enforce')
+  assert.ok(controller.session_incarnation)
+  assert.equal(controller.lineage.parent, null)
+  assert.equal(controller.lineage.depth, 0)
+  assert.equal(controller.work, undefined)
+  const controllerRecord = JSON.parse(readFileSync(
+    join(stateDir, 'sessions', controller.id, 'session.json'), 'utf8'))
+  assert.equal(controllerRecord.agent_bin, controllerProvider)
+  assert.equal(controllerRecord.runtime.launch_id, controller.session_incarnation)
   const coordination = join(stateDir, 'sessions', controller.id, 'coordination')
   const controllerEnv = {
     ...process.env,
@@ -152,6 +177,7 @@ async function run() {
   }
 
   const harness = createRuntime(controllerEnv)
+  activeHarness = harness
   const exec = harness.controllerExec(project)
 
   // ---- Scenario: two-lane lifecycle -------------------------------------
@@ -246,33 +272,19 @@ async function run() {
   assert.equal(assignmentState('lane-one'), 'accepted')
 
   // ---- Scenario: overlapping scope refused ------------------------------
-  // The claim is acquired at bootstrap, not at start, so this is where an
-  // overlapping path scope must be refused: lane two still holds `lane-two.txt`
-  // while this third lane declares the same file in its own worktree.
-  const launchedOverlap = await harness.tool('main_agent_worker_launch').execute(
-    { assignment_file: assignments.overlap, idempotency_key: 'e2e-launch-overlap-0001' },
-    exec,
+  // The admitted companion rejects a scope already reserved by a live lane
+  // before creating its worker session. Lane two still owns lane-two.txt.
+  const lanesBeforeOverlap = harness.service().laneCount
+  await assert.rejects(
+    harness.tool('main_agent_worker_launch').execute(
+      { assignment_file: assignments.overlap, idempotency_key: 'e2e-launch-overlap-0001' },
+      exec,
+    ),
+    /dsh-runtime-kit:main-agent-cli-refused.*"code":"assignment-scope-conflict"/,
   )
-  assert.equal(launchedOverlap.disposition, 'launched')
-  assertBrokerReady(launchedOverlap)
-  const overlapBootstrap = workerAttempt(
-    launchedOverlap,
-    ['bootstrap', '--idempotency-key', 'e2e-bootstrap-overlap'],
-  )
-  assert.notEqual(overlapBootstrap.status, 0, 'an overlapping scope must not acquire a claim')
-  const overlapError = json(overlapBootstrap.stdout).error
-  assert.match(
-    String(overlapError.code),
-    /work-context|claim|scope|conflict/,
-    `unexpected overlap refusal: ${overlapBootstrap.stdout}`,
-  )
-  assert.notEqual(
-    assignmentState('lane-overlap'),
-    'working',
-    'the refused lane never reached working',
-  )
-  // The refused lane is still this runtime's to release.
-  await harness.tool('main_agent_lane_close').execute({ assignment_id: 'lane-overlap' }, exec)
+  assert.equal(assignment('lane-overlap'), undefined)
+  assert.equal(existsSync(join(stateDir, 'sessions', 'worker-lane-overlap')), false)
+  assert.equal(harness.service().laneCount, lanesBeforeOverlap)
 
   // ---- Scenario: stopped lane reconciled --------------------------------
   // Lane two is still `working`; closing its runtime is the proven-stopped
@@ -343,6 +355,7 @@ async function run() {
   assert.equal(harness.service().laneCount, 0, 'closeout leaves no live lane')
   assert.equal(closed.drained, true)
   harness.dispose()
+  activeHarness = undefined
 
   // ---- Helpers that read the store -------------------------------------
   function revision(assignmentId) {
