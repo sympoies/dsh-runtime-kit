@@ -622,14 +622,14 @@ description = "packed native Main Agent lane"
   const controllerStart = spawnSync(agentSessionBin, [
     '--state-dir', nativeState,
     'start',
-    '--agent', 'hermes',
+    '--agent', 'claude',
     '--cwd', nativeProject,
     '--coordination-mode', 'off',
     '--format', 'json',
   ], {
     encoding: 'utf8',
     timeout: 30_000,
-    env: { ...process.env, AGENT_SESSION_HERMES_BIN: nativeProvider },
+    env: { ...process.env, AGENT_SESSION_CLAUDE_BIN: nativeProvider },
   })
   assert.equal(controllerStart.status, 0, controllerStart.stderr)
   const controller = JSON.parse(controllerStart.stdout).data
