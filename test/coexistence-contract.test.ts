@@ -11,53 +11,53 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
 
   assert.equal(manifest.status, 'released')
   assert.equal(manifest.minimum_supported_release, '1.29.0')
-  assert.equal(manifest.validated_release, '1.31.8')
+  assert.equal(manifest.validated_release, '1.31.13')
   assert.deepEqual(manifest.release, {
-    "source_revision": "v1.31.8",
-    "source_commit": "f1703a983b12e978ae3a87fd5358f3384e5a1f71",
+    "source_revision": "v1.31.13",
+    "source_commit": "00b97d26bafaa6bfc6c34a0d561ae8c121519e54",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.31.8-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "ee954759f12dd7d21d9b38bc323118b7fe480b8be80dd8b8a714e95acee8e82e"
+      "name": "nils-cli-v1.31.13-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "b1be0e440aafefd91157b9d9c1d3675c4aa6e4957d8a146b4cc73014a116b74e"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "26340e10a9fb8f42b70900f337d60cc523ec06ed275ec5be1608d4b65cce5fb9"
+        "sha256": "87f3265712dc0fd050e6ff4c1c3dbd0edce2c249e0c1622195df35aee882ecc0"
       },
       "agent-docs": {
-        "sha256": "df624b5d470b990d288cb3cad68b8e22dd3dca708b33c189db69b81c4895926e"
+        "sha256": "5263a6120b4409b64cacb7e5d8635a540fa66f8fc2255e097f3385d19a6ba6c2"
       },
       "agent-session": {
-        "sha256": "a36ab3d4e05ffd4b2f01be7f80c7a4acd6c62cdc3ea93330d9f6ac3fa42ca7b8"
+        "sha256": "639b63834f8327ce1dfc7bfd7db2cc77c7d68563291b8487d54ceb17cff4c24e"
       },
       "forge-cli": {
-        "sha256": "8db15a09f56df55eaf9b4e092d9dfd143510a71a70b0c09aa8d3134af06b5293"
+        "sha256": "478be11694cf8489c76b288d32bf7faf5a4a1cccb1570eb4b9aefa10474256d2"
       },
       "git-cli": {
-        "sha256": "dc8c09ea71ed32e6a1dc30b6bb93df0f1762979d07fba548adf835610eb3f625"
+        "sha256": "893459c182f823d29a6939d29a82dbe0322a04a4543147b58b3a30b056a5ae67"
       },
       "review-specialists": {
-        "sha256": "1156168179950cbe1e045eb0a5b526ff4d3334c7e9b89e4ba64353b5c422fd25"
+        "sha256": "05cedf128458a489607933cf4ab06954f259c22d79d0e3e5627f62c4756a9d6d"
       },
       "semantic-commit": {
-        "sha256": "f079bfb7df74aa658618de365b2a9b1754321ce04c5c597f9355163e5e14ea58"
+        "sha256": "71630276bab496c7b48bfaf0bb2c8f35e5bcef64003af9c4302168fb5873435c"
       }
     },
     "platforms": {
       "aarch64-apple-darwin": {
         "archive": {
-          "name": "nils-cli-v1.31.8-aarch64-apple-darwin.tar.gz",
-          "sha256": "ec9a846f35a1340886286a10b78a3828942f0db466afcecd1731db4f05299231"
+          "name": "nils-cli-v1.31.13-aarch64-apple-darwin.tar.gz",
+          "sha256": "62521a11fb1ee47990edf2a3b4441efa51d00752d016dc0881ea5f1064309fd9"
         },
         "artifacts": {
           "agent-hook": {
-            "sha256": "ecf577e11d6ab4d052cb5c8fc4afe15f8e98e0ab8f05a18e639ee711d348f9ee"
+            "sha256": "9942829db4575dd971148da716eb923596ded56e966c9d98524a375e2c5d480f"
           },
           "agent-docs": {
-            "sha256": "bd555803e406d8bda3f3cdba8c2bc951f5cc94b2cdcf54a6f1879c97d1ced4f4"
+            "sha256": "823617a4c58f256a4d2c96120362962be2eadb7482213652fd5c637ad7fb28ec"
           },
           "agent-session": {
-            "sha256": "ea9dbe8ea80f6d41163214fc2e59ae9bca6590aefd8c77f0f8ceb50c70e3b520"
+            "sha256": "bdec26ae232d30cb975fbfcb0fc211984b17f72524bee290a9ddc3d668134bca"
           }
         }
       }
