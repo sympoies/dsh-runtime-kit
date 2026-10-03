@@ -578,9 +578,12 @@ and 128 MiB per archive. Artifact inspection rejects more than 256 MiB expanded,
 16,384 regular-file entries, 64 MiB in one entry, or unsafe package paths before
 system extraction.
 
-Activation storage separately admits at most 16 live asset sets. Each set is
-bounded to 4 MiB of package assets plus 64 KiB of generated activation overhead;
-collection removes only unreferenced digest sets and interrupted staging names.
+Activation storage separately admits at most 16 live asset sets. Each set admits
+the complete 32-policy catalog within a derived maximum of 41 tree entries,
+including its root, asset directories, fixed documents, hook files, and optional
+home instructions. Each set is bounded to 4 MiB of package assets plus 64 KiB of
+generated activation overhead; collection removes only unreferenced digest sets
+and interrupted staging names.
 
 External health checks have a 30-second deadline, packaging commands have a
 two-minute deadline, and DSH mutations have a ten-minute deadline. An operator

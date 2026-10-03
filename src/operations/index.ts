@@ -69,6 +69,9 @@ const MAX_ARTIFACT_COUNT = 64
 const MAX_ARTIFACT_BYTES = 1024 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_BYTES = 4 * 1024 * 1024
 const MAX_ACTIVATION_ASSET_SETS = 16
+// Root, three asset directories, hook policy/config and the optional home file,
+// plus the same fixed and policy-document bounds admitted by activation.
+const MAX_ACTIVATION_ASSET_ENTRIES = 7 + AGENT_DOCS_FIXED_ENTRIES.length + MAX_POLICY_DOCUMENTS
 const RUNTIME_ROOT_OWNER_SCHEMA = 'dsh-runtime-kit.runtime-root-owner.v1'
 // The declarative profile lifecycle a reviewed package carries
 // (`package.json#dsh.lifecycle`). The vocabulary below is the complete set of
@@ -3030,7 +3033,7 @@ function activationAssetSetEvidence(root: string) {
       throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set is not owner-only')
     }
     entries += 1
-    if (entries > 16) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains too many entries')
+    if (entries > MAX_ACTIVATION_ASSET_ENTRIES) throw new OperationsError('activation-asset-inventory-invalid', 'activation asset set contains too many entries')
     if (stat.isDirectory()) {
       inventory.push({
         path: relativePath,
