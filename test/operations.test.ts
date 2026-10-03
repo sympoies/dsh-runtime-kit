@@ -1357,6 +1357,34 @@ test('activation stages the packaged DSH home instructions and rolls back to a p
   }
 })
 
+test('activation retains the complete admitted policy catalog across replay and removal', () => {
+  const subject = fixture()
+  try {
+    const documents = Object.fromEntries(Array.from({ length: 32 }, (_, index) => [
+      `POLICY_${String(index).padStart(2, '0')}.md`, `# Policy ${index}\n`,
+    ]))
+    const fullCatalog = stageBundle(subject.root, '3.2.0', { policyDocuments: documents })
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', fullCatalog])
+    const first = readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8')
+    const activation = JSON.parse(first)
+    assert.equal(readdirSync(join(subject.runtimeRoot, activation.agent_docs.home)).length, 34)
+    assert.equal(run(subject, ['doctor', '--profile', 'work']).value.data.status, 'healthy')
+    applyPlan(subject, ['setup', '--profile', 'work', '--package', fullCatalog])
+    assert.equal(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'), first)
+    const overflow = stageBundle(subject.root, '3.3.0', {
+      policyDocuments: { ...documents, 'OVERFLOW.md': '# Unsupported extra document\n' },
+    })
+    const rejected = run(subject, ['update', '--profile', 'work', '--package', overflow])
+    assert.equal(rejected.status, 65, rejected.stdout)
+    assert.equal(rejected.value.error.code, 'invalid-package-spec')
+    assert.equal(readFileSync(join(subject.runtimeRoot, 'activation.json'), 'utf8'), first)
+    applyPlan(subject, ['remove', '--profile', 'work'])
+    assert.deepEqual(activationAssetSets(subject), [])
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('activation stages packaged policy documents and rolls back to a package without them', () => {
   const subject = fixture()
   try {
@@ -2603,7 +2631,7 @@ test('activation asset retention rejects more than the configured live-set bound
 })
 
 test('activation retention rejects oversized and malformed retained sets without receipt drift', () => {
-  for (const scenario of ['oversized', 'malformed']) {
+  for (const scenario of ['oversized', 'malformed', 'over-count']) {
     const subject = fixture()
     try {
       applyPlan(subject, ['setup', '--profile', 'work', '--package', subject.v1])
@@ -2619,6 +2647,10 @@ test('activation retention rejects oversized and malformed retained sets without
           Buffer.alloc((4 * 1024 * 1024) + (64 * 1024) + 1),
           { mode: 0o600 },
         )
+      } else if (scenario === 'over-count') {
+        for (let index = 0; index < 42; index += 1) {
+          writeFileSync(join(retainedRoot, `extra-${index}`), '', { mode: 0o600 })
+        }
       } else {
         symlinkSync(join(subject.privateRoot, 'must-survive.txt'), join(retainedRoot, 'malformed'))
       }
