@@ -40,8 +40,11 @@ no `AGENT_SESSION_*` metadata; skip this guidance silently there.
 
 ## Mailbox checkpoints
 
-Note that no automatic mailbox reminder reaches DSH sessions yet; rely on these
-checkpoints.
+Managed DSH sessions receive a body-free mailbox reminder through
+`UserPromptSubmit`, with reason `user-prompt-agent-memory`, at a prompt boundary
+when unread peer mail is pending. The reminder does not include message bodies
+or grant authority. Keep the checkpoints below while work continues; never
+interrupt an in-flight operation to read mail.
 
 - Check the mailbox at each material phase boundary, and at least every
   five minutes while long work continues. Do not wait for the whole task to

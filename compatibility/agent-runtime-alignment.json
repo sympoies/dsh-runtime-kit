@@ -156,7 +156,7 @@
       "dsh_paths": [
         "agent-docs/PEER_COORDINATION.md"
       ],
-      "note": "runtime_context intent peer-coordination; automatic mailbox reminders for DSH are tracked in sympoies/nils-cli#2011."
+      "note": "runtime_context intent peer-coordination; body-free UserPromptSubmit mailbox reminder with reason user-prompt-agent-memory, five-minute safe checkpoints, and correlated dispositions. Live managed-DSH check passed in sympoies/dsh-runtime-kit#311."
     },
     {
       "source": "core/policies/upstream-contribution.md",

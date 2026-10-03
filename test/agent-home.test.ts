@@ -168,7 +168,11 @@ test('packaged policy documents are DSH-native', () => {
   assert.match(peers, /in-flight/u)
   assert.match(peers, /untrusted/u)
   assert.match(peers, /never grant/u)
-  assert.match(peers, /no automatic mailbox reminder reaches DSH sessions yet/u)
+  assert.match(peers, /`UserPromptSubmit`/u)
+  assert.match(peers, /`user-prompt-agent-memory`/u)
+  assert.match(peers, /body-free mailbox reminder/u)
+  assert.match(peers, /prompt boundary/u)
+  assert.doesNotMatch(peers, /no automatic mailbox reminder reaches DSH sessions yet/u)
   // Every mutating mailbox command is shown with the flags the CLI requires.
   const commands = [...peers.replace(/\n\s*/gu, ' ').matchAll(/`agent-session message (ack|reply|send) [^`]*`/gu)]
   assert.deepEqual([...new Set(commands.map(match => match[1]))].sort(), ['ack', 'reply', 'send'])
