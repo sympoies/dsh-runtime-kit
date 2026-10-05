@@ -2756,7 +2756,7 @@ process.stdout.write('agent-docs 1.31.20 (v1.31.20, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.31.19 (v1.31.19, test)\\n')
+process.stdout.write('agent-docs 1.31.21 (v1.31.21, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const newer = run(subject, ['doctor', '--profile', 'work'])
