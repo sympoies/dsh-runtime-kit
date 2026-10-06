@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import {
@@ -269,6 +271,17 @@ test('SemVer and range grammar reject shorthand and preserve prerelease rules', 
   assert.equal(compareSemver('1.0.0-rc.2', '1.0.0'), -1)
   assert.equal(compareSemver('1.0.0-1a', '1.0.0-1b'), -1)
   assert.equal(compareSemver('1.0.0-1-foo', '1.0.0-2-foo'), -1)
+  assert.deepEqual(parseSemver('1.2.3-0.alpha-1+01.build'), {
+    source: '1.2.3-0.alpha-1+01.build',
+    major: '1',
+    minor: '2',
+    patch: '3',
+    prerelease: ['0', 'alpha-1'],
+    build: ['01', 'build'],
+  })
+  for (const invalid of ['01.0.0', '1.02.0', '1.2.03', '1.2.3-01', '1.2.3-a..b', '1.2.3+build..1']) {
+    assertContractCode(() => parseSemver(invalid), 'version-invalid')
+  }
   assert.equal(versionSatisfies('1.4.0', '>=1.0.0 <2.0.0'), true)
   assert.equal(versionSatisfies('1.0.0-rc.2', '>=1.0.0-rc.1 <1.0.0'), true)
   assert.equal(versionSatisfies('1.0.0-rc.2', '>=0.9.0 <1.0.0'), false)
@@ -285,6 +298,16 @@ test('SemVer and range grammar reject shorthand and preserve prerelease rules', 
     parseVersionRange('>=1.0.0+two >=1.0.0+one').normalized,
     '>=1.0.0+one',
   )
+})
+
+test('malformed SemVer with repeated prerelease separators is rejected within a bounded time', () => {
+  const probe = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL('./semver-redos-probe.ts', import.meta.url))],
+    { encoding: 'utf8', timeout: 2_000 },
+  )
+  assert.equal(probe.error, undefined, probe.error?.message)
+  assert.equal(probe.status, 0, probe.stderr)
 })
 
 test('contract and protocol error vocabularies are frozen and exhaustive', () => {
