@@ -350,6 +350,8 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
       ]),
       scenario('subagent', 'packed-runtime', [
         'reviewer:native-subagent-completed',
+        'subagent:host-issued-distinct-workspace',
+        'subagent:lease-ready-before-first-prompt',
       ]),
       scenario('authoritative-acceptance', 'packed-runtime', [
         'acceptance:goal-completion-blocked-pre-mutation',
@@ -717,6 +719,38 @@ test('automatic prerequisite acceptance requires every native gating marker', ()
       missing,
     )
   }
+})
+
+test('native subagent acceptance requires distinct workspace and pre-prompt lease evidence', () => {
+  const required = [
+    'subagent:host-issued-distinct-workspace',
+    'subagent:lease-ready-before-first-prompt',
+  ]
+  const complete = baseInput()
+  assert.doesNotThrow(() => buildAcceptanceSummary(complete))
+  for (const missing of required) {
+    const input = structuredClone(complete)
+    const child = input.runtime.scenarios.find(item => item.id === 'subagent')
+    child.evidence = child.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+  assert.throws(
+    () => {
+      const reviewerOnly = baseInput()
+      reviewerOnly.runtime.scenarios.find(item => item.id === 'subagent').evidence = [
+        'reviewer:native-subagent-completed',
+      ]
+      return buildAcceptanceSummary(reviewerOnly)
+    },
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'reviewer completion alone cannot attest ordinary child workspace safety',
+  )
 })
 
 test('data-policy acceptance requires every native containment marker', () => {

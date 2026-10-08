@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   readdirSync,
   rmSync,
   statSync,
@@ -864,10 +865,7 @@ function sessionEvents(session) {
 const smokeRoute = ${JSON.stringify({ provider: 'runtime-kit-smoke', model: 'scripted' })}
 
 export const name = 'dsh-runtime-kit-smoke-driver'
-// Cordis inject is required-only, so listing the orchestration service here
-// makes "Main Agent Mode activated" a load-time condition of this driver: an
-// absent service fails the smoke at plugin activation instead of silently
-// skipping the lane assertions below.
+// Required injection makes missing ordinary runtime services fail at activation.
 export const inject = [
   'agents',
   'dshAcceptance',
@@ -3103,6 +3101,95 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assertProviderSentinel(claudeHome, 'claude')
 
 
+  // Exercise the ordinary host workspace boundary independently of the reviewer.
+  // git-cli owns the worktree; only this trusted fixture holds its opaque selector.
+  resetCheckoutLease()
+  const nativeWorktreeResult = spawnSync(smokeGitCli, [
+    'worktree', 'add', 'native-subagent-workspace', '--from', 'main', '--kind', 'test', '--format', 'json',
+  ], { cwd: projectWorkspace, env: environment, encoding: 'utf8', timeout: 30_000 })
+  assert.equal(nativeWorktreeResult.status, 0, nativeWorktreeResult.stderr)
+  const nativeWorktreeEnvelope = JSON.parse(nativeWorktreeResult.stdout)
+  assert.equal(nativeWorktreeEnvelope.ok, true)
+  const nativeWorkspace = realpathSync(nativeWorktreeEnvelope.data.path)
+  assert.notEqual(nativeWorkspace, realpathSync(projectWorkspace))
+  assert.equal(statSync(join(nativeWorkspace, '.git')).isFile(), true)
+  const nativeCommonDirectory = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    cwd: nativeWorkspace, env: environment, encoding: 'utf8', timeout: 10_000,
+  })
+  assert.equal(nativeCommonDirectory.status, 0, nativeCommonDirectory.stderr)
+  assert.equal(realpathSync(nativeCommonDirectory.stdout.trim()), realpathSync(join(projectWorkspace, '.git')))
+  const nativeDriverPath = join(temporaryRoot, 'native-subagent-workspace-driver.mjs')
+  const nativeOverlayPath = join(temporaryRoot, 'native-subagent-workspace.patch.yml')
+  const nativeFixtureUrl = pathToFileURL(join(projectRoot, 'test', 'fixtures', 'native-subagent-workspace.mjs')).href
+  writeFileSync(nativeDriverPath, `
+import assert from 'node:assert/strict'
+import { LlmAdapter } from ${JSON.stringify(llmModuleUrl)}
+import { SessionId } from ${JSON.stringify(sessionModuleUrl)}
+import { probeNativeSubagentWorkspace } from ${JSON.stringify(nativeFixtureUrl)}
+export const name = 'native-subagent-workspace-smoke'
+export const inject = ['agents', 'llm', 'subagents', 'workspaceLease']
+const route = { provider: 'native-workspace-smoke', model: 'scripted' }
+export function apply(ctx) {
+  void (async () => {
+    let handle
+    try {
+      let childModelCalls = 0
+      const errors = []
+      ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
+      class Adapter extends LlmAdapter {
+        async resolveModel(provider, model) { return { provider, id: model, name: model } }
+        async *stream(options) {
+          if (String(options.sessionId) !== 'native-workspace-parent') childModelCalls += 1
+          yield { type: 'block-start', index: 0, blockType: 'text' }
+          yield { type: 'text-delta', index: 0, text: 'Native workspace complete.' }
+          yield { type: 'block-end', index: 0, block: { type: 'text', text: 'Native workspace complete.' } }
+          yield { type: 'usage', usage: { inputTokens: 1, outputTokens: 4 } }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        }
+      }
+      ctx.llm.registerAdapter([route.provider], new Adapter())
+      handle = await ctx.agents.create({
+        sessionId: SessionId('native-workspace-parent'), agentOptions: route,
+        meta: { cwd: ${JSON.stringify(realpathSync(projectWorkspace))} }, setup: undefined,
+      })
+      const receipt = await probeNativeSubagentWorkspace(ctx, {
+        parent: handle.agent, workspace: ${JSON.stringify(nativeWorkspace)},
+        agentOptions: route, signal: AbortSignal.timeout(60_000),
+      })
+      assert.ok(childModelCalls > 0, 'native child must reach the scripted model')
+      assert.deepEqual(errors, [])
+      process.stdout.write('DSH_NATIVE_SUBAGENT_WORKSPACE=' + JSON.stringify(receipt) + '\\n')
+    } catch (error) {
+      process.stderr.write(String(error?.stack ?? error) + '\\n')
+      process.exitCode = 1
+    } finally {
+      try { await handle?.dispose() } catch (error) {
+        process.stderr.write(String(error?.stack ?? error) + '\\n')
+        process.exitCode = 1
+      }
+      ctx.get('appExit')?.(process.exitCode ?? 0)
+    }
+  })()
+}
+`)
+  writeFileSync(nativeOverlayPath, `
+- insert:
+    - id: native-subagent-workspace-smoke
+      name: ${JSON.stringify(nativeDriverPath)}
+`)
+  const nativeWorkspaceBoot = runDsh(['--profile', profile, '--patch', nativeOverlayPath])
+  const nativeWorkspaceMarker = 'DSH_NATIVE_SUBAGENT_WORKSPACE='
+  const nativeWorkspaceLine = nativeWorkspaceBoot.stdout.split('\n')
+    .find(line => line.startsWith(nativeWorkspaceMarker))
+  assert.ok(nativeWorkspaceLine, `missing native workspace receipt:\n${nativeWorkspaceBoot.stdout}\n${nativeWorkspaceBoot.stderr}`)
+  const nativeWorkspaceReceipt = JSON.parse(nativeWorkspaceLine.slice(nativeWorkspaceMarker.length))
+  assert.equal(nativeWorkspaceReceipt.schema_version, 'dsh-runtime-kit.native-subagent-workspace.v1')
+  assert.equal(nativeWorkspaceReceipt.distinct_workspace, true)
+  assert.equal(nativeWorkspaceReceipt.lease_ready_before_first_prompt, true)
+  assert.equal(nativeWorkspaceReceipt.child_completed, true)
+  assert.equal(nativeWorkspaceReceipt.child_closed, true)
+  assert.deepEqual(nativeWorkspaceReceipt.order, ['workspace-issued', 'lease-ready', 'first-prompt', 'child-idle', 'child-closed'])
+
   const finalDshCheckout = await manageDshPatch({
     action: 'check',
     sourceRoot: dshRoot,
@@ -3173,8 +3260,11 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
         id: 'subagent',
         status: 'passed',
         producer: 'packed-runtime',
+        workspace: nativeWorkspaceReceipt,
         evidence: [
           'reviewer:native-subagent-completed',
+          'subagent:host-issued-distinct-workspace',
+          'subagent:lease-ready-before-first-prompt',
         ],
       },
       {

@@ -636,7 +636,6 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       },
       ctx,
     )
-
   } catch (error) {
     await privateSnapshot?.dispose()
     throw error

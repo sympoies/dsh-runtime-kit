@@ -23,7 +23,8 @@ provider read-back into one promotion result.
 - rechecks the candidate, executable, and DSH identities between scenarios;
   and
 - proves the functional DSH session, skills, reviewer, lifecycle, operations,
-  and coexistence boundaries.
+  and coexistence boundaries, including an ordinary native child in a distinct
+  host-issued worktree with its lease ready before the first prompt.
 
 The command requires `--acknowledge-trusted-code` because the candidate runs
 with user-systemd and network authority during local rehearsal. It does not

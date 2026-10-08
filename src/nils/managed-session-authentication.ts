@@ -237,13 +237,11 @@ export function applyManagedSessionAuthentication(
       const readiness = result.envelope.data
       let helperMatches = false
       try {
-        helperMatches = trustedHelper !== undefined
-          && realpathSync(candidate.AGENT_SESSION_BIN) === realpathSync(trustedHelper)
+        helperMatches = realpathSync(candidate.AGENT_SESSION_BIN) === realpathSync(trustedHelper)
       } catch {
         helperMatches = false
       }
-      if (trustedHelper === undefined
-        || readiness?.schema_version !== READINESS_SCHEMA
+      if (readiness?.schema_version !== READINESS_SCHEMA
         || readiness.ready !== true
         || readiness.session_id !== candidate.AGENT_SESSION_ID
         || readiness.session_incarnation !== candidate.AGENT_SESSION_RUNTIME_ID

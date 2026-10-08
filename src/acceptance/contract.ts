@@ -286,6 +286,8 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
     ]),
     subagent: Object.freeze([
       'reviewer:native-subagent-completed',
+      'subagent:host-issued-distinct-workspace',
+      'subagent:lease-ready-before-first-prompt',
     ]),
     'private-project-skill': Object.freeze([
       'coexistence:no-cross-loaded-hooks-skills-session-state',
