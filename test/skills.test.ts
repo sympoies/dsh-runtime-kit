@@ -81,7 +81,7 @@ function collectFiles(directory, prefix = '') {
   })
 }
 
-test('the public DSH bundle owns the complete 28-skill catalog', () => {
+test('the public DSH bundle owns the complete 27-skill catalog', () => {
   const actual = readdirSync(skillsRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
