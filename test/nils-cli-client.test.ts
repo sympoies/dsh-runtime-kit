@@ -156,4 +156,3 @@ test('malformed, lossy, and signal-killed outputs fail closed; typed CLI errors 
   assert.equal(typedResult.envelope.error.code, 'claim-not-active')
   assert.equal(typedResult.exitCode, 1)
 })
-
