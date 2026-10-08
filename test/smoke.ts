@@ -3105,9 +3105,13 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   // git-cli owns the worktree; only this trusted fixture holds its opaque selector.
   resetCheckoutLease()
   const nativeWorktreeResult = spawnSync(smokeGitCli, [
-    'worktree', 'add', 'native-subagent-workspace', '--from', 'main', '--kind', 'test', '--format', 'json',
+    'worktree', 'add', 'native-subagent-workspace', '--from', 'main', '--kind', 'feature', '--format', 'json',
   ], { cwd: projectWorkspace, env: environment, encoding: 'utf8', timeout: 30_000 })
-  assert.equal(nativeWorktreeResult.status, 0, nativeWorktreeResult.stderr)
+  assert.equal(
+    nativeWorktreeResult.status,
+    0,
+    [nativeWorktreeResult.stdout, nativeWorktreeResult.stderr].filter(Boolean).join('\n'),
+  )
   const nativeWorktreeEnvelope = JSON.parse(nativeWorktreeResult.stdout)
   assert.equal(nativeWorktreeEnvelope.ok, true)
   const nativeWorkspace = realpathSync(nativeWorktreeEnvelope.data.path)
