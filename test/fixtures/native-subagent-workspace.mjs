@@ -6,6 +6,9 @@ export async function probeNativeSubagentWorkspace(ctx, { parent, workspace, age
   assert.notEqual(workspace, parent.session.header.cwd, 'child must use a distinct workspace')
   const subagents = ctx.subagents
   assert.equal(typeof subagents?.registerContinuableWorkspaceProvider, 'function')
+  const nativeProvider = subagents.getProvider('spawn')
+  assert.equal(typeof nativeProvider?.prepareContinuable, 'function',
+    'native workspace smoke requires the registered spawn provider with continuable support')
   const ref = Object.freeze(Object.create(null))
   const order = []
   let childId
@@ -72,7 +75,7 @@ export async function probeNativeSubagentWorkspace(ctx, { parent, workspace, age
       },
     })
     started = await subagents.startContinuable({
-      provider: 'in-process',
+      provider: nativeProvider.name,
       label: 'native-workspace-smoke',
       workspace: { provider: 'native-workspace-smoke', ref },
       request: {

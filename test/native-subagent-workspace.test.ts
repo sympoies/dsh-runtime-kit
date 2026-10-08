@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import { probeNativeSubagentWorkspace } from './fixtures/native-subagent-workspace.mjs'
 
-function host({ cwd = '/child', leaseState = 'owned', earlyPrompt = false, sharedRef = false, idle } = {}) {
+function host({ cwd = '/child', leaseState = 'owned', earlyPrompt = false, sharedRef = false, idle,
+  missingNativeProvider = false, continuable = true } = {}) {
   const parent = { id: 'parent', session: { header: { cwd: '/parent' } } }
   const child = {
     id: 'child',
@@ -13,6 +14,11 @@ function host({ cwd = '/child', leaseState = 'owned', earlyPrompt = false, share
   const parentRef = {}
   const childRef = {}
   const disposals = []
+  const nativeProvider = {
+    name: 'spawn',
+    ...(continuable ? { prepareContinuable: async () => ({}) } : {}),
+  }
+  const providers = new Map(missingNativeProvider ? [] : [[nativeProvider.name, nativeProvider]])
   let observe
   let provider
   const ctx = {
@@ -25,12 +31,13 @@ function host({ cwd = '/child', leaseState = 'owned', earlyPrompt = false, share
       async state() { return leaseState },
     },
     subagents: {
+      getProvider(name) { return providers.get(name) },
       registerContinuableWorkspaceProvider(selected) {
         provider = selected
         return () => { disposals.push('provider') }
       },
       async startContinuable(spec) {
-        assert.equal(spec.provider, 'in-process')
+        assert.ok(providers.get(spec.provider), `no registered native child provider: ${spec.provider}`)
         provider.validate(spec.workspace.ref, spec.request.parent)
         const prepared = await provider.prepare({
           sessionId: child.id, parent, ref: spec.workspace.ref,
@@ -62,6 +69,16 @@ test('native workspace probe proves distinct host selection and pre-prompt lease
   assert.equal(receipt.lease_ready_before_first_prompt, true)
   assert.deepEqual(receipt.order, ['workspace-issued', 'lease-ready', 'first-prompt', 'child-idle', 'child-closed'])
   assert.deepEqual(fixture.disposals, ['child', 'provider', 'observer'])
+})
+
+test('native workspace probe rejects a missing or noncontinuable native provider before registration', async () => {
+  for (const options of [{ missingNativeProvider: true }, { continuable: false }]) {
+    const fixture = host(options)
+    await assert.rejects(probeNativeSubagentWorkspace(fixture.ctx, {
+      parent: fixture.parent, workspace: '/child', signal: AbortSignal.timeout(1_000),
+    }), /registered spawn provider with continuable support/)
+    assert.deepEqual(fixture.disposals, [])
+  }
 })
 
 test('native workspace probe rejects workspace reuse, shared authority and unowned child lease', async () => {
