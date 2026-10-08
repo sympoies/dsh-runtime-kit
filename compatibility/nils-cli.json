@@ -269,29 +269,6 @@
       "source_task": "sympoies/nils-cli#1792"
     },
     {
-      "id": "main-agent.dsh-external-runtime",
-      "binary": "main-agent",
-      "status": "released",
-      "validation": "release-bundle-validated",
-      "contracts": [
-        "main-agent.capabilities.v1",
-        "main-agent.worker-start-result.v1",
-        "main-agent.external-launch.v1",
-        "main-agent.dsh-runtime-liveness.v1"
-      ],
-      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
-    },
-    {
-      "id": "agent-session.broker-heartbeat",
-      "binary": "agent-session",
-      "status": "released",
-      "validation": "release-bundle-validated",
-      "contracts": [
-        "per-lane broker heartbeat and stop argv from main-agent.external-launch.v1"
-      ],
-      "source_task": "sympoies/dsh-runtime-kit#6 M1 (sympoies/nils-cli#1467)"
-    },
-    {
       "id": "agent-session.work-context-set-if-absent",
       "binary": "agent-session",
       "status": "released",
@@ -305,21 +282,6 @@
         "serenvia/sympoies-infra#213",
         "sympoies/nils-cli#1591"
       ]
-    },
-    {
-      "id": "main-agent.lane-orchestration",
-      "binary": "main-agent",
-      "status": "released",
-      "validation": "release-bundle-validated",
-      "contracts": [
-        "main-agent.checkpoint-input.v1",
-        "main-agent checkpoint --file --if-revision --idempotency-key",
-        "main-agent worker supervise",
-        "main-agent worker request-changes --if-revision --reason --idempotency-key",
-        "main-agent worker accept --if-revision --idempotency-key",
-        "main-agent closeout --if-run-revision --checkpoint-file --idempotency-key"
-      ],
-      "source_task": "sympoies/dsh-runtime-kit#6 Phase 4 orchestration verbs"
     },
     {
       "id": "forge-cli.pr-deliver",

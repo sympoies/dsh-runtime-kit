@@ -1,13 +1,13 @@
 import { realpathSync } from 'node:fs'
-import { dirname, isAbsolute, resolve } from 'node:path'
+import { isAbsolute } from 'node:path'
 
 import { dshRc7SessionHeader } from '../compat/dsh-rc7.js'
-import { createCliClient } from '../main-agent/cli-client.js'
+import { createCliClient } from './cli-client.js'
 
 export type Context = import('@deepseek-ai/cordis').Context
 
-const READINESS_ENVELOPE_SCHEMA = 'cli.main-agent.self-readiness.v1'
-const READINESS_SCHEMA = 'main-agent.runtime-readiness.v1'
+const READINESS_ENVELOPE_SCHEMA = 'cli.agent-session.readiness.v1'
+const READINESS_SCHEMA = 'agent-session.runtime-readiness.v1'
 const WORK_CONTEXT_SET_ENVELOPE_SCHEMA = 'cli.agent-session.work-context-set.v1'
 const WORK_CONTEXT_SET_SCHEMA = 'agent-session.work-context-set-result.v1'
 const WORK_CONTEXT_SCHEMA = 'agent-session.work-context.v1'
@@ -152,14 +152,11 @@ function remainingAuthenticationMs(deadlineAt: number) {
 
 /**
  * Authenticate the top-level Agent Console principal before the always-on
- * policy middleware runs. This boundary cannot live behind the optional Main
- * Agent child plugin: an ordinary single-agent turn may reach its first
- * pre-step while that child is still pending activation.
+ * policy middleware runs, including ordinary single-agent turns.
  */
 export function applyManagedSessionAuthentication(
   ctx: Context,
   config: {
-    mainAgentCli?: string,
     agentSessionCli?: string,
     cliTimeoutMs?: number,
     cliTeardownTimeoutMs?: number,
@@ -169,15 +166,10 @@ export function applyManagedSessionAuthentication(
   bridge: {bind?: (id:string, principal:unknown) => (() => void), registerAuthenticator?: (candidate:(id:string, execution:unknown) => Promise<unknown>) => (() => void)},
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
 ) {
-  const mainAgentCli = typeof config.mainAgentCli === 'string' && config.mainAgentCli.length > 0
-    ? config.mainAgentCli
-    : 'main-agent'
   const agentSessionCli = typeof config.agentSessionCli === 'string'
     && config.agentSessionCli.length > 0
     ? config.agentSessionCli
-    : isAbsolute(mainAgentCli)
-      ? resolve(dirname(mainAgentCli), AGENT_SESSION_BASENAME)
-      : AGENT_SESSION_BASENAME
+    : AGENT_SESSION_BASENAME
   const client = createCliClient(ctx, config)
   const bindings: Map<string, Readonly<{principal: Readonly<{sessionId:string, environment:Readonly<Record<string,string>>}>, dispose: () => void}>> = new Map()
   const authenticating: Map<string, Readonly<{
@@ -222,9 +214,12 @@ export function applyManagedSessionAuthentication(
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) {
         throw new Error('dsh-runtime-kit: managed session cwd unavailable')
       }
+      const trustedHelper = await trustedAgentSessionCli(controller.signal)
+      if (trustedHelper === undefined) {
+        throw new Error('dsh-runtime-kit: managed session trusted helper unavailable')
+      }
       const result = await client.run([
-        mainAgentCli,
-        'self',
+        trustedHelper,
         'readiness',
         '--format',
         'json',
@@ -240,7 +235,6 @@ export function applyManagedSessionAuthentication(
         throw new Error('dsh-runtime-kit: managed session readiness unavailable')
       }
       const readiness = result.envelope.data
-      const trustedHelper = await trustedAgentSessionCli(controller.signal)
       let helperMatches = false
       try {
         helperMatches = trustedHelper !== undefined

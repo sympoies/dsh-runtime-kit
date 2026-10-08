@@ -340,7 +340,7 @@ function admissionHarness(health) {
       { capability: 'project-docs', scope: 'project' },
     ],
     toolRequirements: {
-      runtime_kit_start_worker: [{ capability: 'main-agent-mode', scope: 'runtime' }],
+      review_specialists: [{ capability: 'review-specialists', scope: 'runtime' }],
     },
   })
   return {
@@ -368,7 +368,7 @@ test('blocked project health denies pre-waterfall model dispatch and recovery ad
     },
   })
   ctx.dshRuntimeHealth.register({
-    capability: 'main-agent-mode',
+    capability: 'review-specialists',
     owner: OWNER,
     async probe() { return { state: 'degraded', code: 'DSH_RUNTIME_HEALTH_OPTIONAL_UNAVAILABLE' } },
   })
@@ -408,15 +408,15 @@ test('optional degradation leaves independent tools available but blocks an expl
     })
   }
   ctx.dshRuntimeHealth.register({
-    capability: 'main-agent-mode',
+    capability: 'review-specialists',
     owner: OWNER,
     async probe() { return { state: 'degraded', code: 'DSH_RUNTIME_HEALTH_OPTIONAL_UNAVAILABLE' } },
   })
-  await ctx.dshRuntimeHealth.probe('main-agent-mode')
+  await ctx.dshRuntimeHealth.probe('review-specialists')
   const { toolGuard } = admissionHarness(ctx.dshRuntimeHealth)
   let bodies = 0
   const signal = new AbortController().signal
-  const dependent = toolGuard({ name: 'runtime_kit_start_worker', signal })
+  const dependent = toolGuard({ name: 'review_specialists', signal })
   if (dependent === undefined) bodies += 1
   assert.equal(dependent, 'DSH_RUNTIME_HEALTH_OPTIONAL_UNAVAILABLE')
   const independent = toolGuard({ name: 'runtime_kit_plus_one', signal })
@@ -442,7 +442,7 @@ test('project health refreshes at every pre-waterfall model dispatch and skips s
     },
   })
   ctx.dshRuntimeHealth.register({
-    capability: 'main-agent-mode',
+    capability: 'review-specialists',
     owner: OWNER,
     async probe() { return { state: 'ready', code: 'DSH_RUNTIME_HEALTH_OPTIONAL_READY' } },
   })
@@ -532,11 +532,11 @@ test('same-root dispose and reapply retires old health registrations and late ch
         })
       }
       health.register({
-        capability: 'main-agent-mode',
+        capability: 'review-specialists',
         owner: OWNER,
         probe() {
           providerCalls += 1
-          return childPlugins.main_agent_mode.state === 'active'
+          return childPlugins.review_specialists.state === 'active'
             ? { state: 'ready', code: 'DSH_RUNTIME_HEALTH_OPTIONAL_READY' }
             : { state: 'degraded', code: 'DSH_RUNTIME_HEALTH_OPTIONAL_PENDING' }
         },
@@ -548,18 +548,18 @@ test('same-root dispose and reapply retires old health registrations and late ch
           { capability: 'project-docs', scope: 'project' },
         ],
         toolRequirements: {
-          main_agent_run_initialize: [
-            { capability: 'main-agent-mode', scope: 'runtime' },
+          review_specialists: [
+            { capability: 'review-specialists', scope: 'runtime' },
           ],
         },
       }), 'health admission fixture')
-      await health.probe('main-agent-mode')
+      await health.probe('review-specialists')
       observeChildPluginActivation(
         childPlugins,
-        'main_agent_mode',
+        'review_specialists',
         () => config.activation.promise,
         { warn() {} },
-        () => { void health.probe('main-agent-mode', { force: true }).catch(() => {}) },
+        () => { void health.probe('review-specialists', { force: true }).catch(() => {}) },
       )
       mounted.push({ health, get providerCalls() { return providerCalls } })
     },
@@ -578,12 +578,12 @@ test('same-root dispose and reapply retires old health registrations and late ch
   await secondFiber
   assert.deepEqual([modelGuards.size, toolGuards.size, invariants.size], [1, 1, 1])
   const second = mounted[1]
-  const replacement = second.health.snapshot('main-agent-mode')
+  const replacement = second.health.snapshot('review-specialists')
   firstActivation.resolve()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(first.health.disposed, true)
   assert.equal(first.providerCalls, 1)
-  assert.deepEqual(second.health.snapshot('main-agent-mode'), replacement)
+  assert.deepEqual(second.health.snapshot('review-specialists'), replacement)
   assert.equal(second.providerCalls, 1)
 
   await secondFiber.dispose()
@@ -606,7 +606,7 @@ test('parent disposal fences a pending Cordis child without an unhandled lifecyc
         const child = ctx.plugin({ inject: ['missing-runtime-service'], apply() {} })
         observeChildPluginActivation(
           status,
-          'main_agent_mode',
+          'review_specialists',
           async () => {
             await activation.promise
             return child
@@ -619,14 +619,14 @@ test('parent disposal fences a pending Cordis child without an unhandled lifecyc
     }
     const parent = root.plugin(bundle)
     await parent
-    assert.equal(status.main_agent_mode.state, 'pending')
+    assert.equal(status.review_specialists.state, 'pending')
 
     await parent.dispose()
     activation.resolve()
     await new Promise(resolve => setImmediate(resolve))
     await new Promise(resolve => setImmediate(resolve))
 
-    assert.equal(status.main_agent_mode.state, 'pending')
+    assert.equal(status.review_specialists.state, 'pending')
     assert.deepEqual(transitions, [])
     assert.deepEqual(rejections, [])
   } finally {

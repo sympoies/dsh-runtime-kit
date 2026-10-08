@@ -69,8 +69,8 @@ function rows(path: string) {
 test('catalog expands every planned owner into stable folder-kind scenarios', () => {
   const catalog = loadAcceptanceCatalog(CATALOG)
   assert.equal(catalog.schema_version, 'dsh-runtime-kit.acceptance-scenarios.v2')
-  assert.equal(catalog.scenarios.length, 40)
-  assert.equal(new Set(catalog.scenarios.map(row => row.id)).size, 40)
+  assert.equal(catalog.scenarios.length, 38)
+  assert.equal(new Set(catalog.scenarios.map(row => row.id)).size, 38)
   assert.deepEqual(
     catalog.scenarios.map(row => [row.id, row.owner.program_child, row.owner.feature_issue, row.folder_kind]),
     [
@@ -88,8 +88,6 @@ test('catalog expands every planned owner into stable folder-kind scenarios', ()
       ['authoritative-acceptance.git-repo', '#D', '#59', 'git-repo'],
       ['authoritative-acceptance.non-git', '#D', '#59', 'non-git'],
       ['authoritative-acceptance.managed-worktree', '#D', '#59', 'managed-worktree'],
-      ['managed-subagent-workspace.git-repo', '#D', '#60', 'git-repo'],
-      ['managed-subagent-workspace.managed-worktree', '#D', '#60', 'managed-worktree'],
       ['data-policy.git-repo', '#D', '#61', 'git-repo'],
       ['data-policy.non-git', '#D', '#61', 'non-git'],
       ['data-policy.managed-worktree', '#D', '#61', 'managed-worktree'],
@@ -152,9 +150,6 @@ test('acceptance-harness is a Codex and Claude project intent', () => {
   assert.match(runbook, /--chmod 0700 <signing-home>/u)
   assert.match(runbook, /independently verify the resulting commit signature/iu)
   assert.match(runbook, /repository-local test identity/u)
-  assert.match(runbook, /fresh dedicated Agent Console controller\s+principal/iu)
-  assert.match(runbook, /DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG/u)
-  assert.match(runbook, /XDG_CONFIG_HOME/u)
   assert.match(runbook, /precondition-unmet/u)
   assert.doesNotMatch(runbook, /set `DSH_PERMISSION_MODE=danger-full-access` in the\s+owner-only DSH wrapper before boot/u)
 })
@@ -164,7 +159,7 @@ test('#D tasks run fixture commands in the current session without launching nes
     row => row.owner.program_child === '#D',
   )
 
-  assert.equal(scenarios.length, 33)
+  assert.equal(scenarios.length, 31)
   for (const scenario of scenarios) {
     for (const task of [scenario.task, scenario.deliberate_failure_task]) {
       assert.equal(typeof task, 'string', `${scenario.id} must declare both phases`)
@@ -459,45 +454,6 @@ test('restricted-role scenarios invoke the authenticated reviewer surface instea
     )
     assert.match(scenario.deliberate_failure_task!, /typed status induced record[\s\S]*command exits zero/u)
     assert.match(scenario.deliberate_failure_task!, /Only acceptance-fixture-ok permits the recovery marker/u)
-  }
-})
-
-test('managed subagent controller records reviewed child state before validating the primary last', () => {
-  const scenarios = loadAcceptanceCatalog(CATALOG).scenarios.filter(
-    row => row.id.startsWith('managed-subagent-workspace.'),
-  )
-  const pack = JSON.parse(readFileSync(PACK, 'utf8'))
-  const family = pack.families.find((row: { id: string }) => row.id === 'managed-subagent-workspace')
-  assert.equal(scenarios.length, 2)
-  assert.match(family.success_observation, /primary implementation target remains subagent-before/u)
-  assert.match(family.success_observation, /controller-owned review file is exactly review-complete/u)
-  assert.match(family.success_observation, /distinct retained child target is subagent-after/u)
-  assert.match(family.success_observation, /Rerun the registered child validation after DSH exits/u)
-  assert.match(family.deliberate_failure.recovery_observation, /retry primary implementation target stayed subagent-before/u)
-  assert.match(family.deliberate_failure.recovery_observation, /controller-owned review file became exactly review-complete/u)
-  assert.match(family.deliberate_failure.recovery_observation, /distinct retry child remained available with subagent-after/u)
-  assert.match(family.deliberate_failure.recovery_observation, /only after attestation/u)
-  for (const scenario of scenarios) {
-    for (const task of [scenario.task, scenario.deliberate_failure_task!]) {
-      assert.match(task, /after (?:the )?run closeout/iu)
-      assert.match(task, /primary_worktree/u)
-      assert.match(task, /child_worktree/u)
-      assert.match(task, /While the lane is still open/u)
-      assert.match(task, /read-only/u)
-      assert.match(task, /exact command \.\/fixture-validation\.mjs/u)
-      assert.match(task, /Do not run Bash in child_worktree/u)
-      assert.match(task, /external harness will independently rerun that validation after DSH exits/u)
-      assert.match(task, /Accept the submitted current revision/u)
-      assert.match(task, /controller-review\.txt/u)
-      assert.match(task, /review-complete/u)
-      assert.match(task, /primary implementation target/u)
-      assert.match(task, /final tool call/u)
-      assert.match(task, /without any other tool call/u)
-      assert.match(task, /do not append a phase or workdir suffix/iu)
-      assert.ok(task.indexOf('Do not run Bash in child_worktree') < task.indexOf('Accept the submitted current revision'))
-      assert.ok(task.indexOf('Accept the submitted current revision') < task.indexOf('controller-review.txt'))
-      assert.ok(task.indexOf('after the run closeout') < task.indexOf('once from primary_worktree'))
-    }
   }
 })
 
@@ -1941,69 +1897,6 @@ process.stdout.write('The session stopped without a marker.\\n')
   assert.equal(result.observed.expected_failure_observed, false)
   assert.equal(result.status, 'fail')
   assert.equal(summary.status, 'fail')
-})
-
-test('an exact runtime-kit refusal from the correlated managed-lane tool is an observed induced failure', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'acceptance-drive-runtime-refusal-'))
-  const workdir = join(root, 'failure')
-  const retryWorkdir = join(root, 'retry')
-  const dshHome = join(root, 'dsh-home')
-  const output = join(root, 'results.jsonl')
-  mkdirSync(workdir)
-  mkdirSync(retryWorkdir)
-  mkdirSync(dshHome)
-  for (const repo of [workdir, retryWorkdir]) {
-    assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repo }).status, 0)
-  }
-  const runtimeKit = executable(join(root, 'runtime-kit.mjs'), `
-process.stdout.write(JSON.stringify({ok:true,data:{status:'healthy'}})+'\\n')
-`)
-  const failureTask = loadAcceptanceCatalog(CATALOG).scenarios.find(
-    row => row.id === 'managed-subagent-workspace.git-repo',
-  )!.deliberate_failure_task
-  const dsh = executable(join(root, 'dsh.mjs'), `
-const fs = await import('node:fs')
-const path = await import('node:path')
-const zlib = await import('node:zlib')
-const task = process.argv.at(-1)
-if (task !== ${JSON.stringify(failureTask)}) process.exit(90)
-if (fs.existsSync('.fixture-recovered')) {
-  process.stdout.write('DSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.git-repo\\n')
-  process.exit(0)
-}
-const sessions = path.join(process.env.DSH_HOME, 'sessions', 'fixture', 'session')
-fs.mkdirSync(sessions, {recursive:true})
-const refusal = 'Error: dsh-runtime-kit:main-agent-cli-refused '+JSON.stringify({
-  code:'assignment-launch-cwd-unavailable',
-  message:'assignment launch working directory is unavailable',
-})
-const transcript = [
-  {type:'session',cwd:process.cwd(),createdAt:Date.now()},
-  {type:'tool/call',data:{callId:'managed-lane-1',name:'main_agent_worker_launch',arguments:'{}'}},
-  {type:'tool/result',data:{message:{source:{kind:'tool',callId:'managed-lane-1'},content:[{type:'tool-result',toolCallId:'managed-lane-1',isError:true,content:[{type:'text',text:refusal}]}]}}},
-].map(row => JSON.stringify(row)).join('\\n')+'\\n'
-fs.writeFileSync(path.join(sessions, 'refusal.jsonl.zstd'), zlib.zstdCompressSync(Buffer.from(transcript)))
-process.stdout.write('Typed refusal: assignment-launch-cwd-unavailable\\n')
-`)
-
-  const summary = runAcceptanceDrive({
-    profile: 'headless', catalogPath: CATALOG, scenarioPackPath: PACK,
-    phase: 'deliberate-failure', scenarioIds: ['managed-subagent-workspace.git-repo'],
-    workdir, retryWorkdir, outputPath: output, artifactDir: join(root, 'artifacts'), dshBin: dsh,
-    runtimeKitBin: runtimeKit, dshHome, timeoutMs: 10_000, runId: 'runtime-refusal',
-    fixtureBin: fixtureProvider(join(root, 'fixture.mjs')),
-  })
-
-  const [result] = rows(output)
-  assert.deepEqual(result.observed.induced_failure, {
-    code: 'assignment-launch-cwd-unavailable',
-    component: 'acceptance-fixture',
-    next_action: 'Reverse the staged fixture induction through its authenticated inverse transition, then retry the unchanged task.',
-  })
-  assert.equal(result.observed.expected_failure_observed, true)
-  assert.equal(result.observed.fixture.clean_retry.status, 'pass')
-  assert.equal(result.status, 'pass')
-  assert.equal(summary.status, 'pass')
 })
 
 test('a data-policy copy denial remains observable after final validation and clean retry', async () => {

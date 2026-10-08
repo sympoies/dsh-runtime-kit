@@ -737,7 +737,7 @@ function ownRegistration(ctx: Context, dispose: () => void, label: string) {
 }
 
 /** Install authenticated nils and optional-child health providers. */
-export async function installNilsHealthProviders(ctx: Context, health: import('./index.js').RuntimeHealth, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}, options: {compatibility?: unknown, dshRuntime: unknown, childPlugins: {main_agent_mode: {state:string}, review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}) {
+export async function installNilsHealthProviders(ctx: Context, health: import('./index.js').RuntimeHealth, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}, options: {compatibility?: unknown, dshRuntime: unknown, childPlugins: {review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}) {
   if (health === undefined || typeof health.register !== 'function') {
     throw new TypeError('dsh-runtime-kit: runtime health service is required')
   }
@@ -941,7 +941,6 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
   ownRegistration(ctx, disposeProject, 'dsh-runtime-kit project docs health provider')
 
   const childCapabilities = (([
-    ['main-agent-mode', 'main_agent_mode'],
     ['review-specialists', 'review_specialists'],
   ]) as const)
   for (const [capability, name] of childCapabilities) {

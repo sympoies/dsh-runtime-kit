@@ -13,9 +13,6 @@ The validated companion release is nils-cli 1.31.13. Its exact Linux x64 and
 macOS arm64 archives and consumed binary digests are recorded in
 `compatibility/nils-cli.json`; the minimum remains 1.29.0. This adoption retains
 the managed-session mailbox reminder and guard contracts admitted in 1.31.8.
-The generic Main Agent controller fixtures use an inert explicit Codex stub;
-DSH workers still use the external-runtime contract. The live-scope conflict
-scenario now verifies refusal before a worker session is created.
 
 ## Agent runtime source alignment
 
@@ -239,9 +236,23 @@ runtime-kit revisions in one reviewed contract and owns their acceptance and
 rollback. This repository's compatibility window applies to the runtime-kit
 bundle only.
 
-Controller and lane tools are separate surfaces: the controller must not expose
-`main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
-forbidden from the controller's lane-management tools.
+## Generic session readiness prerequisite
+
+This retirement draft uses `agent-session readiness --format json`, with
+`cli.agent-session.readiness.v1` wrapping `agent-session.runtime-readiness.v1`.
+The helper authenticates the current capability, incarnation and fresh broker,
+and checks the exact issued private checkpoint path without reading or changing
+its contents. Runtime-kit compares that proof to its immutable producer
+principal and verifies helper realpath equality before binding it in process.
+Readiness, baseline `work-context set --if-absent`, cancellation and disposal
+share one cumulative authentication deadline.
+
+The existing released companion tuple is retained as historical artifact
+evidence during draft preparation. A released readiness companion, its real
+archive and binary digests, and the compatibility floor update are pending.
+Fixture proof does not admit that older tuple for the new readiness contract.
+This draft must remain held until those release artifacts are authenticated and
+the dispatcher completes the runtime rehearsal and subsequent acceptance.
 
 ## Promotion checks
 

@@ -225,12 +225,9 @@
     {
       "source": "core/skills/conversation/main-agent-mode",
       "kind": "skill",
-      "disposition": "open-issue",
-      "issue": "sympoies/dsh-runtime-kit#316",
-      "dsh_paths": [
-        "skills/main-agent-mode/SKILL.md"
-      ],
-      "note": "DSH's native controller tools are intentional; outcome routing and program waves are missing."
+      "disposition": "not-applicable",
+      "dsh_paths": [],
+      "note": "Optional orchestration mode retired; ordinary native DSH subagents and specialist review remain independent."
     },
     {
       "source": "core/skills/dispatch/deliver-dispatch-plan",
