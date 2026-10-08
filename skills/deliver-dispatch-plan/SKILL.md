@@ -57,7 +57,8 @@ infer closeout from prose alone.
 
 A plain `program` delivers child PRs independently. This specialization adds
 an integration branch because lane PRs cannot safely land on main separately.
-Main Agent Mode changes execution ownership, not the tracker or provider gate.
+Delegation changes execution ownership; tracker and provider authority remain
+with their assigned owners.
 
 - A lane executor owns implementation, local validation, its managed worktree,
   and creation or update of its PR against the integration branch. It posts a

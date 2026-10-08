@@ -33,7 +33,7 @@ combined approval summary.
 - If review blocks delivery, post a blocked outcome comment before stopping when
   provider auth and permissions allow it.
 - Do not use this format for individual quick-finding or specialist reports. Those comments
-  report findings only; the parent/main agent owns the dispositions recorded
+  report findings only; the parent agent owns the dispositions recorded
   here.
 - If outcome posting fails, stop before merge and report the provider command,
   exit status, and retry action. A delivery that requires this contract is not

@@ -300,29 +300,6 @@ function fixtureInducedFailure(surface: string) {
   return undefined
 }
 
-const MAIN_AGENT_REFUSAL_PREFIX = 'Error: dsh-runtime-kit:main-agent-cli-refused '
-
-// DSH's MCP transcript preserves a failed runtime-kit tool call as an error
-// tool-result, but some hosts flatten the thrown Error to its text and omit the
-// custom top-level `code` property. Accept only the runtime-kit's fixed prefix
-// followed by a valid JSON object from that error-only surface. Model prose and
-// successful tool output are deliberately excluded by the caller.
-function mainAgentInducedFailure(surface: string) {
-  for (const line of surface.split(/\r?\n/gu)) {
-    if (!line.startsWith(MAIN_AGENT_REFUSAL_PREFIX)) continue
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(line.slice(MAIN_AGENT_REFUSAL_PREFIX.length))
-    } catch {
-      continue
-    }
-    const row = record(parsed)
-    if (typeof row?.code !== 'string' || !FIXTURE_INDUCED_CODE.test(row.code)) continue
-    return inducedFailure(row.code)
-  }
-  return undefined
-}
-
 // An induced leg that ended because the provider, the host runtime or an
 // unclassifiable fault stopped it proves nothing about the staged induction, so
 // those categories never satisfy the deliberate-failure contract.
@@ -341,7 +318,6 @@ const EXPECTED_INDUCED_FAILURE_CODES: ReadonlyMap<string, ReadonlySet<string>> =
   ['automatic-prerequisite', new Set(['DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID'])],
   ['runtime-health', new Set(['DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'])],
   ['authoritative-acceptance', new Set(['acceptance-fixture-induced-failure'])],
-  ['managed-subagent-workspace', new Set(['assignment-launch-cwd-unavailable'])],
   ['data-policy', new Set(['sandbox-file-access-denied'])],
   ['restricted-role', new Set(['restricted-role-write-unavailable'])],
   ['session-artifact', new Set(['ARTIFACT_REF_INVALID'])],
@@ -374,9 +350,6 @@ function inducedEvidenceCall(value: unknown, family: string) {
   const data = record(row?.data)
   if (row?.type !== 'tool/call' || typeof data?.callId !== 'string' || typeof data.name !== 'string') {
     return undefined
-  }
-  if (family === 'managed-subagent-workspace' && data.name === 'main_agent_worker_launch') {
-    return { callId: data.callId, kind: 'main-agent' as const }
   }
   const expectedProbe = FIXTURE_PROBE_BY_FAMILY.get(family)
   const args = toolArguments(data.arguments)
@@ -912,7 +885,7 @@ function scanTranscripts(
   let inducedFailure: InducedFailure | undefined
   for (const path of transcripts) {
     const runtimeContextCallIds = new Set<string>()
-    const inducedEvidenceCallIds = new Map<string, 'fixture' | 'main-agent'>()
+    const inducedEvidenceCallIds = new Map<string, 'fixture'>()
     try {
       const metadata = safeRegularFile(path, 'session transcript')
       compressedBytes += metadata.size
@@ -947,8 +920,6 @@ function scanTranscripts(
             : undefined
           if (evidenceKind === 'fixture') {
             inducedFailure ??= fixtureInducedFailure(transcriptToolResultText(value))
-          } else if (evidenceKind === 'main-agent') {
-            inducedFailure ??= mainAgentInducedFailure(transcriptToolResultText(value, true))
           }
         }
         if (!observedTranscriptRecord(value)) continue
@@ -1930,7 +1901,7 @@ function usage() {
     '  --run-id <id>                   stable row correlation id',
     '  --report-issue <absolute path>  draft a heuristic issue body for failures; never submits it',
     '  --attest <absolute JSON path>   append one external-harness attestation to --output',
-    '  --summarize-pack                append the 66-case #D completion summary to --output',
+    '  --summarize-pack                append the 62-case #D completion summary to --output',
     '  --timeout-ms <milliseconds>     per command, 100..1800000',
     '',
     'npm pack does not build this package and install-time lifecycle hooks are refused.',

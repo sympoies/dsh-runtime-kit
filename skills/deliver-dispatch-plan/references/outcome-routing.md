@@ -17,7 +17,7 @@ issue delivers independently through plain program mode.
 | Final integration PR review and merge | `deliver-pr` with dispatch owner acceptance |
 | Child and tracker closeout | Dispatch orchestrator after provider read-back |
 
-Main Agent Mode can assign workers to lanes; it does not transfer tracker,
+Assigning workers to lanes does not transfer tracker,
 review, or merge authority to an implementation worker. Return a review
 finding to its original lane unless an explicit reassignment is recorded.
 

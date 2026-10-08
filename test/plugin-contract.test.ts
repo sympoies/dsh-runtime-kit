@@ -16,7 +16,7 @@ import {
   createWorkspaceDisposalBarrier,
   requiresAuthoritativeFinishLine,
 } from '../dist/src/policy/index.js'
-import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { createManagedSessionBridge } from '../dist/src/nils/session-bridge.js'
 import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
 import {
   createChildHealthRefresh,
@@ -154,39 +154,23 @@ test('lifecycle prompt projection stops consuming segments at its UTF-8 budget',
   assert.doesNotMatch(projected, /\uFFFD/)
 })
 
-test('optional child-plugin activation distinguishes pending active and failed states', async () => {
-  const status = createChildPluginStatus()
-  const transitions = []
-  assert.deepEqual(snapshotChildPluginStatus(status), {
-    main_agent_mode: { state: 'pending' },
-    review_specialists: { state: 'pending' },
-  })
-  const warnings = []
-  observeChildPluginActivation(
-    status,
-    'review_specialists',
-    async () => {},
-    { warn: (...args) => warnings.push(args) },
-    (name, state) => transitions.push([name, state.state]),
-  )
-  observeChildPluginActivation(
-    status,
-    'main_agent_mode',
-    async () => { throw new TypeError('fixture detail must stay out of status') },
-    { warn: (...args) => warnings.push(args) },
-    (name, state) => transitions.push([name, state.state]),
-  )
-  await new Promise(resolve => setImmediate(resolve))
-  assert.deepEqual(snapshotChildPluginStatus(status), {
-    main_agent_mode: { state: 'failed', reason: 'activation-rejected', error_name: 'TypeError' },
-    review_specialists: { state: 'active' },
-  })
-  assert.equal(warnings.length, 1)
-  assert.deepEqual(transitions.sort(), [
-    ['main_agent_mode', 'failed'],
-    ['review_specialists', 'active'],
-  ])
-  assert.doesNotMatch(JSON.stringify(snapshotChildPluginStatus(status)), /fixture detail/)
+test('optional reviewer activation distinguishes pending active and failed states', async () => {
+  for (const fails of [false, true]) {
+    const status = createChildPluginStatus()
+    const transitions = []
+    const warnings = []
+    assert.deepEqual(snapshotChildPluginStatus(status), { review_specialists: { state: 'pending' } })
+    observeChildPluginActivation(status, 'review_specialists', async () => {
+      if (fails) throw new TypeError('fixture detail must stay out of status')
+    }, { warn: (...args) => warnings.push(args) }, (name, state) => transitions.push([name, state.state]))
+    await new Promise(resolve => setImmediate(resolve))
+    assert.deepEqual(snapshotChildPluginStatus(status), { review_specialists: fails
+      ? { state: 'failed', reason: 'activation-rejected', error_name: 'TypeError' }
+      : { state: 'active' } })
+    assert.equal(warnings.length, fails ? 1 : 0)
+    assert.deepEqual(transitions, [['review_specialists', fails ? 'failed' : 'active']])
+    assert.doesNotMatch(JSON.stringify(snapshotChildPluginStatus(status)), /fixture detail/)
+  }
 })
 
 test('optional child-plugin health follows a child-only Cordis unload', async () => {
@@ -196,7 +180,7 @@ test('optional child-plugin health follows a child-only Cordis unload', async ()
   let child
   observeChildPluginActivation(
     status,
-    'main_agent_mode',
+    'review_specialists',
     () => {
       child = root.plugin(() => {})
       return child
@@ -206,13 +190,13 @@ test('optional child-plugin health follows a child-only Cordis unload', async ()
     root,
   )
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(status.main_agent_mode.state, 'active')
+  assert.equal(status.review_specialists.state, 'active')
 
   await child.dispose()
-  assert.equal(status.main_agent_mode.state, 'unloaded')
+  assert.equal(status.review_specialists.state, 'unloaded')
   assert.deepEqual(transitions, [
-    ['main_agent_mode', 'active'],
-    ['main_agent_mode', 'unloaded'],
+    ['review_specialists', 'active'],
+    ['review_specialists', 'unloaded'],
   ])
   await root.fiber.dispose()
 })
@@ -233,19 +217,19 @@ test('optional child health refresh converges across pending and unloaded activa
   }
   const refresh = createChildHealthRefresh(health)
 
-  const pending = refresh('main-agent-mode')
+  const pending = refresh('review-specialists')
   await new Promise(resolve => setImmediate(resolve))
   state = 'active'
-  const active = refresh('main-agent-mode')
+  const active = refresh('review-specialists')
   releaseFirst()
   await Promise.all([pending, active])
   assert.equal(observed, 'active')
   assert.equal(calls, 2)
 
   state = 'unloaded'
-  await refresh('main-agent-mode')
+  await refresh('review-specialists')
   state = 'active'
-  await refresh('main-agent-mode')
+  await refresh('review-specialists')
   assert.equal(observed, 'active')
   assert.equal(calls, 4)
 })

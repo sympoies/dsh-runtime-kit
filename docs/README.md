@@ -10,8 +10,6 @@ the routine contributor entrypoint.
   and remove an isolated DSH installation.
 - [Private and project skills](private-skills.md) — skill roots, precedence,
   validation, limits, and restart behavior.
-- [Main Agent Mode](main-agent-mode.md) — controller/worker ownership, tools,
-  runtime shape, and current limitations.
 - [Compatibility](compatibility.md) — exact DSH, Cordis, Node.js, and nils-cli
   support plus promotion checks.
 - [Native runtime health](runtime-health.md) — model-hidden capability probes,

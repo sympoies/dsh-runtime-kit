@@ -1,14 +1,13 @@
 export type Context = import('@deepseek-ai/cordis').Context
 
-export type ChildPluginName = 'main_agent_mode' | 'review_specialists'
+export type ChildPluginName = 'review_specialists'
 export type ChildPluginState = {state: 'pending' | 'active' | 'unloaded' | 'failed', reason?: 'activation-rejected' | 'lifecycle-failed', error_name?: string}
 export type ChildPluginStatus = Record<ChildPluginName, ChildPluginState>
 
-const CHILD_PLUGIN_NAMES = ((Object.freeze(['main_agent_mode', 'review_specialists'])) as readonly ChildPluginName[])
+const CHILD_PLUGIN_NAMES = ((Object.freeze(['review_specialists'])) as readonly ChildPluginName[])
 
 export function createChildPluginStatus(): ChildPluginStatus  {
   return {
-    main_agent_mode: { state: 'pending' },
     review_specialists: { state: 'pending' },
   }
 }
@@ -69,10 +68,10 @@ function projectFiberState(fiber: {state?: unknown}): ChildPluginState  {
 
 export function observeChildPluginActivation(
   status: ReturnType<typeof createChildPluginStatus>,
-  name: 'main_agent_mode' | 'review_specialists',
+  name: 'review_specialists',
   activate: () => unknown | Promise<unknown>,
   logger: {warn?: (...args: unknown[]) => void} | undefined,
-  onTransition: ((name: 'main_agent_mode' | 'review_specialists', state: ChildPluginState) => void) | undefined,
+  onTransition: ((name: 'review_specialists', state: ChildPluginState) => void) | undefined,
   lifecycleContext: Context | undefined,
 ) {
   if (!CHILD_PLUGIN_NAMES.includes(name) || status[name]?.state !== 'pending') {
