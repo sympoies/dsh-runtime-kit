@@ -10,12 +10,19 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const gitCli = resolve(process.env.GIT_CLI_BIN ?? '')
 assert.notEqual(process.env.GIT_CLI_BIN, undefined, 'set GIT_CLI_BIN')
 assert.equal(existsSync(gitCli), true, `git-cli not found: ${gitCli}`)
+const releaseBin = dirname(gitCli)
+const pathSeparator = process.platform === 'win32' ? ';' : ':'
+assert.equal(
+  existsSync(join(releaseBin, 'agent-session')),
+  true,
+  `agent-session companion not found beside git-cli: ${releaseBin}`,
+)
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'nils-cli-safe-worktree-'))
 chmodSync(temporaryRoot, 0o700)
@@ -38,7 +45,7 @@ const environment = {
   AGENT_HOME: agentHome,
   AGENT_RUNTIME_CHECKOUT_LEASE_STATE_HOME: checkoutLeaseStateHome,
   AGENT_SESSION_STATE_DIR: sessionStateHome,
-  PATH: `${probeBin}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}`,
+  PATH: [probeBin, releaseBin, process.env.PATH ?? ''].join(pathSeparator),
   XDG_STATE_HOME: stateHome,
 }
 const repository = join(temporaryRoot, 'repository')
