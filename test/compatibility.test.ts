@@ -1105,6 +1105,10 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /runs-on: macos-15/)
   assert.match(workflow, /nils-cli-v1\.32\.6-x86_64-unknown-linux-gnu\.tar\.gz/)
   assert.match(workflow, /7ad5c1a4396f148fc38baddff328b5b3ee2293ef1b127a97ea8c69f358273f7f/)
+  assert.match(
+    workflow,
+    /Verify released git-cli safe worktree removal[\s\S]+GIT_CLI_BIN: \$\{\{ runner\.temp \}\}\/nils-cli-v1\.32\.6-x86_64-unknown-linux-gnu\/bin\/git-cli[\s\S]+node test\/worktree-safe-removal-smoke\.ts/,
+  )
   assert.match(workflow, /nils-cli-v1\.32\.6-aarch64-apple-darwin\.tar\.gz/)
   assert.match(workflow, /7f209ad0db27129b12211ed8e48f86c8f26f5c9fb170c0b5a61e967e3fbe60b2/)
   assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=4cc443d1f6612865b1415d3f63f1d56892e41d25/)
