@@ -10,7 +10,7 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.29.0')
+  assert.equal(manifest.minimum_supported_release, '1.33.0')
   assert.equal(manifest.validated_release, '1.33.0')
   assert.deepEqual(manifest.release, {
     "source_revision": "v1.33.0",
@@ -69,6 +69,11 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   assert.equal(gitCliWorktree?.validation, 'release-artifact-validated')
   assert.ok(gitCliWorktree?.contracts.includes('git-cli worktree remove --safe'))
   assert.ok(manifest.commands.some(command => command.id === 'agent-hook.workspace-recovery.dsh'))
+  // Managed-session authentication (and the 1.33.0 floor) depends on this readiness contract.
+  const readiness = manifest.commands.find(command => command.id === 'agent-session.readiness')
+  assert.equal(readiness?.binary, 'agent-session')
+  assert.ok(readiness?.contracts.includes('agent-session.runtime-readiness.v1'))
+  assert.ok(readiness?.contracts.includes('cli.agent-session.readiness.v1'))
   assert.ok(
     manifest.commands
       .find(command => command.id === 'agent-hook.dispatch.dsh')
@@ -113,10 +118,6 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
       'semantic-commit': { sha256: 'dd7a4dfe2e5df88e38e8e5d8af681fd86455cc9013fd03b07f409a7d1f66631f' },
     },
   })
-  assert.equal(
-    manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,
-    'release-bundle-validated',
-  )
   assert.deepEqual(
     manifest.commands.find(command => command.id === 'agent-session.work-context-set-if-absent'),
     {
@@ -173,10 +174,6 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
     assert.match(patch, new RegExp(variable))
     assert.match(operations, new RegExp(variable))
   }
-  assert.match(
-    patch,
-    /mainAgentCli: !!js process\.env\.DSH_RUNTIME_KIT_MAIN_AGENT_BIN \?\? 'main-agent'/,
-  )
   assert.match(
     patch,
     /agentSessionCli: !!js process\.env\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN \?\? 'agent-session'/,

@@ -84,8 +84,9 @@ The additive DSH runtime is staged behind executable gates:
     a read-only sandbox plus scoped monotonic guard; a packed rc.7 smoke proves
     an attempted write never reaches its body, structured output validates with
     nils, and the child is disposed before the parent result settles.
-    Review and Main Agent Mode are independent optional child plugins; missing
-    `subagents` never prevents the parent policy or skills from activating.
+    Review is an independent optional child plugin, and the optional Main Agent
+    Mode was retired (#335); missing `subagents` never prevents the parent policy
+    or skills from activating.
 12. Source complete: the package operations CLI supplies digest-bound dry-run
     and apply for setup/update/rollback/remove, exact previous-version receipts,
     content-addressed local artifacts, kernel-owned per-profile locking, native

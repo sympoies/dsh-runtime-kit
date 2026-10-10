@@ -350,10 +350,8 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
       ]),
       scenario('subagent', 'packed-runtime', [
         'reviewer:native-subagent-completed',
-        'main-agent:host-workspace-before-prompt',
-        'main-agent:model-driven-review-loop',
-        'main-agent:no-anchor-agent',
-        'main-agent:forced-harness-loss-converged-without-stale-sidecar-trust',
+        'subagent:host-issued-distinct-workspace',
+        'subagent:lease-ready-before-first-prompt',
       ]),
       scenario('authoritative-acceptance', 'packed-runtime', [
         'acceptance:goal-completion-blocked-pre-mutation',
@@ -721,6 +719,38 @@ test('automatic prerequisite acceptance requires every native gating marker', ()
       missing,
     )
   }
+})
+
+test('native subagent acceptance requires distinct workspace and pre-prompt lease evidence', () => {
+  const required = [
+    'subagent:host-issued-distinct-workspace',
+    'subagent:lease-ready-before-first-prompt',
+  ]
+  const complete = baseInput()
+  assert.doesNotThrow(() => buildAcceptanceSummary(complete))
+  for (const missing of required) {
+    const input = structuredClone(complete)
+    const child = input.runtime.scenarios.find(item => item.id === 'subagent')
+    child.evidence = child.evidence.filter(value => value !== missing)
+    assert.throws(
+      () => buildAcceptanceSummary(input),
+      error => error instanceof AcceptanceError
+        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+      missing,
+    )
+  }
+  assert.throws(
+    () => {
+      const reviewerOnly = baseInput()
+      reviewerOnly.runtime.scenarios.find(item => item.id === 'subagent').evidence = [
+        'reviewer:native-subagent-completed',
+      ]
+      return buildAcceptanceSummary(reviewerOnly)
+    },
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+    'reviewer completion alone cannot attest ordinary child workspace safety',
+  )
 })
 
 test('data-policy acceptance requires every native containment marker', () => {
@@ -1980,11 +2010,6 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(runner, /DSH_RUNTIME_KIT_ACCEPTANCE_NODE_UNSUPPORTED/u)
   assert.match(runner, /assertSupportedNodeRuntime\(\)\n\s+const input = parseCli\(\)/u)
   assert.match(runner, /'agent-session-bin'/u)
-  assert.match(
-    runner,
-    /trustedExecutable\(resolve\(dirname\(input\.agentHookBin\), 'main-agent'\), 'main-agent'\)/u,
-    'the acceptance runner must authenticate main-agent from the same released tool directory',
-  )
   assert.match(runner, /'semantic-commit-bin'/u)
   assert.match(runner, /'forge-cli-bin'/u)
   assert.match(runner, /'nils-source-commit'/u)
@@ -2028,14 +2053,8 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     finalVerification,
     /\['agent-session', sessionSource, agentSession\]/u,
   )
-  assert.match(
-    finalVerification,
-    /\['main-agent', mainAgentSource, mainAgent\]/u,
-  )
-  assert.match(authoritativeSmoke, /delete baseEnvironment\.DSH_RUNTIME_KIT_MAIN_AGENT_BIN/u)
   assert.match(authoritativeSmoke, /delete baseEnvironment\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN/u)
   assert.match(authoritativeSmoke, /kind === 'candidate'\s*\? \{/u)
-  assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join\(binDir, 'main-agent'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join\(binDir, 'agent-session'\)/u)
   assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
   assert.match(
@@ -2043,14 +2062,11 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
     /DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion/u,
     'the negative health leg must inject a deterministic unauthenticated companion',
   )
-  assert.doesNotMatch(packedSmoke, /id: 'native-main-agent-lane'/u)
-  assert.match(packedSmoke, /id: 'subagent'[\s\S]*main-agent:host-workspace-before-prompt/u)
   assert.doesNotMatch(
     packedSmoke,
     /\.\.\.\(authoritativeAcceptance \? \[\{\s*id: 'authoritative-acceptance'/u,
     'the matrix-producing authoritative scenario is appended only by the acceptance runner',
   )
-  assert.match(runner, /DSH_RUNTIME_KIT_MAIN_AGENT_BIN: mainAgent\.path/u)
   assert.match(runner, /DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSession\.path/u)
   assert.match(runner, /const operationsLeg = await prepareOperationsLeg/u)
   assert.match(runner, /operations acceptance dependency installation/u)

@@ -7,7 +7,7 @@ import {
   createNilsFinishLineClient,
 } from '../dist/src/finish-line/nils-client.js'
 import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
-import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { createManagedSessionBridge } from '../dist/src/nils/session-bridge.js'
 import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
 
 const digest = `sha256:${'0'.repeat(64)}`

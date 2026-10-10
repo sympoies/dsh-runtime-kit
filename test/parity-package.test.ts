@@ -34,6 +34,11 @@ test('the packed package exposes the parity inventory and verifier entrypoints',
     ]) {
       assert.ok(packedPaths.has(expected), `packed documentation missing ${expected}`)
     }
+    assert.equal([...packedPaths].some(path => /^(?:src|dist\/src)\/main-agent\//u.test(path)), false)
+    assert.equal([...packedPaths].some(path => path.startsWith('skills/main-agent-mode/')), false)
+    assert.equal(packedPaths.has('docs/main-agent-mode.md'), false)
+    assert.ok(packedPaths.has('dist/src/nils/cli-client.js'))
+    assert.ok(packedPaths.has('dist/src/nils/session-bridge.js'))
     const tarball = join(temporary, packed[0].filename)
     // This consumer verifies package exports only. Do not let npm auto-install
     // a newer DSH peer closure from the registry; runtime compatibility is

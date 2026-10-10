@@ -546,7 +546,7 @@ process.stdout.write(JSON.stringify({
   const agentDocs = join(root, 'fake-agent-docs.mjs')
   writeFileSync(agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.29.0 (v1.29.0, test)\\n')
+process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
   return { commandDir, dsh, pnpm, agentHook, agentDocs }
@@ -2746,7 +2746,7 @@ test('doctor reports DSH-only agent-docs executable, catalog, and state health',
     assert.equal(healthy.value.data.status, 'healthy')
     assert.deepEqual(healthy.value.data.agent_docs, {
       ok: true,
-      version: '1.29.0',
+      version: '1.33.0',
       catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
       state_home: subject.agentDocsStateHome,
     })
@@ -2759,16 +2759,16 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     const old = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(old.status, 65)
     assert.equal(old.value.data.agent_docs.ok, false)
-    assert.match(old.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.33\.0/)
+    assert.match(old.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.0/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.29.0 (v1.29.0, test)\\n')
+process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const validatedCurrent = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(validatedCurrent.status, 0, validatedCurrent.stderr)
-    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.29.0')
+    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.33.0')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2819,11 +2819,11 @@ process.stdout.write('agent-docs 1.33.1 (v1.33.1, test)\\n')
     const newer = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(newer.status, 65)
     assert.equal(newer.value.data.agent_docs.ok, false)
-    assert.match(newer.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.33\.0/)
+    assert.match(newer.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.0/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.29.0 (v1.29.0, test)\\n')
+process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
 
@@ -2865,7 +2865,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     assert.equal(oldNils.value.data.status, 'needs-attention')
     assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: '0.1.7-rc.1' })
     assert.equal(oldNils.value.data.agent_docs.ok, false)
-    assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.33\.0/)
+    assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.0/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2876,17 +2876,17 @@ process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
     assert.equal(previousNils.status, 65, previousNils.stderr)
     assert.equal(previousNils.value.data.status, 'needs-attention')
     assert.equal(previousNils.value.data.agent_docs.ok, false)
-    assert.match(previousNils.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.33\.0/)
+    assert.match(previousNils.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.0/)
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.29.0 (v1.29.0, test)\\n')
+process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const currentNils = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(currentNils.status, 0, currentNils.stderr)
     assert.equal(currentNils.value.data.status, 'healthy')
-    assert.equal(currentNils.value.data.agent_docs.version, '1.29.0')
+    assert.equal(currentNils.value.data.agent_docs.version, '1.33.0')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2903,7 +2903,7 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
     assert.equal(retained.value.data.status, 'needs-attention')
     assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.2.0-rc.2' })
     assert.equal(retained.value.data.agent_docs.ok, false)
-    assert.match(retained.value.data.agent_docs.error, /supported range 1\.29\.0 through 1\.33\.0/)
+    assert.match(retained.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.0/)
   } finally {
     subject.cleanup()
   }

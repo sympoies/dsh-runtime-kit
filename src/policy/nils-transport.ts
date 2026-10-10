@@ -516,7 +516,7 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           : {
               ...authenticatedNilsEnvironment(principal.environment),
               // The ingress subject changes to the authenticated coordination
-              // owner once a Main Agent controller/lane binds. Activity still
+              // owner once a managed session binds. Activity still
               // belongs to the stable DSH provider session, so carry that
               // metadata on this private subprocess edge instead of widening
               // the public ingress schema or overloading owner identity.

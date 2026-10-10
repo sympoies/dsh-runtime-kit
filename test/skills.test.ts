@@ -22,7 +22,6 @@ const expectedSkills = [
   'issue-follow-up',
   'issue-triage',
   'macos-desktop',
-  'main-agent-mode',
   'nils-cli-bump',
   'project-retro',
   'release',
@@ -53,7 +52,7 @@ const expectedResources = [
   'code-review-specialists/references/specialists/testing.md',
   'deliver-dispatch-plan/references/DISPATCH_ISSUE_RECORD_CONTRACT.md',
   'deliver-dispatch-plan/references/LOCAL_REHEARSAL.md',
-  'deliver-dispatch-plan/references/MAIN_AGENT_REVIEW_RUBRIC.md',
+  'deliver-dispatch-plan/references/REVIEW_RUBRIC.md',
   'deliver-dispatch-plan/references/POST_REVIEW_OUTCOMES.md',
   'deliver-dispatch-plan/references/TASK_LANE_CONTINUITY.md',
   'deliver-dispatch-plan/references/outcome-routing.md',
@@ -65,7 +64,6 @@ const expectedResources = [
   'issue-follow-up/references/program-mode.md',
   'issue-follow-up/references/tracker-row-grammar.md',
   'macos-desktop/references/setup.md',
-  'main-agent-mode/references/MAIN_AGENT_MODE_PROTOCOL.md',
   'setup-project/scripts/setup-project.sh',
   'topic-radar/bin/topic_radar.py',
   'topic-radar/references/source-strategy.md',
@@ -83,7 +81,7 @@ function collectFiles(directory, prefix = '') {
   })
 }
 
-test('the public DSH bundle owns the complete 28-skill catalog', () => {
+test('the public DSH bundle owns the complete 27-skill catalog', () => {
   const actual = readdirSync(skillsRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
@@ -463,7 +461,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
   const manifest = JSON.parse(readFileSync(path, 'utf8'))
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.29.0')
+  assert.equal(manifest.minimum_supported_release, '1.33.0')
   assert.equal(manifest.validated_release, '1.33.0')
   assert.ok(Array.isArray(manifest.commands))
   assert.ok(manifest.commands.length > 1)

@@ -6,7 +6,7 @@ the parent posts the comment with `--decision comments-only` and that semantic
 `--lens`.
 
 This is not a delivery decision. It reports what one specialist lens found or
-verified. The parent/main agent owns repair, tradeoff decisions, and final
+verified. The parent agent owns repair, tradeoff decisions, and final
 delivery disposition in `DELIVERY_REVIEW_OUTCOME_COMMENT.md`.
 Post specialist review comments with `--decision comments-only` — on GitHub add
 `--submit-review` so the report posts as a native `COMMENT` review event
@@ -72,6 +72,6 @@ Specialist review comments must not use the delivery disposition vocabulary
 (`fixed-now`, `accepted-residual`, `follow-up-linked`, `deferred-task`,
 `no-action`, or `blocked` as a disposition). They must not include a final
 delivery decision such as `proceed-to-merge`, and they must not use the provider
-review decision as approval or request-changes metadata. The parent/main agent
+review decision as approval or request-changes metadata. The parent agent
 translates specialist findings into final dispositions in the delivery review
 outcome.

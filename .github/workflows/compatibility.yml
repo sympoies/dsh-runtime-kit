@@ -61,6 +61,12 @@ jobs:
         env:
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.33.0-x86_64-unknown-linux-gnu/bin/agent-hook
         run: node --test test/policy-parity.test.ts
+      - name: Install tmux for the managed-session readiness smoke
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+      - name: Prove managed-session readiness against the released agent-session
+        env:
+          AGENT_SESSION_BIN: ${{ runner.temp }}/nils-cli-v1.33.0-x86_64-unknown-linux-gnu/bin/agent-session
+        run: npm run test:managed-session-readiness-smoke
       - name: Validate repository agent-docs loading contract
         env:
           AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.33.0-x86_64-unknown-linux-gnu/bin/agent-docs

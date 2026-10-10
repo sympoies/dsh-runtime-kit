@@ -95,10 +95,10 @@ test('canonical scenario pack accounts for every #D row exactly once', () => {
   assert.equal(pack.schema_version, 'dsh-runtime-kit.acceptance-scenario-pack.v2')
   assert.equal(pack.program_child, '#D')
   assert.equal(pack.profile_isolation, 'capability-family')
-  assert.equal(expected.length, 33)
+  assert.equal(expected.length, 31)
   assert.deepEqual(actual, expected)
-  assert.equal(new Set(actual).size, 33)
-  assert.equal(new Set(pack.families.map(family => family.feature_issue)).size, 12)
+  assert.equal(new Set(actual).size, 31)
+  assert.equal(new Set(pack.families.map(family => family.feature_issue)).size, 11)
   for (const family of pack.families) {
     assert.match(family.id, /^[a-z0-9][a-z0-9-]+$/u)
     assert.ok(family.success_observation.length > 0)
@@ -262,7 +262,7 @@ test('deliberate-failure attestation requires diagnosis and recovery evidence', 
   assert.equal(appended.recovery.status, 'pass')
 })
 
-test('pack summary requires distinct successful result and attestation pairs for all 66 cases', async () => {
+test('pack summary requires distinct successful result and attestation pairs for all 62 cases', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-pack-summary-'))
   const output = join(root, 'results.jsonl')
   const catalog = loadAcceptanceCatalog(CATALOG)
@@ -341,9 +341,9 @@ test('pack summary requires distinct successful result and attestation pairs for
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-drive-pack-summary.v1')
   assert.equal(summary.status, 'pass')
   assert.deepEqual(summary.counts, {
-    expected_cases: 66,
-    result_pass: 66,
-    attestation_pass: 66,
+    expected_cases: 62,
+    result_pass: 62,
+    attestation_pass: 62,
     missing_results: 0,
     missing_attestations: 0,
     invalid_pairs: 0,
@@ -470,7 +470,7 @@ test('pack summary requires distinct successful result and attestation pairs for
   writeFileSync(sharedOutput, `${sharedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
   const shared = summarizeAcceptanceScenarioPack({ outputPath: sharedOutput, pack })
   assert.equal(shared.status, 'fail')
-  assert.equal(shared.counts.invalid_isolation_families, 12)
+  assert.equal(shared.counts.invalid_isolation_families, 11)
 })
 
 // A fixture-induced deliberate failure leaves the runtime correctly completing,

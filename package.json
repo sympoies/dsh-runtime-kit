@@ -44,6 +44,7 @@
     "docs",
     "scripts",
     "test/smoke.ts",
+    "test/fixtures/native-subagent-workspace.mjs",
     "test/authoritative-acceptance-smoke.ts",
     "test/fixtures/authoritative-dsh-launcher.js",
     "test/fixtures/authoritative-acceptance-canary",
@@ -90,6 +91,7 @@
     "test:lifecycle-contracts": "node --test test/lifecycle-contracts.test.ts",
     "test:control-boundary-contracts": "node --test test/control-boundary-contracts.test.ts",
     "test:smoke": "node test/smoke.ts",
+    "test:managed-session-readiness-smoke": "node test/managed-session-readiness-smoke.ts",
     "test:agent-docs-catalog": "node test/agent-docs-catalog-smoke.ts",
     "test:authoritative-acceptance-smoke": "node test/authoritative-acceptance-smoke.ts",
     "test:workspace-lease-smoke": "node test/workspace-lease-smoke.ts",
@@ -105,8 +107,7 @@
     "verify:policy-source": "node dist/scripts/verify-policy-parity.js",
     "check:agent-runtime-drift": "node dist/scripts/check-agent-runtime-drift.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:test": "tsc -p tsconfig.test.json",
-    "test:main-agent-e2e": "node test/main-agent-e2e.ts"
+    "typecheck:test": "tsc -p tsconfig.test.json"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

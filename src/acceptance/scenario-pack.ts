@@ -249,8 +249,8 @@ export function loadAcceptanceScenarioPack(
   if (catalog !== undefined) {
     const expected = catalog.scenarios.filter(item => item.owner.program_child === '#D')
     const expectedIds = expected.map(item => item.id).sort()
-    if (expectedIds.length !== 33 || expectedIds.join(',') !== [...scenarioIds].sort().join(',')) {
-      throw new ScenarioPackError('scenario-pack-incomplete', 'scenario pack does not account for all 33 #D rows')
+    if (expectedIds.length !== 31 || expectedIds.join(',') !== [...scenarioIds].sort().join(',')) {
+      throw new ScenarioPackError('scenario-pack-incomplete', 'scenario pack does not account for all 31 #D rows')
     }
     const byId = new Map(expected.map(item => [item.id, item]))
     for (const entry of families) {
@@ -729,7 +729,7 @@ export function summarizeAcceptanceScenarioPack(input: {
   }
   return {
     schema_version: ACCEPTANCE_DRIVE_PACK_SUMMARY_SCHEMA,
-    status: counts.expected_cases === 66 && missingResults.length === 0
+    status: counts.expected_cases === 62 && missingResults.length === 0
       && missingAttestations.length === 0 && duplicateRunIds === 0 && invalidPairs === 0
       && invalidIsolationFamilies.length === 0 ? 'pass' as const : 'fail' as const,
     pack_schema_version: input.pack.schema_version,

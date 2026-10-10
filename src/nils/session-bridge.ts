@@ -1,6 +1,6 @@
 /**
  * Private in-process bridge between managed-session authentication, the
- * optional Main Agent child plugin, and the always-on policy/context
+ * startup lifecycle owners and the always-on policy/context
  * transports. The bridge never persists or logs the capability-bearing
  * environment it returns.
  */

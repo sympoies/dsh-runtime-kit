@@ -127,19 +127,6 @@ selector before boot. Forwarding an ordinary managed Codex or Claude principal
 into nested DSH makes DSH lifecycle events target the wrong provider runtime;
 the authenticated activity boundary rejects that mismatch.
 
-The `managed-subagent-workspace` family is the exception that deliberately
-needs a controller identity. Create a fresh dedicated Agent Console controller
-principal for each DSH invocation, then forward exactly its seven
-`AGENT_SESSION_*` principal fields through the contained DSH wrapper. Do not
-reuse the external harness principal or a principal from another scenario. The
-runtime-kit keeps that principal allowlist exact for Main Agent operations. For
-the nested capability check only, it derives `XDG_CONFIG_HOME` and
-`XDG_STATE_HOME` from the already authenticated
-`DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG` and
-`DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR` activation paths. This lets the sibling
-`agent-hook doctor` resolve the installed DSH activation without broadening the
-environment received by run initialization or lane commands.
-
 One-shot DSH checkout leases intentionally outlive the process that acquired
 them. Therefore each `git-repo` and `managed-worktree` DSH process uses a
 different physical scratch checkout: one for success, one for the induced
@@ -153,43 +140,6 @@ Deleting and recreating a worktree at the same path while retaining that state
 does not release its prior one-shot lease and must remain refused.
 Do not delete a lease, weaken the guard, or present unrelated
 `WORKSPACE_FOREIGN_ACTIVE` contention as family-specific recovery evidence.
-For `managed-subagent-workspace` rows, provision a distinct host-issued child
-for each primary. Export the repository identity as
-`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY`, the failure pair as
-`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY` and
-`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE`, and export the clean pair as
-`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY` and
-`DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE`. The retry variables
-must be supplied together, and the retry primary must equal the canonical
-`--retry-workdir`; otherwise fixture setup fails closed instead of reusing the
-failure child.
-
-The managed-subagent controller records `review-complete` in the primary
-checkout's `controller-review.txt` only after it has reviewed the submitted
-child bytes. This bounded parent-owned edit creates the primary finish-line
-generation that the final exact validation must satisfy; the implementation
-target in the primary remains `subagent-before`. Independently attest all three
-states after DSH exits: primary target unchanged, primary review recorded, and
-child target changed to `subagent-after`.
-
-The authenticated fixture provider validates the complete primary/child
-topology before its first write: the child must be a registered linked Git
-worktree sharing the primary's canonical Git common directory. It then stages
-the child checkout itself during the primary `prepare` or `induce` transition.
-The child therefore receives its own
-`AGENT_DOCS.toml`, project document, `subagent-target.txt`, and executable
-`fixture-validation.mjs`; no unpublished pre-seeding step is permitted. These
-child files are retained for external attestation. After rerunning child
-validation, remove the disposable child through the host-owned `git-cli
-worktree` lifecycle; provider cleanup does not erase independently observable
-child state before attestation.
-
-The controller must not execute Bash in the child worktree. Closing the lane
-releases that child and advances its workspace generation, which would make a
-controller-owned pre-close child validation stale while a post-close command
-would cross the released lease. The child runs its own registered validation
-before submitting; after DSH exits, the external harness reruns the same
-executable directly in the retained child checkout and records its output.
 
 Preview setup with an already-built local checkout or exact package artifact:
 
@@ -359,7 +309,7 @@ child of the program, not an invitation to fix it during baseline capture.
 ## Run the #D feature scenario pack
 
 `compatibility/acceptance-scenario-pack.json` is the executable accounting
-contract for child #D. It maps all 33 #D catalog rows into twelve capability
+contract for child #D. It maps all 31 #D catalog rows into eleven capability
 families and gives each row two case identities:
 
 - `<scenario-id>.success` runs the committed `task` and requires an
@@ -441,7 +391,7 @@ The attestation append rejects diagnosis fields that do not match that exact
 failed result.
 
 `compatibility/acceptance-fixtures.json` is the public fixture ownership
-contract. Its twelve family recipes cover every `#D` scenario exactly once,
+contract. Its eleven family recipes cover every `#D` scenario exactly once,
 name only bounded relative fixture files, select one closed failure kind, and
 declare the fixed typed operation sequence for all four transitions. The
 provider never executes manifest shell text. It writes an
@@ -468,9 +418,9 @@ evidence rows. The driver refuses a missing, changed, non-executable, malformed,
 or mismatched provider. A deliberate-failure result passes only when induction
 produced a failed structured outcome, recovery succeeded, the byte-identical
 `deliberate_failure_task` then passed as a clean retry, and cleanup succeeded.
-All twelve failure kinds are executable: workspace lease ownership, governed
+All eleven failure kinds are executable: workspace lease ownership, governed
 commit ordering, prerequisite digest, companion identity, authoritative
-validation ordering, host workspace issuance, protected destination,
+validation ordering, protected destination,
 restricted-role mutation, artifact retrieval identity, lifecycle plan digest,
 dispatcher executable role, and retired-surface invocation. Each non-global
 fault is selected through a provider-owned phase input that the committed task
@@ -549,7 +499,7 @@ After all families and folder kinds finish, append the aggregate proof:
   --summarize-pack
 ```
 
-`dsh-runtime-kit.acceptance-drive-pack-summary.v1` passes only with all 66
+`dsh-runtime-kit.acceptance-drive-pack-summary.v1` passes only with all 62
 distinct case ids, passing driver rows, passing external attestations, and
 distinct result run ids. Retain failed attempts in the JSONL; fix only an
 in-boundary defect already recorded on the child issue, recover through the

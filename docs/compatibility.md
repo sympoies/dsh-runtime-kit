@@ -7,15 +7,16 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.33.0` |
+| nils-cli | `1.33.0` minimum; exactly validated through `1.33.0` |
 
 The validated companion release is nils-cli 1.33.0. Its exact Linux x64 and
 macOS arm64 archives and consumed binary digests are recorded in
-`compatibility/nils-cli.json`; the minimum remains 1.29.0. This adoption retains
-the managed-session mailbox reminder and guard contracts admitted in 1.31.8.
-The generic Main Agent controller fixtures use an inert explicit Codex stub;
-DSH workers still use the external-runtime contract. The live-scope conflict
-scenario now verifies refusal before a worker session is created.
+`compatibility/nils-cli.json`. This adoption retires the earlier companion floor:
+the minimum supported release is raised to 1.33.0, because managed-session
+authentication now requires `agent-session readiness` (nils-cli#2242). Releases
+before 1.33.0 do not provide that contract and are no longer supported for
+managed sessions. The adoption retains the managed-session mailbox reminder and
+guard contracts admitted in 1.31.8.
 
 ## Agent runtime source alignment
 
@@ -198,8 +199,8 @@ in the summary only. The same release preserves `not-in-repository` as an exact
 public policy code for existing non-symlink directories with no Git ancestor;
 since #199 that answer means the session cwd carries no finish-line obligation
 for any principal, while repository access, scope coverage, malformed output,
-and enforcement failures remain authoritative. The v1.29.0 floor is required
-because every finish-line open now sends the actual DSH process as `owner_pid`.
+and enforcement failures remain authoritative. The v1.29.0 floor was required
+because every finish-line open sends the actual DSH process as `owner_pid`.
 Earlier strict request schemas reject that field even when opening a fresh
 session. The consumer never omits the owner binding to admit an older companion.
 The released owner performs old-process death proof, authoritative cleanup and
@@ -239,9 +240,24 @@ runtime-kit revisions in one reviewed contract and owns their acceptance and
 rollback. This repository's compatibility window applies to the runtime-kit
 bundle only.
 
-Controller and lane tools are separate surfaces: the controller must not expose
-`main_agent_checkpoint`, while a managed lane owns that checkpoint tool and is
-forbidden from the controller's lane-management tools.
+## Generic session readiness prerequisite
+
+This retirement uses `agent-session readiness --format json`, with
+`cli.agent-session.readiness.v1` wrapping `agent-session.runtime-readiness.v1`.
+The helper authenticates the current capability, incarnation and fresh broker,
+and checks the exact issued private checkpoint path without reading or changing
+its contents. Runtime-kit compares that proof to its immutable producer
+principal and verifies helper realpath equality before binding it in process.
+Readiness, baseline `work-context set --if-absent`, cancellation and disposal
+share one cumulative authentication deadline.
+
+The validated companion tuple is nils-cli 1.33.0 (#346, merged). It provides the
+readiness contract, recorded in `compatibility/nils-cli.json`, and the minimum
+supported release is 1.33.0. Fixture proof does not admit any earlier tuple for
+the readiness contract. Still open and dispatcher-owned before this retirement
+can be treated as landed: independent verification of the authenticated release
+archive and binary digests, trusted runtime rehearsal of the installed package,
+and external acceptance.
 
 ## Promotion checks
 
