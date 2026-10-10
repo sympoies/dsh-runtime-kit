@@ -37,7 +37,7 @@ mkdirSync(checkoutLeaseStateHome, { recursive: true, mode: 0o700 })
 mkdirSync(probeBin, { mode: 0o700 })
 // Give the released CLI a deterministic idle process inventory. The release's
 // own tests cover incomplete and active process-probe refusal paths; this smoke
-// focuses on successful removal and dirty-target retention.
+// focuses on successful removal and recoverable dirty-target preservation.
 const lsofProbe = join(probeBin, 'lsof')
 writeFileSync(lsofProbe, '#!/bin/sh\n[ "$1" = "-nP" ] || exit 2\nexit 1\n', { mode: 0o700 })
 const environment = {
@@ -112,15 +112,30 @@ try {
   const dirtyFile = join(dirtyWorktree, 'untracked.txt')
   writeFileSync(dirtyFile, 'must be preserved\n', { mode: 0o600 })
   const dirtyRemoval = removeWorktree(dirtyWorktree)
-  assert.notEqual(dirtyRemoval.result.status, 0, 'dirty worktree removal must fail')
-  assert.equal(dirtyRemoval.receipt.error.code, 'removal-dirty')
+  assert.equal(dirtyRemoval.result.status, 0, dirtyRemoval.result.stderr)
+  assert.equal(dirtyRemoval.receipt.ok, true)
+  assert.equal(existsSync(dirtyWorktree), false, 'dirty target is removed after preservation')
+  const backup = dirtyRemoval.receipt.data
+  assert.match(backup.backup_ref, /^refs\/worktree-backup\//)
+  assert.equal(backup.backup_reasons.includes('dirty-or-untracked'), true)
+  assert.equal(backup.backup_bytes > 0, true)
+  assert.equal(backup.backup_omitted_bytes, 0)
+  assert.deepEqual(backup.backup_omissions, [])
+  assert.equal(git(['show', `${backup.backup_ref}:untracked.txt`]), 'must be preserved')
+
+  const restoration = run(gitCli, [
+    'worktree', 'restore', backup.backup_ref, '--path', dirtyWorktree, '--format', 'json',
+  ], repository)
+  assert.equal(restoration.status, 0, restoration.stderr)
+  assert.equal(JSON.parse(restoration.stdout).ok, true)
   assert.equal(readFileSync(dirtyFile, 'utf8'), 'must be preserved\n')
+  assert.equal(readFileSync(join(dirtyWorktree, 'tracked.txt'), 'utf8'), 'baseline\n')
 
   unlinkSync(dirtyFile)
   const finalRemoval = removeWorktree(dirtyWorktree)
   assert.equal(finalRemoval.result.status, 0, finalRemoval.result.stderr)
   assert.equal(finalRemoval.receipt.ok, true)
-  assert.equal(existsSync(dirtyWorktree), false, 'clean retry should remove the retained worktree')
+  assert.equal(existsSync(dirtyWorktree), false, 'restored fixture is safely removed')
   dirtyWorktree = undefined
   cleanWorktree = undefined
   process.stdout.write('released git-cli safe worktree removal contract passed\n')
