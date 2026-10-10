@@ -7,9 +7,9 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.33.0` minimum; exactly validated through `1.33.0` |
+| nils-cli | `1.33.0` minimum; exactly validated through `1.33.2` |
 
-The validated companion release is nils-cli 1.33.0. Its exact Linux x64 and
+The validated companion release is nils-cli 1.33.2. Its exact Linux x64 and
 macOS arm64 archives and consumed binary digests are recorded in
 `compatibility/nils-cli.json`. This adoption retires the earlier companion floor:
 the minimum supported release is raised to 1.33.0, because managed-session
@@ -251,7 +251,7 @@ principal and verifies helper realpath equality before binding it in process.
 Readiness, baseline `work-context set --if-absent`, cancellation and disposal
 share one cumulative authentication deadline.
 
-The validated companion tuple is nils-cli 1.33.0 (#346, merged). It provides the
+The validated companion tuple is nils-cli 1.33.2. It provides the
 readiness contract, recorded in `compatibility/nils-cli.json`, and the minimum
 supported release is 1.33.0. Fixture proof does not admit any earlier tuple for
 the readiness contract. Still open and dispatcher-owned before this retirement

@@ -546,7 +546,7 @@ process.stdout.write(JSON.stringify({
   const agentDocs = join(root, 'fake-agent-docs.mjs')
   writeFileSync(agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
+process.stdout.write('agent-docs 1.33.2 (v1.33.2, test)\\n')
 `)
   chmodSync(agentDocs, 0o755)
   return { commandDir, dsh, pnpm, agentHook, agentDocs }
@@ -2746,7 +2746,7 @@ test('doctor reports DSH-only agent-docs executable, catalog, and state health',
     assert.equal(healthy.value.data.status, 'healthy')
     assert.deepEqual(healthy.value.data.agent_docs, {
       ok: true,
-      version: '1.33.0',
+      version: '1.33.2',
       catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
       state_home: subject.agentDocsStateHome,
     })
@@ -2763,12 +2763,12 @@ process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
+process.stdout.write('agent-docs 1.33.2 (v1.33.2, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const validatedCurrent = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(validatedCurrent.status, 0, validatedCurrent.stderr)
-    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.33.0')
+    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.33.2')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2804,12 +2804,12 @@ process.stdout.write('agent-docs 1.27.11 (v1.27.11, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
+process.stdout.write('agent-docs 1.33.2 (v1.33.2, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const validatedLatest = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(validatedLatest.status, 0, validatedLatest.stderr)
-    assert.equal(validatedLatest.value.data.agent_docs.version, '1.33.0')
+    assert.equal(validatedLatest.value.data.agent_docs.version, '1.33.2')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
@@ -2823,7 +2823,7 @@ process.stdout.write('agent-docs 1.33.1 (v1.33.1, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
+process.stdout.write('agent-docs 1.33.2 (v1.33.2, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
 
@@ -2880,13 +2880,13 @@ process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
 
     writeFileSync(subject.agentDocs, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
+process.stdout.write('agent-docs 1.33.2 (v1.33.2, test)\\n')
 `)
     chmodSync(subject.agentDocs, 0o755)
     const currentNils = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(currentNils.status, 0, currentNils.stderr)
     assert.equal(currentNils.value.data.status, 'healthy')
-    assert.equal(currentNils.value.data.agent_docs.version, '1.33.0')
+    assert.equal(currentNils.value.data.agent_docs.version, '1.33.2')
 
     writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
