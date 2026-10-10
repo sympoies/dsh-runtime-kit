@@ -706,3 +706,27 @@ test('generic readiness accepts the canonical target of the independently config
   assert.equal(result.kind, 'enter')
   assert.deepEqual(bridge.resolve('dsh-controller-one').environment, principalEnvironment)
 })
+
+test('generic readiness resolves the default bare helper name to an absolute executable before admission', async () => {
+  const subject = harness({
+    resolveExecutable: async command => command === 'agent-session' ? agentSessionFixture : command,
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {}, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'enter')
+  assert.equal(subject.spawned[0].argv[0], agentSessionFixture)
+  assert.deepEqual(bridge.resolve('dsh-controller-one').environment, principalEnvironment)
+})
+
+test('generic readiness refuses a bare helper name that does not resolve to an absolute executable', async () => {
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {}, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'reject')
+  assert.equal(subject.spawned.length, 0)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})

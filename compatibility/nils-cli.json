@@ -269,6 +269,18 @@
       "source_task": "sympoies/nils-cli#1792"
     },
     {
+      "id": "agent-session.readiness",
+      "binary": "agent-session",
+      "status": "released",
+      "validation": "release-artifact-validated",
+      "contracts": [
+        "cli.agent-session.readiness.v1",
+        "agent-session.runtime-readiness.v1",
+        "agent-session readiness --format json"
+      ],
+      "source_task": "sympoies/nils-cli#2242"
+    },
+    {
       "id": "agent-session.work-context-set-if-absent",
       "binary": "agent-session",
       "status": "released",

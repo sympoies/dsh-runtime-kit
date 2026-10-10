@@ -69,6 +69,11 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   assert.equal(gitCliWorktree?.validation, 'release-artifact-validated')
   assert.ok(gitCliWorktree?.contracts.includes('git-cli worktree remove --safe'))
   assert.ok(manifest.commands.some(command => command.id === 'agent-hook.workspace-recovery.dsh'))
+  // Managed-session authentication (and the 1.33.0 floor) depends on this readiness contract.
+  const readiness = manifest.commands.find(command => command.id === 'agent-session.readiness')
+  assert.equal(readiness?.binary, 'agent-session')
+  assert.ok(readiness?.contracts.includes('agent-session.runtime-readiness.v1'))
+  assert.ok(readiness?.contracts.includes('cli.agent-session.readiness.v1'))
   assert.ok(
     manifest.commands
       .find(command => command.id === 'agent-hook.dispatch.dsh')

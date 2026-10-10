@@ -130,7 +130,6 @@ assert.equal(initialDshCheckout.revision, dshRevision)
 assert.equal(initialDshCheckout.after, 'patched')
 
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-smoke-'))
-const nativeControllerSessions = []
 const userHome = join(temporaryRoot, 'home')
 const dshHome = join(temporaryRoot, 'dsh-home')
 const codexHome = join(userHome, '.codex')
@@ -3358,14 +3357,6 @@ export function apply(ctx) {
     }) + '\n')
   }
 } finally {
-  for (const controller of nativeControllerSessions) {
-    spawnSync(controller.agentSessionBin, [
-      '--state-dir', controller.stateDir,
-      'delete',
-      controller.sessionId,
-      '--format', 'json',
-    ], { encoding: 'utf8', timeout: 30_000 })
-  }
   if (process.env.DSH_RUNTIME_KIT_SMOKE_KEEP_ROOT === '1') {
     process.stderr.write(`DSH_RUNTIME_KIT_SMOKE_ROOT=${temporaryRoot}\n`)
   } else {

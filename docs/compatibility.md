@@ -199,8 +199,8 @@ in the summary only. The same release preserves `not-in-repository` as an exact
 public policy code for existing non-symlink directories with no Git ancestor;
 since #199 that answer means the session cwd carries no finish-line obligation
 for any principal, while repository access, scope coverage, malformed output,
-and enforcement failures remain authoritative. The v1.29.0 floor is required
-because every finish-line open now sends the actual DSH process as `owner_pid`.
+and enforcement failures remain authoritative. The v1.29.0 floor was required
+because every finish-line open sends the actual DSH process as `owner_pid`.
 Earlier strict request schemas reject that field even when opening a fresh
 session. The consumer never omits the owner binding to admit an older companion.
 The released owner performs old-process death proof, authoritative cleanup and
@@ -242,7 +242,7 @@ bundle only.
 
 ## Generic session readiness prerequisite
 
-This retirement draft uses `agent-session readiness --format json`, with
+This retirement uses `agent-session readiness --format json`, with
 `cli.agent-session.readiness.v1` wrapping `agent-session.runtime-readiness.v1`.
 The helper authenticates the current capability, incarnation and fresh broker,
 and checks the exact issued private checkpoint path without reading or changing
@@ -251,12 +251,13 @@ principal and verifies helper realpath equality before binding it in process.
 Readiness, baseline `work-context set --if-absent`, cancellation and disposal
 share one cumulative authentication deadline.
 
-The existing released companion tuple is retained as historical artifact
-evidence during draft preparation. A released readiness companion, its real
-archive and binary digests, and the compatibility floor update are pending.
-Fixture proof does not admit that older tuple for the new readiness contract.
-This draft must remain held until those release artifacts are authenticated and
-the dispatcher completes the runtime rehearsal and subsequent acceptance.
+The validated companion tuple is nils-cli 1.33.0 (#346, merged). It provides the
+readiness contract, recorded in `compatibility/nils-cli.json`, and the minimum
+supported release is 1.33.0. Fixture proof does not admit any earlier tuple for
+the readiness contract. Still open and dispatcher-owned before this retirement
+can be treated as landed: independent verification of the authenticated release
+archive and binary digests, trusted runtime rehearsal of the installed package,
+and external acceptance.
 
 ## Promotion checks
 

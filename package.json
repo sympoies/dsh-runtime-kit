@@ -91,6 +91,7 @@
     "test:lifecycle-contracts": "node --test test/lifecycle-contracts.test.ts",
     "test:control-boundary-contracts": "node --test test/control-boundary-contracts.test.ts",
     "test:smoke": "node test/smoke.ts",
+    "test:managed-session-readiness-smoke": "node test/managed-session-readiness-smoke.ts",
     "test:agent-docs-catalog": "node test/agent-docs-catalog-smoke.ts",
     "test:authoritative-acceptance-smoke": "node test/authoritative-acceptance-smoke.ts",
     "test:workspace-lease-smoke": "node test/workspace-lease-smoke.ts",

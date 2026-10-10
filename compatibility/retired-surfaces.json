@@ -219,8 +219,8 @@
       "identifiers": ["createLane", "MainAgentOrchestration"],
       "paths": ["src/main-agent/lanes.js", "src/main-agent/orchestration.js"],
       "replacement": { "owner": "nils-cli", "contract": "generic agent-session readiness authenticates the ordinary managed principal; native DSH owns subagent lifecycle" },
-      "first_supported": { "runtime_kit": "optional mode retirement draft", "nils_cli": "released readiness prerequisite pending" },
-      "compatibility_window": "none; draft held for released companion and floor evidence",
+      "first_supported": { "runtime_kit": "optional mode retirement draft", "nils_cli": "1.33.0 (released readiness prerequisite, validated in #346)" },
+      "compatibility_window": "1.33.0 minimum; trusted runtime rehearsal and external acceptance remain dispatcher-owned",
       "rollback": "reinstall a separately reviewed previous runtime and matching companion tuple",
       "rationale": "Ordinary session authentication and workspace safety remain; no mode store or sidecar is disposed by this removal."
     },
