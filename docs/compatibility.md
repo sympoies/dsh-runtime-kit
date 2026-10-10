@@ -7,12 +7,16 @@ The supported runtime is deliberately exact:
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.33.0` |
+| nils-cli | `1.33.0` minimum; exactly validated through `1.33.0` |
 
 The validated companion release is nils-cli 1.33.0. Its exact Linux x64 and
 macOS arm64 archives and consumed binary digests are recorded in
-`compatibility/nils-cli.json`; the minimum remains 1.29.0. This adoption retains
-the managed-session mailbox reminder and guard contracts admitted in 1.31.8.
+`compatibility/nils-cli.json`. This adoption retires the earlier companion floor:
+the minimum supported release is raised to 1.33.0, because managed-session
+authentication now requires `agent-session readiness` (nils-cli#2242). Releases
+before 1.33.0 do not provide that contract and are no longer supported for
+managed sessions. The adoption retains the managed-session mailbox reminder and
+guard contracts admitted in 1.31.8.
 
 ## Agent runtime source alignment
 

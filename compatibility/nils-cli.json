@@ -1,7 +1,7 @@
 {
   "schema_version": "dsh-runtime-kit.nils-compatibility.v1",
   "status": "released",
-  "minimum_supported_release": "1.29.0",
+  "minimum_supported_release": "1.33.0",
   "validated_release": "1.33.0",
   "release": {
     "source_revision": "v1.33.0",

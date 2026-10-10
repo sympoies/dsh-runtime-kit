@@ -4,7 +4,7 @@
   "closeout": "https://github.com/sympoies/dsh-runtime-kit/issues/65",
   "minimum_supported": {
     "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
-    "nils_cli": "1.29.0",
+    "nils_cli": "1.33.0",
     "dsh": ["0.1.7-rc.1", "0.2.0-rc.2"]
   },
   "surfaces": [
@@ -30,7 +30,7 @@
         "runtime_kit": "Workbench Linux crash recovery adapter",
         "nils_cli": "1.29.0"
       },
-      "compatibility_window": "1.29.0 minimum; exact release-artifact validation still applies",
+      "compatibility_window": "1.33.0 minimum; exact release-artifact validation still applies",
       "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple; pre-1.29 sessions have no recovery owner binding and remain fail closed."
     },
     {

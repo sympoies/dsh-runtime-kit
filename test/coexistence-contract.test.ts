@@ -10,7 +10,7 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.29.0')
+  assert.equal(manifest.minimum_supported_release, '1.33.0')
   assert.equal(manifest.validated_release, '1.33.0')
   assert.deepEqual(manifest.release, {
     "source_revision": "v1.33.0",
