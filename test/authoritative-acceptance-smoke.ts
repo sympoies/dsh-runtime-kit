@@ -171,11 +171,19 @@ const crashMarker = join(workspace, '.git', 'dsh-crash-body-started')
 const providerProbePath = join(hookRoot, 'provider-mismatch-probe.json')
 const mismatchCompanion = join(temporaryRoot, 'unauthenticated-agent-docs')
 const validationCommand = `node -e ${JSON.stringify(
-  `require('node:fs').appendFileSync(${JSON.stringify(validationMarker)},${JSON.stringify(`${validationToken}\n`)},{mode:0o600})`,
+  "require('node:fs').appendFileSync(process.env.DSH_ACCEPTANCE_VALIDATION_MARKER,process.env.DSH_ACCEPTANCE_VALIDATION_TOKEN + '\\n',{mode:0o600})",
 )}`
 const cancellationCommand = `node -e ${JSON.stringify(
-  `const fs=require('node:fs');let beat=0;fs.writeFileSync(${JSON.stringify(cancellationPid)},String(process.pid));fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(beat));fs.writeFileSync(${JSON.stringify(cancellationMarker)},'started\\n');setInterval(()=>fs.writeFileSync(${JSON.stringify(cancellationHeartbeat)},String(++beat)),25)`,
+  "const fs=require('node:fs');let beat=0;fs.writeFileSync(process.env.DSH_ACCEPTANCE_CANCELLATION_PID,String(process.pid));fs.writeFileSync(process.env.DSH_ACCEPTANCE_CANCELLATION_HEARTBEAT,String(beat));fs.writeFileSync(process.env.DSH_ACCEPTANCE_CANCELLATION_MARKER,'started\\n');setInterval(()=>fs.writeFileSync(process.env.DSH_ACCEPTANCE_CANCELLATION_HEARTBEAT,String(++beat)),25)",
 )}`
+for (const [commandName, command, values] of [
+  ['validation', validationCommand, [validationMarker, validationToken]],
+  ['cancellation', cancellationCommand, [cancellationPid, cancellationHeartbeat, cancellationMarker]],
+]) {
+  for (const value of values) {
+    assert.equal(command.includes(value), false, `${commandName} command must not embed dynamic values`)
+  }
+}
 const candidateFeature = process.env[NILS_COMPATIBILITY_CANDIDATE_ENV]
 const baseEnvironment = sanitizeAcceptanceScenarioEnvironment(process.env)
 for (const name of Object.keys(baseEnvironment)) {

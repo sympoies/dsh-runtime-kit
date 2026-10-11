@@ -646,12 +646,47 @@ export function computeDocumentDigest(document: unknown) {
   return domainSeparatedDigest(domain, candidate)
 }
 
-const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u
-
 export type ParsedSemver = {source: string, major: string, minor: string, patch: string, prerelease: readonly string[], build: readonly string[]}
 export type SemverOperator = '<' | '<=' | '=' | '>=' | '>'
 export type VersionComparator = {operator: SemverOperator, version: ParsedSemver}
 export type ParsedVersionRange = {source: string, normalized: string, sets: readonly (readonly VersionComparator[])[]}
+
+function isAsciiDigit(code: number) {
+  return code >= 0x30 && code <= 0x39
+}
+
+function isAsciiLetter(code: number) {
+  return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)
+}
+
+function isValidCoreIdentifier(value: string) {
+  if (value.length === 0 || (value.length > 1 && value.charCodeAt(0) === 0x30)) return false
+  for (let index = 0; index < value.length; index += 1) {
+    if (!isAsciiDigit(value.charCodeAt(index))) return false
+  }
+  return true
+}
+
+function isValidPrereleaseIdentifier(value: string) {
+  if (value.length === 0) return false
+  let numeric = true
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (isAsciiDigit(code)) continue
+    numeric = false
+    if (code !== 0x2d && !isAsciiLetter(code)) return false
+  }
+  return !numeric || value === '0' || value.charCodeAt(0) !== 0x30
+}
+
+function isValidBuildIdentifier(value: string) {
+  if (value.length === 0) return false
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (!isAsciiDigit(code) && code !== 0x2d && !isAsciiLetter(code)) return false
+  }
+  return true
+}
 
 function numericIdentifierCompare(left: string, right: string) {
   if (left.length !== right.length) return left.length < right.length ? -1 : 1
@@ -662,15 +697,31 @@ export function parseSemver(value: unknown, path: string = 'version'): ParsedSem
   const safePath = typeof path === 'string' && Buffer.byteLength(path, 'utf8') <= 256
     && !isSecretShapedText(path) ? path : 'version'
   if (typeof value !== 'string') fail('version-invalid', `${safePath} must be a SemVer string`, { path: safePath })
-  const match = SEMVER_PATTERN.exec(value)
-  if (match === null) fail('version-invalid', `${safePath} is not exact SemVer 2.0.0`, { path: safePath })
+  const buildMarker = value.indexOf('+')
+  const versionAndPrerelease = buildMarker < 0 ? value : value.slice(0, buildMarker)
+  const buildText = buildMarker < 0 ? undefined : value.slice(buildMarker + 1)
+  const prereleaseMarker = versionAndPrerelease.indexOf('-')
+  const coreText = prereleaseMarker < 0
+    ? versionAndPrerelease
+    : versionAndPrerelease.slice(0, prereleaseMarker)
+  const prereleaseText = prereleaseMarker < 0
+    ? undefined
+    : versionAndPrerelease.slice(prereleaseMarker + 1)
+  const core = coreText.split('.')
+  const prerelease = prereleaseText === undefined ? [] : prereleaseText.split('.')
+  const build = buildText === undefined ? [] : buildText.split('.')
+  if (core.length !== 3 || core.some(identifier => !isValidCoreIdentifier(identifier))
+    || (prereleaseText !== undefined && prerelease.some(identifier => !isValidPrereleaseIdentifier(identifier)))
+    || (buildText !== undefined && build.some(identifier => !isValidBuildIdentifier(identifier)))) {
+    fail('version-invalid', `${safePath} is not exact SemVer 2.0.0`, { path: safePath })
+  }
   return Object.freeze({
     source: value,
-    major: match[1],
-    minor: match[2],
-    patch: match[3],
-    prerelease: Object.freeze(match[4] === undefined ? [] : match[4].split('.')),
-    build: Object.freeze(match[5] === undefined ? [] : match[5].split('.')),
+    major: core[0],
+    minor: core[1],
+    patch: core[2],
+    prerelease: Object.freeze(prerelease),
+    build: Object.freeze(build),
   })
 }
 
