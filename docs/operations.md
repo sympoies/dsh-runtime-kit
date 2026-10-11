@@ -310,8 +310,7 @@ all runtime-kit consumers share. Before every session-associated model stream
 enters DSH's `llm/stream` waterfall, `project-docs` audits that session's
 canonical cwd through the same authenticated snapshot. A failure blocks before
 middleware, cache, routing, the provider request, or a dependent tool body
-and never adds diagnostic text to the prompt. Optional Main Agent and
-specialist-review health may be degraded while independent runtime-kit tools
+and never adds diagnostic text to the prompt. Optional specialist-review health may be degraded while independent runtime-kit tools
 continue to operate. The complete state and recovery contract is in
 [Native runtime health](runtime-health.md).
 
@@ -558,7 +557,7 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.31.13 executables for every supported DSH row.
+the released and validated v1.33.2 executables for every supported DSH row.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

@@ -34,7 +34,7 @@ function failure(code: string, error?: Record<string, unknown>): CliFailure  {
 
 /**
  * One bounded, cancellation-aware runner for released nils CLI verbs
- * (`main-agent`, `agent-session`). It mirrors the policy transport's
+ * (`agent-session`). It mirrors the policy transport's
  * subprocess conventions: fixed argv vectors, bounded stdio, an owned
  * deadline that terminates the child, and a whole-tree quiescence check that
  * permanently closes admission when a survivor cannot be ruled out.
@@ -56,7 +56,7 @@ export function createCliClient(ctx: Context, config: { cliTimeoutMs?: number, c
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise(resolve => {
       deadlineTimer = setTimeout(() => {
-        controller.abort(new Error('dsh-runtime-kit main-agent CLI teardown deadline exceeded'))
+        controller.abort(new Error('dsh-runtime-kit nils CLI teardown deadline exceeded'))
         try { handle.terminate() } catch {}
         resolve(false)
       }, teardownTimeoutMs)
@@ -74,9 +74,9 @@ export function createCliClient(ctx: Context, config: { cliTimeoutMs?: number, c
   ctx.effect(() => () => {
     open = false
     for (const controller of active) {
-      controller.abort(new Error('dsh-runtime-kit main-agent CLI client disposed'))
+      controller.abort(new Error('dsh-runtime-kit nils CLI client disposed'))
     }
-  }, 'dsh-runtime-kit main-agent cli client')
+  }, 'dsh-runtime-kit nils cli client')
 
   return Object.freeze({
     get degraded() { return degraded },
@@ -130,7 +130,7 @@ export function createCliClient(ctx: Context, config: { cliTimeoutMs?: number, c
         let onDeadline: () => void = () => {}
         const deadline = new Promise<undefined>(resolve => { onDeadline = () => resolve(undefined) })
         timer = setTimeout(() => {
-          controller.abort(new Error('dsh-runtime-kit main-agent CLI deadline exceeded'))
+          controller.abort(new Error('dsh-runtime-kit nils CLI deadline exceeded'))
           try { handle.terminate() } catch {}
           onDeadline()
         }, boundedMs(options.timeoutMs, timeoutMs, MAX_CLI_TIMEOUT_MS))

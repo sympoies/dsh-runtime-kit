@@ -145,7 +145,6 @@ async function fixture(overrides = {}) {
   ctx.provide('subprocess', subprocess)
   await ctx.plugin(RuntimeHealth, overrides.healthConfig)
   const childPlugins = {
-    main_agent_mode: { state: 'pending' },
     review_specialists: { state: 'pending' },
   }
   let authenticatedConfig
@@ -465,11 +464,11 @@ test('project audit failures stay typed and recover on the same hashed scope', a
 test('optional child health is degraded until activation and can be refreshed natively', async () => {
   const subject = await fixture()
   try {
-    const pending = await subject.ctx.dshRuntimeHealth.probe('main-agent-mode')
+    const pending = await subject.ctx.dshRuntimeHealth.probe('review-specialists')
     assert.equal(pending.state, 'degraded')
     assert.equal(pending.code, 'DSH_RUNTIME_HEALTH_OPTIONAL_PENDING')
-    subject.childPlugins.main_agent_mode = { state: 'active' }
-    const active = await subject.ctx.dshRuntimeHealth.probe('main-agent-mode', { force: true })
+    subject.childPlugins.review_specialists = { state: 'active' }
+    const active = await subject.ctx.dshRuntimeHealth.probe('review-specialists', { force: true })
     assert.equal(active.state, 'ready')
     assert.equal(active.code, 'DSH_RUNTIME_HEALTH_OPTIONAL_READY')
   } finally {

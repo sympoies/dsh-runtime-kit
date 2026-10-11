@@ -192,7 +192,6 @@ for (const name of Object.keys(baseEnvironment)) {
     delete baseEnvironment[name]
   }
 }
-delete baseEnvironment.DSH_RUNTIME_KIT_MAIN_AGENT_BIN
 delete baseEnvironment.DSH_RUNTIME_KIT_AGENT_SESSION_BIN
 Object.assign(baseEnvironment, {
   HOME: home,
@@ -236,7 +235,6 @@ function nilsEnvironment(kind) {
     DSH_RUNTIME_KIT_AGENT_HOOK_BIN: join(binDir, 'agent-hook'),
     DSH_RUNTIME_KIT_AGENT_DOCS_BIN: join(binDir, 'agent-docs'),
     ...kind === 'candidate' ? {
-      DSH_RUNTIME_KIT_MAIN_AGENT_BIN: join(binDir, 'main-agent'),
       DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join(binDir, 'agent-session'),
     } : {},
     DSH_RUNTIME_KIT_SEMANTIC_COMMIT_BIN: join(binDir, 'semantic-commit'),

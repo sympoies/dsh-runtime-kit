@@ -10,54 +10,54 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   const manifest = JSON.parse(readFileSync(join(projectRoot, 'compatibility', 'nils-cli.json'), 'utf8'))
 
   assert.equal(manifest.status, 'released')
-  assert.equal(manifest.minimum_supported_release, '1.29.0')
-  assert.equal(manifest.validated_release, '1.31.13')
+  assert.equal(manifest.minimum_supported_release, '1.33.0')
+  assert.equal(manifest.validated_release, '1.33.2')
   assert.deepEqual(manifest.release, {
-    "source_revision": "v1.31.13",
-    "source_commit": "00b97d26bafaa6bfc6c34a0d561ae8c121519e54",
+    "source_revision": "v1.33.2",
+    "source_commit": "97757c93984fe5fee117c9fec9ef8a9aeba243fb",
     "platform": "x86_64-unknown-linux-gnu",
     "archive": {
-      "name": "nils-cli-v1.31.13-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "b1be0e440aafefd91157b9d9c1d3675c4aa6e4957d8a146b4cc73014a116b74e"
+      "name": "nils-cli-v1.33.2-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "dfc201e63eeb498287394fb1946816e3d2d34fc3660bd80d118e9d00e8574134"
     },
     "artifacts": {
       "agent-hook": {
-        "sha256": "87f3265712dc0fd050e6ff4c1c3dbd0edce2c249e0c1622195df35aee882ecc0"
+        "sha256": "c935f422d3f694a6a1d00e5aa47f43f86fb27c51b2b21ffb927d04d7bd679890"
       },
       "agent-docs": {
-        "sha256": "5263a6120b4409b64cacb7e5d8635a540fa66f8fc2255e097f3385d19a6ba6c2"
+        "sha256": "c7bc464b157b83f8a776d9e0bf3f0eb76d32e78b22a55e97ce79f648126a3014"
       },
       "agent-session": {
-        "sha256": "639b63834f8327ce1dfc7bfd7db2cc77c7d68563291b8487d54ceb17cff4c24e"
+        "sha256": "028fde1bc26cfe7043f53740437720f670e8c71ebde952633c39aa74a4bc2994"
       },
       "forge-cli": {
-        "sha256": "478be11694cf8489c76b288d32bf7faf5a4a1cccb1570eb4b9aefa10474256d2"
+        "sha256": "6737e49783529114c509d08d21dea1882dd0984f155f5ac297c05d5dc0a89d40"
       },
       "git-cli": {
-        "sha256": "893459c182f823d29a6939d29a82dbe0322a04a4543147b58b3a30b056a5ae67"
+        "sha256": "d4d5c4a3e0a9b8e17d450e06b498c72751744a52fd9e72665629dd0c3e13671a"
       },
       "review-specialists": {
-        "sha256": "05cedf128458a489607933cf4ab06954f259c22d79d0e3e5627f62c4756a9d6d"
+        "sha256": "52d83cb07462cbaf96f53f51ab314faa9ab9df1c2c073a28cf7ef0fd994adc1b"
       },
       "semantic-commit": {
-        "sha256": "71630276bab496c7b48bfaf0bb2c8f35e5bcef64003af9c4302168fb5873435c"
+        "sha256": "83d67a595cc4b4ac64055e178622b55198c231e26a1590d08d9ade96c969fc71"
       }
     },
     "platforms": {
       "aarch64-apple-darwin": {
         "archive": {
-          "name": "nils-cli-v1.31.13-aarch64-apple-darwin.tar.gz",
-          "sha256": "62521a11fb1ee47990edf2a3b4441efa51d00752d016dc0881ea5f1064309fd9"
+          "name": "nils-cli-v1.33.2-aarch64-apple-darwin.tar.gz",
+          "sha256": "0c22b410f581f1954284f63e6416d576ee55c2a95c8e41f02e15cb968abb185f"
         },
         "artifacts": {
           "agent-hook": {
-            "sha256": "9942829db4575dd971148da716eb923596ded56e966c9d98524a375e2c5d480f"
+            "sha256": "63be095bac095e2f9053b85fc94c963befc35be1049b127371542a8bd816e363"
           },
           "agent-docs": {
-            "sha256": "823617a4c58f256a4d2c96120362962be2eadb7482213652fd5c637ad7fb28ec"
+            "sha256": "f625df0f6c9aca062e045188de11d9310e1ccc26a400fa0c1abf763a81388bbd"
           },
           "agent-session": {
-            "sha256": "bdec26ae232d30cb975fbfcb0fc211984b17f72524bee290a9ddc3d668134bca"
+            "sha256": "f8ef1dfa12444483d03f0ade5db9017243e78d08e72f6bbce530aff4239fb0c9"
           }
         }
       }
@@ -65,7 +65,15 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   })
 
   assert.ok(manifest.commands.every(command => command.status === 'released'))
+  const gitCliWorktree = manifest.commands.find(command => command.id === 'git-cli.worktree')
+  assert.equal(gitCliWorktree?.validation, 'release-artifact-validated')
+  assert.ok(gitCliWorktree?.contracts.includes('git-cli worktree remove --safe'))
   assert.ok(manifest.commands.some(command => command.id === 'agent-hook.workspace-recovery.dsh'))
+  // Managed-session authentication (and the 1.33.0 floor) depends on this readiness contract.
+  const readiness = manifest.commands.find(command => command.id === 'agent-session.readiness')
+  assert.equal(readiness?.binary, 'agent-session')
+  assert.ok(readiness?.contracts.includes('agent-session.runtime-readiness.v1'))
+  assert.ok(readiness?.contracts.includes('cli.agent-session.readiness.v1'))
   assert.ok(
     manifest.commands
       .find(command => command.id === 'agent-hook.dispatch.dsh')
@@ -110,10 +118,6 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
       'semantic-commit': { sha256: 'dd7a4dfe2e5df88e38e8e5d8af681fd86455cc9013fd03b07f409a7d1f66631f' },
     },
   })
-  assert.equal(
-    manifest.commands.find(command => command.id === 'main-agent.lane-orchestration')?.validation,
-    'release-bundle-validated',
-  )
   assert.deepEqual(
     manifest.commands.find(command => command.id === 'agent-session.work-context-set-if-absent'),
     {
@@ -170,10 +174,6 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
     assert.match(patch, new RegExp(variable))
     assert.match(operations, new RegExp(variable))
   }
-  assert.match(
-    patch,
-    /mainAgentCli: !!js process\.env\.DSH_RUNTIME_KIT_MAIN_AGENT_BIN \?\? 'main-agent'/,
-  )
   assert.match(
     patch,
     /agentSessionCli: !!js process\.env\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN \?\? 'agent-session'/,

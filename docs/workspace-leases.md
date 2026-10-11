@@ -385,6 +385,13 @@ distinct worktrees mutate concurrently, that one physical worktree still
 contends across sessions, and that the dirty checkout itself is never mutated.
 It also runs the real DSH `skill` tool, the production `runtime_context`
 definition, anchor-local dirty denial diagnostics, and clean managed handoff.
+The ordinary native-subagent leg in [`test/smoke.ts`](../test/smoke.ts)
+uses a host-only workspace provider to select a distinct `git-cli` worktree.
+It requires a child-specific authority reference and an `owned` lease before
+the first child prompt, reaches a scripted model through the native host, and
+closes the continuation. Reviewer completion alone does not satisfy this
+workspace acceptance contract. Fixture negative paths live in
+[`test/native-subagent-workspace.test.ts`](../test/native-subagent-workspace.test.ts).
 Promotion also requires the packed compatibility matrix and real two-session,
 restart/recovery, upgrade, and rollback acceptance described by issues #56 and
 \#172; a focused green test alone does not promote this capability.

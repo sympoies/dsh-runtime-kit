@@ -37,13 +37,6 @@
       "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
     },
     {
-      "id": "managed-subagent-workspace",
-      "scenario_ids": ["managed-subagent-workspace.git-repo", "managed-subagent-workspace.managed-worktree"],
-      "fixture_files": ["subagent-target.txt", "controller-review.txt", "subagent-request.json", "main-agent-objective.json", "main-agent-assignment.json"],
-      "failure_kind": "workspace-issuance-conflict",
-      "transitions": {"prepare": ["stage-fixture"], "induce": ["stage-fixture", "induce-failure"], "recover": ["recover-failure"], "cleanup": ["cleanup-fixture"]}
-    },
-    {
       "id": "data-policy",
       "scenario_ids": ["data-policy.git-repo", "data-policy.non-git", "data-policy.managed-worktree"],
       "fixture_files": ["ordinary.txt", ".dsh-acceptance/protected/target.txt", "data-destination.txt"],

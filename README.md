@@ -76,7 +76,7 @@ compatibility, acceptance, and delivery procedures are in the
   `semantic-commit commit --repo <absolute worktree path>`. It returns a validated `semantic-commit`
   receipt, or a typed `no-repository` result with guidance when the session
   runs in a folder that is not a Git repository.
-- Optional DSH-native Main Agent Mode when the host exposes its subagent
+- Optional native specialist review when the host exposes its subagent
   service.
 - Digest-reviewed setup, update, rollback, repair, and removal for an isolated
   DSH runtime root.
@@ -97,7 +97,7 @@ compatibility, acceptance, and delivery procedures are in the
 | DeepSeek Harness (generic/headless) | `0.1.7-rc.1` or `0.2.0-rc.2` |
 | Cordis | `4.0.4` with both DSH releases |
 | Node.js | `24` or newer |
-| nils-cli | `1.29.0` minimum; exactly validated through `1.31.13` |
+| nils-cli | `1.33.0` minimum; exactly validated through `1.33.2` |
 
 The package deliberately supports a rolling window of exactly two reviewed
 DSH releases. Promoting a newer release retires the oldest in the same change;
@@ -232,9 +232,8 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
   dsh --profile headless "run the requested task"
 ```
 
-The installed bundle adds runtime-kit tools, skills, and
-`mainAgentOrchestration`. With no reviewed worker override, Main Agent workers
-inherit the live controller route. Runtime-kit adds only its own Cordis row: the host remains responsible for an
+The installed bundle adds runtime-kit tools and skills. Runtime-kit adds only
+its own Cordis row: the host remains responsible for an
 explicit `DSH_PERMISSION_MODE`, the matching approval policy, and environment-
 name credential references.
 
@@ -252,10 +251,9 @@ precedence over bundled skills. Private loading is opt-in and never imports an
 existing Codex or Claude Code skill directory. See
 [private and project skills](docs/private-skills.md).
 
-Specialist review and Main Agent Mode are independent optional child plugins.
-If DSH has no subagent service, the parent policy, context, operations, and
-skills surfaces still activate. See [Main Agent Mode](docs/main-agent-mode.md)
-for its ownership model and current limitations.
+Specialist review is an optional child plugin. If DSH has no subagent service,
+the parent policy, context, operations, and skills surfaces still activate.
+Ordinary native subagents retain DSH's workspace and permission boundaries.
 
 ## Documentation
 

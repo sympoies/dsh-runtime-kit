@@ -11,7 +11,7 @@ escalation is actually involved.
 | Axis | Question | Values |
 | --- | --- | --- |
 | Tracking mode | Which durable record does the work need? | `direct` / `issue` / `program` |
-| Execution | Who does the work? | inline / subagents / Main Agent Mode |
+| Execution | Who does the work? | inline / native subagents |
 | Review depth | How risky is the diff? | Risk-selected quick or full review |
 
 Choose each axis separately. A `program` can run inline. A `direct` change can
@@ -58,29 +58,16 @@ tracker is the plan.
 
 ## Execution mapping
 
-| Mode | Default execution | Under Main Agent Mode |
-| --- | --- | --- |
-| `direct` | Inline | Delegate one worker only on an explicit request to delegate everything |
-| `issue` | Inline or one delegated worker | One isolated worker; the same issue remains the outcome |
-| `program` | Inline, or Main Agent Mode for waves of parallel children | One run per wave, as below |
-| `program/dispatch` | Per `deliver-dispatch-plan` | One worker per lane; the dispatch acceptance boundary remains |
+Tracking and execution remain separate. Direct work normally runs inline;
+issue work can use an ordinary delegated subagent. Program children may run in
+parallel when authorized, with gates between dependent phases. Each child owns
+its isolated implementation and reports validation to the parent. The tracker
+remains the authoritative dependency graph and acceptance record.
 
-A `program` run under Main Agent Mode:
-
-- runs one wave at a time. Gates between waves (release, deploy, decision)
-  need fresh user authority;
-- gives each child issue one worker, whose packet names the child and mirrors
-  the tracker's dependency graph in `depends_on`;
-- treats the tracker as the only authoritative plan. Run state is execution
-  state, never a second dependency graph;
-- accepts each child before merge against the tracker's settled decisions,
-  returns code findings to the same worker, then ticks the tracker and posts a
-  checkpoint;
-- never releases or upgrades the runtime its controller or workers use while a
-  run is active. Schedule releases between waves.
-
-Subagents are an execution mode, not a tracking mode. Running existing issues
-with subagents keeps their mode unless a shared tracker is actually needed.
+For `program/dispatch`, follow `deliver-dispatch-plan`: lane PRs target the
+integration branch and the orchestrator owns the shared integration result.
+Delegation does not transfer provider record, review, release or deployment
+authority.
 
 ## Program records
 

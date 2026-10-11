@@ -501,7 +501,7 @@ A non-empty composed bundle layer proves the rebuilt libraries load.
 `dsh --version` is not sufficient; it does not exercise the host bundles.
 
 The smoke resolves further companions as siblings of `AGENT_HOOK_BIN`:
-`review-specialists`, `forge-cli`, `main-agent` and `agent-session`
+`review-specialists`, `forge-cli` and `agent-session`
 (`GIT_CLI_BIN` additionally for `npm run test:workspace-lease-native-smoke`).
 Provide all of them from one nils-cli generation. Companion authentication
 rejects a binary whose ancestor directories are group- or other-writable, so a

@@ -41,18 +41,6 @@ function git(cwd: string, args: string[]) {
   return result.stdout.trim()
 }
 
-function managedWorktree(primary: string, child: string, branch: string) {
-  mkdirSync(primary, { recursive: true, mode: 0o700 })
-  git(primary, ['init', '--initial-branch', 'main'])
-  writeFileSync(join(primary, 'seed.txt'), 'seed\n', { mode: 0o600 })
-  git(primary, ['add', '--', 'seed.txt'])
-  const tree = git(primary, ['write-tree'])
-  const commit = git(primary, ['commit-tree', tree, '-m', 'acceptance fixture seed'])
-  git(primary, ['update-ref', 'refs/heads/main', commit])
-  git(primary, ['reset', '--hard', commit])
-  git(primary, ['worktree', 'add', '-b', branch, child, 'HEAD'])
-}
-
 test('fixture tree digest tolerates only an enumerated entry disappearing before metadata inspection', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-digest-race-'))
   const stable = join(root, 'stable.txt')
@@ -134,7 +122,7 @@ test('fixture manifest owns every #D row exactly once with bounded inverse recip
   const observed = manifest.families.flatMap(family => family.scenario_ids).sort()
 
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.acceptance-fixtures.v1')
-  assert.equal(manifest.families.length, 12)
+  assert.equal(manifest.families.length, 11)
   assert.deepEqual(observed, expected)
   for (const family of manifest.families) {
     assert.deepEqual(family.transitions, {
@@ -920,285 +908,7 @@ test('governed request gives the harness one concrete ordered operation', async 
   assert.deepEqual(recovered.commit, induced.commit)
 })
 
-test('managed subagent assignment uses the exact registered child validation command', { concurrency: false }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-managed-validation-'))
-  const workdir = join(root, 'workdir')
-  const childWorktree = join(root, 'child-worktree')
-  const dshHome = join(root, 'dsh-home')
-  mkdirSync(dshHome, { mode: 0o700 })
-  managedWorktree(workdir, childWorktree, 'managed-validation-child')
-  const names = [
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY',
-  ] as const
-  const prior = new Map(names.map(name => [name, process.env[name]]))
-  Object.assign(process.env, {
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: childWorktree,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY: 'sympoies/acceptance-fixture',
-  })
-
-  try {
-    runAcceptanceFixture({
-      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
-      stage: 'prepare',
-      phase: 'success',
-      family: 'managed-subagent-workspace',
-      scenarioId: 'managed-subagent-workspace.git-repo',
-      profile: 'headless-managed-validation',
-      workdir,
-      dshHome,
-    })
-
-    const assignment = JSON.parse(readFileSync(join(workdir, 'main-agent-assignment.json'), 'utf8'))
-    const objective = JSON.parse(readFileSync(join(workdir, 'main-agent-objective.json'), 'utf8'))
-    const request = JSON.parse(readFileSync(join(workdir, 'subagent-request.json'), 'utf8'))
-    const projectGuide = readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8')
-    assert.match(assignment.task.objective, /run the exact command \.\/fixture-validation\.mjs/u)
-    assert.match(assignment.task.objective, /without a wrapper, prefix, suffix, or compound command/u)
-    assert.match(assignment.task.objective, /write call, do not include sandbox_permissions or justification/iu)
-    assert.deepEqual(request.controller_review, {
-      file_path: join(workdir, 'controller-review.txt'),
-      content: 'review-complete\n',
-    })
-    assert.equal(request.terminal_marker, 'DSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo')
-    assert.match(projectGuide, /controller_review/u)
-    assert.match(projectGuide, /terminal_marker/u)
-    assert.match(projectGuide, /do not derive either value from a workdir/u)
-    assert.doesNotMatch(assignment.task.objective, /run node fixture-validation\.mjs/u)
-    assert.deepEqual(objective.done_criteria, [
-      'child worktree differs from the primary',
-      'child result accepted',
-      'controller review recorded in the primary',
-      'lane closed',
-    ])
-    assert.deepEqual(objective.constraints, [
-      'no commit',
-      'no delivery',
-      'leave the primary implementation target unchanged',
-    ])
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
-
-    const primaryValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
-      cwd: workdir,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: childWorktree,
-      },
-    })
-    assert.notEqual(primaryValidation.status, 0)
-    writeFileSync(join(workdir, 'controller-review.txt'), 'review-complete\n\n', { mode: 0o600 })
-    const malformedValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
-      cwd: workdir,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: childWorktree,
-      },
-    })
-    assert.notEqual(malformedValidation.status, 0)
-    writeFileSync(join(workdir, 'controller-review.txt'), 'review-complete\n', { mode: 0o600 })
-    const exactValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
-      cwd: workdir,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-        DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: childWorktree,
-      },
-    })
-    assert.equal(exactValidation.status, 0, exactValidation.stderr)
-    assert.equal(
-      exactValidation.stdout,
-      'acceptance-fixture-ok\nDSH_ACCEPTANCE_PASS:managed-subagent-workspace.git-repo\n',
-    )
-    assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
-    assert.equal(existsSync(join(childWorktree, 'AGENT_DOCS.toml')), true)
-    assert.equal(existsSync(join(childWorktree, 'fixture-validation.mjs')), true)
-
-    writeFileSync(join(childWorktree, 'subagent-target.txt'), 'subagent-after\n', { mode: 0o600 })
-    runAcceptanceFixture({
-      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
-      stage: 'cleanup',
-      phase: 'success',
-      family: 'managed-subagent-workspace',
-      scenarioId: 'managed-subagent-workspace.git-repo',
-      profile: 'headless-managed-validation',
-      workdir,
-      dshHome,
-    })
-    assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-after\n')
-    runAcceptanceFixture({
-      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
-      stage: 'prepare',
-      phase: 'success',
-      family: 'managed-subagent-workspace',
-      scenarioId: 'managed-subagent-workspace.git-repo',
-      profile: 'headless-managed-validation',
-      workdir,
-      dshHome,
-    })
-    assert.equal(readFileSync(join(workdir, 'controller-review.txt'), 'utf8'), 'review-pending')
-    assert.equal(readFileSync(join(childWorktree, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
-  } finally {
-    for (const name of names) {
-      const value = prior.get(name)
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  }
-})
-
-test('managed subagent distinct retry workdir selects its own host-issued topology', { concurrency: false }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-managed-retry-topology-'))
-  const initialWorkdir = join(root, 'initial-primary')
-  const initialChild = join(root, 'initial-child')
-  const retryWorkdir = join(root, 'retry-primary')
-  const retryChild = join(root, 'retry-child')
-  const dshHome = join(root, 'dsh-home')
-  mkdirSync(dshHome, { mode: 0o700 })
-  managedWorktree(initialWorkdir, initialChild, 'managed-initial-child')
-  managedWorktree(retryWorkdir, retryChild, 'managed-retry-child')
-  const names = [
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY',
-  ] as const
-  const prior = new Map(names.map(name => [name, process.env[name]]))
-  Object.assign(process.env, {
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: initialWorkdir,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: initialChild,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY: retryWorkdir,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE: retryChild,
-    DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY: 'sympoies/acceptance-fixture',
-  })
-
-  try {
-    const input = {
-      schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
-      phase: 'deliberate-failure' as const,
-      family: 'managed-subagent-workspace',
-      scenarioId: 'managed-subagent-workspace.managed-worktree',
-      profile: 'headless-managed-retry-topology',
-      workdir: retryWorkdir,
-      dshHome,
-    }
-    runAcceptanceFixture({ ...input, stage: 'induce' })
-    runAcceptanceFixture({ ...input, stage: 'recover' })
-
-    const request = JSON.parse(readFileSync(join(retryWorkdir, 'subagent-request.json'), 'utf8'))
-    const assignment = JSON.parse(readFileSync(join(retryWorkdir, 'main-agent-assignment.json'), 'utf8'))
-    assert.equal(request.primary_worktree, resolve(retryWorkdir))
-    assert.equal(request.child_worktree, resolve(retryChild))
-    assert.equal(assignment.launch.cwd, resolve(retryChild))
-    assert.equal(assignment.worktree, resolve(retryChild))
-    writeFileSync(join(retryWorkdir, 'controller-review.txt'), 'review-complete\n', { mode: 0o600 })
-    const containedEnv = { ...process.env }
-    for (const name of names) delete containedEnv[name]
-    const retryValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
-      cwd: retryWorkdir,
-      encoding: 'utf8',
-      env: containedEnv,
-    })
-    assert.equal(retryValidation.status, 0, retryValidation.stderr)
-    assert.equal(
-      retryValidation.stdout,
-      'acceptance-fixture-ok\nDSH_ACCEPTANCE_RECOVERED:managed-subagent-workspace.managed-worktree\n',
-    )
-  } finally {
-    for (const name of names) {
-      const value = prior.get(name)
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  }
-})
-
-test('managed subagent staging rejects missing, same-path, and mismatched host topology before fixture writes', { concurrency: false }, async () => {
-  const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-managed-invalid-topology-'))
-  const workdir = join(root, 'primary')
-  const child = join(root, 'child')
-  const otherPrimary = join(root, 'other-primary')
-  const otherChild = join(root, 'other-child')
-  const nonGitChild = join(root, 'non-git-child')
-  const dshHome = join(root, 'dsh-home')
-  mkdirSync(dshHome, { mode: 0o700 })
-  mkdirSync(nonGitChild, { mode: 0o700 })
-  managedWorktree(workdir, child, 'managed-valid-child')
-  managedWorktree(otherPrimary, otherChild, 'managed-other-child')
-  const names = [
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE',
-    'DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY',
-  ] as const
-  const prior = new Map(names.map(name => [name, process.env[name]]))
-  const invoke = () => runAcceptanceFixture({
-    schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
-    stage: 'prepare',
-    phase: 'success',
-    family: 'managed-subagent-workspace',
-    scenarioId: 'managed-subagent-workspace.git-repo',
-    profile: 'headless-managed-invalid-topology',
-    workdir,
-    dshHome,
-  })
-  try {
-    for (const name of names) delete process.env[name]
-    assert.throws(invoke, /repository, primary, and host-issued worktree are required/u)
-    assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), false)
-
-    Object.assign(process.env, {
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: workdir,
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY: 'sympoies/acceptance-fixture',
-    })
-    assert.throws(invoke, /primary and child must be distinct/u)
-
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE = join(root, 'missing-child')
-    assert.throws(invoke, /must name an existing absolute directory/u)
-
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE = nonGitChild
-    assert.throws(invoke, /must be a Git checkout/u)
-
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE = otherChild
-    assert.throws(invoke, /must be a linked worktree from the primary repository/u)
-
-    Object.assign(process.env, {
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: child,
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY: otherPrimary,
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE: otherChild,
-    })
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY = otherPrimary
-    assert.throws(invoke, /primary must match the scenario workdir/u)
-    assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), false)
-
-    Object.assign(process.env, {
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY: workdir,
-      DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE: child,
-    })
-    delete process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_PRIMARY
-    delete process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_RETRY_WORKTREE
-    writeFileSync(join(child, 'subagent-target.txt'), 'caller-owned\n', { mode: 0o600 })
-    assert.throws(invoke, /fixture path is caller-owned: subagent-target\.txt/u)
-    assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), false)
-  } finally {
-    for (const name of names) {
-      const value = prior.get(name)
-      if (value === undefined) delete process.env[name]
-      else process.env[name] = value
-    }
-  }
-})
-
-test('all twelve typed failure recipes induce and recover exact inputs', { concurrency: false }, async () => {
+test('all eleven typed failure recipes induce and recover exact inputs', { concurrency: false }, async () => {
   const manifest = loadAcceptanceFixtureManifest()
   for (const family of manifest.families) {
     const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-${family.id}-`))
@@ -1206,16 +916,11 @@ test('all twelve typed failure recipes induce and recover exact inputs', { concu
     const dshHome = join(root, 'dsh-home')
     const companions = join(dshHome, 'companions')
     const hookState = join(dshHome, 'hook-state')
-    const managedChild = join(root, 'managed-child')
     mkdirSync(workdir, { mode: 0o700 })
     mkdirSync(dshHome, { mode: 0o700 })
     mkdirSync(companions, { mode: 0o700 })
     mkdirSync(hookState, { mode: 0o700 })
-    if (family.id === 'managed-subagent-workspace') {
-      managedWorktree(workdir, managedChild, 'managed-family-child')
-    } else {
-      mkdirSync(managedChild, { mode: 0o700 })
-    }
+
     const observedRequests = join(hookState, 'requests.jsonl')
     writeFileSync(join(workdir, 'caller-owned.txt'), 'retain\n', { mode: 0o600 })
     const hook = join(companions, 'agent-hook')
@@ -1245,16 +950,10 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
     const priorHookConfig = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
     const priorHookPolicy = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY
     const priorHookState = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
-    const priorMainPrimary = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY
-    const priorMainWorktree = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE
-    const priorMainRepository = process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY
     process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN = hook
     process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG = hookConfig
     process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY = hookPolicy
     process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR = hookState
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY = workdir
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE = managedChild
-    process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY = 'sympoies/acceptance-fixture'
     const input = {
       schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
       phase: 'deliberate-failure' as const,
@@ -1280,11 +979,7 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
       }
       runAcceptanceFixture({ ...input, stage: 'induce' })
       assert.equal(existsSync(join(workdir, '.dsh-acceptance', 'failure.json')), true, family.id)
-      if (family.id === 'managed-subagent-workspace') {
-        assert.equal(readFileSync(join(managedChild, 'subagent-target.txt'), 'utf8'), 'subagent-before\n')
-        assert.equal(existsSync(join(managedChild, 'AGENT_DOCS.toml')), true)
-        assert.equal(existsSync(join(managedChild, 'fixture-validation.mjs')), true)
-      }
+
       if (family.id === 'workspace-identity') {
         assert.equal(existsSync(join(workdir, '.git')), true)
         const temporaryRepositoryConfig = readFileSync(join(workdir, '.git', 'config'), 'utf8')
@@ -1304,10 +999,7 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
         assert.deepEqual(JSON.parse(readFileSync(join(workdir, 'acceptance-request.json'), 'utf8')).sequence,
           ['finish', 'edit', 'validate'])
       }
-      if (family.id === 'managed-subagent-workspace') {
-        assert.match(JSON.parse(readFileSync(join(workdir, 'main-agent-assignment.json'), 'utf8')).worktree,
-          /\.dsh-acceptance\/missing-host-workspace$/u)
-      }
+
       if (family.id === 'data-policy') {
         assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'),
           '.dsh-acceptance/protected/target.txt\n')
@@ -1353,10 +1045,7 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
         assert.deepEqual(JSON.parse(readFileSync(join(workdir, 'acceptance-request.json'), 'utf8')).sequence,
           ['edit', 'validate', 'finish'])
       }
-      if (family.id === 'managed-subagent-workspace') {
-        assert.equal(JSON.parse(readFileSync(join(workdir, 'main-agent-assignment.json'), 'utf8')).worktree,
-          managedChild)
-      }
+
       if (family.id === 'data-policy') assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'), 'ordinary-copy.txt\n')
       if (family.id === 'restricted-role') assert.match(readFileSync(join(workdir, 'review-instruction.txt'), 'utf8'), /read-only/u)
       if (family.id === 'session-artifact') {
@@ -1385,12 +1074,6 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
       else process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY = priorHookPolicy
       if (priorHookState === undefined) delete process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
       else process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR = priorHookState
-      if (priorMainPrimary === undefined) delete process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY
-      else process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_PRIMARY = priorMainPrimary
-      if (priorMainWorktree === undefined) delete process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE
-      else process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_WORKTREE = priorMainWorktree
-      if (priorMainRepository === undefined) delete process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY
-      else process.env.DSH_RUNTIME_KIT_ACCEPTANCE_MAIN_AGENT_REPOSITORY = priorMainRepository
     }
   }
 })
@@ -1550,7 +1233,7 @@ test('fixture staging leaves a git-backed scenario checkout clean', { concurrenc
   const prior = new Map(names.map(name => [name, process.env[name]]))
   try {
     for (const family of manifest.families) {
-      if (family.id === 'managed-subagent-workspace') continue
+
       const scenarioId = family.scenario_ids.find(id => id.endsWith('.git-repo'))
       if (scenarioId === undefined) continue
       const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-clean-${family.id}-`))

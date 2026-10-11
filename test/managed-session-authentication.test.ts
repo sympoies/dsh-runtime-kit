@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
+import { mkdtempSync, writeFileSync, rmSync, existsSync, symlinkSync, realpathSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, basename } from 'node:path'
 
-import { createManagedSessionBridge } from '../dist/src/main-agent/session-bridge.js'
+import { createManagedSessionBridge } from '../dist/src/nils/session-bridge.js'
 import { applyManagedSessionAuthentication } from '../dist/src/nils/managed-session-authentication.js'
+
+const fixtureRoot = mkdtempSync(join(tmpdir(), 'generic-session-readiness-'))
+const agentSessionFixture = join(fixtureRoot, 'agent-session')
+writeFileSync(agentSessionFixture, '#!/bin/sh\nexit 1\n', { mode: 0o700 })
+after(() => rmSync(fixtureRoot, { recursive: true, force: true }))
 
 const principalEnvironment = Object.freeze({
   AGENT_SESSION_ID: 'console-session-one',
@@ -11,15 +19,15 @@ const principalEnvironment = Object.freeze({
   AGENT_SESSION_COORDINATION_MODE: 'advisory',
   AGENT_SESSION_CAPABILITY_FILE: '/private/agent-session/capability',
   AGENT_SESSION_CHECKPOINT_FILE: '/private/agent-session/checkpoint',
-  AGENT_SESSION_BIN: '/bin/true',
+  AGENT_SESSION_BIN: agentSessionFixture,
 })
 
 function readiness(environment = principalEnvironment) {
   return {
-    schema_version: 'cli.main-agent.self-readiness.v1',
+    schema_version: 'cli.agent-session.readiness.v1',
     ok: true,
     data: {
-      schema_version: 'main-agent.runtime-readiness.v1',
+      schema_version: 'agent-session.runtime-readiness.v1',
       ready: true,
       session_id: environment.AGENT_SESSION_ID,
       session_incarnation: environment.AGENT_SESSION_RUNTIME_ID,
@@ -124,6 +132,9 @@ function harness({
     subprocess: {
       resolveExecutable,
       spawn(spec) {
+        assert.equal(basename(realpathSync(spec.argv[0])), 'agent-session')
+        assert.equal(existsSync(join(fixtureRoot, 'main-agent')), false)
+        assert.notEqual(spec.argv[1], 'self')
         spawned.push(spec)
         const selectedEnvelope = response(spec)
         const selectedPending = typeof pending === 'function' ? pending(spec) : pending
@@ -180,7 +191,7 @@ function topLevelAgent(id = 'dsh-controller-one', cwd = '/workspace/project') {
   return { session: { header: { id, cwd } } }
 }
 
-test('always-on managed-session authentication binds before an optional child plugin activates', async () => {
+test('ordinary managed-session authentication uses only generic readiness before policy', async () => {
   const subject = harness({
     response(spec) {
       return spec.argv[1] === 'work-context'
@@ -190,8 +201,7 @@ test('always-on managed-session authentication binds before an optional child pl
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const entered = await subject.listeners.get('agent/pre-step')[0](
@@ -201,9 +211,9 @@ test('always-on managed-session authentication binds before an optional child pl
 
   assert.deepEqual(entered, { kind: 'enter', messages: [] })
   assert.deepEqual(subject.spawned.map(record => record.argv), [
-    ['/bin/true', 'self', 'readiness', '--format', 'json'],
+    [agentSessionFixture, 'readiness', '--format', 'json'],
     [
-      '/bin/true', 'work-context', 'set', '--if-absent',
+      agentSessionFixture, 'work-context', 'set', '--if-absent',
       '--intent', 'project-dev', '--tier', 'program',
       '--summary', 'DSH project-dev session', '--format', 'json',
     ],
@@ -220,8 +230,7 @@ test('managed-session authentication is available to startup lifecycle owners be
   const subject = harness()
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
   const agent = topLevelAgent()
 
@@ -249,8 +258,7 @@ for (const code of ['not-in-repository', 'uncovered-mutation-scope', 'repository
     })
     const bridge = createManagedSessionBridge()
     applyManagedSessionAuthentication(subject.ctx, {
-      mainAgentCli: '/bin/true',
-      agentSessionCli: '/bin/true',
+        agentSessionCli: agentSessionFixture,
     }, bridge, principalEnvironment)
 
     const entered = await subject.listeners.get('agent/pre-step')[0](
@@ -283,8 +291,7 @@ for (const [description, mutate] of [
     })
     const bridge = createManagedSessionBridge()
     applyManagedSessionAuthentication(subject.ctx, {
-      mainAgentCli: '/bin/true',
-      agentSessionCli: '/bin/true',
+        agentSessionCli: agentSessionFixture,
     }, bridge, principalEnvironment)
 
     const rejected = await subject.listeners.get('agent/pre-step')[0](
@@ -310,8 +317,7 @@ test('managed-session authentication rejects unrelated typed baseline failures',
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const rejected = await subject.listeners.get('agent/pre-step')[0](
@@ -336,8 +342,7 @@ test('managed-session authentication fails before bridge binding on an invalid b
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const rejected = await subject.listeners.get('agent/pre-step')[0](
@@ -374,8 +379,7 @@ test('managed-session authentication accepts additive output and preserves a ric
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const entered = await subject.listeners.get('agent/pre-step')[0](
@@ -402,8 +406,7 @@ test('managed-session authentication rejects a malformed newly created baseline 
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const rejected = await subject.listeners.get('agent/pre-step')[0](
@@ -422,8 +425,7 @@ test('managed-session authentication forwards the authenticated coordination mod
   const subject = harness()
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const entered = await subject.listeners.get('agent/pre-step')[0](
@@ -446,8 +448,7 @@ test('managed-session authentication stays fail-closed for unmanaged sessions an
   const unmanaged = harness({ environment: {} })
   const unmanagedBridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(unmanaged.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, unmanagedBridge, {})
   const unmanagedResult = await unmanaged.listeners.get('agent/pre-step')[0](
     { agent: topLevelAgent('unmanaged'), signal: new AbortController().signal },
@@ -460,8 +461,7 @@ test('managed-session authentication stays fail-closed for unmanaged sessions an
   const foreign = harness()
   const foreignBridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(foreign.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, foreignBridge, principalEnvironment)
   const foreignResult = await foreign.listeners.get('agent/pre-step')[0](
     {
@@ -481,8 +481,7 @@ test('partial Agent Session isolation sentinels do not claim always-on managed a
   const subject = harness({ environment: partialEnvironment })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, partialEnvironment)
 
   const entered = await subject.listeners.get('agent/pre-step')[0](
@@ -501,8 +500,7 @@ test('managed-session authentication rejects invalid producer readiness before p
   const subject = harness({ envelope: invalid })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const rejected = await subject.listeners.get('agent/pre-step')[0](
@@ -520,8 +518,7 @@ test('agent disposal during readiness cannot publish a stale principal', async (
   const subject = harness({ pending: true })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
   const agent = topLevelAgent()
 
@@ -529,6 +526,7 @@ test('agent disposal during readiness cannot publish a stale principal', async (
     { agent, signal: new AbortController().signal },
     async () => ({ kind: 'enter', messages: [] }),
   )
+  await waitFor(() => subject.spawned.length > 0)
   subject.listeners.get('agent/disposed')[0]({ agent })
 
   assert.deepEqual(await entering, {
@@ -545,8 +543,7 @@ test('agent disposal cancels an in-flight baseline claim before bridge publicati
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
   const agent = topLevelAgent()
 
@@ -571,8 +568,7 @@ test('plugin disposal cancels every in-flight baseline claim before bridge publi
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
-    agentSessionCli: '/bin/true',
+    agentSessionCli: agentSessionFixture,
   }, bridge, principalEnvironment)
 
   const entering = subject.listeners.get('agent/pre-step')[0](
@@ -598,13 +594,12 @@ test('readiness and baseline claim share one authentication deadline', async () 
     const subject = harness({
       pending: spec => spec.argv[1] === 'work-context',
       onRead(spec) {
-        if (spec.argv[1] === 'self') fakeNow += 40
+        if (spec.argv[1] === 'readiness') fakeNow += 40
       },
     })
     const bridge = createManagedSessionBridge()
     applyManagedSessionAuthentication(subject.ctx, {
-      mainAgentCli: '/bin/true',
-      agentSessionCli: '/bin/true',
+        agentSessionCli: agentSessionFixture,
       cliTimeoutMs: 50,
       cliTeardownTimeoutMs: 10,
     }, bridge, principalEnvironment)
@@ -640,7 +635,6 @@ test('authentication deadline aborts a stalled helper executable resolution', as
   })
   const bridge = createManagedSessionBridge()
   applyManagedSessionAuthentication(subject.ctx, {
-    mainAgentCli: '/bin/true',
     agentSessionCli: 'agent-session',
     cliTimeoutMs: 10,
     cliTeardownTimeoutMs: 10,
@@ -658,6 +652,81 @@ test('authentication deadline aborts a stalled helper executable resolution', as
   })
   assert.equal(resolutionSignal.aborted, true)
   assert.equal(Date.now() - startedAt < 40, true)
+  assert.equal(subject.spawned.length, 0)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+for (const [description, alter] of [
+  ['foreign session', value => { value.data.session_id = 'foreign' }],
+  ['foreign incarnation', value => { value.data.session_incarnation = 'foreign' }],
+  ['foreign checkpoint', value => { value.data.checkpoint_file = '/other/checkpoint' }],
+  ['not ready', value => { value.data.ready = false }],
+  ['wrong envelope', value => { value.schema_version = 'untrusted.readiness.v1' }],
+  ['wrong data schema', value => { value.data.schema_version = 'untrusted.runtime-readiness.v1' }],
+  ['missing principal proof', value => { delete value.data.session_id }],
+  ['unauthenticated capability', value => { value.ok = false; value.error = { code: 'capability-invalid' } }],
+  ['stale broker', value => { value.ok = false; value.error = { code: 'runtime-not-ready' } }],
+]) {
+  test(`generic readiness rejects ${description} before baseline and binding`, async () => {
+    const envelope = readiness()
+    alter(envelope)
+    const subject = harness({ envelope })
+    const bridge = createManagedSessionBridge()
+    applyManagedSessionAuthentication(subject.ctx, { agentSessionCli: agentSessionFixture }, bridge, principalEnvironment)
+    const result = await subject.listeners.get('agent/pre-step')[0](
+      { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+    assert.equal(result.kind, 'reject')
+    assert.equal(subject.spawned.length, 1)
+    assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+  })
+}
+
+test('generic readiness rejects a different helper realpath before baseline and binding', async () => {
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  mkdirSync(join(fixtureRoot, 'foreign'), { mode: 0o700 })
+  const foreignHelper = join(fixtureRoot, 'foreign', 'agent-session')
+  writeFileSync(foreignHelper, '#!/bin/sh\nexit 1\n', { mode: 0o700 })
+  applyManagedSessionAuthentication(subject.ctx, { agentSessionCli: foreignHelper }, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'reject')
   assert.equal(subject.spawned.length, 1)
+  assert.equal(bridge.resolve('dsh-controller-one'), undefined)
+})
+
+test('generic readiness accepts the canonical target of the independently configured helper symlink', async () => {
+  const alias = join(fixtureRoot, 'agent-session-link')
+  symlinkSync(agentSessionFixture, alias)
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, { agentSessionCli: alias }, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'enter')
+  assert.deepEqual(bridge.resolve('dsh-controller-one').environment, principalEnvironment)
+})
+
+test('generic readiness resolves the default bare helper name to an absolute executable before admission', async () => {
+  const subject = harness({
+    resolveExecutable: async command => command === 'agent-session' ? agentSessionFixture : command,
+  })
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {}, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'enter')
+  assert.equal(subject.spawned[0].argv[0], agentSessionFixture)
+  assert.deepEqual(bridge.resolve('dsh-controller-one').environment, principalEnvironment)
+})
+
+test('generic readiness refuses a bare helper name that does not resolve to an absolute executable', async () => {
+  const subject = harness()
+  const bridge = createManagedSessionBridge()
+  applyManagedSessionAuthentication(subject.ctx, {}, bridge, principalEnvironment)
+  const result = await subject.listeners.get('agent/pre-step')[0](
+    { agent: topLevelAgent(), signal: new AbortController().signal }, async () => ({ kind: 'enter' }))
+  assert.equal(result.kind, 'reject')
+  assert.equal(subject.spawned.length, 0)
   assert.equal(bridge.resolve('dsh-controller-one'), undefined)
 })

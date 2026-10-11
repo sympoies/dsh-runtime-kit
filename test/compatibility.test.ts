@@ -1073,7 +1073,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow.indexOf('      - name: Reverse authenticated DSH patch'),
   )
   assert.match(handoffStep, /if: matrix\.channel == 'pinned'/)
-  assert.match(handoffStep, /GIT_CLI_BIN: .*nils-cli-v1\.31\.13-x86_64-unknown-linux-gnu\/bin\/git-cli/)
+  assert.match(handoffStep, /GIT_CLI_BIN: .*nils-cli-v1\.33\.2-x86_64-unknown-linux-gnu\/bin\/git-cli/)
   assert.match(handoffStep, /run: npm run test:workspace-lease-native-smoke/)
   assert.equal(workflow.match(/retained patched DSH tools smoke without runtime-kit/g)?.length, 2)
   // The retained 0.1.7 row and the 0.2.0 candidate rows run the same patched
@@ -1103,17 +1103,21 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.31\.13-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /b1be0e440aafefd91157b9d9c1d3675c4aa6e4957d8a146b4cc73014a116b74e/)
-  assert.match(workflow, /nils-cli-v1\.31\.13-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /62521a11fb1ee47990edf2a3b4441efa51d00752d016dc0881ea5f1064309fd9/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=00b97d26bafaa6bfc6c34a0d561ae8c121519e54/)
+  assert.match(workflow, /nils-cli-v1\.33\.2-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /dfc201e63eeb498287394fb1946816e3d2d34fc3660bd80d118e9d00e8574134/)
+  assert.match(
+    workflow,
+    /Verify released git-cli safe worktree removal[\s\S]+GIT_CLI_BIN: \$\{\{ runner\.temp \}\}\/nils-cli-v1\.33\.2-x86_64-unknown-linux-gnu\/bin\/git-cli[\s\S]+node test\/worktree-safe-removal-smoke\.ts/,
+  )
+  assert.match(workflow, /nils-cli-v1\.33\.2-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /0c22b410f581f1954284f63e6416d576ee55c2a95c8e41f02e15cb968abb185f/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=97757c93984fe5fee117c9fec9ef8a9aeba243fb/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // The rollback_validation record keeps the frozen PR #254 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=00b97d26bafaa6bfc6c34a0d561ae8c121519e54/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.31\.13-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=97757c93984fe5fee117c9fec9ef8a9aeba243fb/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.33\.2-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
   // every env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
@@ -1247,21 +1251,6 @@ test('compatibility workflow keeps selected channels and every patch release blo
     runtimeSmoke,
     /\.\.\.\(dataPolicyCandidateEnabled\s+\? \[\{\s+id: 'data-policy'/u,
     'only candidate acceptance may report candidate-only data-policy evidence',
-  )
-  assert.match(
-    runtimeSmoke,
-    /const attempt = nativeStoreAttempt\(closeoutArgs\)[\s\S]+attempt\.envelope\.error\?\.code, 'coordination-unauthorized'/u,
-    'forced-loss closeout may retry only the exact transient authority observation',
-  )
-  assert.match(
-    runtimeSmoke,
-    /const retryableRetirementErrors = new Set\(\[\s*'dsh-runtime-plugin-owned',\s*'coordination-unauthorized',\s*\]\)[\s\S]+retryableRetirementErrors\.has\(attempt\.envelope\.error\?\.code\)/u,
-    'native lane retirement may retry only the two exact transient ownership observations',
-  )
-  assert.doesNotMatch(
-    runtimeSmoke,
-    /lastCloseoutResult = nativeStore\(closeoutArgs\)/u,
-    'forced-loss closeout must inspect the typed attempt before retrying',
   )
   for (const capability of [
     'af-unix',

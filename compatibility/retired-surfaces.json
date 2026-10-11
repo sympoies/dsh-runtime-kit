@@ -4,7 +4,7 @@
   "closeout": "https://github.com/sympoies/dsh-runtime-kit/issues/65",
   "minimum_supported": {
     "runtime_kit": "ae248830dbce4885b90be6613c5ca9f256f9ff08",
-    "nils_cli": "1.29.0",
+    "nils_cli": "1.33.0",
     "dsh": ["0.1.7-rc.1", "0.2.0-rc.2"]
   },
   "surfaces": [
@@ -30,7 +30,7 @@
         "runtime_kit": "Workbench Linux crash recovery adapter",
         "nils_cli": "1.29.0"
       },
-      "compatibility_window": "1.29.0 minimum; exact release-artifact validation still applies",
+      "compatibility_window": "1.33.0 minimum; exact release-artifact validation still applies",
       "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple; pre-1.29 sessions have no recovery owner binding and remain fail closed."
     },
     {
@@ -132,7 +132,7 @@
       "category": "compatibility",
       "status": "reduced",
       "summary": "Normative documents described DSH rc.7 and rc.8 behaviour by release name; they now describe the supported rolling window, and docs/migration.md is fenced as history.",
-      "paths": ["docs/compatibility.md", "docs/operations.md", "docs/architecture.md", "docs/main-agent-mode.md", "docs/migration.md", "README.md"],
+      "paths": ["docs/compatibility.md", "docs/operations.md", "docs/architecture.md", "docs/migration.md", "README.md"],
       "identifiers": ["retired-release-names"],
       "replacement": { "owner": "runtime-kit", "contract": "compatibility/dsh.json validated_releases" },
       "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
@@ -214,14 +214,15 @@
     {
       "id": "main-agent-liveness-sidecar",
       "category": "artifacts",
-      "status": "retained",
-      "summary": "Per-lane liveness sidecar and private checkpoint JSON written by the Main Agent orchestration.",
+      "status": "removed",
+      "summary": "Mode-owned per-lane liveness and checkpoint producers were retired with the optional orchestration service.",
+      "identifiers": ["createLane", "MainAgentOrchestration"],
       "paths": ["src/main-agent/lanes.js", "src/main-agent/orchestration.js"],
-      "replacement": { "owner": "runtime-kit", "contract": "producer contract read by nils-cli session_status; session-owned ArtifactService for later consolidation" },
-      "first_supported": { "runtime_kit": "issue 60 acceptance 675563a3", "nils_cli": "1.27.27" },
-      "compatibility_window": "retained; stale sidecars grant nothing",
-      "rollback": "n/a",
-      "rationale": "The sidecar is a producer contract that nils-cli reads, not model-side bookkeeping; moving its path ownership into session-owned artifacts is a cross-repository contract change."
+      "replacement": { "owner": "nils-cli", "contract": "generic agent-session readiness authenticates the ordinary managed principal; native DSH owns subagent lifecycle" },
+      "first_supported": { "runtime_kit": "optional mode retirement draft", "nils_cli": "1.33.0 (released readiness prerequisite, validated in #346)" },
+      "compatibility_window": "1.33.0 minimum; trusted runtime rehearsal and external acceptance remain dispatcher-owned",
+      "rollback": "reinstall a separately reviewed previous runtime and matching companion tuple",
+      "rationale": "Ordinary session authentication and workspace safety remain; no mode store or sidecar is disposed by this removal."
     },
     {
       "id": "dsh-rolling-adapter-file-name",

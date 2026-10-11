@@ -31,7 +31,6 @@ project scope is represented only by its SHA-256.
 | --- | --- | --- |
 | `runtime-core` | Bundle activation verifies the loaded DSH identity, authenticated `agent-hook doctor`, and the digest-authenticated `agent-docs` executable. | A failure blocks bundle activation. |
 | `project-docs` | Every session-associated model stream attempt force-refreshes a strict project audit for the session cwd. Sessionless auxiliary calls bypass project admission. | A failure rejects before middleware or adapter dispatch and before any streaming provider request. No audit text enters the prompt. |
-| `main-agent-mode` | Observes the optional child plugin lifecycle. | Pending or unavailable is degraded. Only Main Agent controller/lane tools are denied. |
 | `review-specialists` | Observes the optional child plugin lifecycle. | Pending or unavailable is degraded. Only `review_specialists` is denied. |
 
 Independent tools remain available when an optional capability is degraded.

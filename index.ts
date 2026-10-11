@@ -18,8 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { applyPolicy, plusOneTool } from './policy.js'
-import { MAIN_AGENT_TOOL_INVENTORY, mainAgentMode } from './src/main-agent/index.js'
-import { createManagedSessionBridge } from './src/main-agent/session-bridge.js'
+import { createManagedSessionBridge } from './src/nils/session-bridge.js'
 import { assertDshRc7Runtime, loadDshRc7Runtime } from './src/compat/contract.js'
 import { applyManagedSessionAuthentication } from './src/nils/managed-session-authentication.js'
 import { applyGovernedCommit } from './src/governed-commit/index.js'
@@ -31,7 +30,6 @@ import {
 } from './src/runtime-status.js'
 
 export { plusOneTool }
-export { applyMainAgentMode, mainAgentMode } from './src/main-agent/index.js'
 export { onDshSessionStart } from './src/compat/dsh-agent-lifecycle.js'
 
 // `ctx.skills` reaches the Cordis `Context` interface through a module
@@ -572,23 +570,13 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
     })
     const runtimeConfig: RuntimeKitConfig = { ...configuredRuntime, ...authenticatedNils }
     await health.require('runtime-core')
-    await Promise.all([
-      health.probe('main-agent-mode'),
-      health.probe('review-specialists'),
-    ])
-    const mainAgentRequirement = Object.freeze([
-      Object.freeze({ capability: 'main-agent-mode', scope: 'runtime' }),
-    ])
+    await health.probe('review-specialists')
     ctx.effect(() => installRuntimeHealthAdmission(ctx, health, {
       sessionRequirements: [
         { capability: 'runtime-core', scope: 'runtime' },
         { capability: 'project-docs', scope: 'project' },
       ],
       toolRequirements: {
-        ...Object.fromEntries(
-          [...MAIN_AGENT_TOOL_INVENTORY.controller, ...MAIN_AGENT_TOOL_INVENTORY.lane]
-            .map(tool => [tool, mainAgentRequirement]),
-        ),
         review_specialists: [
           { capability: 'review-specialists', scope: 'runtime' },
         ],
@@ -645,21 +633,6 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       ctx.logger,
       () => {
         void refreshChildHealth('review-specialists')
-      },
-      ctx,
-    )
-    // Child fiber: Main Agent Mode activates only where the subagent runtime
-    // exists, without gating skills or policy on it. Never awaited — an
-    // unmet inject leaves the child pending by design. A rejection is a real
-    // failure rather than intentional non-activation, so surface it instead of
-    // letting both cases look like silently missing tools.
-    observeChildPluginActivation(
-      childPlugins,
-      'main_agent_mode',
-      () => ctx.plugin(mainAgentMode, runtimeConfig),
-      ctx.logger,
-      () => {
-        void refreshChildHealth('main-agent-mode')
       },
       ctx,
     )

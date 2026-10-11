@@ -1,9 +1,9 @@
-# Main-Agent Review Rubric
+# Parent Review Rubric
 
 ## Review Owner
 
-Main-agent owns review and acceptance decisions. Subagents own implementation
-changes on assigned lanes. Main-agent should not repair product code while
+Parent owns review and acceptance decisions. Subagents own implementation
+changes on assigned lanes. Parent should not repair product code while
 reviewing unless an explicit corrective-fix exception is documented.
 
 ## Inputs

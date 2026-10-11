@@ -57,7 +57,7 @@ test('the alignment record pins every agent-runtime-kit skill, policy, and home 
     for (const path of entry.dsh_paths) {
       assert.ok(existsSync(join(projectRoot, path)), `${entry.source} -> missing ${path}`)
     }
-    if (entry.kind === 'skill') {
+    if (entry.kind === 'skill' && entry.disposition !== 'not-applicable') {
       const name = entry.source.split('/').at(-1)
       assert.ok(entry.dsh_paths.includes(`skills/${name}/SKILL.md`), entry.source)
     }
