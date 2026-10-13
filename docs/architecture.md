@@ -23,13 +23,15 @@ classification, canonical Git/worktree identity, and durable cross-process
 leases and fencing. A session's startup cwd is a contextual anchor, not a
 permission boundary: a live lineage owns an authority *set* of zero or more
 lazily acquired repository bindings, and a lease denial is local to the exact
-repository target it names. Workspace leases coordinate governed Git mutation;
-they never grant or remove host filesystem authority, and future access
-isolation is implemented by containing the whole DSH runtime rather than by
-leases. The exported contract is documented in
-[Workspace identity and leases](workspace-leases.md). The default bundle
-activates that service and its strict nils provider before registering runtime
-policy, so every agent mutation is classified at the native DSH tool boundary.
+repository target it names.
+
+Workspace leases coordinate governed Git mutation; they never grant or remove
+host filesystem authority, and future access isolation is implemented by
+containing the whole DSH runtime rather than by leases. The exported contract is
+documented in [Workspace identity and leases](workspace-leases.md). The default
+bundle activates that service and its strict nils provider before registering
+runtime policy, so every agent mutation is classified at the native DSH tool
+boundary.
 
 Runtime health follows that boundary as well. The bundle owns a typed Cordis
 health service and DSH admission/invariant integration, DSH owns lifecycle and
@@ -83,42 +85,46 @@ subprocess output.
 Pre-step proposals are provisional. Concurrent proposals are serialized behind
 one in-flight decision for the session position; a contender repeats evaluation
 when the owner rejects or aborts. Nils receives the prompt and evaluates policy
-only after the downstream DSH decision is `enter` and its signal remains live;
-a rejected proposal never crosses the subprocess boundary. The adapter records
-turn/step only after that acceptance. Tool
-boundaries refresh the open position from the public Session events, so durable
-`step/end` and `turn/end` override any cached proposal. Initial attachment
-reverse-derives only through the recent matching lifecycle suffix. The adapter
-then retains an event count and last-event identity: DSH's immutable snapshots
-preserve that anchor across append, allowing only the new suffix to be folded.
-An unchanged content-heavy suffix is therefore constant work per boundary. A
-missing anchor or shorter history violates the public append-only contract and
-makes that attachment sticky-invalid until explicit session restart or a new
-Session object reattaches it.
+only after the downstream DSH decision is `enter` and its signal remains live; a
+rejected proposal never crosses the subprocess boundary. The adapter records
+turn/step only after that acceptance. Tool boundaries refresh the open position
+from the public Session events, so durable `step/end` and `turn/end` override
+any cached proposal. Initial attachment reverse-derives only through the recent
+matching lifecycle suffix.
+
+The adapter then retains an event count and last-event identity: DSH's immutable
+snapshots preserve that anchor across append, allowing only the new suffix to be
+folded. An unchanged content-heavy suffix is therefore constant work per
+boundary. A missing anchor or shorter history violates the public append-only
+contract and makes that attachment sticky-invalid until explicit session restart
+or a new Session object reattaches it.
 
 The runtime policy protocol is versioned independently. Tool admission uses
 `agent-hook.dsh-ingress.v2`; its exact post-tool correlation uses strict v4 and
 projects only `result.is_error`. Accepted pre-step and turn-stop evaluation use
 strict v3 shapes normalized to `UserPromptSubmit` and `Stop`. The wires include
-the exact session/turn/step and configured absolute agent-docs roots required
-by typed nils policy; only pre-step carries a UTF-8-bounded user prompt and an
+the exact session/turn/step and configured absolute agent-docs roots required by
+typed nils policy; only pre-step carries a UTF-8-bounded user prompt and an
 optional first-step session source. Opaque token and root-call facts remain
-process-local. The policy waterfall records an allow or deny marker bound to the exact opaque
-execution object, original opaque token, exact Agent and Session references, deep-frozen argument reference,
-parent execution token, and cancellation signal. DSH's monotonic denial-only
-guard also rederives the live session identity and
+process-local.
+
+The policy waterfall records an allow or deny marker bound to the exact opaque
+execution object, original opaque token, exact Agent and Session references,
+deep-frozen argument reference, parent execution token, and cancellation signal.
+DSH's monotonic denial-only guard also rederives the live session identity and
 rechecks session/cwd/turn/step/call correlation before consuming that
 authorization once: missing, stale, substituted, aborted, denied, or
-already-consumed markers deny. Correlation survives guard consumption until
-the authoritative frozen `tools/result` observer clears it. A
-non-authoritative `tools/post-execute` body is never stored; nils receives only
-the v4 terminal error bit before downstream and may keep the public DSH post
-decision closed until operation completion reconciles. A context decision is
-retained only for the exact authorized execution and folded once into the
-accepted post-tool decision. Pre-step context is appended only after downstream returns
-`enter`; turn-stop context is steered only after finish-line returns allow.
-Per-session step/turn dedupe stores one last position, so lifecycle state is
-constant-space.
+already-consumed markers deny. Correlation survives guard consumption until the
+authoritative frozen `tools/result` observer clears it.
+
+A non-authoritative `tools/post-execute` body is never stored; nils receives
+only the v4 terminal error bit before downstream and may keep the public DSH
+post decision closed until operation completion reconciles. A context decision
+is retained only for the exact authorized execution and folded once into the
+accepted post-tool decision. Pre-step context is appended only after downstream
+returns `enter`; turn-stop context is steered only after finish-line returns
+allow. Per-session step/turn dedupe stores one last position, so lifecycle state
+is constant-space.
 
 Data policy is a separate strict nils boundary,
 `agent-hook.data-policy.evaluate.v1`, enabled only by the exact
@@ -167,36 +173,38 @@ the same seam, so model-driven tools cannot write into it directly.
 ### Governed policy groups
 
 The packaged policy selects eleven Task 3.2, nine Task 3.3, and two Task 3.4
-`dsh.policy.v1` groups. Static
-command gates are bounded and in-process; project-dev verification and scope
-lock checks call only trusted same-release nils companions; checkout leases use
-private session-bound state. Owner and semantic-conflict projections use the
-explicit DSH subject rather than ambient provider identity. Task 3.3 adds
-privacy scans plus bounded memory, health, skill, label, portable-output, and
-pre-PR context on exact native boundaries. Task 3.4 records only normalized
-activity metadata and defers mutation ownership to an exact `agent-session`
-admit/complete lease. The bridge uses a trusted same-release companion with a
-cleared environment, hashes provider correlation, persists no tool body or
-result, compacts terminal retries by a durable sequence, and treats local state
-only as a retry cache. Terminal posts reauthenticate idempotent completion;
-Stop calls capability-authenticated broker status and accepts only zero active
-and zero uncertain operations. Fully unmanaged sessions are no-op; any partial
-managed selector set is invalid.
+`dsh.policy.v1` groups. Static command gates are bounded and in-process;
+project-dev verification and scope lock checks call only trusted same-release
+nils companions; checkout leases use private session-bound state. Owner and
+semantic-conflict projections use the explicit DSH subject rather than ambient
+provider identity. Task 3.3 adds privacy scans plus bounded memory, health,
+skill, label, portable-output, and pre-PR context on exact native boundaries.
+Task 3.4 records only normalized activity metadata and defers mutation ownership
+to an exact `agent-session` admit/complete lease.
+
+The bridge uses a trusted same-release companion with a cleared environment,
+hashes provider correlation, persists no tool body or result, compacts terminal
+retries by a durable sequence, and treats local state only as a retry cache.
+Terminal posts reauthenticate idempotent completion; Stop calls
+capability-authenticated broker status and accepts only zero active and zero
+uncertain operations. Fully unmanaged sessions are no-op; any partial managed
+selector set is invalid.
 
 Default-delivery policy also covers native `write`, `edit`, and mutating
 `str_replace_editor` targets. It pins the unambiguous remote-advertised default
 branch in owner-private nils state before mutation; the primary checkout's
 current branch remains an independent integration fact. It rejects subsequent
-repository metadata drift, blocks native writes into Git metadata, and resolves literal
-`git -C` and `semantic-commit --repo` targets. Raw commit-producing rewrites on
-the default branch are denied, including protected fetch destinations and
-stdin/server-driven ref-update plumbing. Sequential shell builtins that can
-retarget cwd, exported variables, tracing hooks, command lookup, or aliases
-make later command-dependent classification fail closed. Git options and
-subcommands that consume nested shell commands are rejected rather than
-partially parsed. Exact Git recovery and the owned delivery CLIs remain
-available. Scope-lock policy probes run with a cleared environment and a
-helper-disabled trusted Git boundary.
+repository metadata drift, blocks native writes into Git metadata, and resolves
+literal `git -C` and `semantic-commit --repo` targets. Raw commit-producing
+rewrites on the default branch are denied, including protected fetch
+destinations and stdin/server-driven ref-update plumbing.
+
+Sequential shell builtins that can retarget cwd, exported variables, tracing
+hooks, command lookup, or aliases make later command-dependent classification
+fail closed. Git options and subcommands that consume nested shell commands are
+rejected rather than partially parsed. Exact Git recovery and the owned delivery
+CLIs remain available. Scope-lock policy probes run with a cleared environment
+and a helper-disabled trusted Git boundary.
 
 `src/governed-commit/index.ts` registers the model-facing
 `runtime_kit_governed_commit` tool through DSH's public tool and subprocess
@@ -204,16 +212,17 @@ interfaces. The tool schema contains only conventional message fields and one
 full expected HEAD. Its target is always the canonical live Session cwd; there
 is no `repo`, `workdir`, message-file, amend, fixup, or default-branch option.
 The WorkspaceLease guard acquires mutation authority for that exact repository
-target before the tool body, while native nils policy independently requires
-the exact linked worktree and its pinned remote-default projection. JavaScript then resolves
-the configured `semantic-commit` executable, spawns one literal argv vector,
-joins cancellation and teardown, and exposes only a strict bounded commit
-receipt. When the session cwd has no `.git` ancestor the tool returns the typed
-`no-repository` result (`status`, `cwd`, `guidance`) before resolving or
-spawning anything: a non-git folder is context, not a denial, and nils-cli
-(from 1.28.2) admits the call there for exactly this answer. Branch, staging,
-expected-head, hooks, and signing behavior remain owned by nils-cli and Git
-rather than being reimplemented in the plugin.
+target before the tool body, while native nils policy independently requires the
+exact linked worktree and its pinned remote-default projection.
+
+JavaScript then resolves the configured `semantic-commit` executable, spawns one
+literal argv vector, joins cancellation and teardown, and exposes only a strict
+bounded commit receipt. When the session cwd has no `.git` ancestor the tool
+returns the typed `no-repository` result (`status`, `cwd`, `guidance`) before
+resolving or spawning anything: a non-git folder is context, not a denial, and
+nils-cli (from 1.28.2) admits the call there for exactly this answer. Branch,
+staging, expected-head, hooks, and signing behavior remain owned by nils-cli and
+Git rather than being reimplemented in the plugin.
 
 The static command gates are transcript guardrails, not a shell or native-code
 sandbox. They reject malformed or unmodeled shell grammar, executable
@@ -233,9 +242,10 @@ persona files at server startup and accepts only `{ task, roles }`. Quick review
 is exclusive. Runtime-kit registers every persona as one immutable DSH
 restricted-role definition with a fixed spawn route, structured output schema,
 inspection-only tool filter, read-only sandbox and protected roots, approval
-`never`, depth/timeout budget, and per-role capacity. Red-team is
-invalid alone and starts only after the first wave settles, either because the
-caller preselected it or because a first-wave structured finding is critical.
+`never`, depth/timeout budget, and per-role capacity. Red-team is invalid alone
+and starts only after the first wave settles, either because the caller
+preselected it or because a first-wave structured finding is critical.
+
 It receives a byte-bounded rendering of prior structured evidence marked as
 untrusted. Runtime-kit starts a role with task content, the exact parent, and a
 cancellation signal only; callers cannot supply persona, provider, tools,
@@ -270,15 +280,17 @@ route differs from the parent's by construction, and DSH's child-route
 resolution drops an inherited effort whenever the provider or model changes and
 the request names none of its own. Pinning only a model therefore does not
 preserve the reviewer's inherited depth — it returns every reviewer to the
-adapter default. Which efforts a route supports is the LLM layer's contract,
-enforced per request as `UNSUPPORTED_REASONING_EFFORT`, so neither the
-runtime-kit nor the patched role service enumerates them; both do require a
-non-empty string, so the one shape that could never name an effort is refused
-at mount by either side rather than only at the first delegation.
-A profile patch layer
-replaces a targeted row's whole `config` rather than merging into it, so the
-shipped composition carries the key and a deployment supplies
+adapter default.
+
+Which efforts a route supports is the LLM layer's contract, enforced per request
+as `UNSUPPORTED_REASONING_EFFORT`, so neither the runtime-kit nor the patched
+role service enumerates them; both do require a non-empty string, so the one
+shape that could never name an effort is refused at mount by either side rather
+than only at the first delegation. A profile patch layer replaces a targeted
+row's whole `config` rather than merging into it, so the shipped composition
+carries the key and a deployment supplies
 `DSH_RUNTIME_KIT_REVIEWER_AGENT_OPTIONS` as JSON.
+
 The runtime service exposes a bounded snapshot for both optional children so a
 caller can distinguish pending activation from active service and a rejected
 activation. Failed snapshots retain only the stable reason and exception name;
@@ -357,35 +369,37 @@ authenticated for that exact execution rather than deriving Git identity a
 second time. One session that edits repositories A and B therefore owns two
 ledgers, and the stop boundary requires and releases each one independently. An
 operation the provider proved touches no repository registers no edit generation
-anywhere, so a non-repository write creates no Git validation obligation. A
-session anchored outside every repository likewise owns no stop boundary: its
+anywhere, so a non-repository write creates no Git validation obligation.
+
+A session anchored outside every repository likewise owns no stop boundary: its
 shell commands run as ordinary host operations, and only the repositories the
 turn edited are checked at stop. A repository ledger other than the session
 anchor whose checkout directory no longer exists, typically a linked worktree
-the turn removed after delivering from it, likewise owns no stop boundary.
-Every nils request runs inside the ledger's checkout, so when a capability
-refresh, stop, or release request for it fails without a provider-authored
-denial and its path is absent (`ENOENT` or `ENOTDIR`), the coordinator retires
-that ledger locally instead of ending the turn as `finish-line unavailable`.
+the turn removed after delivering from it, likewise owns no stop boundary. Every
+nils request runs inside the ledger's checkout, so when a capability refresh,
+stop, or release request for it fails without a provider-authored denial and its
+path is absent (`ENOENT` or `ENOTDIR`), the coordinator retires that ledger
+locally instead of ending the turn as `finish-line unavailable`.
+
 Only a ledger that holds a runner capability reaches this rule, and nils binds
 every capability to the exact canonical Git top-level, so an absent path means
 the checkout root itself is gone rather than a subdirectory. A checkout moved or
 renamed during the turn also leaves its old path absent and is retired the same
 way; an edit or validation at its new path opens a new ledger with its own
-obligation.
-Release applies the same rule to every ledger rather than degrading release
-for the whole process. Nothing remains that this or a later turn could
-validate, and the provider's durable record for that checkout is left to its
-own lease expiry. A checkout that still exists keeps failing closed: a failed
-request still rejects the stop, and an unsatisfied validation still blocks it.
-When
-the target projection itself fails, the ledger propagates the workspace-lease
-service's own typed cause rather than replacing it with a finish-line reason:
-that service denies the same execution with that cause immediately afterwards,
-and the root cause has to survive the pipeline.
-The retry token is minted inside the wire client and never becomes a service or
-model value. File payload, filesystem observations, and final tool results are
-not converted into a second finish-line report.
+obligation. Release applies the same rule to every ledger rather than degrading
+release for the whole process. Nothing remains that this or a later turn could
+validate, and the provider's durable record for that checkout is left to its own
+lease expiry.
+
+A checkout that still exists keeps failing closed: a failed request still
+rejects the stop, and an unsatisfied validation still blocks it. When the target
+projection itself fails, the ledger propagates the workspace-lease service's own
+typed cause rather than replacing it with a finish-line reason: that service
+denies the same execution with that cause immediately afterwards, and the root
+cause has to survive the pipeline. The retry token is minted inside the wire
+client and never becomes a service or model value. File payload, filesystem
+observations, and final tool results are not converted into a second finish-line
+report.
 
 Every foreground `bash` call uses a two-call run protocol. The coordinator
 first opens a nils-owned runner capability for the session with a private
@@ -398,21 +412,21 @@ command. `run_in_background` is rejected before nils invocation, and a legacy
 
 Either ready status causes DSH to flush the session and prepare, but not
 execute, the runtime. Public shell and sandbox services resolve the exact
-command, canonical repository cwd, timeout, output bound, environment
-overrides, and one unsandboxed, full-access, or confined runner descriptor.
-Requested sandbox escalation remains governed by DSH's own approval service.
-The committed session `approval/asked` and `approval/decided` events identify
-a rejected Bash approval before dispatch. Only that exact rejected call may
-retire its prepared probe at `tools/result` or when native runtime preparation
-throws after that rejection. The reservation remains pending throughout
-sandbox approval. Immediately before the execution-bearing nils call, the
-coordinator checks that the exact reservation is still live, unpoisoned, and
-not rejected, then marks it entered without an intervening await. A result
-during preparation prevents any later dispatch. A wrapper result without an
-authoritative rejection, or an entered but unsettled run, poisons the
-finish-line ledger and blocks turn completion.
-The adapter rejects runtime preparation if command text changes, cwd escapes
-the repository root, or bounds and provider argv are malformed.
+command, canonical repository cwd, timeout, output bound, environment overrides,
+and one unsandboxed, full-access, or confined runner descriptor. Requested
+sandbox escalation remains governed by DSH's own approval service. The committed
+session `approval/asked` and `approval/decided` events identify a rejected Bash
+approval before dispatch. Only that exact rejected call may retire its prepared
+probe at `tools/result` or when native runtime preparation throws after that
+rejection. The reservation remains pending throughout sandbox approval.
+
+Immediately before the execution-bearing nils call, the coordinator checks that
+the exact reservation is still live, unpoisoned, and not rejected, then marks it
+entered without an intervening await. A result during preparation prevents any
+later dispatch. A wrapper result without an authoritative rejection, or an
+entered but unsettled run, poisons the finish-line ledger and blocks turn
+completion. The adapter rejects runtime preparation if command text changes, cwd
+escapes the repository root, or bounds and provider argv are malformed.
 
 The `danger-full-access` descriptor is the explicit native full-host authority
 profile. Nils may place that command in a transient user cgroup for lifecycle,
@@ -536,26 +550,28 @@ Coordinator disposal closes normal admission, cancels active nils invokes, and
 awaits their authenticated quiescence. Only then does it register release for
 every remaining ledger, drain those tasks, and close the nils client. The
 client's intermediate drained state admits only authenticated `release`; final
-dispose closes that last private transport.
-Release waits for any capability-open attempt, refuses a still-prepared tool
-reservation, and authenticates with the exact capability. Nils refuses pending
-or active-unit operations, removes terminal records only after quiescence, and
-keeps a bounded digest-only tombstone for exact retry. That tombstone retires
-the released capability incarnation, not the stable DSH session ID: a new DSH
-runtime normally resumes the session with a fresh private open token, while the
-old release remains duplicate and cannot delete the new incarnation. The
-tombstone authenticates only a recent duplicate release. If attempt material is
-reused after release, every new nils incarnation still includes a persisted
-monotonic sequence and returns a byte-distinct capability, so bounded tombstone
-compaction cannot restore the retired bearer.
+dispose closes that last private transport. Release waits for any
+capability-open attempt, refuses a still-prepared tool reservation, and
+authenticates with the exact capability.
+
+Nils refuses pending or active-unit operations, removes terminal records only
+after quiescence, and keeps a bounded digest-only tombstone for exact retry.
+That tombstone retires the released capability incarnation, not the stable DSH
+session ID: a new DSH runtime normally resumes the session with a fresh private
+open token, while the old release remains duplicate and cannot delete the new
+incarnation. The tombstone authenticates only a recent duplicate release. If
+attempt material is reused after release, every new nils incarnation still
+includes a persisted monotonic sequence and returns a byte-distinct capability,
+so bounded tombstone compaction cannot restore the retired bearer.
+
 The coordinator keys its release barrier by stable repository/session identity,
 not the JavaScript Session object: an immediate same-ID resume awaits the prior
 release and open-token rotation before it can begin finish-line work. The
 coordinator retries once and deletes the strong Session ledger only after a
-matching response; an
-unrecoverable release closes later admission, except for a removed checkout,
-which is retired as described above. Edit begin tokens are retained
-only across an ambiguous immediate retry and explicitly abandoned on poison.
+matching response; an unrecoverable release closes later admission, except for a
+removed checkout, which is retired as described above. Edit begin tokens are
+retained only across an ambiguous immediate retry and explicitly abandoned on
+poison.
 
 At awaited `agent/turn-stopping`, the coordinator calls the typed nils stop
 boundary directly. Typed blocks use public
@@ -573,25 +589,27 @@ property, the guard denies while `tools/result` still removes the original
 marker, correlation, and token-owner entry; another execution object cannot
 replay them.
 
-`src/policy/nils-transport.ts` owns one bounded operation per child process.
-The first observed caller abort, deadline, or plugin disposal classifies the
-failure. Admission closes before disposal cancellation. Child `done` is
-observed with a rejection handler, while `waitForExit(signal)` and a consumer
-race bound teardown even if a provider ignores the signal. Confirmed
-quiescence releases capacity. Unknown quiescence permanently degrades admission
-closed, cancels every sibling while preserving any earlier first cause, and
-returns a bounded fail-closed result. Degradation advances a monotonic admission
-epoch; the guard rejects an earlier allow marker even when it was already out
-of the transport set and waiting for DSH approval. The subprocess receives a
-fixed argv vector, explicit bounded stdio, an absolute session cwd, no shell,
-no forwarded environment, and no spill or unbounded output path.
-During plugin teardown, Cordis can dispose the finish-line client and its
-coordinator concurrently. The client joins the coordinator's release shutdown
-before closing its authenticated health execution scope; both disposal paths
-share the same pending release task. Coordinator disposal closes admission
-synchronously before scheduling that task. This keeps the durable runner
-capability available until release settles, even when the health owner also
-begins closing.
+`src/policy/nils-transport.ts` owns one bounded operation per child process. The
+first observed caller abort, deadline, or plugin disposal classifies the
+failure. Admission closes before disposal cancellation. Child `done` is observed
+with a rejection handler, while `waitForExit(signal)` and a consumer race bound
+teardown even if a provider ignores the signal. Confirmed quiescence releases
+capacity. Unknown quiescence permanently degrades admission closed, cancels
+every sibling while preserving any earlier first cause, and returns a bounded
+fail-closed result.
+
+Degradation advances a monotonic admission epoch; the guard rejects an earlier
+allow marker even when it was already out of the transport set and waiting for
+DSH approval. The subprocess receives a fixed argv vector, explicit bounded
+stdio, an absolute session cwd, no shell, no forwarded environment, and no spill
+or unbounded output path. During plugin teardown, Cordis can dispose the
+finish-line client and its coordinator concurrently. The client joins the
+coordinator's release shutdown before closing its authenticated health execution
+scope; both disposal paths share the same pending release task. Coordinator
+disposal closes admission synchronously before scheduling that task.
+
+This keeps the durable runner capability available until release settles, even
+when the health owner also begins closing.
 
 ## Authoritative completion acceptance
 
@@ -610,26 +628,31 @@ DSH result. Turn stop asks nils to reserve an all-satisfied verdict under the
 repository lock. The authenticated `native-execution-boundaries-v5` patch
 consumes that exact cached reservation synchronously before GoalService
 completion state changes; a detached verdict without a live reservation is
-diagnostic only. Runtime-kit retains the exact runner capability until the
-provider accepts the successful completion observation, cancels the reservation
-when later lifecycle policy rejects stop, and partitions local mutation
-invalidation by nils-authenticated canonical repository `cwd`. Acceptance
-control RPCs share one bounded teardown deadline across their idempotent retry,
-so disposal cannot inherit a validation-length wait. Goal consumption claims
-the reservation locally before its asynchronous provider observation, which
-prevents a same-repository mutation from cancelling the same operation while
-nils retains cross-process contention authority. Registration and completion
-terminalization remain resource-visible and are joined before capability
-release or canary success. The public service exposes only the bounded
-completion settlement status, and packed evidence requires `succeeded` plus a
-non-degraded finish-line transport after resources drain; it never exposes the
-capability, operation identity, generation, or provider diagnostics.
-Completion cancellation shares the same joined lifecycle task accounting, so
-policy, validator, mutation, agent disposal, and coordinator disposal cannot
-race past a still-active provider observation. Repository preparation enters
-that accounting before its first await, is shared by canonical repository
-across distinct executions, and removes each affected provisional mutation
-state when preparation or its caller-specific lifecycle fence fails.
+diagnostic only.
+
+Runtime-kit retains the exact runner capability until the provider accepts the
+successful completion observation, cancels the reservation when later lifecycle
+policy rejects stop, and partitions local mutation invalidation by
+nils-authenticated canonical repository `cwd`. Acceptance control RPCs share one
+bounded teardown deadline across their idempotent retry, so disposal cannot
+inherit a validation-length wait. Goal consumption claims the reservation
+locally before its asynchronous provider observation, which prevents a
+same-repository mutation from cancelling the same operation while nils retains
+cross-process contention authority.
+
+Registration and completion terminalization remain resource-visible and are
+joined before capability release or canary success. The public service exposes
+only the bounded completion settlement status, and packed evidence requires
+`succeeded` plus a non-degraded finish-line transport after resources drain; it
+never exposes the capability, operation identity, generation, or provider
+diagnostics. Completion cancellation shares the same joined lifecycle task
+accounting, so policy, validator, mutation, agent disposal, and coordinator
+disposal cannot race past a still-active provider observation.
+
+Repository preparation enters that accounting before its first await, is shared
+by canonical repository across distinct executions, and removes each affected
+provisional mutation state when preparation or its caller-specific lifecycle
+fence fails.
 
 The session projection is explicitly non-authoritative and uses only standard
 tool events, preserving old-runtime rollback reads. Detailed registration,
@@ -651,20 +674,22 @@ result as authorization. Nils remains the owner of session/project/product and
 catalog-content replay binding; the plugin removes correlation and filesystem
 metadata before DSH materializes the canonical tool result.
 
-The tool result itself is the only model-facing delivery path for this
-catalog. The runtime-context plugin attaches nothing to the system prompt or
+The tool result itself is the only model-facing delivery path for this catalog.
+The runtime-context plugin attaches nothing to the system prompt or
 session-start event, and it does not duplicate the same document through
-`deferContext()`. The only session-start instructions are the separate DSH
-home instructions below, which DSH's own instruction loader reads. The public tool
-schema allows `project-dev` with an optional `phase` of `edit` (the default,
-and the only phase the mutation prerequisite prepares), `delivery`, or
-`review`, and the phaseless `devlog`, `external-facts`, `web-testing`,
-`memory`, `upstream-contribution`, and `peer-coordination` intents, plus an
-optional absolute
-`project_path`; the transport repeats the same allowlist checks before
-spawning `agent-docs` and omits `--phase` for a phaseless intent. These resolve
-the packaged home policies in `agent-docs/` only when the model asks for them,
-so the automatic edit-phase injection stays the compact edit contract.
+`deferContext()`. The only session-start instructions are the separate DSH home
+instructions below, which DSH's own instruction loader reads.
+
+The public tool schema allows `project-dev` with an optional `phase` of `edit`
+(the default, and the only phase the mutation prerequisite prepares),
+`delivery`, or `review`, and the phaseless `devlog`, `external-facts`,
+`web-testing`, `memory`, `upstream-contribution`, and `peer-coordination`
+intents, plus an optional absolute `project_path`; the transport repeats the
+same allowlist checks before spawning `agent-docs` and omits `--phase` for a
+phaseless intent. These resolve the packaged home policies in `agent-docs/` only
+when the model asks for them, so the automatic edit-phase injection stays the
+compact edit contract.
+
 Context cancellation, timeout, and disposal join the complete child process
 tree. Unknown quiescence permanently closes this context surface but does not
 change the independent monotonic policy-transport state.
@@ -786,14 +811,15 @@ target metadata, and SHA-256 digest, invokes the native spawn call with the
 requested `argv[0]` as display identity, requires every temp-parent ancestor to
 be owned by root or the current UID, rejects an untrusted writable chain, and
 revalidates the private directory and executable identity immediately before
-spawn. It retains that transient until the whole
-child process tree settles so descendant self-inspection remains valid.
-Synchronous spawn failure and process-tree settlement both trigger inode-bound
-removal. Foreign replacements and unexpected unlink failures are preserved
-with host warnings; the provider never reports those residues as successful
-cleanup or reuses them. A provider with a missing or platform-mismatched mode
-fails closed instead of silently falling back to the replaceable runtime
-snapshot pathname.
+spawn.
+
+It retains that transient until the whole child process tree settles so
+descendant self-inspection remains valid. Synchronous spawn failure and
+process-tree settlement both trigger inode-bound removal. Foreign replacements
+and unexpected unlink failures are preserved with host warnings; the provider
+never reports those residues as successful cleanup or reuses them. A provider
+with a missing or platform-mismatched mode fails closed instead of silently
+falling back to the replaceable runtime snapshot pathname.
 
 The same version-scoped patch keeps DSH's native Bash and filesystem mutation
 tools usable when a tool-call protocol concretizes their optional escalation
@@ -866,30 +892,34 @@ skills rank above the snapshot, which ranks above bundled public skills.
 
 Released DSH supplies the host mutation primitive and nothing more: `dsh plugin`
 forwards to pnpm and reconciles `dsh.profile.bundles` from the installed state,
-`@deepseek-ai/dsh-app-boot` owns the profile manifest and bundle resolution,
-and there is no profile transaction, plan, digest, ownership ledger, rollback,
+`@deepseek-ai/dsh-app-boot` owns the profile manifest and bundle resolution, and
+there is no profile transaction, plan, digest, ownership ledger, rollback,
 repair, or admission gate on the host side. The transaction therefore lives in
 this package as a native extension around those public seams rather than as a
-DSH source patch. The package declares its contract in
-`compatibility/profile-lifecycle.json` (`package.json#dsh.lifecycle`): owned
-profile and home surfaces, generated runtime-root surfaces, activation assets,
-compatibility sources, native companions, migrations, pre-activation health
-probes, the absence of package-manager lifecycle scripts, and owned-only
-removal. The engine reads that declaration from the exact reviewed artifact,
-validates it against the fixed vocabulary it implements (malformed is
+DSH source patch.
+
+The package declares its contract in `compatibility/profile-lifecycle.json`
+(`package.json#dsh.lifecycle`): owned profile and home surfaces, generated
+runtime-root surfaces, activation assets, compatibility sources, native
+companions, migrations, pre-activation health probes, the absence of
+package-manager lifecycle scripts, and owned-only removal.
+
+The engine reads that declaration from the exact reviewed artifact, validates it
+against the fixed vocabulary it implements (malformed is
 `invalid-lifecycle-manifest`; well-formed but beyond the engine is
 `unsupported-lifecycle-manifest`; any install-time script is
 `lifecycle-scripts-declared`), binds its digest into the reviewed plan, refuses
-a package whose declared DSH releases exclude the bound host before any
-mutation (`package-incompatible-dsh`), and runs the declared health probes
-against the staged asset set before the pending marker and the native
-mutation (`activation-health-failed` refuses the transaction with nothing
-mutated). Recovery finalization of a transaction the host already applied
-repeats the probes, requires the live toolchain to equal the bound one, and
-re-reads the declaration from the authenticated artifact. A package without a
-declaration is admitted under the engine's own compatibility manifest and
-reported as undeclared, and its receipts omit the lifecycle key so the accepted
-baseline engine can still read them.
+a package whose declared DSH releases exclude the bound host before any mutation
+(`package-incompatible-dsh`), and runs the declared health probes against the
+staged asset set before the pending marker and the native mutation
+(`activation-health-failed` refuses the transaction with nothing mutated).
+
+Recovery finalization of a transaction the host already applied repeats the
+probes, requires the live toolchain to equal the bound one, and re-reads the
+declaration from the authenticated artifact. A package without a declaration is
+admitted under the engine's own compatibility manifest and reported as
+undeclared, and its receipts omit the lifecycle key so the accepted baseline
+engine can still read them.
 
 The repository-owned generic deploy dispatcher (`.agents/scripts/deploy.sh`,
 implemented in `src/deploy/index.ts`) is the shared `meta:deploy` target and
@@ -913,22 +943,27 @@ the canonical extracted package-tree digest; apply regenerates that exact
 artifact into a private content-addressed store and verifies the package tree
 DSH actually installed. The published artifact bundles the complete exact
 runtime dependency closure, and its tarball SHA-256 binds those dependency
-bytes. The installed-tree projection excludes only the package root's
-top-level `node_modules` materialization because pnpm may normalize that
-package-manager-owned subtree; every other package-owned path, type,
-executable role, size, and byte remains bound. Apply requires the reviewed digest and evaluates
-duplicate or current-plan state only while holding a global artifact plus
-per-profile SQLite transaction, so process exit releases both kernel locks
+bytes.
+
+The installed-tree projection excludes only the package root's top-level
+`node_modules` materialization because pnpm may normalize that
+package-manager-owned subtree; every other package-owned path, type, executable
+role, size, and byte remains bound. Apply requires the reviewed digest and
+evaluates duplicate or current-plan state only while holding a global artifact
+plus per-profile SQLite transaction, so process exit releases both kernel locks
 without pathname-based stale-lock reclamation. A completed digest-only replay
 may omit the now-unneeded source; a supplied source must still resolve to the
-same reviewed target. All
-actual package mutations run through `dsh plugin --profile ... add/remove`.
+same reviewed target.
+
+All actual package mutations run through `dsh plugin --profile ... add/remove`.
 Runtime-kit state is atomically written under
 `DSH_HOME/runtime-kit/state/<profile>.json` with mode-restricted temporary
 files, file and containing-directory fsync, and no-follow owner-private path
-checks. It stores only exact target/artifact/package/version/installed-tree/bundle-index
-receipts, previous rollback identity, plan metadata, and a pending transaction
-marker—never skill content, prompts, credentials, or unrelated configuration.
+checks. It stores only exact
+target/artifact/package/version/installed-tree/bundle-index receipts, previous
+rollback identity, plan metadata, and a pending transaction marker—never skill
+content, prompts, credentials, or unrelated configuration.
+
 Under the global lock, reconciliation scans every strict profile receipt,
 retains current/previous/pending/terminal artifact references, deletes only
 exact unreferenced digest archives and interrupted temp names, and fsyncs the
@@ -944,19 +979,21 @@ SQLite root lock serializes activation and collection, and a different home is
 rejected. One compatibility seam admits an ownerless pre-ownership v2 tree only
 through digest-bound `doctor --repair`. It ties the selected root to every
 current, previous, pending, and last-applied reference from the same canonical
-DSH home, authenticates the installed and active current-or-pending targets,
-and requires an exact retained-set inventory before atomically writing the
-owner record. Each retained digest must resolve to one authenticated target
-from a strict version 2 current, previous, or pending receipt; its policy,
-catalog, document, and root-specific hook configuration must match on disk.
-The activation writer, active reader, and retained-set validator share one
-canonical configuration renderer and require byte-for-byte equality. A valid
-TOML file that selects an alternate path or digest cannot authenticate itself
-by repeating the expected assignments in comments or extra sections.
-The receipt binds the bounded tree's sorted path/type/mode/link/size/file-hash
-digest plus its byte count. Cross-home, unmanaged, drifted, missing, extra,
-staging, oversized, malformed, targetless, or conflicting candidates cannot
-be adopted.
+DSH home, authenticates the installed and active current-or-pending targets, and
+requires an exact retained-set inventory before atomically writing the owner
+record.
+
+Each retained digest must resolve to one authenticated target from a strict
+version 2 current, previous, or pending receipt; its policy, catalog, document,
+and root-specific hook configuration must match on disk. The activation writer,
+active reader, and retained-set validator share one canonical configuration
+renderer and require byte-for-byte equality. A valid TOML file that selects an
+alternate path or digest cannot authenticate itself by repeating the expected
+assignments in comments or extra sections. The receipt binds the bounded tree's
+sorted path/type/mode/link/size/file-hash digest plus its byte count.
+
+Cross-home, unmanaged, drifted, missing, extra, staging, oversized, malformed,
+targetless, or conflicting candidates cannot be adopted.
 
 Active reads canonicalize and validate the runtime root before opening the
 manifest, then lstat every component below that root without following
@@ -972,26 +1009,28 @@ The adoption receipt also binds one protocol-consistent provenance row:
 installed terminal state is `current/current`; removed terminal state is
 `absent/absent` only when current, previous, and pending are null, the
 last-applied remove is authenticated to the selected root, and the global
-authenticated profile inventory retains zero references to activation sets.
-The owner-only asset directory may contain up to 16 reviewed unreferenced
-digest directories left by the pre-ownership remove; each is subject to the
-normal owner, link, topology, count, and per-set byte bounds, and its digest
-byte count, and canonical tree digest are adoption evidence. Adoption leaves
-those bytes untouched,
-while the next authenticated setup or update removes them through ordinary
-reconciliation. Update and rollback `prepared` state may be
-`current/current` or `pending/current`; update and rollback `native-applied`
-state may be `pending/current` or `pending/pending`; setup is adoptable only as
-`native-applied/pending/pending`. Pending remove retains the authenticated
-current snapshot and exact asset set: prepared permits `current/current` or
-`absent/current`, while native-applied permits `absent/current` or
-`absent/absent`. Undefined pending phases, remove `current/absent`,
-`current/pending`, and ambiguous multi-row matches fail closed. The selected
-actual source, activation source, pending phase, and pending action are
-digest-bound, and apply-time revalidation failures are plan drift before
-ownership mutation. The conversion uses an explicit durable-evidence
-allowlist; command-supervisor, isolation, and configuration errors retain their
-typed diagnostics instead of being misreported as plan drift.
+authenticated profile inventory retains zero references to activation sets. The
+owner-only asset directory may contain up to 16 reviewed unreferenced digest
+directories left by the pre-ownership remove; each is subject to the normal
+owner, link, topology, count, and per-set byte bounds, and its digest byte
+count, and canonical tree digest are adoption evidence.
+
+Adoption leaves those bytes untouched, while the next authenticated setup or
+update removes them through ordinary reconciliation. Update and rollback
+`prepared` state may be `current/current` or `pending/current`; update and
+rollback `native-applied` state may be `pending/current` or `pending/pending`;
+setup is adoptable only as `native-applied/pending/pending`. Pending remove
+retains the authenticated current snapshot and exact asset set: prepared permits
+`current/current` or `absent/current`, while native-applied permits
+`absent/current` or `absent/absent`. Undefined pending phases, remove
+`current/absent`, `current/pending`, and ambiguous multi-row matches fail
+closed.
+
+The selected actual source, activation source, pending phase, and pending action
+are digest-bound, and apply-time revalidation failures are plan drift before
+ownership mutation. The conversion uses an explicit durable-evidence allowlist;
+command-supervisor, isolation, and configuration errors retain their typed
+diagnostics instead of being misreported as plan drift.
 
 Reconciliation scans strict v2 receipts from that home and the active manifest,
 retains only current, previous, pending, active, and currently projected sets,
@@ -1009,14 +1048,16 @@ plan `finalize` or `clear`, while any third state remains ambiguous and closed.
 Pending and terminal records are strict closed schemas whose plan digest,
 operation, target, and proposed recovered receipt must agree; an existing
 unmanaged installation is not adopted by matching version alone.
+
 Local and exact-registry targets are both script-free packed before mutation;
 their reviewed archive and installed-tree digests are retained in the pending
-receipt and content-addressed store. Interrupted finalization therefore
-requires the observed dependency path, bundle row, package identity, version,
-and installed tree to match that pre-mutation evidence. The advisory
+receipt and content-addressed store. Interrupted finalization therefore requires
+the observed dependency path, bundle row, package identity, version, and
+installed tree to match that pre-mutation evidence. The advisory
 `prepared`/`native-applied` phase helps diagnosis but is not the authority, so a
 crash between native success and the second state write remains recoverable. A
 nonzero or otherwise ambiguous DSH result cannot be adopted by version alone.
+
 Remove verifies DSH already removed the dependency and bundle row before it may
 delete the one fixed final package entry sometimes retained for a local
 file/link install. Every intermediate profile/package path must be a real,
@@ -1025,6 +1066,7 @@ DSH, npm, and nils diagnostics use resolved executable identities and a minimal
 explicit environment; returned failures expose only bounded stderr size and
 SHA-256, never raw child stderr. This narrow cleanup cannot address another
 dependency, profile user patch, or private-skill source.
+
 Health, package inspection, and native mutation subprocesses have fixed
 30-second, two-minute, and ten-minute ceilings. The synchronous outer owner
 launches a private supervisor through `setsid`, retains the resulting PGID,
@@ -1043,41 +1085,44 @@ homogeneous exact `0.1.7-rc.1` or `0.2.0-rc.2` set; Cordis must be
 retained and current releases and rejects mixed or later prerelease identities before import.
 
 `compatibility/dsh.json` is the closed promotion input. It records the exact
-`0.1.7-rc.1` and `0.2.0-rc.2` release identities, the rolling
-two-release support policy, the pinned
-tag, one exact upstream-next revision, every consumed public package/export,
-the runtime service-method surface, the deterministic in-memory pre-tool
-budget, and the packed released-agent-hook subprocess budget. The
-checkout inspector requires an exact clean Git root, hashes the declared built
-public entrypoints without executing checkout bytes, and rechecks cleanliness
-after inspection. The selected artifact path additionally derives the complete
-DeepSeek workspace dependency closure from package metadata, rejects missing or
-unreachable members, and compares each regular-file-only tarball to a reviewed
-canonical digest that normalizes package-manifest key order. One receipt binds
-channel, revision, package identity, canonical digest, and actual tarball
-SHA-256. Linux CI stages exactly that closure without DSH registry resolution,
-after an `--omit=peer` install supplies the five exact, lockfile-bound external
-runtime dependencies without lifecycle scripts. Every DSH target must be
-absent. Direct extraction remains beneath retained `O_NOFOLLOW` directory
-descriptors and performs no rename or pathname cleanup; if extraction fails or
-a visible target is swapped, the job fails closed and the disposable consumer
-is rebuilt. Runtime apply independently resolves every public peer version before
-the first import, then validates consumed export kinds and the Context/service
-method shape before any DSH registration. These checks intentionally do not
-infer compatibility from a semver range or inspect private implementation
-helpers. Package CI downloads the exact nils-cli `1.33.9` archive, authenticates
-its retained SHA-256, and runs the packed candidate through the real
-`agent-hook` subprocess boundary; p95 or post-disposal child/admission leakage
-blocks promotion.
-The reviewed-source candidate additionally runs a packed end-to-end tool
-lifecycle benchmark against the exact candidate `agent-hook`. Each measured
+`0.1.7-rc.1` and `0.2.0-rc.2` release identities, the rolling two-release
+support policy, the pinned tag, one exact upstream-next revision, every consumed
+public package/export, the runtime service-method surface, the deterministic
+in-memory pre-tool budget, and the packed released-agent-hook subprocess budget.
+The checkout inspector requires an exact clean Git root, hashes the declared
+built public entrypoints without executing checkout bytes, and rechecks
+cleanliness after inspection.
+
+The selected artifact path additionally derives the complete DeepSeek workspace
+dependency closure from package metadata, rejects missing or unreachable
+members, and compares each regular-file-only tarball to a reviewed canonical
+digest that normalizes package-manifest key order. One receipt binds channel,
+revision, package identity, canonical digest, and actual tarball SHA-256. Linux
+CI stages exactly that closure without DSH registry resolution, after an
+`--omit=peer` install supplies the five exact, lockfile-bound external runtime
+dependencies without lifecycle scripts. Every DSH target must be absent.
+
+Direct extraction remains beneath retained `O_NOFOLLOW` directory descriptors
+and performs no rename or pathname cleanup; if extraction fails or a visible
+target is swapped, the job fails closed and the disposable consumer is rebuilt.
+Runtime apply independently resolves every public peer version before the first
+import, then validates consumed export kinds and the Context/service method
+shape before any DSH registration. These checks intentionally do not infer
+compatibility from a semver range or inspect private implementation helpers.
+
+Package CI downloads the exact nils-cli `1.33.9` archive, authenticates its
+retained SHA-256, and runs the packed candidate through the real `agent-hook`
+subprocess boundary; p95 or post-disposal child/admission leakage blocks
+promotion. The reviewed-source candidate additionally runs a packed end-to-end
+tool lifecycle benchmark against the exact candidate `agent-hook`. Each measured
 iteration performs the persistence data decision, generic pre-tool decision,
 pre-call data decision, generic post-tool decision, and terminal final-result
-data decision in production order. Promotion requires all five subprocesses,
-p95 at or below 1,000 ms, and zero transport admission or live-child leakage.
-Each receipt artifact is bounded to 128 MiB compressed, 256 MiB expanded,
-16,384 regular-file entries, and 64 MiB per entry. Staging authenticates the
-whole closure first but retains only paths and digests; extraction rereads and
+data decision in production order. Promotion requires all five subprocesses, p95
+at or below 1,000 ms, and zero transport admission or live-child leakage.
+
+Each receipt artifact is bounded to 128 MiB compressed, 256 MiB expanded, 16,384
+regular-file entries, and 64 MiB per entry. Staging authenticates the whole
+closure first but retains only paths and digests; extraction rereads and
 rehashes one artifact at a time, so closure size does not multiply retained
 artifact buffers.
 
@@ -1098,15 +1143,16 @@ those external boundaries.
 acceptance and promotion requirements. This section records the architectural
 rationale and implementation boundary behind that contract.
 
-Acceptance is a separate promotion boundary. `scripts/run-acceptance.ts`
-copies six content-addressed nils executables into a private run root, fixes the
-tool PATH, creates disposable HOME/XDG state, and snapshots the package before
+Acceptance is a separate promotion boundary. `scripts/run-acceptance.ts` copies
+six content-addressed nils executables into a private run root, fixes the tool
+PATH, creates disposable HOME/XDG state, and snapshots the package before
 candidate code runs. It clones the manifest-selected DSH commit without
 hardlinks, installs the frozen dependency graph offline, rebuilds the host
 libraries, and checks the fresh checkout through the same compatibility
 contract. Operations receives two complete package variants derived from the
 snapshot, while the runtime leg executes a later fresh extraction of the same
 authenticated tarball. No extracted candidate tree is reused across legs.
+
 Scenario program digests, the package tarball digest, selected DSH public
 closure, and every executable digest are rechecked after execution. Each
 scenario is a separate transient user-systemd service with
@@ -1131,16 +1177,16 @@ release provenance. Consequently the checked-in runner exposes only the
 trusted-code source rehearsal and always leaves promotion incomplete. The
 selected external driver lives in the private `serenvia/sympoies-infra` trust
 domain. It authenticates official nils release assets before candidate
-execution, runs the exact head and packed digest under a separate
-credentialless network-denied UID on a disposable GitHub-hosted VM, stops its
-user manager, and proves the UID process-free before accepting candidate
-evidence. An independently maintained control manifest pins the seven
-candidate files that define the runner, scenario contract, staging, DSH
-compatibility closure, and two smoke programs. The trusted controller does not
-import those modules; candidate code executes only in descendant DSH
-processes, so it cannot replace controller assertions or synthesize its own
-receipt. Only a separately authorized credentialed control phase may perform
-no-merge delivery and direct `forge-cli pr view`/`pr checks` read-back; that
-phase never executes candidate repository code. Final read-back binds the run,
-trust-root revision, and tested package digest through three exact standalone
-provider markers.
+execution, runs the exact head and packed digest under a separate credentialless
+network-denied UID on a disposable GitHub-hosted VM, stops its user manager, and
+proves the UID process-free before accepting candidate evidence.
+
+An independently maintained control manifest pins the seven candidate files that
+define the runner, scenario contract, staging, DSH compatibility closure, and
+two smoke programs. The trusted controller does not import those modules;
+candidate code executes only in descendant DSH processes, so it cannot replace
+controller assertions or synthesize its own receipt. Only a separately
+authorized credentialed control phase may perform no-merge delivery and direct
+`forge-cli pr view`/`pr checks` read-back; that phase never executes candidate
+repository code. Final read-back binds the run, trust-root revision, and tested
+package digest through three exact standalone provider markers.

@@ -48,7 +48,6 @@ the routine contributor entrypoint.
 - [Test-first evidence](test-first-evidence.md) — retained implementation and
   validation evidence for the migration work.
 - [Development log](devlog/README.md) — curated, newest-first project history.
-- [Retained plans](plans/) — detailed implementation plans and execution state.
 
 Normative guidance belongs in the current product, development, operations,
 acceptance, or architecture owner. Evidence and logs should link to those
