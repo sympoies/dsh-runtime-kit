@@ -24,9 +24,6 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
       "agent-hook": {
         "sha256": "d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb"
       },
-      "agent-docs": {
-        "sha256": "bec837fb2c227366b4cbbeeaa1dc8c96ebe9dfe709aa2a10a655416941eea431"
-      },
       "agent-session": {
         "sha256": "87827aacd6f04ad535cd46e1061f4083bcec5d8de03ef1dc8ed8fb37da314e1c"
       },
@@ -53,9 +50,6 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
           "agent-hook": {
             "sha256": "2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f"
           },
-          "agent-docs": {
-            "sha256": "9b80b776b9935cdc70d2e69ea5bc167e59bdf92ff6ba8ec8306ee2268ba1b003"
-          },
           "agent-session": {
             "sha256": "d62e208a21089841e99de1d435fdd667ed02d7c09b737ba38477ac71d8e396c9"
           }
@@ -65,6 +59,10 @@ test('released nils-cli compatibility is pinned to the exact authenticated artif
   })
 
   assert.ok(manifest.commands.every(command => command.status === 'released'))
+  // agent-docs is retired: no release artifact or command contract pins it.
+  // The frozen rollback tuple below keeps its historical companion digests.
+  assert.ok(manifest.commands.every(command => command.binary !== 'agent-docs'))
+  assert.equal(manifest.candidate_validation?.artifacts?.['agent-docs'], undefined)
   const gitCliWorktree = manifest.commands.find(command => command.id === 'git-cli.worktree')
   assert.equal(gitCliWorktree?.validation, 'release-artifact-validated')
   assert.ok(gitCliWorktree?.contracts.includes('git-cli worktree remove --safe'))

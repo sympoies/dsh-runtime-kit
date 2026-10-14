@@ -1,9 +1,8 @@
 const INTENT_PATTERN = /^[A-Za-z0-9._/-]+$/
 const MAX_INTENT_BYTES = 128
 
-// The first phase of each intent is its default and the one the automatic
-// mutation prerequisite prepares; later phases resolve only on demand. An
-// intent with no phases resolves its packaged documents without `--phase`.
+// The first phase of each intent is its default; an intent with no phases
+// resolves its packaged documents without a phase.
 export const RUNTIME_CONTEXT_INTENT_PHASES = Object.freeze({
   'project-dev': Object.freeze(['edit', 'delivery', 'review'] as const),
   devlog: Object.freeze([] as const),
@@ -12,6 +11,23 @@ export const RUNTIME_CONTEXT_INTENT_PHASES = Object.freeze({
   memory: Object.freeze([] as const),
   'upstream-contribution': Object.freeze([] as const),
   'peer-coordination': Object.freeze([] as const),
+})
+
+/**
+ * Packaged home documents, in delivery order, for each intent and phase. The
+ * documents ship in the activated, digest-verified docs home; the packaged
+ * catalog must route exactly these entries (test/context.test.ts).
+ */
+export const RUNTIME_CONTEXT_DOCUMENTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'project-dev:edit': Object.freeze(['PROJECT_DEV_EDIT.md']),
+  'project-dev:delivery': Object.freeze(['WORK_MODES.md', 'GIT_DELIVERY.md']),
+  'project-dev:review': Object.freeze(['REVIEW_CONVERGENCE.md', 'EVIDENCE.md']),
+  devlog: Object.freeze(['DEVLOG.md']),
+  'external-facts': Object.freeze(['EXTERNAL_FACTS.md']),
+  'web-testing': Object.freeze(['BROWSER_TESTING.md']),
+  memory: Object.freeze(['MEMORY.md']),
+  'upstream-contribution': Object.freeze(['UPSTREAM_CONTRIBUTION.md']),
+  'peer-coordination': Object.freeze(['PEER_COORDINATION.md']),
 })
 
 export const RUNTIME_CONTEXT_PHASES = Object.freeze(
@@ -43,15 +59,6 @@ export function runtimeContextPhase(value: unknown, phase?: unknown): string | u
   if (phase === undefined) return phases[0]
   if (typeof phase !== 'string' || !phases.includes(phase)) {
     throw new TypeError('dsh-runtime-kit:runtime-context-phase-not-allowed')
-  }
-  return phase
-}
-
-/** The phase the automatic mutation prerequisite prepares for an intent. */
-export function runtimeContextPrerequisitePhase(value: unknown): string {
-  const phase = runtimeContextPhase(value)
-  if (phase === undefined) {
-    throw new TypeError('dsh-runtime-kit:runtime-context-prerequisite-phase-missing')
   }
   return phase
 }

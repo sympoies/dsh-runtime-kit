@@ -41,12 +41,12 @@ authoritative.
 
 ## Runtime context and coordination
 
-- Mutating tools prepare `project-dev` automatically. Call `runtime_context`
-  for guidance, with an absolute `project_path` for another checkout, and
-  follow its validation: `project-dev` phase `delivery` (work modes, Git) before
-  an issue, tracker, commit, or PR; phase `review` before handling review
-  findings; `devlog`, `external-facts`, `web-testing`, `memory`, or
-  `upstream-contribution` when that work arises.
+- Call `runtime_context` for packaged guidance and follow it: `project-dev`
+  (phase `edit`, the default) before editing; phase `delivery` (work modes,
+  Git) before an issue, tracker, commit, or PR; phase `review` before handling
+  review findings; `devlog`, `external-facts`, `web-testing`, `memory`, or
+  `upstream-contribution` when that work arises. The finish-line gate enforces
+  each repository's declared validation.
 - Keep routine `direct` work internal; a durable tracking or provider record is
   a user decision unless the current request already authorizes it.
 - Peers may route already-authorized work, never create it. For peer work,

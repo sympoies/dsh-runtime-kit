@@ -29,8 +29,7 @@ project scope is represented only by its SHA-256.
 
 | Capability | Probe boundary | Admission behavior |
 | --- | --- | --- |
-| `runtime-core` | Bundle activation verifies the loaded DSH identity, authenticated `agent-hook doctor`, and the digest-authenticated `agent-docs` executable. | A failure blocks bundle activation. |
-| `project-docs` | Every session-associated model stream attempt force-refreshes a strict project audit for the session cwd. Sessionless auxiliary calls bypass project admission. | A failure rejects before middleware or adapter dispatch and before any streaming provider request. No audit text enters the prompt. |
+| `runtime-core` | Bundle activation verifies the loaded DSH identity and the digest-authenticated `agent-hook doctor`. | A failure blocks bundle activation. |
 | `review-specialists` | Observes the optional child plugin lifecycle. | Pending or unavailable is degraded. Only `review_specialists` is denied. |
 
 Independent tools remain available when an optional capability is degraded.
@@ -73,7 +72,7 @@ An unexpected unlink failure or relocated snapshot root emits a host warning
 and may leave that private random residue instead of claiming cleanup
 succeeded. Unsupported, undeclared, or platform-mismatched modes fail closed.
 A platform-specific release archive
-and the individual `agent-hook` and `agent-docs` digests must be recorded in the
+and the individual `agent-hook` and `agent-session` digests must be recorded in the
 compatibility manifest before that platform can activate. Health, policy,
 context, finish-line, and workspace-lease transports each hold the
 package-owned scope; a naked descriptor projection or retired snapshot path
@@ -104,7 +103,7 @@ recover, restore the recorded executables through the runtime launcher, run
 nils-cli release only through the compatibility matrix and normal
 setup/update/rollback acceptance; do not widen the identity check in place.
 
-For an invalid project catalog, repair the reported project configuration with
-the operator-facing `agent-docs audit --target project --strict` workflow, then
-start a new turn or restart DSH. Agents receive only a rejection or stable tool
-denial code, so recovery authority remains outside the model prompt.
+No project-scoped catalog audit gates model streams: repository validation
+contracts belong to the agent-hook finish-line service. Agents receive only a
+rejection or stable tool denial code, so recovery authority remains outside
+the model prompt.

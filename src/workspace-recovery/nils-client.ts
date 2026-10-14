@@ -376,7 +376,7 @@ export function createNilsWorkspaceRecoveryClient(ctx: Context, config: {agentHo
         throw failure(
           HarnessError,
           code === 'WORKSPACE_RECOVERY_CHECKOUT_UNAVAILABLE'
-            ? 'The session cwd is not a repository. Use runtime_context with project_path set to the absolute target checkout, then set Bash workdir to that target.'
+            ? 'The session cwd is not a repository. Set Bash workdir to the absolute target checkout.'
             : 'workspace recovery request was denied',
           code ?? 'WORKSPACE_RECOVERY_UNAVAILABLE',
         )

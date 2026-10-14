@@ -1,659 +1,118 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { createRuntimeContextTool } from '../dist/src/context/index.js'
-import { createNilsContextClient } from '../dist/src/context/nils-context.js'
-import { createSnapshotExecutionOwner } from '../dist/src/health/nils-provider.js'
-import { isolatedNilsEnvironment } from '../dist/src/nils/session-environment.js'
+import { createPackagedContextClient, createRuntimeContextTool } from '../dist/src/context/index.js'
+import { RUNTIME_CONTEXT_DOCUMENTS, RUNTIME_CONTEXT_INTENT_PHASES } from '../dist/src/context/intents.js'
 
-function execution(overrides = {}) {
-  const signal = new AbortController().signal
-  const session = {
-    id: 'session-current',
-    header: { id: 'session-current', cwd: '/workspace/current' },
-    events: [],
-  }
-  return {
-    token: Symbol('context-call'),
-    callId: 'context-call',
-    rootCallId: 'context-call',
-    name: 'runtime_context',
-    arguments: { intent: 'project-dev' },
-    signal,
-    agent: { id: 'session-current', session },
-    deferContext() {},
-    concludeTurn() {},
-    ...overrides,
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const PACKAGED_HOME = join(ROOT, 'agent-docs')
+
+async function withHome(files, run) {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-runtime-context-'))
+  try {
+    for (const [name, content] of Object.entries(files)) await writeFile(join(home, name), content)
+    return await run(home)
+  } finally {
+    await rm(home, { recursive: true, force: true })
   }
 }
 
-function contextDecision(overrides = {}) {
-  const content = '# Project development\n\nRun the focused tests.'
-  return {
-    schema_version: 'decision.context.v1',
-    request_id: 'context:current-request',
-    product: 'dsh',
-    intent: 'project-dev',
-    reason: 'prepared',
-    verified: true,
-    documents: [{ source: 'project', scope: 'project', content }],
-    document_count: 1,
-    total_bytes: Buffer.byteLength(content),
-    ...overrides,
+/** The packaged catalog's home documents keyed like RUNTIME_CONTEXT_DOCUMENTS. */
+async function packagedCatalogRoutes() {
+  const text = await readFile(join(PACKAGED_HOME, 'AGENT_DOCS.toml'), 'utf8')
+  const routes = {}
+  for (const block of text.split('[[document]]').slice(1)) {
+    const field = name => new RegExp(`^${name} = "([^"]+)"`, 'mu').exec(block)?.[1]
+    const phase = field('phase')
+    const key = phase === undefined ? field('context') : `${field('context')}:${phase}`
+    assert.equal(field('scope'), 'home')
+    assert.equal(field('product'), 'dsh')
+    ;(routes[key] ??= []).push(field('path'))
   }
+  return routes
 }
 
-function requestId(spec) {
-  const index = spec.argv.indexOf('--request-id')
-  assert.notEqual(index, -1)
-  return spec.argv[index + 1]
-}
-
-function contextEnvelope(spec, overrides = {}) {
-  const content = '# Project development\n\nRun the focused tests.'
-  return {
-    schema_version: 'cli.agent-docs.session.context.v1',
-    ok: true,
-    data: {
-      decision: {
-        schema_version: 'decision.context.v1',
-        request_id: requestId(spec),
-        product: 'dsh',
-        intent: 'project-dev',
-        phase: 'edit',
-        reason: 'prepared',
-        verified: true,
-        documents: [{ source: 'project', scope: 'project', content }],
-        document_count: 1,
-        total_bytes: Buffer.byteLength(content),
-        ...overrides,
-      },
-    },
-  }
-}
-
-function contextTransportHarness({
-  response = spec => contextEnvelope(spec),
-  outcome = { exitCode: 0, signal: null },
-  lossy = false,
-  pending = false,
-  quiescent = true,
-  requireResolved = false,
-  resolutionPending = false,
-} = {}) {
-  const specs = []
-  const resolutions = []
-  const disposers = []
-  let terminateCount = 0
-  let settle
-  let resolveTree
-  const treeExit = new Promise(resolve => { resolveTree = resolve })
-  const ctx = {
-    effect(execute) {
-      const disposer = execute()
-      if (typeof disposer === 'function') disposers.push(disposer)
-    },
-    subprocess: {
-      async resolveExecutable(command, env, signal) {
-        resolutions.push({ command, env, signal })
-        if (resolutionPending) {
-          return new Promise((resolve, reject) => {
-            if (signal?.aborted) reject(signal.reason)
-            signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
-          })
-        }
-        return `/resolved/${command}`
-      },
-      spawn(spec) {
-        if (requireResolved && !spec.argv[0].startsWith('/')) {
-          throw new Error('subprocess contract requires a resolved executable')
-        }
-        specs.push(spec)
-        const output = JSON.stringify(response(spec))
-        const done = pending
-          ? new Promise(resolve => { settle = resolve })
-          : Promise.resolve(outcome)
-        if (!pending && quiescent) resolveTree()
-        return {
-          done,
-          terminate() {
-            terminateCount += 1
-            settle?.({ exitCode: null, signal: 'SIGTERM' })
-            if (quiescent) resolveTree()
-          },
-          collected: {
-            stdout: { readFrom: () => ({ text: output, lossy }) },
-          },
-          async waitForExit(signal) {
-            if (signal?.aborted) return false
-            return Promise.race([
-              treeExit.then(() => true),
-              new Promise(resolve => signal?.addEventListener('abort', () => resolve(false), { once: true })),
-            ])
-          },
-        }
-      },
-    },
-  }
-  return {
-    ctx,
-    specs,
-    resolutions,
-    get terminateCount() { return terminateCount },
-    settle(result = outcome) { settle?.(result) },
-    releaseTree() { resolveTree() },
-    async dispose() {
-      for (const disposer of disposers.reverse()) await disposer()
-    },
-  }
-}
-
-test('the context client resolves a bare agent-docs command before spawning', async () => {
-  const subject = contextTransportHarness({ requireResolved: true })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocs: 'agent-docs',
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-
-  const result = await client.prepare(execution(), 'project-dev')
-  assert.equal(result.intent, 'project-dev')
-  assert.equal(subject.resolutions.length, 1)
-  assert.equal(subject.resolutions[0].command, 'agent-docs')
-  assert.equal(
-    subject.resolutions[0].env,
-    undefined,
-    'portable helper lookup must use the DSH host execution PATH, not the isolated child PATH',
+test('the packaged document map routes exactly the packaged catalog entries', async () => {
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(RUNTIME_CONTEXT_DOCUMENTS)),
+    await packagedCatalogRoutes(),
   )
-  assert.equal(subject.specs[0].argv[0], '/resolved/agent-docs')
-})
-
-test('the context deadline covers executable resolution before spawn', async () => {
-  const subject = contextTransportHarness({ resolutionPending: true })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocs: 'agent-docs',
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-    contextTimeoutMs: 20,
-  })
-
-  await assert.rejects(client.prepare(execution(), 'project-dev'), /runtime-context-timeout/)
-  assert.equal(subject.specs.length, 0)
-  assert.equal(client.active, 0)
-})
-
-test('context holds its authenticated descriptor lease across delayed resolution and HMR disposal', async () => {
-  const subject = contextTransportHarness({ resolutionPending: true })
-  let cleaned = false
-  const owner = createSnapshotExecutionOwner(async () => { cleaned = true }, 100)
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocs: 'agent-docs',
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-    authenticatedNilsExecution: owner,
-  })
-  const pending = client.prepare(execution(), 'project-dev')
-  const rejected = assert.rejects(pending, /runtime-context-(?:disposed|unavailable)/)
-  while (subject.resolutions.length === 0) await new Promise(resolve => setImmediate(resolve))
-  await Promise.all([owner.dispose(), subject.dispose()])
-  await rejected
-  assert.equal(subject.specs.length, 0)
-  assert.equal(cleaned, true)
-})
-
-test('context rejects a naked descriptor or retired snapshot path without its execution owner', () => {
-  const subject = contextTransportHarness()
-  for (const agentDocs of [
-    '/proc/123/fd/9/agent-docs',
-    '/dev/fd/9/agent-docs',
-    '/tmp/dsh-runtime-health-executables-ABC123/agent-docs',
-  ]) {
-    assert.throws(
-      () => createNilsContextClient(subject.ctx, {
-        agentDocs,
-        agentDocsHome: '/runtime/policies',
-        agentDocsStateHome: '/runtime/state',
-      }),
-      /authenticated nils executable requires an execution owner/,
-    )
+  for (const [intent, phases] of Object.entries(RUNTIME_CONTEXT_INTENT_PHASES)) {
+    const keys = phases.length === 0 ? [intent] : phases.map(phase => `${intent}:${phase}`)
+    for (const key of keys) assert.ok(RUNTIME_CONTEXT_DOCUMENTS[key]?.length > 0, key)
   }
 })
 
-test('runtime_context returns one sanitized bounded intent result on demand', async () => {
-  const calls = []
-  const tool = createRuntimeContextTool({
-    async prepare(exec, intent) {
-      calls.push({ exec, intent })
-      return contextDecision()
-    },
-  })
-  const exec = execution()
-
-  assert.equal(calls.length, 0, 'registration/session start must not load the corpus')
-  const result = await tool.execute({ intent: 'project-dev' }, exec)
-  assert.deepEqual(calls, [{ exec, intent: 'project-dev' }])
+test('runtime_context returns the packaged project-dev edit contract by default', async () => {
+  const tool = createRuntimeContextTool(createPackagedContextClient({ agentDocsHome: PACKAGED_HOME }))
+  const result = await tool.execute({ intent: 'project-dev' })
+  const content = await readFile(join(PACKAGED_HOME, 'PROJECT_DEV_EDIT.md'), 'utf8')
   assert.deepEqual(result, {
     schema_version: 'dsh-runtime-context.result.v1',
     intent: 'project-dev',
     status: 'prepared',
-    documents: [{ source: 'project', scope: 'project', content: '# Project development\n\nRun the focused tests.' }],
+    documents: [{ source: 'home', scope: 'home', content }],
     document_count: 1,
-    total_bytes: 45,
+    total_bytes: Buffer.byteLength(content, 'utf8'),
   })
-
-  const rendered = tool.output.render({ intent: 'project-dev' }, result)
-  assert.equal(rendered.length, 1)
-  assert.equal(rendered[0].type, 'text')
-  assert.match(rendered[0].text, /Project development/)
-  assert.doesNotMatch(rendered[0].text, /context:current-request|session-current|workspace\/current/)
-
-  const oldInjectedBaseline = 'x'.repeat(76_667)
-  assert.ok(Buffer.byteLength(rendered[0].text) < Buffer.byteLength(oldInjectedBaseline) / 100)
+  const rendered = tool.output.render({}, result)[0].text
+  assert.match(rendered, /^Runtime context `project-dev` prepared: 1 required document,/u)
+  assert.match(rendered, /<runtime-context-document index="1" source="home" scope="home">/u)
 })
 
-test('runtime_context can prepare the exact target worktree in the current DSH session', async () => {
-  const calls = []
+test('runtime_context resolves delivery, review, and phaseless intents in catalog order', async () => {
+  await withHome({
+    'WORK_MODES.md': 'modes\n',
+    'GIT_DELIVERY.md': 'git\n',
+    'REVIEW_CONVERGENCE.md': 'review\n',
+    'EVIDENCE.md': 'evidence\n',
+    'DEVLOG.md': 'devlog\n',
+  }, async home => {
+    const tool = createRuntimeContextTool(createPackagedContextClient({ agentDocsHome: home }))
+    const contents = async args => (await tool.execute(args)).documents.map(document => document.content)
+    assert.deepEqual(await contents({ intent: 'project-dev', phase: 'delivery' }), ['modes\n', 'git\n'])
+    assert.deepEqual(await contents({ intent: 'project-dev', phase: 'review' }), ['review\n', 'evidence\n'])
+    assert.deepEqual(await contents({ intent: 'devlog' }), ['devlog\n'])
+  })
+})
+
+test('runtime_context rejects retired and ambiguous arguments before reading', async () => {
+  let reads = 0
   const tool = createRuntimeContextTool({
-    async prepare(exec, intent, projectPath) {
-      calls.push({ exec, intent, projectPath })
-      return contextDecision()
-    },
-  })
-  const exec = execution()
-  const target = '/workspace/managed-worktree'
-  await tool.execute({ intent: 'project-dev', project_path: target }, exec)
-  assert.deepEqual(calls, [{ exec, intent: 'project-dev', projectPath: target }])
-  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: '../relative' }, exec))
-  await assert.rejects(tool.execute({ intent: 'project-dev', project_path: target, phase: 'release' }, exec))
-  assert.equal(calls.length, 1)
-})
-
-test('runtime_context resolves the project-dev delivery phase on demand', async () => {
-  const calls = []
-  const tool = createRuntimeContextTool({
-    async prepare(exec, intent, projectPath, phase) {
-      calls.push({ intent, projectPath, phase })
-      return contextDecision()
-    },
-  })
-  assert.deepEqual(tool.parameters.properties.phase.enum, ['edit', 'delivery', 'review'])
-  assert.deepEqual(tool.parameters.required, ['intent'])
-  await tool.execute({ intent: 'project-dev' }, execution())
-  await tool.execute({ intent: 'project-dev', phase: 'delivery' }, execution())
-  await tool.execute({ intent: 'project-dev', phase: 'edit', project_path: '/workspace/managed-worktree' }, execution())
-  assert.deepEqual(calls, [
-    { intent: 'project-dev', projectPath: undefined, phase: 'edit' },
-    { intent: 'project-dev', projectPath: undefined, phase: 'delivery' },
-    { intent: 'project-dev', projectPath: '/workspace/managed-worktree', phase: 'edit' },
-  ])
-
-  const subject = contextTransportHarness({
-    response: spec => contextEnvelope(spec, { phase: 'delivery' }),
-  })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  const result = await client.prepare(execution(), 'project-dev', undefined, 'delivery')
-  assert.equal(result.phase, 'delivery')
-  const spec = subject.specs[0]
-  assert.equal(spec.argv[spec.argv.indexOf('--phase') + 1], 'delivery')
-
-  // A decision for another phase cannot answer this request.
-  const mismatched = contextTransportHarness()
-  const mismatchedClient = createNilsContextClient(mismatched.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  await assert.rejects(mismatchedClient.prepare(execution(), 'project-dev', undefined, 'delivery'))
-  await assert.rejects(
-    client.prepare(execution(), 'project-dev', undefined, 'release'),
-    /runtime-context-phase-not-allowed/,
-  )
-})
-
-test('runtime_context resolves phaseless policy intents and the project-dev review phase', async () => {
-  const calls = []
-  const tool = createRuntimeContextTool({
-    async prepare(exec, intent, projectPath, phase) {
-      calls.push({ intent, phase })
-      return contextDecision({ intent })
-    },
-  })
-  for (const intent of ['devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution', 'peer-coordination']) {
-    await tool.execute({ intent }, execution())
-    await assert.rejects(tool.execute({ intent, phase: 'edit' }, execution()), /runtime-context-phase-not-allowed/)
-  }
-  await tool.execute({ intent: 'project-dev', phase: 'review' }, execution())
-  assert.deepEqual(calls, [
-    { intent: 'devlog', phase: undefined },
-    { intent: 'external-facts', phase: undefined },
-    { intent: 'web-testing', phase: undefined },
-    { intent: 'memory', phase: undefined },
-    { intent: 'upstream-contribution', phase: undefined },
-    { intent: 'peer-coordination', phase: undefined },
-    { intent: 'project-dev', phase: 'review' },
-  ])
-
-  // A phaseless intent sends no --phase and accepts a decision without one.
-  const subject = contextTransportHarness({
-    response: spec => {
-      const envelope = contextEnvelope(spec, { intent: 'memory' })
-      delete envelope.data.decision.phase
-      return envelope
-    },
-  })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  const result = await client.prepare(execution(), 'memory')
-  assert.equal(result.intent, 'memory')
-  assert.equal(Object.hasOwn(result, 'phase'), false)
-  assert.equal(subject.specs[0].argv.includes('--phase'), false)
-  assert.equal(subject.specs[0].argv[subject.specs[0].argv.indexOf('--intent') + 1], 'memory')
-
-  // A decision prepared for some phase cannot answer a phaseless request.
-  const phased = contextTransportHarness({
-    response: spec => contextEnvelope(spec, { intent: 'memory', phase: 'edit' }),
-  })
-  const phasedClient = createNilsContextClient(phased.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  await assert.rejects(phasedClient.prepare(execution(), 'memory'), /runtime-context-output-invalid/)
-})
-
-test('runtime_context prepares an explicitly named target from a non-repository session cwd', async () => {
-  const subject = contextTransportHarness()
-  const target = '/workspace/managed-worktree'
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-    verifiedWorktreeTargets: {
-      async verify() { throw new Error('clean handoff must not be required') },
-      authorize() {},
-      async resolve() { return target },
-    },
-  })
-  await client.prepare(execution(), 'project-dev', target)
-  assert.equal(subject.specs[0].cwd, target)
-  assert.equal(subject.specs[0].argv[subject.specs[0].argv.indexOf('--project-path') + 1], target)
-})
-
-test('DSH context transport binds an explicit target to project-path and cwd', async () => {
-  const subject = contextTransportHarness()
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  await client.prepare(execution(), 'project-dev', '/workspace/managed-worktree')
-  const spec = subject.specs[0]
-  assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], '/workspace/managed-worktree')
-  assert.equal(spec.cwd, '/workspace/managed-worktree')
-  assert.equal(spec.argv[spec.argv.indexOf('--session-id') + 1], 'session-current')
-})
-
-test('Bash prerequisite begin and commit stay bound to its explicit workdir', async () => {
-  const content = 'bounded policy\n'
-  const subject = contextTransportHarness({
-    response(spec) {
-      if (spec.argv.includes('commit-prerequisite')) return {
-        schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
-        ok: true,
-        data: { product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true },
-      }
-      return {
-        schema_version: 'cli.agent-docs.session.prerequisite.v1',
-        ok: true,
-        data: { decision: {
-          schema_version: 'decision.prerequisite.v1',
-          request_id: requestId(spec),
-          product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'pending', verified: true,
-          documents: [{ source: 'project', scope: 'project', content }],
-          document_count: 1, total_bytes: Buffer.byteLength(content), receipt: 'receipt-one',
-        } },
-      }
-    },
-  })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
-  })
-  const target = '/workspace/managed-worktree'
-  const exec = execution({ name: 'bash', arguments: { command: 'git status --short --branch', workdir: target } })
-  const binding = {
-    agentId: 'agent-one', workspaceGeneration: 'workspace-one', callId: 'call-one',
-    turn: 1, step: 1, toolName: 'bash', definitionId: 'definition-one',
-  }
-  const pending = await client.beginPrerequisite(exec, 'project-dev', binding)
-  await client.commitPrerequisite(exec, { intent: 'project-dev', phase: 'edit', receipt: pending.receipt, projectPath: target, binding })
-  assert.equal(subject.specs.length, 2)
-  for (const spec of subject.specs) {
-    assert.equal(spec.cwd, target)
-    assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
-    assert.equal(spec.argv[spec.argv.indexOf('--session-id') + 1], 'session-current')
-  }
-  await assert.rejects(client.commitPrerequisite(exec, {
-    intent: 'project-dev', phase: 'edit', receipt: pending.receipt,
-    projectPath: '/workspace/other', binding,
-  }), /runtime-context-project-path-changed/)
-  assert.equal(subject.specs.length, 2)
-})
-
-test('native edit prerequisite begin and commit use the authenticated worktree target', async () => {
-  const target = '/workspace/managed-worktree'
-  for (const name of ['write', 'edit', 'str_replace_editor']) {
-    const subject = contextTransportHarness({
-      response(spec) {
-        if (spec.argv.includes('commit-prerequisite')) return {
-          schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
-          ok: true,
-          data: { product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true },
-        }
-        return {
-          schema_version: 'cli.agent-docs.session.prerequisite.v1',
-          ok: true,
-          data: { decision: {
-            schema_version: 'decision.prerequisite.v1', request_id: requestId(spec),
-            product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'pending', verified: true,
-            documents: [], document_count: 0, total_bytes: 0, receipt: `receipt-${name}`,
-          } },
-        }
-      },
-    })
-    const client = createNilsContextClient(subject.ctx, {
-      agentDocsHome: '/runtime/policies', agentDocsStateHome: '/runtime/state',
-      verifiedWorktreeTargets: { async resolve() { return target } },
-    })
-    const exec = execution({ name, arguments: { file_path: `${target}/file.txt` } })
-    const binding = {
-      agentId: 'agent-one', workspaceGeneration: 'workspace-one', callId: 'call-one',
-      turn: 1, step: 1, toolName: name, definitionId: 'definition-one',
-    }
-    const pending = await client.beginPrerequisite(exec, 'project-dev', binding)
-    assert.equal(pending.projectPath, target)
-    await client.commitPrerequisite(exec, { intent: 'project-dev', phase: 'edit', receipt: pending.receipt, projectPath: target, binding })
-    assert.equal(subject.specs.length, 2)
-    for (const spec of subject.specs) {
-      assert.equal(spec.cwd, target)
-      assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
-    }
-  }
-})
-
-test('the context client invokes one bounded atomic agent-docs command for the exact DSH scope', async () => {
-  const subject = contextTransportHarness()
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocs: '/tools/agent-docs',
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-
-  const result = await client.prepare(execution(), 'project-dev')
-  assert.equal(result.intent, 'project-dev')
-  assert.equal(result.phase, 'edit')
-  assert.equal(subject.specs.length, 1)
-  const spec = subject.specs[0]
-  assert.deepEqual(spec.argv, [
-    '/tools/agent-docs',
-    '--docs-home', '/runtime/policies',
-    '--project-path', '/workspace/current',
-    'session', 'context',
-    '--session-id', 'session-current',
-    '--product', 'dsh',
-    '--state-home', '/runtime/state',
-    '--intent', 'project-dev',
-    '--phase', 'edit',
-    '--request-id', requestId(spec),
-    '--max-bytes', '20480',
-    '--format', 'json',
-  ])
-  assert.match(requestId(spec), /^context:[0-9a-f-]{36}$/)
-  assert.equal(spec.cwd, '/workspace/current')
-  assert.equal(spec.stdio.stdin, 'ignore')
-  assert.deepEqual(spec.stdio.stdout, { maxBytes: 155_648 })
-  assert.deepEqual(spec.stdio.stderr, { maxBytes: 8_192 })
-  assert.deepEqual(spec.env, isolatedNilsEnvironment(undefined))
-})
-
-test('the context client rejects ambient Codex or Claude agent-docs fallback', () => {
-  const subject = contextTransportHarness()
-
-  assert.throws(
-    () => createNilsContextClient(subject.ctx, {
-      agentDocsStateHome: '/runtime/state',
-    }),
-    /agentDocsHome is required/,
-  )
-})
-
-test('context output from another repo, session, request, or intent cannot be replayed', async () => {
-  let captured
-  const subject = contextTransportHarness({
-    response(spec) {
-      captured ??= contextEnvelope(spec)
-      return captured
-    },
-  })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  await client.prepare(execution(), 'project-dev')
-  const other = execution({
-    agent: {
-      id: 'session-other',
-      session: {
-        id: 'session-other',
-        header: { id: 'session-other', cwd: '/workspace/other' },
-        events: [],
-      },
-    },
-  })
-
-  await assert.rejects(
-    client.prepare(other, 'project-dev'),
-    /runtime-context-output-invalid/,
-  )
-  assert.notEqual(requestId(subject.specs[0]), requestId(subject.specs[1]))
-  assert.equal(subject.specs[1].cwd, '/workspace/other')
-  assert.ok(subject.specs[1].argv.includes('session-other'))
-})
-
-test('context transport rejects malformed, lossy, and exit-mismatched results without leaking output', async () => {
-  const cases = [
-    {
-      response: spec => contextEnvelope(spec, { extra_private_field: '/secret/path' }),
-      error: /runtime-context-output-invalid/,
-    },
-    {
-      response: spec => contextEnvelope(spec, { total_bytes: 1 }),
-      error: /runtime-context-output-invalid/,
-    },
-    {
-      lossy: true,
-      error: /runtime-context-output-invalid/,
-    },
-    {
-      outcome: { exitCode: 1, signal: null },
-      error: /runtime-context-output-invalid/,
-    },
-  ]
-  for (const candidate of cases) {
-    const subject = contextTransportHarness(candidate)
-    const client = createNilsContextClient(subject.ctx, {
-      agentDocsHome: '/runtime/policies',
-      agentDocsStateHome: '/runtime/state',
-    })
-    await assert.rejects(client.prepare(execution(), 'project-dev'), candidate.error)
-  }
-})
-
-test('caller cancellation joins the context process tree before rejecting', async () => {
-  const subject = contextTransportHarness({ pending: true, quiescent: false })
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-    contextTeardownTimeoutMs: 1_000,
-  })
-  const controller = new AbortController()
-  const pending = client.prepare(execution({ signal: controller.signal }), 'project-dev')
-  while (subject.specs.length === 0) await new Promise(resolve => setImmediate(resolve))
-  controller.abort(new Error('stop'))
-  await new Promise(resolve => setImmediate(resolve))
-  assert.ok(subject.terminateCount >= 1)
-  let settled = false
-  void pending.finally(() => { settled = true }).catch(() => {})
-  await new Promise(resolve => setImmediate(resolve))
-  assert.equal(settled, false, 'the tool must wait for whole-tree quiescence')
-  subject.releaseTree()
-  await assert.rejects(pending, /runtime-context-caller-aborted/)
-  assert.equal(client.active, 0)
-})
-
-test('runtime_context rejects ambiguous args and invalid execution identity before agent-docs', async () => {
-  let calls = 0
-  const tool = createRuntimeContextTool({
+    maxBytes: 1024,
     async prepare() {
-      calls += 1
-      return contextDecision()
+      reads += 1
+      throw new Error('unreachable')
     },
   })
   for (const args of [
-    null,
+    { intent: 'project-dev', project_path: '/workspace/project' },
+    { intent: 'project-dev', extra: true },
     {},
-    { intent: 'project-dev', phase: 'release' },
-    { intent: 'project-dev', phase: '' },
-    { intent: 'project-dev', phase: 1 },
-    { intent: 'project-dev', phase: 'delivery', scope: 'home' },
-    { intent: 'invalid intent' },
-    { intent: 'review' },
-    { intent: 'delivery' },
-    { intent: 'future-declared-intent' },
+    null,
+    [],
   ]) {
-    await assert.rejects(tool.execute(args, execution()))
+    await assert.rejects(tool.execute(args), TypeError)
   }
-  assert.equal(calls, 0)
+  await assert.rejects(tool.execute({ intent: 'unknown-intent' }), /runtime-context-intent-not-allowed/u)
+  await assert.rejects(tool.execute({ intent: 'devlog', phase: 'edit' }), /runtime-context-phase-not-allowed/u)
+  assert.equal(reads, 0)
+  assert.equal(tool.parameters.properties.project_path, undefined)
+})
 
-  assert.deepEqual(tool.parameters.properties.intent, {
-    type: 'string',
-    enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution', 'peer-coordination'],
+test('the packaged context client reads only bounded regular files in its docs home', async () => {
+  assert.throws(() => createPackagedContextClient({}), /agentDocsHome is required/u)
+  assert.throws(() => createPackagedContextClient({ agentDocsHome: 'relative' }), /agentDocsHome is required/u)
+  await withHome({ 'outside.md': 'outside\n', 'DEVLOG.md': 'x'.repeat(64) }, async home => {
+    await symlink(join(home, 'outside.md'), join(home, 'MEMORY.md'))
+    const client = createPackagedContextClient({ agentDocsHome: home, contextMaxBytes: 32 })
+    assert.equal(client.maxBytes, 32)
+    await assert.rejects(client.prepare('memory'), /runtime-context-document-unavailable/u)
+    await assert.rejects(client.prepare('devlog'), /runtime-context-budget-exceeded/u)
+    await assert.rejects(client.prepare('web-testing'), /runtime-context-document-unavailable/u)
   })
-
-  const subject = contextTransportHarness()
-  const client = createNilsContextClient(subject.ctx, {
-    agentDocsHome: '/runtime/policies',
-    agentDocsStateHome: '/runtime/state',
-  })
-  await assert.rejects(
-    client.prepare(execution({ agent: undefined }), 'project-dev'),
-    /runtime-context-identity-invalid/,
-  )
-  for (const intent of ['review', 'delivery', 'future-declared-intent']) {
-    await assert.rejects(
-      client.prepare(execution(), intent),
-      /runtime-context-intent-not-allowed/,
-    )
-  }
-  assert.equal(subject.specs.length, 0)
 })

@@ -11,14 +11,8 @@ the project-local `project-runtime-development` skill.
 
 ## Before editing
 
-- Read [`AGENTS.md`](AGENTS.md), the canonical repository policy.
-- Load the required compact edit contract and declared validation:
-
-  ```sh
-  agent-docs preflight --intent project-dev --phase edit \
-    --strict --require-declared-intent
-  ```
-
+- Read [`AGENTS.md`](AGENTS.md), the canonical repository policy, and the
+  compact edit contract in [`PROJECT_DEV_EDIT.md`](PROJECT_DEV_EDIT.md).
 - Classify the change against package behavior, public DSH/Cordis interfaces,
   compatibility evidence, version-scoped patches, runtime policy, operations,
   or documentation before choosing its owner.

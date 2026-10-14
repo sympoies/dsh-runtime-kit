@@ -466,17 +466,15 @@ export function apply(ctx) {
       }
       const policyContent = '# Quarantine project policy'
       const runtimeContext = createRuntimeContextTool({
-        async prepare(_exec, intent) {
+        maxBytes: 1024,
+        async prepare(intent) {
           return {
-            schema_version: 'decision.context.v1',
-            request_id: 'quarantine-native-smoke',
-            product: 'dsh',
+            schema_version: 'dsh-runtime-context.result.v1',
             intent,
-            reason: 'prepared',
-            verified: true,
+            status: 'prepared',
             documents: [{
-              source: 'project',
-              scope: 'project',
+              source: 'home',
+              scope: 'home',
               content: policyContent,
             }],
             document_count: 1,
@@ -671,7 +669,7 @@ export function apply(ctx) {
         signal: new AbortController().signal,
         callId: CallId('workspace-native-handoff-context'),
         name: 'runtime_context',
-        arguments: { intent: 'project-dev', project_path: handoff },
+        arguments: { intent: 'project-dev' },
         agent: handoffOwner.agent,
       })
       handoffOwnerRead = await ctx.tools.execute({
@@ -712,7 +710,7 @@ export function apply(ctx) {
         signal: new AbortController().signal,
         callId: CallId('workspace-native-successor-context'),
         name: 'runtime_context',
-        arguments: { intent: 'project-dev', project_path: handoff },
+        arguments: { intent: 'project-dev' },
         agent: handoffSuccessor.agent,
       })
       handoffSuccessorEdit = await ctx.tools.execute({

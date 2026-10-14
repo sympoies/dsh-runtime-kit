@@ -73,7 +73,7 @@
       "identifiers": ["DSH_RUNTIME_HEALTH_AGENT_DOCS_INVALID"],
       "replacement": {
         "owner": "runtime-kit",
-        "contract": "native runtime health readAuthenticatedBinary sha256 snapshot of agent-docs from compatibility/nils-cli.json (issue 58)"
+        "contract": "native runtime health readAuthenticatedBinary sha256 snapshot from compatibility/nils-cli.json (issue 58); the agent-docs companion itself is retired by agent-docs-companion"
       },
       "first_supported": { "runtime_kit": "issue 58 acceptance e60b0bd5", "nils_cli": "1.27.9" },
       "compatibility_window": "none; the digest check is stricter than the banner",
@@ -107,12 +107,12 @@
       "id": "nils-minimum-release-floor",
       "category": "compatibility",
       "status": "reduced",
-      "summary": "The minimum supported nils-cli release moves from 1.27.17 to 1.27.37, the release that contains every native contract the accepted children require; older companions fail typed before activation. compatibility/nils-cli.json declares the floor, src/operations/index.js applies it to agent-docs doctor, and src/acceptance/contract.js requires the accepted nils release to be at least the floor.",
+      "summary": "The minimum supported nils-cli release moves from 1.27.17 to 1.27.37, the release that contains every native contract the accepted children require; older companions fail typed before activation. compatibility/nils-cli.json declares the floor, src/operations/index.js applies it to the agent-hook companion release, and src/acceptance/contract.js requires the accepted nils release to be at least the floor.",
       "paths": ["compatibility/nils-cli.json", "src/operations/index.js", "src/acceptance/contract.js"],
       "identifiers": ["minimum_supported_release"],
       "replacement": { "owner": "nils-cli", "contract": "released nils-cli 1.27.37 (3fd3a9bd089247405ec2be219234a7a24f54a98c)" },
       "first_supported": { "runtime_kit": "issue 64 acceptance aee0089f", "nils_cli": "1.27.37" },
-      "compatibility_window": "1.27.37 only; agent-docs outside the range is reported as needs-attention and activation refuses",
+      "compatibility_window": "1.27.37 only; an agent-hook companion outside the range is reported as needs-attention and activation refuses",
       "rollback": "reinstall the issue 79 acceptance package 4b21c79c3dda7e4715755a867fed2ad833f4a8f1f2c3d593eb7fcfcf45cff6dd, whose floor is 1.27.17"
     },
     {
@@ -364,6 +364,65 @@
       "first_supported": { "runtime_kit": "issue 199 non-git cwd", "nils_cli": "1.28.3" },
       "compatibility_window": "none; the delegation was reachable only for managed advisory/off principals and only for pwd, and every other non-repository operation was denied",
       "rollback": "reinstall the tiered-policy package from PR #205 through the digest-reviewed rollback operation"
+    },
+    {
+      "id": "agent-docs-companion",
+      "category": "runtime-health",
+      "status": "removed",
+      "summary": "agent-docs was an authenticated native companion: activation required it, doctor and the agent-docs-version health probe checked its release, runtime health snapshotted it and ran a strict project catalog audit as the project-docs session requirement, and deploy and acceptance accepted an explicit executable for it. Validation contracts now belong to agent-hook's finish-line service, so the runtime no longer resolves, spawns, authenticates, or digest-pins agent-docs. The packaged docs home and its activation digests remain unchanged.",
+      "paths": [
+        "compatibility/nils-cli.json",
+        "compatibility/profile-lifecycle.json",
+        "src/operations/index.ts",
+        "src/health/nils-provider.ts",
+        "src/diagnostics/index.ts",
+        "src/deploy/index.ts",
+        "cordis.patch.yml"
+      ],
+      "identifiers": [
+        "agentDocsDoctor",
+        "DSH_RUNTIME_KIT_AGENT_DOCS_BIN",
+        "agent-docs-bin",
+        "DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID"
+      ],
+      "replacement": {
+        "owner": "nils-cli",
+        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14); the nils release floor is enforced on the agent-hook companion release"
+      },
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
+      "compatibility_window": "agent-hook releases inside the declared nils window; a target package that still declares the agent-docs dependency or the agent-docs-version probe is refused as unsupported by this engine",
+      "rollback": "Reinstall a separately reviewed previous runtime package with its own operations engine and matching companion tuple, which still includes agent-docs."
+    },
+    {
+      "id": "automatic-project-dev-prerequisite",
+      "category": "prerequisite-evidence",
+      "status": "removed",
+      "summary": "Mutating tools resolved an execution-bound project-dev prerequisite through agent-docs session prerequisite and commit-prerequisite commands, bound it through the native prerequisite seam, and forwarded its receipt to agent-hook. The intent activation never gated a rule-violating edit, so the coordinator and its agent-docs session transport are removed.",
+      "paths": ["src/prerequisite/index.ts", "src/context/nils-context.ts", "src/policy/index.ts"],
+      "removed_files": ["src/prerequisite/index.ts", "src/context/nils-context.ts"],
+      "identifiers": ["createPrerequisiteCoordinator", "beginPrerequisite", "commitPrerequisite"],
+      "replacement": {
+        "owner": "nils-cli",
+        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14)"
+      },
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
+      "compatibility_window": "none; mutating tools are admitted by the remaining policy groups and checkout lease without an intent receipt",
+      "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple."
+    },
+    {
+      "id": "pre-edit-intent-gate",
+      "category": "prerequisite-evidence",
+      "status": "removed",
+      "summary": "The dsh.pre-edit-intent-gate policy rule blocked mutating tools until the session had prepared the project-dev intent. agent-hook no longer evaluates that group and fails closed on a policy that still binds it, so the rule is removed from the bundled policy.",
+      "paths": ["policy/dsh-runtime-kit-v1.toml"],
+      "identifiers": ["dsh.pre-edit-intent-gate"],
+      "replacement": {
+        "owner": "nils-cli",
+        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14)"
+      },
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
+      "compatibility_window": "none; agent-hook 1.33.14 and later refuse the binding",
+      "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple."
     }
   ]
 }

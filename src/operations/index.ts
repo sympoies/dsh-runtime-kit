@@ -111,7 +111,10 @@ const LIFECYCLE_COMPATIBILITY = Object.freeze({
   dsh: 'compatibility/dsh.json',
   nils_cli: 'compatibility/nils-cli.json',
 })
-const LIFECYCLE_DEPENDENCIES = Object.freeze(['agent-hook', 'agent-docs'])
+const LIFECYCLE_DEPENDENCIES = Object.freeze(['agent-hook'])
+// Packages built before the agent-docs companion was retired still declare it.
+// The engine no longer authenticates or runs it, so the declaration is inert.
+const LIFECYCLE_LEGACY_DEPENDENCIES = Object.freeze(['agent-hook', 'agent-docs'])
 const LIFECYCLE_MIGRATION_V1_TO_V2 = 'operations-state-v1-to-v2'
 const LIFECYCLE_MIGRATIONS = Object.freeze({
   [LIFECYCLE_MIGRATION_V1_TO_V2]: Object.freeze({
@@ -120,7 +123,12 @@ const LIFECYCLE_MIGRATIONS = Object.freeze({
     path: 'doctor --repair',
   }),
 })
-const LIFECYCLE_HEALTH_PROBES = Object.freeze(['dsh-version', 'agent-hook-doctor', 'agent-docs-version'])
+const LIFECYCLE_HEALTH_PROBES = Object.freeze(['dsh-version', 'agent-hook-doctor'])
+// Retired probes stay recognized so reviewed plans and earlier packages remain
+// readable; they no longer run and always report as retired.
+const LIFECYCLE_RETIRED_HEALTH_PROBES = Object.freeze(['agent-docs-version'])
+const knownHealthProbe = (probe: string) => LIFECYCLE_HEALTH_PROBES.includes(probe)
+  || LIFECYCLE_RETIRED_HEALTH_PROBES.includes(probe)
 const INSTALL_LIFECYCLE_SCRIPTS = Object.freeze([
   'preinstall', 'install', 'postinstall', 'prepare', 'preprepare', 'postprepare',
   'prepublish', 'prepublishOnly', 'prepack', 'postpack', 'dependencies',
@@ -139,8 +147,8 @@ const NILS_COMPATIBILITY = JSON.parse(readFileSync(
   packageAsset('compatibility', 'nils-cli.json'),
   'utf8',
 ))
-const AGENT_DOCS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
-const AGENT_DOCS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
+const NILS_MINIMUM_RELEASE = NILS_COMPATIBILITY.minimum_supported_release
+const NILS_VALIDATED_RELEASE = NILS_COMPATIBILITY.validated_release
 const SUPERVISOR_SETTLEMENT_MS = 7_000
 const PROCESS_GROUP_SETTLEMENT_MS = 5_000
 const PACKED_TARGETS = new WeakMap()
@@ -1414,7 +1422,8 @@ function validateLifecycleManifest(value: unknown) {
   if (stableJson(value.compatibility) !== stableJson(LIFECYCLE_COMPATIBILITY)) {
     throw unsupportedLifecycle('declared compatibility sources are not the sources this engine checks')
   }
-  if (!sameStringSet(value.dependencies, LIFECYCLE_DEPENDENCIES)) {
+  if (!sameStringSet(value.dependencies, LIFECYCLE_DEPENDENCIES)
+    && !sameStringSet(value.dependencies, LIFECYCLE_LEGACY_DEPENDENCIES)) {
     throw unsupportedLifecycle('declared native dependencies are not the companions this engine authenticates')
   }
   const migrations: string[] = []
@@ -1438,7 +1447,7 @@ function validateLifecycleManifest(value: unknown) {
     || new Set(probes).size !== probes.length) {
     throw invalidLifecycle('lifecycle health probes must be a non-empty unique list')
   }
-  if (probes.some(probe => !LIFECYCLE_HEALTH_PROBES.includes(probe))) {
+  if (probes.some(probe => !knownHealthProbe(probe))) {
     throw unsupportedLifecycle('declared health probe is not implemented by this engine')
   }
   if (value.lifecycle_scripts !== 'none') {
@@ -1556,7 +1565,7 @@ function validatePlanLifecycle(value: unknown) {
     || !Array.isArray(value.migrations)
     || value.migrations.some(id => typeof id !== 'string' || !Object.hasOwn(LIFECYCLE_MIGRATIONS, id))
     || !Array.isArray(value.health_probes) || value.health_probes.length === 0
-    || value.health_probes.some(probe => typeof probe !== 'string' || !LIFECYCLE_HEALTH_PROBES.includes(probe))) {
+    || value.health_probes.some(probe => typeof probe !== 'string' || !knownHealthProbe(probe))) {
     throw new OperationsError('invalid-operations-state', 'reviewed plan contains an invalid lifecycle binding')
   }
   return ((value) as ReturnType<typeof packageLifecycle>)
@@ -2895,10 +2904,10 @@ function activateStagedAssets(home: string, target: ReturnType<typeof validateTa
   return activation
 }
 
-export type HealthExecutables = {dsh: string, agentHook: string, agentDocs: string | undefined}
+export type HealthExecutables = {dsh: string, agentHook: string}
 /**
  * The executables the health probes run. `dsh` is the resolved host executable
- * bound by the plan; `agentHook` and `agentDocs` are the companion inputs the
+ * bound by the plan; `agentHook` is the companion input the
  * CLI received and are resolved inside the probe so an unavailable companion
  * is a typed probe failure rather than a crash.
  */
@@ -2918,9 +2927,9 @@ function activationHealth(paths: ReturnType<typeof pathsFor>, target: ReturnType
   }
   const probes = lifecycle === null ? LIFECYCLE_HEALTH_PROBES : lifecycle.health_probes
   const assetRoot = join(runtimeRoot, 'assets', target.assets.asset_set_sha256)
-  const results: Record<string, {ok: boolean, error?: string}> = {}
+  const results: Record<string, {ok: boolean, error?: string, retired?: boolean}> = {}
   for (const probe of probes) {
-    let result: {ok: boolean, error?: string}
+    let result: {ok: boolean, error?: string, retired?: boolean}
     if (probe === 'dsh-version') {
       result = dshVersion(executables.dsh, paths.home)
     } else if (probe === 'agent-hook-doctor') {
@@ -2935,12 +2944,8 @@ function activationHealth(paths: ReturnType<typeof pathsFor>, target: ReturnType
       } catch (error) {
         result = { ok: false, error: error instanceof Error ? error.message : 'agent-hook runtime is unavailable' }
       }
-    } else if (probe === 'agent-docs-version') {
-      result = agentDocsDoctor({
-        agentDocs: executables.agentDocs,
-        agentDocsHome: join(assetRoot, 'agent-docs'),
-        agentDocsStateHome: join(runtimeRoot, 'state', 'agent-docs'),
-      }, paths.home, undefined)
+    } else if (LIFECYCLE_RETIRED_HEALTH_PROBES.includes(probe)) {
+      result = { ok: true, retired: true }
     } else {
       result = { ok: false, error: 'unsupported health probe' }
     }
@@ -3397,7 +3402,7 @@ function duplicateIsTerminal(state: any, actual: ReturnType<typeof readActual>, 
     && snapshotMatches(actual, current, paths)
 }
 
-function applyMutation(operation: string, profile: string, paths: ReturnType<typeof pathsFor>, expectedPlanDigest: string, packageInput: string | undefined, dshInput: string, companions: {agentHook: string, agentDocs: string | undefined}, policyOverrides: Record<string, 'advise'> | undefined = undefined) {
+function applyMutation(operation: string, profile: string, paths: ReturnType<typeof pathsFor>, expectedPlanDigest: string, packageInput: string | undefined, dshInput: string, companions: {agentHook: string}, policyOverrides: Record<string, 'advise'> | undefined = undefined) {
   prepareOperationsTree(paths)
   return withOperationLocks(paths, () => {
     const runtimeRoot = resolveActivationRoot(process.env.DSH_RUNTIME_KIT_RUNTIME_ROOT)
@@ -3826,7 +3831,67 @@ function ownerlessRuntimeRootAdoption(paths: ReturnType<typeof pathsFor>, runtim
   }
 }
 
+/**
+ * The nils release window the companion must fall inside. A reviewed
+ * compatibility candidate narrows it to that candidate's exact release.
+ */
+function nilsSupportedRange() {
+  const feature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
+  if (feature === undefined) {
+    return {
+      minimum: NILS_MINIMUM_RELEASE,
+      validated: NILS_VALIDATED_RELEASE,
+    }
+  }
+  const candidate = NILS_COMPATIBILITY.candidate_validation
+  if (!plainRecord(candidate)
+    || candidate.feature !== feature
+    || candidate.status !== 'reviewed-source-candidate'
+    || candidate.validation !== 'exact-reviewed-source'
+    || typeof candidate.version !== 'string'
+    || stableReleaseTuple(candidate.version) === null
+    || typeof candidate.source_commit !== 'string'
+    || !/^[a-f0-9]{40}$/u.test(candidate.source_commit)
+    || typeof candidate.platform !== 'string'
+    || candidate.platform.length === 0) {
+    throw new Error('nils compatibility candidate is invalid')
+  }
+  const artifacts = candidate.artifacts
+  const agentHook = plainRecord(artifacts) ? artifacts['agent-hook'] : undefined
+  if (!plainRecord(agentHook)
+    || typeof agentHook.sha256 !== 'string'
+    || !DIGEST_PATTERN.test(agentHook.sha256)) {
+    throw new Error('nils compatibility candidate is invalid')
+  }
+  return { minimum: candidate.version, validated: candidate.version }
+}
+
+/** Enforce the supported nils release window on the agent-hook companion. */
+function agentHookRelease(agentHook: ReturnType<typeof resolveAgentHookRuntime>, home: string) {
+  try {
+    const result = spawn(agentHook.command, ['--version'], home, {
+      timeoutMs: HEALTH_COMMAND_TIMEOUT_MS,
+    })
+    if (result.status !== 0) {
+      return { ok: false, ...commandFailure(result), error: 'agent-hook version check failed' }
+    }
+    const match = /^agent-hook ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
+    const supported = nilsSupportedRange()
+    if (match === null || !supportedStableRelease(match[1], supported.minimum, supported.validated)) {
+      return {
+        ok: false,
+        error: `agent-hook version is outside the supported range ${supported.minimum} through ${supported.validated}`,
+      }
+    }
+    return { ok: true, version: match[1] }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'agent-hook version check failed' }
+  }
+}
+
 function agentHookDoctor(agentHook: ReturnType<typeof resolveAgentHookRuntime>, home: string) {
+  const release = agentHookRelease(agentHook, home)
+  if (release.ok !== true) return release
   const [agentHookBin, ...args] = agentHook.argv([
     'doctor', '--product', 'dsh', '--format', 'json',
   ])
@@ -3847,6 +3912,7 @@ function agentHookDoctor(agentHook: ReturnType<typeof resolveAgentHookRuntime>, 
     }
     return {
       ok: true,
+      version: release.version,
       product: row.product,
       registration_owner: row.registration_owner,
       dispatch_supported: row.dispatch_supported,
@@ -3875,80 +3941,6 @@ function supportedStableRelease(value: string, minimum: string, validated: strin
   return candidate !== null && lower !== null && upper !== null
     && compareReleaseTuples(candidate, lower) >= 0
     && compareReleaseTuples(candidate, upper) <= 0
-}
-
-function agentDocsSupportedRange() {
-  const feature = process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
-  if (feature === undefined) {
-    return {
-      minimum: AGENT_DOCS_MINIMUM_RELEASE,
-      validated: AGENT_DOCS_VALIDATED_RELEASE,
-    }
-  }
-  const candidate = NILS_COMPATIBILITY.candidate_validation
-  if (!plainRecord(candidate)
-    || candidate.feature !== feature
-    || candidate.status !== 'reviewed-source-candidate'
-    || candidate.validation !== 'exact-reviewed-source'
-    || typeof candidate.version !== 'string'
-    || stableReleaseTuple(candidate.version) === null
-    || typeof candidate.source_commit !== 'string'
-    || !/^[a-f0-9]{40}$/u.test(candidate.source_commit)
-    || typeof candidate.platform !== 'string'
-    || candidate.platform.length === 0) {
-    throw new Error('agent-docs compatibility candidate is invalid')
-  }
-  const artifacts = candidate.artifacts
-  if (!plainRecord(artifacts)) {
-    throw new Error('agent-docs compatibility candidate is invalid')
-  }
-  const agentDocs = artifacts['agent-docs']
-  if (!plainRecord(agentDocs)
-    || typeof agentDocs.sha256 !== 'string'
-    || !DIGEST_PATTERN.test(agentDocs.sha256)) {
-    throw new Error('agent-docs compatibility candidate is invalid')
-  }
-  return { minimum: candidate.version, validated: candidate.version }
-}
-
-function agentDocsDoctor(config: {agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}, home: string, _dshRelease: string | undefined) {
-  try {
-    const executable = resolveExecutable(config.agentDocs ?? 'agent-docs')
-    const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
-    const stateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
-    assertOwnedPath(docsHome, 'directory', true)
-    assertOwnedPath(stateHome, 'directory', true)
-    const catalog = join(docsHome, 'AGENT_DOCS.toml')
-    try {
-      assertOwnedPath(catalog, 'file', true)
-    } catch (error) {
-      throw new Error(`agent-docs catalog is invalid: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    const result = spawn(executable, ['--version'], home, {
-      timeoutMs: HEALTH_COMMAND_TIMEOUT_MS,
-    })
-    if (result.status !== 0) {
-      return { ok: false, ...commandFailure(result), error: 'agent-docs version check failed' }
-    }
-    const match = /^agent-docs ([0-9]+\.[0-9]+\.[0-9]+) \([^\r\n]+\)$/u.exec(result.stdout.trim())
-    const supported = agentDocsSupportedRange()
-    if (match === null || !supportedStableRelease(
-      match[1],
-      supported.minimum,
-      supported.validated,
-    )) {
-      return {
-        ok: false,
-        error: `agent-docs version is outside the supported range ${supported.minimum} through ${supported.validated}`,
-      }
-    }
-    return { ok: true, version: match[1], catalog, state_home: stateHome }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'agent-docs isolation is invalid',
-    }
-  }
 }
 
 function dshVersion(dshBin: string, home: string) {
@@ -4078,7 +4070,7 @@ function lifecycleDiagnostic(paths: ReturnType<typeof pathsFor>, profile: string
   }
 }
 
-function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook: ReturnType<typeof resolveAgentHookRuntime>, agentDocs: {agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string}, dshBin: string, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
+function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook: ReturnType<typeof resolveAgentHookRuntime>, dshBin: string, activationInput: {runtimeRoot?: string, data?: ReturnType<typeof readActivation>, error?: string, ownerMissing?: boolean}) {
   const actual = readActual(paths)
   const stateRead = readState(paths.state, profile)
   const state = stateRead.value
@@ -4099,11 +4091,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
       observed: publicActual(actual),
       lifecycle: lifecycleDiagnostic(paths, profile, null, 1, actual, activationInput),
       agent_hook: agentHookDoctor(agentHook, paths.home),
-      agent_docs: agentDocsDoctor(
-        agentDocs,
-        paths.home,
-        dsh.ok === true ? dsh.version : undefined,
-      ),
       activation: activationInput.error === undefined
         ? { ok: false, error: 'legacy operations state must be migrated before activation is authoritative' }
         : { ok: false, error: activationInput.error },
@@ -4174,17 +4161,11 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     ? agentHookPolicyInventory(agentHook, paths.home)
     : { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null }
   const dsh = dshVersion(dshBin, paths.home)
-  const docs = agentDocsDoctor(
-    agentDocs,
-    paths.home,
-    dsh.ok === true ? dsh.version : undefined,
-  )
   const lifecycle = lifecycleDiagnostic(paths, profile, state, stateRead.version, actual, activationInput)
   const healthy = recovery === null
     && !['drift', 'unmanaged'].includes(ownedStatus)
     && hook.ok
     && policy.ok
-    && docs.ok
     && activation.ok
     && dsh.ok
     && lifecycle.error === undefined
@@ -4204,7 +4185,6 @@ function diagnose(profile: string, paths: ReturnType<typeof pathsFor>, agentHook
     lifecycle,
     agent_hook: hook,
     policy,
-    agent_docs: docs,
     activation,
     dsh,
   }
@@ -4666,11 +4646,7 @@ export function main(argv: string[] = process.argv.slice(2)) {
       }
       let diagnostic
       try {
-        diagnostic = diagnose(profile, paths, agentHook, {
-          agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
-          agentDocsHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_HOME,
-          agentDocsStateHome: activeEnvironment.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME,
-        }, dshBin, activationInput)
+        diagnostic = diagnose(profile, paths, agentHook, dshBin, activationInput)
       } catch (error) {
         if (parsed.values.repair && apply) {
           throw reviewedRepairApplyError(error)
@@ -4696,7 +4672,6 @@ export function main(argv: string[] = process.argv.slice(2)) {
       print(envelope(applyRepair(profile, paths, planned, {
         dsh: dshBin,
         agentHook: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook',
-        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
       })), format)
       return 0
     }
@@ -4740,7 +4715,6 @@ export function main(argv: string[] = process.argv.slice(2)) {
       process.env.DSH_RUNTIME_KIT_DSH_BIN ?? 'dsh',
       {
         agentHook: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook',
-        agentDocs: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN,
       },
       policyOverrides,
     )), format)

@@ -59,7 +59,6 @@ const ARCHIVE_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,255}$/u
 const CANDIDATE_FEATURE = /^[a-z][a-z0-9-]{0,63}$/u
 const DATA_POLICY_CANDIDATE = 'typed-data-policy-protected-roots'
 const CANDIDATE_NILS_ARTIFACTS = Object.freeze([
-  'agent-docs',
   'agent-hook',
   'agent-session',
   'forge-cli',
@@ -67,7 +66,9 @@ const CANDIDATE_NILS_ARTIFACTS = Object.freeze([
   'review-specialists',
   'semantic-commit',
 ])
-const BASELINE_NILS_ARTIFACTS = CANDIDATE_NILS_ARTIFACTS
+// The rollback baseline is a package released before the agent-docs
+// retirement; it still runs that companion, so only its tuple names it.
+const BASELINE_NILS_ARTIFACTS = Object.freeze([...CANDIDATE_NILS_ARTIFACTS, 'agent-docs'])
 const OPERATIONS_SCENARIO_CAUSE_CODES = Object.freeze([
   'activation-asset-inventory-invalid',
   'activation-asset-retention-limit',
@@ -156,7 +157,6 @@ const DEPLOY_SCENARIO_CAUSE_CODES = Object.freeze([
   'engine-refused',
   'engine-unavailable',
   'expected-plan-digest-required',
-  'invalid-agent-docs-bin',
   'invalid-agent-hook-bin',
   'invalid-arguments',
   'invalid-artifact-path',
@@ -233,7 +233,6 @@ const PRODUCERS = Object.freeze({
   operations: Object.freeze(['bootstrap', 'inspect']),
   'packed-runtime': Object.freeze([
     'edit',
-    'automatic-prerequisite',
     'validate',
     'review',
     'data-policy',
@@ -267,11 +266,6 @@ const REQUIRED_SCENARIO_EVIDENCE = Object.freeze({
       'policy:short-circuit-bypass-rejected',
       'artifact:cross-session-reference-denied',
       'artifact:unsafe-export-denied-before-write',
-    ]),
-    'automatic-prerequisite': Object.freeze([
-      'prerequisite:mutating-tool-body-gated',
-      'prerequisite:code-mode-nested-dispatch-gated',
-      'prerequisite:context-ferried-through-run-code',
     ]),
     'data-policy': Object.freeze([
       'data-policy:native-pre-call-denied-before-body',
@@ -718,9 +712,6 @@ function requiredScenarioEvidence(producer: 'operations'|'packed-runtime', id: s
   if (producer === 'packed-runtime' && id === 'private-project-skill') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['private-project-skill']
   }
-  if (producer === 'packed-runtime' && id === 'automatic-prerequisite') {
-    return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['automatic-prerequisite']
-  }
   if (producer === 'packed-runtime' && id === 'data-policy') {
     return REQUIRED_SCENARIO_EVIDENCE['packed-runtime']['data-policy']
   }
@@ -746,7 +737,6 @@ const SCENARIO_ORDER = Object.freeze([
   'bootstrap',
   'inspect',
   'edit',
-  'automatic-prerequisite',
   'validate',
   'review',
   'data-policy',
@@ -1613,7 +1603,6 @@ export function buildAcceptanceSummary(input: {
       validated_release: compatibility.validated_release ?? null,
       artifacts: Object.freeze({
         'agent-hook': Object.freeze({ sha256: nils.artifacts['agent-hook'].sha256 }),
-        'agent-docs': Object.freeze({ sha256: nils.artifacts['agent-docs'].sha256 }),
         'agent-session': Object.freeze({ sha256: nils.artifacts['agent-session'].sha256 }),
         'forge-cli': Object.freeze({ sha256: nils.artifacts['forge-cli'].sha256 }),
         'git-cli': Object.freeze({ sha256: nils.artifacts['git-cli'].sha256 }),

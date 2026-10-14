@@ -95,10 +95,10 @@ test('canonical scenario pack accounts for every #D row exactly once', () => {
   assert.equal(pack.schema_version, 'dsh-runtime-kit.acceptance-scenario-pack.v2')
   assert.equal(pack.program_child, '#D')
   assert.equal(pack.profile_isolation, 'capability-family')
-  assert.equal(expected.length, 31)
+  assert.equal(expected.length, 28)
   assert.deepEqual(actual, expected)
-  assert.equal(new Set(actual).size, 31)
-  assert.equal(new Set(pack.families.map(family => family.feature_issue)).size, 11)
+  assert.equal(new Set(actual).size, 28)
+  assert.equal(new Set(pack.families.map(family => family.feature_issue)).size, 10)
   for (const family of pack.families) {
     assert.match(family.id, /^[a-z0-9][a-z0-9-]+$/u)
     assert.ok(family.success_observation.length > 0)
@@ -129,29 +129,29 @@ test('external harness attestation is append-only, portable, and phase-bound', a
   appendFileSync(output, `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-drive-result.v1',
     run_id: 'pack-success-1',
-    scenario_id: 'automatic-prerequisite.non-git',
+    scenario_id: 'runtime-health.non-git',
     folder_kind: 'non-git',
     status: 'pass',
     scenario_pack: {
       schema_version: 'dsh-runtime-kit.acceptance-scenario-pack.v2',
       phase: 'success',
-      family: 'automatic-prerequisite',
-      case_id: 'automatic-prerequisite.non-git.success',
+      family: 'runtime-health',
+      case_id: 'runtime-health.non-git.success',
       isolation_key: '0'.repeat(64),
-      ...taskMetadata('automatic-prerequisite.non-git', 'success'),
+      ...taskMetadata('runtime-health.non-git', 'success'),
     },
-    observed: fixtureObserved('success', 'automatic-prerequisite', 'automatic-prerequisite.non-git'),
+    observed: fixtureObserved('success', 'runtime-health', 'runtime-health.non-git'),
   })}\n`)
   const attestationPath = join(root, 'attestation.json')
   writeFileSync(attestationPath, `${JSON.stringify({
     schema_version: 'dsh-runtime-kit.acceptance-harness-attestation.v1',
     run_id: 'pack-success-1',
-    scenario_id: 'automatic-prerequisite.non-git',
+    scenario_id: 'runtime-health.non-git',
     phase: 'success',
     status: 'pass',
     observable_state: {
       kind: 'file-content',
-      reference: 'prerequisite.txt',
+      reference: 'health-target.txt',
       sha256: 'a'.repeat(64),
       summary: 'The independently read file contains the required marker.',
     },
@@ -167,7 +167,7 @@ test('external harness attestation is append-only, portable, and phase-bound', a
   mismatchedRows[0].folder_kind = 'non-git'
   writeFileSync(output, `${mismatchedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
   const appended = appendAcceptanceAttestation({ outputPath: output, attestationPath })
-  assert.equal(appended.case_id, 'automatic-prerequisite.non-git.success')
+  assert.equal(appended.case_id, 'runtime-health.non-git.success')
   assert.equal(appended.status, 'pass')
   assert.throws(
     () => appendAcceptanceAttestation({ outputPath: output, attestationPath }),
@@ -176,7 +176,7 @@ test('external harness attestation is append-only, portable, and phase-bound', a
   const rows = readFileSync(output, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   assert.equal(rows.length, 2)
   assert.equal(rows[1].schema_version, 'dsh-runtime-kit.acceptance-harness-attestation.v1')
-  assert.equal(rows[1].case_id, 'automatic-prerequisite.non-git.success')
+  assert.equal(rows[1].case_id, 'runtime-health.non-git.success')
 })
 
 test('deliberate-failure attestation requires diagnosis and recovery evidence', async () => {
@@ -262,7 +262,7 @@ test('deliberate-failure attestation requires diagnosis and recovery evidence', 
   assert.equal(appended.recovery.status, 'pass')
 })
 
-test('pack summary requires distinct successful result and attestation pairs for all 62 cases', async () => {
+test('pack summary requires distinct successful result and attestation pairs for all 56 cases', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-pack-summary-'))
   const output = join(root, 'results.jsonl')
   const catalog = loadAcceptanceCatalog(CATALOG)
@@ -341,9 +341,9 @@ test('pack summary requires distinct successful result and attestation pairs for
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-drive-pack-summary.v1')
   assert.equal(summary.status, 'pass')
   assert.deepEqual(summary.counts, {
-    expected_cases: 62,
-    result_pass: 62,
-    attestation_pass: 62,
+    expected_cases: 56,
+    result_pass: 56,
+    attestation_pass: 56,
     missing_results: 0,
     missing_attestations: 0,
     invalid_pairs: 0,
@@ -470,7 +470,7 @@ test('pack summary requires distinct successful result and attestation pairs for
   writeFileSync(sharedOutput, `${sharedRows.map(row => JSON.stringify(row)).join('\n')}\n`)
   const shared = summarizeAcceptanceScenarioPack({ outputPath: sharedOutput, pack })
   assert.equal(shared.status, 'fail')
-  assert.equal(shared.counts.invalid_isolation_families, 11)
+  assert.equal(shared.counts.invalid_isolation_families, 10)
 })
 
 // A fixture-induced deliberate failure leaves the runtime correctly completing,

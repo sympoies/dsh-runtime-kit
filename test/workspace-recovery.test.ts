@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { createWorkspaceRecoveryTools } from '../dist/src/workspace-recovery/index.js'
 import { createNilsWorkspaceRecoveryClient } from '../dist/src/workspace-recovery/nils-client.js'
-import { createVerifiedWorktreeTargets } from '../dist/src/workspace-recovery/verified-targets.js'
 
 const DSH_SCHEMA_KEYWORDS = new Set([
   'type', 'oneOf', 'properties', 'required', 'additionalProperties',
@@ -51,34 +47,6 @@ function execution(signal = new AbortController().signal) {
     concludeTurn() {},
   }
 }
-
-test('Bash resolves an explicit target from any session cwd and rejects symlink escapes', async () => {
-  const temporary = await mkdtemp(join(tmpdir(), 'dsh-verified-bash-'))
-  try {
-    const current = join(temporary, 'current')
-    const target = join(temporary, 'managed-worktree')
-    const other = join(temporary, 'other-checkout')
-    await Promise.all([mkdir(current), mkdir(join(target, 'src'), { recursive: true }), mkdir(other)])
-    await symlink(other, join(target, 'outside'))
-    const exec = execution()
-    exec.agent.session.header.cwd = current
-    const ctx = {
-      get(name) {
-        return name === 'workspaceLease' ? { async targets() { return [] } } : undefined
-      },
-      effect() {},
-    }
-    const targets = createVerifiedWorktreeTargets(ctx)
-    const bash = workdir => ({ ...exec, name: 'bash', arguments: { command: 'pwd', workdir } })
-
-    assert.equal(await targets.resolve(bash(target), current), target)
-    assert.equal(await targets.resolve(bash(join(target, 'src')), current), join(target, 'src'))
-    await assert.rejects(targets.resolve(bash(join(target, 'outside')), current))
-    assert.equal(await targets.resolve(bash(other), current), other)
-  } finally {
-    await rm(temporary, { recursive: true, force: true })
-  }
-})
 
 function payload(action = 'inspect') {
   return {
@@ -254,7 +222,6 @@ test('native tools publish exact schemas and render eligible handoff paths as qu
   assert.match(text, /path="\/managed\/fix-recovery"/)
   assert.match(text, /untrusted repository metadata/)
   assert.match(text, /workspace_recovery_handoff/)
-  assert.match(text, /runtime_context/)
   assert.match(text, /workdir/)
   const verified = await handoff.execute({ path: '/managed/fix-recovery' }, execution())
   assert.equal(verified.handoff.status, 'verified')
@@ -273,7 +240,7 @@ test('dirty recovery guidance names exact target context and approved idle takeo
   }, HarnessError)
   const text = inspect.output.render({}, value)[0].text
   assert.match(text, /A live idle owner can be taken over with one exact tool approval/)
-  assert.match(text, /Prepare the exact target with runtime_context\(project_path\)/)
+  assert.match(text, /Target the exact checkout with an absolute path or Bash workdir/)
   assert.match(text, /active operations and unrelated dirty checkouts remain protected/)
   assert.doesNotMatch(text, /Create a clean managed worktree.*then prepare/)
 })
@@ -319,7 +286,6 @@ test('a non-repository session anchor names the direct target-context route', as
   await assert.rejects(client.inspect(execution()), error =>
     error instanceof HarnessError
       && error.code === 'WORKSPACE_RECOVERY_CHECKOUT_UNAVAILABLE'
-      && /runtime_context.*project_path/.test(error.message)
       && /Bash workdir/.test(error.message))
   await subject.dispose()
 })

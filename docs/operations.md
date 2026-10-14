@@ -64,7 +64,7 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 ```
 
 The launcher verifies the root, authenticates the current activation manifest,
-exports the exact versioned hook and agent-docs paths, and replaces itself with
+exports the exact versioned hook and packaged docs paths, and replaces itself with
 the requested long-lived command. Do not store activation variables in
 `$DSH_HOME/.env`; DSH intentionally rejects that bootstrap path.
 
@@ -249,12 +249,10 @@ Runtime health is part of the transaction. After the new asset set has been
 staged and before the pending marker and the native DSH mutation, the declared
 probes run against the staged assets: `dsh-version` (the bound host is an exact
 reviewed release), `agent-hook-doctor` (the staged hook config and policy
-authenticate and delegate DSH registration to runtime-kit), and
-`agent-docs-version` (the staged catalog and the released `agent-docs`
-executable are in the validated range). Apply therefore requires the same
-companion pins as `doctor` (`DSH_RUNTIME_KIT_AGENT_HOOK_BIN`,
-`DSH_RUNTIME_KIT_AGENT_DOCS_BIN`); a missing, unauthenticated, or out-of-range
-companion fails the apply as `activation-health-failed` with the profile,
+authenticate, the released `agent-hook` is in the validated nils range, and it
+delegates DSH registration to runtime-kit). Apply therefore requires the same
+companion pin as `doctor` (`DSH_RUNTIME_KIT_AGENT_HOOK_BIN`); a missing,
+unauthenticated, or out-of-range companion fails the apply as `activation-health-failed` with the profile,
 lockfile, receipts, and previous activation untouched and the staged set
 collected, and never places diagnostic text in a prompt. A transaction that was
 already applied natively (an interruption after the mutation) is finalized
@@ -305,12 +303,9 @@ dsh-runtime-kit-launch --runtime-root /absolute/dsh-runtime -- \
 The management-plane doctor and the in-process native health service are
 separate gates. Doctor validates the installed runtime before launch. During
 bundle activation, native `runtime-core` health authenticates the exact
-`agent-hook` and `agent-docs` artifacts into private executable snapshots that
-all runtime-kit consumers share. Before every session-associated model stream
-enters DSH's `llm/stream` waterfall, `project-docs` audits that session's
-canonical cwd through the same authenticated snapshot. A failure blocks before
-middleware, cache, routing, the provider request, or a dependent tool body
-and never adds diagnostic text to the prompt. Optional specialist-review health may be degraded while independent runtime-kit tools
+`agent-hook` and `agent-session` artifacts into private executable snapshots
+that all runtime-kit consumers share. A failure blocks bundle activation and
+never adds diagnostic text to the prompt. Optional specialist-review health may be degraded while independent runtime-kit tools
 continue to operate. The complete state and recovery contract is in
 [Native runtime health](runtime-health.md).
 
@@ -344,8 +339,8 @@ configuration, and do not report whole-stack convergence.
 ## Doctor
 
 Doctor verifies DSH, the exact installed package tree, the active asset set,
-the DSH-only policy and agent-docs roots, receipt state, and the released nils
-executables. Missing, drifted, cross-home, unsafe, or ambiguous state fails
+the DSH-only policy and packaged docs roots, receipt state, and the released
+`agent-hook` executable within the validated nils range. Missing, drifted, cross-home, unsafe, or ambiguous state fails
 closed.
 
 Management plans bind the reported DSH version to the matching exact source
@@ -421,7 +416,6 @@ exit status.
   --dsh-home /absolute/dsh-home --runtime-root /absolute/dsh-runtime \
   --dsh-bin /absolute/bin/dsh \
   --agent-hook-bin /absolute/nils/bin/agent-hook \
-  --agent-docs-bin /absolute/nils/bin/agent-docs \
   --artifact /absolute/sympoies-dsh-runtime-kit-<version>.tgz \
   --artifact-sha256 <64 hex> \
   --receipt /absolute/receipts/setup-preview.json
@@ -541,7 +535,7 @@ Update replaces only the managed file, rollback restores the previous target's
 content or removes the file when that target shipped none, and `remove`
 deletes it only while it is still managed. See
 [DSH home instructions](architecture.md#dsh-home-instructions). Separate mutable
-directories hold hook and agent-docs state. The activation manifest binds the
+directories hold hook state and the agent-hook DSH subject state. The activation manifest binds the
 selected DSH home, package target, asset digests, generated configuration, and
 bounded tree identity. Copied asset leaves are owner-only regular files with
 link count one; hard links and package-store links are not accepted activation
@@ -556,8 +550,10 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_DOCS_HOME`
 - `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
 
-`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` and `DSH_RUNTIME_KIT_AGENT_DOCS_BIN` must pin
-the released and validated v1.33.13 executables for every supported DSH row.
+`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` must pin the released and validated v1.33.13
+executable for every supported DSH row. The `agent-docs` companion is retired;
+the runtime neither resolves nor runs it, and a package that still declares it
+is read only as an inert legacy lifecycle declaration.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

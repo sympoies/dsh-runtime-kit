@@ -59,9 +59,6 @@ const RUNTIME_HEALTH_COMMAND_CODES = new Set([
   'DSH_RUNTIME_HEALTH_PROBE_FAILED',
   'DSH_RUNTIME_HEALTH_PROBE_TIMEOUT',
   'DSH_RUNTIME_HEALTH_PROBING',
-  'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID',
-  'DSH_RUNTIME_HEALTH_PROJECT_INVALID',
-  'DSH_RUNTIME_HEALTH_PROJECT_UNAVAILABLE',
   'DSH_RUNTIME_HEALTH_PROVIDER_REMOVED',
   'DSH_RUNTIME_HEALTH_SCOPE_UNAVAILABLE',
   'DSH_RUNTIME_HEALTH_UNPROBED',
@@ -920,7 +917,7 @@ function executableIdentity(path: string | undefined) {
   } catch { return { status: 'unavailable' } }
 }
 
-function expectedNilsDigest(name: 'agent-hook' | 'agent-docs') {
+function expectedNilsDigest(name: 'agent-hook') {
   const compatibility = safeReadJson(packageAsset('compatibility', 'nils-cli.json'))
   const release = record(compatibility?.release)
   const primary = record(release?.artifacts)
@@ -935,7 +932,7 @@ function expectedNilsDigest(name: 'agent-hook' | 'agent-docs') {
   return typeof artifact?.sha256 === 'string' ? artifact.sha256 : undefined
 }
 
-function nilsIdentity(name: 'agent-hook' | 'agent-docs', path: string | undefined) {
+function nilsIdentity(name: 'agent-hook', path: string | undefined) {
   const identity = executableIdentity(path)
   const expected = expectedNilsDigest(name)
   const actual = record(identity)?.sha256
@@ -954,11 +951,10 @@ function nilsIdentity(name: 'agent-hook' | 'agent-docs', path: string | undefine
  * tells an operator the report could not be produced rather than what is wrong.
  */
 export function healthCode(doctor: JsonRecord | undefined, identities: JsonRecord) {
-  for (const name of ['agent_hook', 'agent_docs', 'activation', 'dsh', 'lifecycle']) {
+  for (const name of ['agent_hook', 'activation', 'dsh', 'lifecycle']) {
     const part = record(doctor?.[name])
     if (part?.ok === false || typeof part?.error === 'string') {
-      if ((name === 'agent_hook' || name === 'agent_docs')
-        && record(identities[name])?.matches_expected === false) {
+      if (name === 'agent_hook' && record(identities[name])?.matches_expected === false) {
         return 'DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID'
       }
       return logicalCode(part.error, `${name.replaceAll('_', '-')}-unhealthy`)
@@ -1002,7 +998,6 @@ export function collectDiagnosticBundle(input: {
     runtime_kit: executableIdentity(input.runtimeKitEntry),
     dsh: executableIdentity(input.dshBin),
     agent_hook: nilsIdentity('agent-hook', resolveExecutableMaybe(environment.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? 'agent-hook')),
-    agent_docs: nilsIdentity('agent-docs', resolveExecutableMaybe(environment.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? 'agent-docs')),
   }
   const session = latestSession(input.dshHome, input.workdir, input.sessionWindow)
   const sessionRow = record(session)!

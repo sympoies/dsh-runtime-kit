@@ -121,7 +121,6 @@ function parseCli() {
       options: {
         'dsh-source-root': { type: 'string' },
         'agent-hook-bin': { type: 'string' },
-        'agent-docs-bin': { type: 'string' },
         'agent-session-bin': { type: 'string' },
         'git-cli-bin': { type: 'string' },
         'review-specialists-bin': { type: 'string' },
@@ -156,7 +155,6 @@ function parseCli() {
   const required = [
     parsed.values['dsh-source-root'],
     parsed.values['agent-hook-bin'],
-    parsed.values['agent-docs-bin'],
     parsed.values['agent-session-bin'],
     parsed.values['git-cli-bin'],
     parsed.values['review-specialists-bin'],
@@ -218,20 +216,19 @@ function parseCli() {
   return Object.freeze({
     dshSourceRoot: resolve(required[0]),
     agentHookBin: resolve(required[1]),
-    agentDocsBin: resolve(required[2]),
-    agentSessionBin: resolve(required[3]),
-    gitCliBin: resolve(required[4]),
-    reviewSpecialistsBin: resolve(required[5]),
-    semanticCommitBin: resolve(required[6]),
-    forgeCliBin: resolve(required[7]),
+    agentSessionBin: resolve(required[2]),
+    gitCliBin: resolve(required[3]),
+    reviewSpecialistsBin: resolve(required[4]),
+    semanticCommitBin: resolve(required[5]),
+    forgeCliBin: resolve(required[6]),
     nilsSourceCommit,
     nilsArchiveName,
     nilsArchiveSha256,
-    pnpmBin: resolve(required[8]),
-    npmBin: resolve(required[9]),
-    gitBin: resolve(required[10]),
-    tarBin: resolve(required[11]),
-    systemdRunBin: resolve(required[12]),
+    pnpmBin: resolve(required[7]),
+    npmBin: resolve(required[8]),
+    gitBin: resolve(required[9]),
+    tarBin: resolve(required[10]),
+    systemdRunBin: resolve(required[11]),
     runId: parsed.values['run-id'],
     packageTarball: parsed.values['package-tarball'],
     packageSha256: parsed.values['package-sha256'],
@@ -717,7 +714,6 @@ async function main() {
       pnpm,
       npm,
       hookSource,
-      docsSource,
       sessionSource,
       gitCliSource,
       reviewSpecialistsSource,
@@ -730,7 +726,6 @@ async function main() {
       trustedExecutable(input.pnpmBin, 'pnpm'),
       trustedExecutable(input.npmBin, 'npm'),
       trustedExecutable(input.agentHookBin, 'agent-hook'),
-      trustedExecutable(input.agentDocsBin, 'agent-docs'),
       trustedExecutable(input.agentSessionBin, 'agent-session'),
       trustedExecutable(input.gitCliBin, 'git-cli'),
       trustedExecutable(input.reviewSpecialistsBin, 'review-specialists'),
@@ -877,7 +872,6 @@ async function main() {
     enterPhase('tool-snapshot')
     const [
       agentHook,
-      agentDocs,
       agentSession,
       gitCli,
       reviewSpecialists,
@@ -885,7 +879,6 @@ async function main() {
       forgeCli,
     ] = await Promise.all([
       snapshotBinary(runRoot, hookSource, 'agent-hook'),
-      snapshotBinary(runRoot, docsSource, 'agent-docs'),
       snapshotBinary(runRoot, sessionSource, 'agent-session'),
       snapshotBinary(runRoot, gitCliSource, 'git-cli'),
       snapshotBinary(runRoot, reviewSpecialistsSource, 'review-specialists'),
@@ -905,12 +898,10 @@ async function main() {
       PATH: resolve(runRoot, 'bin') + ':' + env.PATH,
       DSH_SOURCE_ROOT: dshSourceRoot,
       AGENT_HOOK_BIN: agentHook.path,
-      AGENT_DOCS_BIN: agentDocs.path,
       DSH_RUNTIME_KIT_AGENT_SESSION_BIN: agentSession.path,
     }
     enterPhase('tool-identity')
     const hookIdentity = nilsIdentity(agentHook, 'agent-hook', scenarioBaseEnv)
-    const docsIdentity = nilsIdentity(agentDocs, 'agent-docs', scenarioBaseEnv)
     const sessionIdentity = nilsIdentity(agentSession, 'agent-session', scenarioBaseEnv)
     const gitCliIdentity = nilsIdentity(gitCli, 'git-cli', scenarioBaseEnv)
     const reviewIdentity = nilsIdentity(reviewSpecialists, 'review-specialists', scenarioBaseEnv)
@@ -918,7 +909,6 @@ async function main() {
     const forgeCliIdentity = nilsIdentity(forgeCli, 'forge-cli', scenarioBaseEnv)
     const nilsIdentities = [
       hookIdentity,
-      docsIdentity,
       sessionIdentity,
       gitCliIdentity,
       reviewIdentity,
@@ -994,7 +984,6 @@ async function main() {
       },
       artifacts: {
         'agent-hook': { sha256: hookIdentity.sha256 },
-        'agent-docs': { sha256: docsIdentity.sha256 },
         'agent-session': { sha256: sessionIdentity.sha256 },
         'git-cli': { sha256: gitCliIdentity.sha256 },
         'review-specialists': { sha256: reviewIdentity.sha256 },
@@ -1018,7 +1007,6 @@ async function main() {
       [baselinePackage.path, baselinePackage.sha256],
       ...[
         agentHook,
-        agentDocs,
         agentSession,
         gitCli,
         reviewSpecialists,
@@ -1237,7 +1225,6 @@ async function main() {
     enterPhase('final-verification')
     for (const [name, original, copy] of [
       ['agent-hook', hookSource, agentHook],
-      ['agent-docs', docsSource, agentDocs],
       ['agent-session', sessionSource, agentSession],
       ['git-cli', gitCliSource, gitCli],
       ['review-specialists', reviewSpecialistsSource, reviewSpecialists],

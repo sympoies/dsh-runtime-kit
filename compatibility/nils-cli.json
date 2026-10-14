@@ -15,9 +15,6 @@
       "agent-hook": {
         "sha256": "d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb"
       },
-      "agent-docs": {
-        "sha256": "bec837fb2c227366b4cbbeeaa1dc8c96ebe9dfe709aa2a10a655416941eea431"
-      },
       "agent-session": {
         "sha256": "87827aacd6f04ad535cd46e1061f4083bcec5d8de03ef1dc8ed8fb37da314e1c"
       },
@@ -44,9 +41,6 @@
           "agent-hook": {
             "sha256": "2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f"
           },
-          "agent-docs": {
-            "sha256": "9b80b776b9935cdc70d2e69ea5bc167e59bdf92ff6ba8ec8306ee2268ba1b003"
-          },
           "agent-session": {
             "sha256": "d62e208a21089841e99de1d435fdd667ed02d7c09b737ba38477ac71d8e396c9"
           }
@@ -64,9 +58,6 @@
     "artifacts": {
       "agent-hook": {
         "sha256": "8bf6001fbacf3aeea56144876b97d269cb5ba8b32e0e7ed036a3913607a455be"
-      },
-      "agent-docs": {
-        "sha256": "cb43d2c2c972f8b380f13809a52ecc0d11d9b4dfbd035b6902bbd923a39d0e7b"
       },
       "agent-session": {
         "sha256": "209d39d21d08ea4602112c70d217c7bdd81e6800001bfe60024d9fc4532f841b"
@@ -146,41 +137,6 @@
         "sympoies/nils-cli#1541",
         "sympoies/nils-cli#1784"
       ]
-    },
-    {
-      "id": "agent-docs.session.prerequisite.dsh",
-      "binary": "agent-docs",
-      "status": "released",
-      "validation": "release-artifact-validated",
-      "contracts": [
-        "cli.agent-docs.session.prerequisite.v1",
-        "decision.prerequisite.v1",
-        "agent-docs.session.v2"
-      ],
-      "source_task": "sympoies/nils-cli#1497"
-    },
-    {
-      "id": "agent-docs.session.commit-prerequisite.dsh",
-      "binary": "agent-docs",
-      "status": "released",
-      "validation": "release-artifact-validated",
-      "contracts": [
-        "cli.agent-docs.session.commit-prerequisite.v1",
-        "agent-docs.session.v2"
-      ],
-      "source_task": "sympoies/nils-cli#1497"
-    },
-    {
-      "id": "agent-docs.session.context.dsh",
-      "binary": "agent-docs",
-      "status": "released",
-      "validation": "release-artifact-validated",
-      "contracts": [
-        "cli.agent-docs.session.context.v1",
-        "decision.context.v1",
-        "agent-docs.session.v2"
-      ],
-      "source_task": "sympoies/nils-cli task 2.2"
     },
     {
       "id": "agent-hook.finish-line.dsh",

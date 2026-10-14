@@ -64,7 +64,6 @@ export const DEPLOY_ERROR_CODES = Object.freeze([
   'engine-refused',
   'engine-unavailable',
   'expected-plan-digest-required',
-  'invalid-agent-docs-bin',
   'invalid-agent-hook-bin',
   'invalid-arguments',
   'invalid-artifact-path',
@@ -157,7 +156,7 @@ function canonical(path: string) {
 export const USAGE = [
   'Usage: .agents/scripts/deploy.sh --phase <setup|doctor|update|rollback|remove|repair>',
   '         --profile <name> --dsh-home <absolute> --runtime-root <absolute-owner-only>',
-  '         --dsh-bin <absolute> [--agent-hook-bin <absolute>] [--agent-docs-bin <absolute>]',
+  '         --dsh-bin <absolute> [--agent-hook-bin <absolute>]',
   '         [--artifact <absolute .tgz> --artifact-sha256 <64 hex>]',
   '         [--apply --expected-plan-digest <64 hex>] [--receipt <absolute path>]',
   '         [--scope canary|primary] [--authorized-by <identity>] [--stage-root <absolute>]',
@@ -198,7 +197,6 @@ export type DeployScope = {
     runtimeRoot: string,
     dshBin: string,
     agentHookBin: string | undefined,
-    agentDocsBin: string | undefined,
     artifactPath: string | undefined,
     artifactSha256: string | undefined,
     apply: boolean,
@@ -223,7 +221,6 @@ export function parseScope(argv: string[], env: NodeJS.ProcessEnv): {help: true}
         'runtime-root': { type: 'string' },
         'dsh-bin': { type: 'string' },
         'agent-hook-bin': { type: 'string' },
-        'agent-docs-bin': { type: 'string' },
         artifact: { type: 'string' },
         'artifact-sha256': { type: 'string' },
         apply: { type: 'boolean', default: false },
@@ -264,9 +261,6 @@ export function parseScope(argv: string[], env: NodeJS.ProcessEnv): {help: true}
   if (!isAbsolute(values['dsh-bin'])) throw usage('invalid-dsh-bin', '--dsh-bin must be an absolute path')
   if (values['agent-hook-bin'] !== undefined && !isAbsolute(values['agent-hook-bin'])) {
     throw usage('invalid-agent-hook-bin', '--agent-hook-bin must be an absolute path')
-  }
-  if (values['agent-docs-bin'] !== undefined && !isAbsolute(values['agent-docs-bin'])) {
-    throw usage('invalid-agent-docs-bin', '--agent-docs-bin must be an absolute path')
   }
   if (!SCOPES.includes(values.scope)) throw usage('invalid-scope', `--scope must be one of ${SCOPES.join(', ')}`)
   const authorizedBy = values['authorized-by']?.trim()
@@ -345,7 +339,6 @@ export function parseScope(argv: string[], env: NodeJS.ProcessEnv): {help: true}
       runtimeRoot,
       dshBin: resolve(values['dsh-bin']),
       agentHookBin: values['agent-hook-bin'] === undefined ? undefined : resolve(values['agent-hook-bin']),
-      agentDocsBin: values['agent-docs-bin'] === undefined ? undefined : resolve(values['agent-docs-bin']),
       artifactPath: values.artifact === undefined ? undefined : resolve(values.artifact),
       artifactSha256: values['artifact-sha256'],
       apply: values.apply,
@@ -554,7 +547,6 @@ function runEngine(scope: DeployScope, packageRoot: string | undefined, engine: 
   env.DSH_HOME = scope.dshHome
   env.DSH_RUNTIME_KIT_DSH_BIN = scope.dshBin
   if (scope.agentHookBin !== undefined) env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN = scope.agentHookBin
-  if (scope.agentDocsBin !== undefined) env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN = scope.agentDocsBin
   const result = spawnSync(io.execPath, args, {
     cwd: engine.root,
     encoding: 'utf8',
@@ -702,7 +694,6 @@ export async function main(argv: string[] = process.argv.slice(2), io: {env?: No
       runtime_root: scope.runtimeRoot,
       dsh_bin: scope.dshBin,
       ...(scope.agentHookBin === undefined ? {} : { agent_hook_bin: scope.agentHookBin }),
-      ...(scope.agentDocsBin === undefined ? {} : { agent_docs_bin: scope.agentDocsBin }),
       ...(staged === undefined ? {} : { stage_root: scope.stageRoot }),
       artifact: staged?.artifact ?? null,
       ...(typeof data.plan_digest === 'string' ? { plan_digest: data.plan_digest } : {}),

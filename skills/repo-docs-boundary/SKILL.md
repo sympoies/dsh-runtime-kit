@@ -14,10 +14,10 @@ Prereqs:
 - Resolve the target git repository from the current working directory or an
   explicit path.
 - Before writing, inspect the active repository policy and documentation
-  entrypoints: `AGENTS.md`, `AGENT_DOCS.toml`, `README.md`,
+  entrypoints: `AGENTS.md`, `VALIDATION.toml`, `README.md`,
   `DEVELOPMENT.md`, `CONTRIBUTING.md`, `docs/`, package manifests, CI config,
   and project-owned validation scripts when present.
-- Activate and follow the repository's required docs intent before editing.
+- Follow the repository's declared edit and validation rules before editing.
   A closer repository rule overrides this general placement guide.
 
 Inputs:
@@ -57,7 +57,7 @@ repo-docs-boundary new-repo [repo-path]
 ```
 
 Default ambiguous or broad requests to `audit`. Treat a narrow explicit edit
-as `apply`. Resolve the repository root, run its declared preflight, and inspect
+as `apply`. Resolve the repository root, read its declared policy, and inspect
 the relevant definitions and call sites before changing documentation.
 
 ## Source Priority
@@ -70,10 +70,9 @@ Use the strongest available source for each claim:
 3. Existing documentation after checking it against live project files.
 4. Inference, labeled when it affects placement or wording.
 
-For external, unstable, or version-sensitive facts, activate the repository's
-`task-tools` intent and run `agent-docs preflight --intent task-tools`, then
-follow the [external facts policy](../../docs/policies/external-facts.md) before
-asserting them.
+For external, unstable, or version-sensitive facts, follow the
+[external facts policy](../../docs/policies/external-facts.md) before asserting
+them.
 
 ## Placement Rules
 

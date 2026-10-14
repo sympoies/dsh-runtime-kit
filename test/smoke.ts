@@ -25,7 +25,6 @@ import { manageDshPatch } from '../dist/src/compat/dsh-patch.js'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
-const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 const pnpmBin = process.env.PNPM_BIN ?? 'pnpm'
 
 // pnpm derives its store directory from HOME unless PNPM_HOME is set. This
@@ -62,11 +61,6 @@ assert.notEqual(
   process.env.AGENT_HOOK_BIN,
   undefined,
   'set AGENT_HOOK_BIN to the nils-cli agent-hook binary under test',
-)
-assert.notEqual(
-  process.env.AGENT_DOCS_BIN,
-  undefined,
-  'set AGENT_DOCS_BIN to the nils-cli agent-docs binary under test',
 )
 
 const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
@@ -350,7 +344,6 @@ const environment = {
   // subprocess-environment isolation contract is covered by focused transport
   // tests; an unauthenticated shell wrapper must not become the live binary.
   DSH_RUNTIME_KIT_AGENT_HOOK_BIN: agentHookBin,
-  DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
   ...nilsCandidateFeature === undefined
     ? {}
     : { DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: nilsCandidateFeature },
@@ -729,13 +722,11 @@ try {
     'dist/src/operations/supervise-command.js',
     'src/compat/dsh-rc7.ts',
     'src/context/index.ts',
-    'src/context/nils-context.ts',
     'src/finish-line/index.ts',
     'src/finish-line/nils-client.ts',
     'src/authoritative-acceptance/index.ts',
     'src/policy/index.ts',
     'src/policy/nils-transport.ts',
-    'src/prerequisite/index.ts',
     'src/review/index.ts',
     'src/workspace-lease/index.ts',
     'agents/reviewers/reviewer-api-contract.md',
@@ -1181,11 +1172,7 @@ class SmokeAdapter extends LlmAdapter {
           && message.content?.some(block => block.type === 'text'
             && block.text.includes('skill-backed workflow'))))
     }
-    this.healthContextVisibility.push(
-      serializedMessages.includes("Session health could not verify this repository's agent-docs catalog")
-      || serializedMessages.includes('Session health found an agent-docs catalog problem')
-      || /DSH_RUNTIME_HEALTH_[A-Z0-9_]+/u.test(serializedMessages),
-    )
+    this.healthContextVisibility.push(/DSH_RUNTIME_HEALTH_[A-Z0-9_]+/u.test(serializedMessages))
     this.healthAuditSentinelVisibility.push(
       serializedMessages.includes('private-health-audit-sentinel'),
     )
@@ -1265,11 +1252,12 @@ class SmokeAdapter extends LlmAdapter {
         ? [
             toolCallResponse('run_code', {
               code: 'return await tools.runtime_kit_plus_one({ value: 41 })',
-              description: 'Run nested prerequisite smoke',
+              description: 'Run nested Code Mode smoke',
             }, 'run-code-call'),
             textResponse('code mode smoke done'),
           ]
       : [
+      toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call'),
       toolCallResponse('write', {
           file_path: process.env.DSH_RUNTIME_KIT_SMOKE_PROJECT
             + (process.env.DSH_RUNTIME_KIT_SMOKE_RESUME === '1'
@@ -1279,7 +1267,6 @@ class SmokeAdapter extends LlmAdapter {
                 : '/finish-line-edit.txt'),
           content: 'committed edit',
       }, 'finish-line-edit'),
-      toolCallResponse('runtime_context', { intent: 'project-dev' }, 'context-call'),
       toolCallResponse('bash', {
         command: ${JSON.stringify(validationCommand)},
         description: 'fail the declared validation once',
@@ -1623,11 +1610,6 @@ export function apply(ctx) {
           return { token: process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL }
         },
       })
-      const plusOneDefinition = ctx.tools.get('runtime_kit_plus_one')
-      if (plusOneDefinition === undefined) {
-        throw new Error('runtime_kit_plus_one definition missing before prerequisite registration')
-      }
-      ctx.dshRuntimeKit.prerequisites.require(plusOneDefinition, 'project-dev-context')
       const acceptanceEnabled = process.env.DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE === '1'
         && process.env.DSH_RUNTIME_KIT_SMOKE_SESSION_ID === 'dsh-runtime-kit-smoke-primary'
       const dataPolicyEnabled = process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY === '1'
@@ -1864,7 +1846,6 @@ export function apply(ctx) {
         acceptanceVerdict,
         finishLineDegraded: ctx.dshRuntimeKit.finishLineDegraded,
         pendingPolicyMarkers: ctx.dshRuntimeKit.pendingPolicyMarkers,
-        pendingPrerequisites: ctx.dshRuntimeKit.pendingPrerequisites,
         pendingCorrelations: ctx.dshRuntimeKit.pendingCorrelations,
         providers: ctx.llm.listProviders().map(provider => provider.id),
         tools: controllerTools,
@@ -1880,8 +1861,7 @@ export function apply(ctx) {
       if (process.env.DSH_RUNTIME_KIT_SMOKE_REVIEWER === '1') {
         if (reviewResult?.value?.status !== 'completed') process.exitCode = 1
         if (reviewerMutationResult?.isError !== true) process.exitCode = 1
-      } else if (expectation !== 'health-block'
-        && expectation !== 'health-recovery'
+      } else if (expectation !== 'health-recovery'
         && !dataPolicyEnabled
         && process.env.DSH_RUNTIME_KIT_SMOKE_ARTIFACTS !== '1'
         && process.env.DSH_RUNTIME_KIT_SMOKE_CODE_MODE !== '1'
@@ -1932,13 +1912,6 @@ export function apply(ctx) {
           || dataPolicyAudits.some(audit => !Array.isArray(audit.matched_rule_ids))
           || JSON.stringify({ dataPolicyAudits, errors, sessionEvents: sessionEvents(agent.session) })
             .includes(process.env.DSH_RUNTIME_KIT_SMOKE_DATA_POLICY_SENTINEL))) {
-        process.exitCode = 1
-      }
-      if (expectation === 'health-block'
-        && (adapter.sessionCalls !== 0
-          || modelMiddlewareCalls !== 0
-          || result !== undefined
-          || !errors.some(error => error.code === 'DSH_RUNTIME_HEALTH_PROJECT_INVALID'))) {
         process.exitCode = 1
       }
       if (adapter.healthContextVisibility.some(Boolean)) process.exitCode = 1
@@ -2015,14 +1988,14 @@ exec "$@"
       name: ${JSON.stringify(driverPath)}
 `)
 
-  const invalidAgentDocs = join(temporaryRoot, 'unauthenticated-agent-docs')
-  writeFileSync(invalidAgentDocs, '#!/bin/sh\nexit 99\n', { mode: 0o700 })
+  const invalidAgentHook = join(temporaryRoot, 'unauthenticated-agent-hook')
+  writeFileSync(invalidAgentHook, '#!/bin/sh\nexit 99\n', { mode: 0o700 })
   const blockedHealthBoot = spawnDsh(
     ['--profile', profile, '--patch', overlayPath],
     {
       env: {
         ...environment,
-        DSH_RUNTIME_KIT_AGENT_DOCS_BIN: invalidAgentDocs,
+        DSH_RUNTIME_KIT_AGENT_HOOK_BIN: invalidAgentHook,
         DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-health-blocked',
       },
     },
@@ -2040,75 +2013,31 @@ exec "$@"
     'blocked runtime health must fail before a model-driven smoke receipt exists',
   )
 
-  const projectHealthSessionId = 'dsh-runtime-kit-smoke-project-health'
-  const projectHealthSentinel = join(
-    projectWorkspace,
-    '.health-audit-sentinel-skills',
-  )
-  mkdirSync(
-    join(projectHealthSentinel, 'private-health-audit-sentinel'),
-    { recursive: true },
-  )
-  writeFileSync(
-    join(projectWorkspace, 'AGENT_DOCS.toml'),
-    `${projectDocsConfig}\n[skills]\nenforce_name_prefix = true\nallowed_prefixes = ["project"]\ndir = ".health-audit-sentinel-skills"\n`,
-  )
-  const projectHealthBlockedBoot = runDsh(
-    ['--profile', profile, '--patch', overlayPath],
-    {
-      env: {
-        ...environment,
-        DSH_RUNTIME_KIT_SMOKE_EXPECT: 'health-block',
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: projectHealthSessionId,
-      },
-    },
-  )
-  const projectHealthBlockedLine = projectHealthBlockedBoot.stdout
-    .split('\n')
-    .find(candidate => candidate.startsWith(marker))
-  assert.ok(
-    projectHealthBlockedLine,
-    `missing project-health ${marker} output:\n${projectHealthBlockedBoot.stdout}\n${projectHealthBlockedBoot.stderr}`,
-  )
-  const projectHealthBlockedReceipt = JSON.parse(
-    projectHealthBlockedLine.slice(marker.length),
-  )
-  assert.equal(projectHealthBlockedReceipt.adapterSessionCalls, 0)
-  assert.equal(projectHealthBlockedReceipt.adapterParentCalls, 0)
-  assert.equal(projectHealthBlockedReceipt.modelMiddlewareCalls, 0)
-  assert.deepEqual(
-    projectHealthBlockedReceipt.healthDenialCodes,
-    ['DSH_RUNTIME_HEALTH_PROJECT_INVALID'],
-  )
-
-  rmSync(projectHealthSentinel, { recursive: true, force: true })
-  writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
-  const projectHealthRecoveredBoot = runDsh(
+  const healthRecoveredBoot = runDsh(
     ['--profile', profile, '--patch', overlayPath],
     {
       env: {
         ...environment,
         DSH_RUNTIME_KIT_SMOKE_EXPECT: 'health-recovery',
-        DSH_RUNTIME_KIT_SMOKE_RESUME: '1',
-        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: projectHealthSessionId,
+        DSH_RUNTIME_KIT_SMOKE_SESSION_ID: 'dsh-runtime-kit-smoke-health-recovered',
       },
     },
   )
-  const projectHealthRecoveredLine = projectHealthRecoveredBoot.stdout
+  const healthRecoveredLine = healthRecoveredBoot.stdout
     .split('\n')
     .find(candidate => candidate.startsWith(marker))
   assert.ok(
-    projectHealthRecoveredLine,
-    `missing project-health recovery ${marker} output:\n${projectHealthRecoveredBoot.stdout}\n${projectHealthRecoveredBoot.stderr}`,
+    healthRecoveredLine,
+    `missing health recovery ${marker} output:\n${healthRecoveredBoot.stdout}\n${healthRecoveredBoot.stderr}`,
   )
-  const projectHealthRecoveredReceipt = JSON.parse(
-    projectHealthRecoveredLine.slice(marker.length),
+  const healthRecoveredReceipt = JSON.parse(
+    healthRecoveredLine.slice(marker.length),
   )
-  assert.equal(projectHealthRecoveredReceipt.result.value, 42)
-  assert.ok(projectHealthRecoveredReceipt.adapterSessionCalls > 0)
-  assert.ok(projectHealthRecoveredReceipt.healthContextVisibility.every(value => value === false))
+  assert.equal(healthRecoveredReceipt.result.value, 42)
+  assert.ok(healthRecoveredReceipt.adapterSessionCalls > 0)
+  assert.ok(healthRecoveredReceipt.healthContextVisibility.every(value => value === false))
   assert.ok(
-    projectHealthRecoveredReceipt.healthAuditSentinelVisibility.every(value => value === false),
+    healthRecoveredReceipt.healthAuditSentinelVisibility.every(value => value === false),
   )
 
   if (healthOnly) {
@@ -2128,22 +2057,16 @@ exec "$@"
       dshProfile: profile,
       tool: 'runtime_kit_plus_one',
       input: 41,
-      output: projectHealthRecoveredReceipt.result.value,
+      output: healthRecoveredReceipt.result.value,
       unauthenticatedCompanionBlockedBeforeModel:
         blockedHealthOutput.includes('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
         && !blockedHealthOutput.includes(marker),
-      projectHealthBlockedBeforeModel:
-        projectHealthBlockedReceipt.adapterSessionCalls === 0
-        && projectHealthBlockedReceipt.adapterParentCalls === 0
-        && projectHealthBlockedReceipt.modelMiddlewareCalls === 0,
-      sameSessionRecovery:
-        projectHealthRecoveredReceipt.result.value === 42
-        && projectHealthRecoveredReceipt.adapterSessionCalls > 0,
-      healthContextAbsent: [
-        projectHealthBlockedReceipt,
-        projectHealthRecoveredReceipt,
-      ].every(candidate => candidate.healthContextVisibility.every(value => value === false)
-        && candidate.healthAuditSentinelVisibility.every(value => value === false)),
+      authenticatedCompanionRecovered:
+        healthRecoveredReceipt.result.value === 42
+        && healthRecoveredReceipt.adapterSessionCalls > 0,
+      healthContextAbsent:
+        healthRecoveredReceipt.healthContextVisibility.every(value => value === false)
+        && healthRecoveredReceipt.healthAuditSentinelVisibility.every(value => value === false),
       patchState: finalDshCheckout.after,
     }
     assert.deepEqual(healthReceipt, {
@@ -2155,8 +2078,7 @@ exec "$@"
       input: 41,
       output: 42,
       unauthenticatedCompanionBlockedBeforeModel: true,
-      projectHealthBlockedBeforeModel: true,
-      sameSessionRecovery: true,
+      authenticatedCompanionRecovered: true,
       healthContextAbsent: true,
       patchState: 'patched',
     })
@@ -2202,7 +2124,7 @@ exec "$@"
   assert.equal(contextResult.isError, false)
   assert.equal(contextResult.value.schema_version, 'dsh-runtime-context.result.v1')
   assert.equal(contextResult.value.intent, 'project-dev')
-  assert.equal(contextResult.value.status, 'already-current')
+  assert.equal(contextResult.value.status, 'prepared')
   assert.equal(contextResult.value.document_count, 1)
   assert.match(contextResult.value.documents[0].content, /# DSH project development/)
   assert.equal(receipt.contextVisibility[0], false)
@@ -2334,7 +2256,6 @@ exec "$@"
   assert.equal(receipt.activeAcceptanceOperations, 0)
   assert.equal(receipt.finishLineDegraded, false)
   assert.equal(receipt.pendingPolicyMarkers, 0)
-  assert.equal(receipt.pendingPrerequisites, 0)
   assert.equal(receipt.pendingCorrelations, 0)
   assert.equal(receipt.exactCorrelation, true)
   if (authoritativeAcceptance) {
@@ -2780,9 +2701,8 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
       : { logs: [], result: 42 },
   )
   assert.equal(codeModeReceipt.plusOneExecutions, 1)
-  assert.equal(codeModeReceipt.contextVisibility[0], false)
-  assert.ok(codeModeReceipt.contextVisibility.length >= 2)
-  assert.ok(codeModeReceipt.contextVisibility.slice(1).every(Boolean))
+  // No automatic project-dev context accompanies a mutating call any more.
+  assert.ok(codeModeReceipt.contextVisibility.every(value => value === false))
   assert.ok(codeModeReceipt.healthContextVisibility.every(value => value === false))
   // The retained releases emit tool/ptc-dispatch*; accept the earlier event
   // name while the smoke driver still parses historical session fixtures.
@@ -2790,7 +2710,6 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     || codeModeReceipt.sessionEvents.includes('tool/ptc-dispatch-start'))
   assert.ok(codeModeReceipt.sessionEvents.includes('tool/code-dispatch')
     || codeModeReceipt.sessionEvents.includes('tool/ptc-dispatch'))
-  assert.equal(codeModeReceipt.pendingPrerequisites, 0)
   assert.equal(codeModeReceipt.pendingPolicyMarkers, 0)
   assert.equal(codeModeReceipt.pendingCorrelations, 0)
 
@@ -3005,8 +2924,8 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
     assert.equal(existsSync(join(dataPolicyProtectedRoot, 'shell.txt')), false)
   }
 
-  // Non-git folder: the session anchor is context only. Skills, the project
-  // context prerequisite, a read, a write, and runtime_kit_plus_one all run
+  // Non-git folder: the session anchor is context only. Skills, the
+  // runtime_context guidance, a read, a write, and runtime_kit_plus_one all run
   // with zero denials, and the governed commit answers no-repository instead
   // of failing typed or being denied by the default-delivery seam.
   resetCheckoutLease()
@@ -3063,7 +2982,6 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(blockedReceipt.plusOneExecutions, 0)
   assert.equal(blockedReceipt.activePolicyChecks, 0)
   assert.equal(blockedReceipt.pendingPolicyMarkers, 0)
-  assert.equal(blockedReceipt.pendingPrerequisites, 0)
   assert.equal(blockedReceipt.pendingCorrelations, 0)
   assert.equal(blockedReceipt.exactCorrelation, true)
 
@@ -3093,7 +3011,6 @@ process.stdout.write(JSON.stringify({ app, personal, nativeUrl, nativeAuthor }))
   assert.equal(shortCircuitedReceipt.plusOneExecutions, 0)
   assert.equal(shortCircuitedReceipt.activePolicyChecks, 0)
   assert.equal(shortCircuitedReceipt.pendingPolicyMarkers, 0)
-  assert.equal(shortCircuitedReceipt.pendingPrerequisites, 0)
   assert.equal(shortCircuitedReceipt.pendingCorrelations, 0)
 
   assertProviderSentinel(codexHome, 'codex')
@@ -3270,16 +3187,6 @@ export function apply(ctx) {
           'subagent:lease-ready-before-first-prompt',
         ],
       },
-      {
-        id: 'automatic-prerequisite',
-        status: 'passed',
-        producer: 'packed-runtime',
-        evidence: [
-          'prerequisite:mutating-tool-body-gated',
-          'prerequisite:code-mode-nested-dispatch-gated',
-          'prerequisite:context-ferried-through-run-code',
-        ],
-      },
       { id: 'finish-line', status: 'passed', producer: 'packed-runtime', evidence: ['finish-line:result-driven-stop-satisfied'] },
       { id: 'failure-paths', status: 'passed', producer: 'packed-runtime', evidence: [
         'policy:blocked-before-body',
@@ -3291,8 +3198,6 @@ export function apply(ctx) {
           'governed-commit:foreign-session-denied-before-body',
         ] : []),
         'runtime-health:unauthenticated-companion-blocked-before-model',
-        'runtime-health:project-audit-blocked-before-middleware-and-adapter',
-        'runtime-health:same-session-project-recovery',
         'runtime-health:authenticated-companion-recovered-on-remount',
       ] },
     ],
@@ -3308,17 +3213,16 @@ export function apply(ctx) {
       resumableReceipt,
       resumedReceipt,
       codeModeReceipt,
-      projectHealthBlockedReceipt,
-      projectHealthRecoveredReceipt,
+      healthRecoveredReceipt,
       blockedReceipt,
       shortCircuitedReceipt,
     ].every(candidate => candidate.healthContextVisibility.every(value => value === false))
       && !blockedHealthOutput.includes(marker),
     nativeHealthBlockedBeforeModelVerified:
-      projectHealthBlockedReceipt.adapterSessionCalls === 0
-      && projectHealthBlockedReceipt.modelMiddlewareCalls === 0,
+      blockedHealthOutput.includes('DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID')
+      && !blockedHealthOutput.includes(marker),
     nativeHealthRecoveryVerified:
-      projectHealthRecoveredReceipt.result.value === 42
+      healthRecoveredReceipt.result.value === 42
       && result.value === 42,
     nativeFullHostAuthorityVerified: fullHostAuthority,
     nativeFullHostCapabilities: fullHostAuthority ? nativeFullHostCapabilities : [],
@@ -3347,7 +3251,6 @@ export function apply(ctx) {
     governedStaleHeadRejected: deliveryRehearsal,
     governedForeignSessionBlocked: deliveryRehearsal,
     nativeReviewSpecialistsVerified: true,
-    codeModeNestedPrerequisiteVerified: true,
     reviewerMutationBlockedBeforeBody: true,
     externalProviderMutationAttempted: false,
     nilsCompatibilityStatus: nilsCompatibility.status,

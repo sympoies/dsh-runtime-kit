@@ -574,7 +574,6 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
     ctx.effect(() => installRuntimeHealthAdmission(ctx, health, {
       sessionRequirements: [
         { capability: 'runtime-core', scope: 'runtime' },
-        { capability: 'project-docs', scope: 'project' },
       ],
       toolRequirements: {
         review_specialists: [
@@ -606,13 +605,11 @@ export async function apply(ctx: PatchedContext, config: RuntimeKitConfig = {}) 
       TOOL_ABORTED: dshRuntime.TOOL_ABORTED,
     })
     const { createNilsWorkspaceRecoveryClient } = await import('./src/workspace-recovery/nils-client.js')
-    const { createVerifiedWorktreeTargets } = await import('./src/workspace-recovery/verified-targets.js')
     const recoveryClient = createNilsWorkspaceRecoveryClient(ctx, {
       ...runtimeConfig,
       HarnessError: dshRuntime.HarnessError,
     })
-    const verifiedWorktreeTargets = createVerifiedWorktreeTargets(ctx)
-    applyPolicy(ctx, { ...runtimeConfig, verifiedWorktreeTargets }, dshRuntime, childPlugins)
+    applyPolicy(ctx, runtimeConfig, dshRuntime, childPlugins)
     const { applyArtifacts } = await import('./src/artifacts/index.js')
     const { LocalArtifactProvider } = await import('./src/artifacts/local-provider.js')
     await applyArtifacts(ctx, {

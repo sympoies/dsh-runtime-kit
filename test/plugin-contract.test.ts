@@ -25,8 +25,6 @@ import {
   snapshotChildPluginStatus,
 } from '../dist/src/runtime-status.js'
 import { selectManagedSessionEnvironment } from '../dist/src/policy/nils-transport.js'
-import { createPrerequisiteCoordinator } from '../dist/src/prerequisite/index.js'
-import { createVerifiedWorktreeTargets, WorktreeTargetError } from '../dist/src/workspace-recovery/verified-targets.js'
 import {
   registerScenarioCanaryTurnStoppingProgress,
   SCENARIO_CANARY_PROGRESS,
@@ -472,9 +470,6 @@ function harness({
   settleOnTerminate = true,
   quiesceOnSettle = true,
   waitNeverSettles = false,
-  prerequisiteReason = 'pending',
-  prerequisiteCommitFailsAfter = Number.POSITIVE_INFINITY,
-  prerequisiteBeginMalformed = false,
   resolutionPending = false,
   workspaceLease,
   config = {},
@@ -499,8 +494,6 @@ function harness({
   let signal
   let service
   let acceptanceService
-  let prerequisiteCommitted = false
-  let prerequisiteCommitCount = 0
   const prerequisiteBindings = new WeakMap()
   const callerSignals = new WeakMap()
   const registeredTools = new Map()
@@ -710,10 +703,6 @@ function harness({
             async waitForExit() { return true },
           }
         }
-        const contextPrepare = spec.argv.includes('context')
-        const prerequisiteBegin = spec.argv.includes('prerequisite')
-          && !spec.argv.includes('commit-prerequisite')
-        const prerequisiteCommit = spec.argv.includes('commit-prerequisite')
         const implicitLifecycle = typeof envelope !== 'function'
           && dispatchIngress !== undefined
           && dispatchIngress.event !== 'tools/pre-execute'
@@ -743,70 +732,7 @@ function harness({
         spawnCount += 1
         activeHandles += 1
         peakActiveHandles = Math.max(peakActiveHandles, activeHandles)
-        const currentPrerequisiteReason = prerequisiteCommitted
-          ? 'already-current'
-          : prerequisiteReason
-        if (prerequisiteCommit) {
-          prerequisiteCommitCount += 1
-          if (prerequisiteCommitCount <= prerequisiteCommitFailsAfter) {
-            prerequisiteCommitted = true
-          }
-        }
-        const selectedEnvelope = contextPrepare
-          ? {
-              schema_version: 'cli.agent-docs.session.context.v1', ok: true,
-              data: { decision: {
-                schema_version: 'decision.context.v1',
-                request_id: spec.argv[spec.argv.indexOf('--request-id') + 1],
-                product: 'dsh', intent: 'project-dev', phase: 'edit', reason: 'prepared', verified: true,
-                documents: [], document_count: 0, total_bytes: 0,
-              } },
-            }
-          : prerequisiteBegin
-          ? prerequisiteBeginMalformed
-            ? {
-                schema_version: 'cli.agent-docs.session.prerequisite.v1',
-                ok: true,
-                data: { decision: {} },
-              }
-            : {
-              schema_version: 'cli.agent-docs.session.prerequisite.v1',
-              ok: true,
-              data: {
-                decision: {
-                  schema_version: 'decision.prerequisite.v1',
-                  request_id: spec.argv[spec.argv.indexOf('--request-id') + 1],
-                  product: 'dsh',
-                  intent: 'project-dev',
-                  phase: 'edit',
-                  reason: currentPrerequisiteReason,
-                  verified: true,
-                  documents: [{ source: 'project', scope: 'project', content: 'bounded policy\n' }],
-                  document_count: 1,
-                  total_bytes: 15,
-                  receipt: `{"receipt":"${currentPrerequisiteReason}"}`,
-                }
-              },
-            }
-          : prerequisiteCommit
-            ? prerequisiteCommitCount > prerequisiteCommitFailsAfter
-              ? {
-                  schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
-                  ok: false,
-                  error: { code: 'prerequisite-stale' },
-                }
-              : {
-                  schema_version: 'cli.agent-docs.session.commit-prerequisite.v1',
-                  ok: true,
-                  data: {
-                  product: 'dsh',
-                  intent: 'project-dev',
-                  phase: 'edit',
-                  reason: prerequisiteCommitCount === 1 ? 'prepared' : 'already-current',
-                  verified: true,
-                  },
-                }
-            : typeof envelope === 'function' ? envelope(spec) : envelope
+        const selectedEnvelope = typeof envelope === 'function' ? envelope(spec) : envelope
         const response = structuredClone(selectedEnvelope)
         if (response.data?.request_id === '__CURRENT_REQUEST__') {
           const digest = createHash('sha256').update(spec.stdio.stdin.data).digest('hex')
@@ -1619,757 +1545,13 @@ test('the policy bundle exposes one explicit selective runtime-context tool', ()
     properties: {
       intent: { type: 'string', enum: ['project-dev', 'devlog', 'external-facts', 'web-testing', 'memory', 'upstream-contribution', 'peer-coordination'] },
       phase: { type: 'string', enum: ['edit', 'delivery', 'review'], description: 'Policy phase of project-dev; defaults to edit. Other intents take no phase.' },
-      project_path: { type: 'string', description: 'Absolute target repository or managed worktree path; defaults to the session cwd.' },
     },
     required: ['intent'],
     additionalProperties: false,
   })
 })
 
-test('a declared project-dev prerequisite begins before policy and commits only at execute', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const first = await subject.invoke({ value: 41 }, { callId: 'prerequisite-call-1' })
-  assert.equal(first.result.kind, 'allow')
-  assert.equal(first.delegated, true)
-  const begin = subject.spawnSpecs.find(spec => spec.argv.includes('prerequisite'))
-  const commit = subject.spawnSpecs.find(spec => spec.argv.includes('commit-prerequisite'))
-  const policies = subject.spawnSpecs.filter(spec => spec.argv.includes('dispatch')
-    && JSON.parse(spec.stdio.stdin.data).event === 'tools/pre-execute')
-  const policy = policies.at(-1)
-  assert.ok(begin)
-  assert.ok(commit)
-  assert.ok(policy)
-  assert.equal(policies.length, 1)
-  const ingress = JSON.parse(policy.stdio.stdin.data)
-  assert.equal(ingress.schema_version, 'agent-hook.dsh-ingress.v5')
-  assert.equal(ingress.call_id, 'prerequisite-call-1')
-  assert.equal(typeof ingress.subject.agent_id, 'string')
-  assert.equal(typeof ingress.subject.workspace_generation, 'string')
-  assert.equal(typeof ingress.tool.definition_id, 'string')
-  assert.equal(ingress.tool.prerequisite_receipt, '{"receipt":"pending"}')
-  assert.deepEqual(first.postDecision.additionalContexts?.[0]?.content, [
-    { type: 'text', text: 'bounded policy\n' },
-  ])
-})
-
-test('a body-bound prerequisite preserves an explicit policy denial', async () => {
-  const subject = harness({
-    envelope: decision('block', {
-      reasons: [{
-        rule_id: 'dsh.plus-one',
-        code: 'plus-one-blocked',
-        disposition: 'block',
-      }],
-    }),
-  })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const denied = await subject.invoke({ value: 41 }, { callId: 'prerequisite-policy-block' })
-
-  assert.equal(denied.executionResult.isError, true)
-  assert.match(denied.executionResult.error.message, /agent-hook:plus-one-blocked/)
-  assert.equal(subject.service.plusOneExecutions, 0)
-  assert.equal(subject.service.pendingPrerequisites, 0)
-})
-
-test('all five default mutator names bind the exact visible definition automatically', async () => {
-  for (const name of [
-    'bash',
-    'write',
-    'edit',
-    'str_replace_editor',
-    'runtime_kit_governed_commit',
-  ]) {
-    const definition = Object.freeze({ name })
-    const session = { header: { id: `session-${name}`, cwd: '/tmp' } }
-    const agent = { id: `session-${name}`, session }
-    const exec = {
-      token: Symbol(name),
-      callId: `call-${name}`,
-      rootCallId: `call-${name}`,
-      name,
-      arguments: Object.freeze({}),
-      agent,
-      signal: new AbortController().signal,
-    }
-    let bound
-    let begins = 0
-    let commits = 0
-    let policyChecks = 0
-    const coordinator = createPrerequisiteCoordinator({
-      logger: { warn() {} },
-      tools: {
-        get(candidateName, candidateAgent) {
-          return candidateName === name && candidateAgent === agent ? definition : undefined
-        },
-        bindPrerequisite(candidateExec, candidateDefinition, prerequisite) {
-          assert.equal(candidateExec, exec)
-          assert.equal(candidateDefinition, definition)
-          bound = prerequisite
-        },
-      },
-    }, {
-      async beginPrerequisite() {
-        begins += 1
-        return {
-          reason: 'pending',
-          receipt: 'receipt-stable',
-          documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
-        }
-      },
-      async commitPrerequisite() {
-        commits += 1
-        return { reason: 'prepared' }
-      },
-    }, createUserMessage, async () => {
-      policyChecks += 1
-      return undefined
-    })
-
-    await coordinator.begin(exec, {
-      sessionId: session.header.id,
-      cwd: session.header.cwd,
-      turn: 1,
-      step: 1,
-      callId: exec.callId,
-      name,
-    })
-    assert.ok(bound, name)
-    const firstContexts = await bound.beforeBody(exec, 'dispatch')
-    const secondContexts = await bound.beforeBody(exec, 'body')
-    await bound.commit(exec, { isError: false, value: null, content: [] })
-    coordinator.result(exec)
-
-    assert.equal(begins, 3, name)
-    assert.equal(policyChecks, 1, name)
-    assert.equal(commits, 1, name)
-    assert.equal(firstContexts.length, 1, name)
-    assert.equal(secondContexts.length, 1, name)
-    assert.equal(coordinator.pending, 0, name)
-    coordinator.dispose()
-  }
-})
-
-test('last-mile prerequisite rejects a verified worktree target that drifted after begin', async () => {
-  const definition = Object.freeze({ name: 'write' })
-  const session = { header: { id: 'session-target-drift', cwd: '/tmp' } }
-  const agent = { id: session.header.id, session }
-  const exec = {
-    token: Symbol('target-drift'),
-    callId: 'target-drift',
-    rootCallId: 'target-drift',
-    name: 'write',
-    arguments: Object.freeze({ file_path: '/tmp/worktree-a/file', content: 'value' }),
-    agent,
-    signal: new AbortController().signal,
-  }
-  let bound
-  let target = '/tmp/worktree-a'
-  let policyChecks = 0
-  const coordinator = createPrerequisiteCoordinator({
-    tools: {
-      get(name, candidateAgent) {
-        return name === 'write' && candidateAgent === agent ? definition : undefined
-      },
-      bindPrerequisite(_exec, _definition, prerequisite) {
-        bound = prerequisite
-      },
-    },
-  }, {
-    async beginPrerequisite() {
-      return { reason: 'pending', receipt: 'receipt-stable', documents: [] }
-    },
-    async commitPrerequisite() {
-      assert.fail('a drifted target must not commit')
-    },
-  }, createUserMessage, async () => {
-    policyChecks += 1
-    return undefined
-  }, async () => target)
-
-  await coordinator.begin(exec, {
-    sessionId: session.header.id,
-    cwd: session.header.cwd,
-    turn: 1,
-    step: 1,
-    callId: exec.callId,
-    name: exec.name,
-  })
-  assert.ok(bound)
-  target = '/tmp/worktree-b'
-  await assert.rejects(
-    bound.beforeBody(exec, 'dispatch'),
-    /prerequisite-binding-invalid:project-path-changed/,
-  )
-  assert.equal(policyChecks, 0)
-  assert.equal(coordinator.pending, 0)
-  coordinator.dispose()
-})
-
-test('dispatch refuses a changed prerequisite receipt before an execute wrapper can mutate', async () => {
-  const definition = Object.freeze({ name: 'write' })
-  const session = { header: { id: 'session-dispatch-policy', cwd: '/tmp' } }
-  const agent = { id: session.header.id, session }
-  const exec = {
-    token: Symbol('dispatch-policy'),
-    callId: 'dispatch-policy',
-    rootCallId: 'dispatch-policy',
-    name: 'write',
-    arguments: Object.freeze({ file_path: '/tmp/value', content: 'mutated' }),
-    agent,
-    signal: new AbortController().signal,
-  }
-  let bound
-  let begins = 0
-  let policyChecks = 0
-  const coordinator = createPrerequisiteCoordinator({
-    tools: {
-      get(candidateName, candidateAgent) {
-        return candidateName === definition.name && candidateAgent === agent
-          ? definition
-          : undefined
-      },
-      bindPrerequisite(candidateExec, candidateDefinition, prerequisite) {
-        assert.equal(candidateExec, exec)
-        assert.equal(candidateDefinition, definition)
-        bound = prerequisite
-      },
-    },
-  }, {
-    async beginPrerequisite() {
-      begins += 1
-      return {
-        reason: 'pending',
-        receipt: `receipt-${begins}`,
-        documents: [{ source: 'project', scope: 'project', content: 'bounded policy' }],
-      }
-    },
-    async commitPrerequisite() {
-      assert.fail('a dispatch-denied prerequisite must not commit')
-    },
-  }, createUserMessage, async () => {
-    policyChecks += 1
-    return undefined
-  })
-
-  await coordinator.begin(exec, {
-    sessionId: session.header.id,
-    cwd: session.header.cwd,
-    turn: 1,
-    step: 1,
-    callId: exec.callId,
-    name: exec.name,
-  })
-  assert.ok(bound)
-  await assert.rejects(
-    bound.beforeBody(exec, 'dispatch'),
-    /prerequisite-binding-invalid:receipt-changed/,
-  )
-  assert.equal(begins, 2)
-  assert.equal(policyChecks, 0)
-  assert.equal(coordinator.pending, 0)
-  coordinator.dispose()
-})
-
-test('a restored wrapper signal cannot impersonate caller cancellation at completion', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  const wrapper = new AbortController()
-
-  const result = await subject.invoke({ value: 41 }, {
-    callId: 'wrapper-signal-completion',
-    beforeCommit(exec) {
-      wrapper.abort()
-      exec.signal = wrapper.signal
-    },
-  })
-
-  assert.equal(result.executionResult.isError, false)
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    1,
-  )
-})
-
-test('approval wait is followed by one fresh last-mile policy decision', async () => {
-  let preToolChecks = 0
-  const subject = harness({
-    envelope: (spec) => {
-      if (!spec.argv.includes('dispatch')) return decision()
-      const ingress = JSON.parse(spec.stdio.stdin.data)
-      if (ingress.event !== 'tools/pre-execute') return decision()
-      preToolChecks += 1
-      return decision('block')
-    },
-  })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const result = await subject.invoke({ value: 41 }, {
-    callId: 'approval-policy-drift',
-    downstreamDecision: { kind: 'ask', reason: 'confirm execution' },
-    askOutcome: 'approved',
-  })
-
-  assert.equal(result.result.kind, 'allow')
-  assert.equal(result.delegated, true)
-  assert.equal(result.executionResult.isError, true)
-  assert.equal(subject.service.plusOneExecutions, 0)
-  assert.equal(preToolChecks, 1)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-})
-
-test('rejected prerequisite calls never commit or retain model context', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const denied = await subject.invoke(
-    { value: 41 },
-    { downstreamDecision: { kind: 'deny', reason: 'later-policy-denial' } },
-  )
-  assert.equal(denied.delegated, false)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-  assert.equal(denied.postDecision.additionalContexts, undefined)
-  assert.equal(subject.service.pendingPrerequisites, 0)
-})
-
-test('an unchanged prerequisite scope revalidates every execution without a second context copy', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const first = await subject.invoke({ value: 41 }, { callId: 'reuse-1' })
-  const second = await subject.invoke({ value: 42 }, { callId: 'reuse-2' })
-  assert.equal(first.delegated, true)
-  assert.equal(second.delegated, true)
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    2,
-  )
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
-      && !spec.argv.includes('commit-prerequisite')).length,
-    6,
-  )
-  assert.equal(first.postDecision.additionalContexts?.length, 1)
-  assert.equal(second.postDecision.additionalContexts, undefined)
-})
-
-test('concurrent pending prerequisites retain one verified context per mutation', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  await subject.invoke({ intent: 'project-dev' }, {
-    callId: 'concurrent-prerequisite-warmup',
-    name: 'runtime_context',
-  })
-
-  const [first, second] = await Promise.all([
-    subject.invoke({ value: 41 }, {
-      callId: 'concurrent-prerequisite-1',
-      skipLifecycle: true,
-    }),
-    subject.invoke({ value: 42 }, {
-      callId: 'concurrent-prerequisite-2',
-      skipLifecycle: true,
-    }),
-  ])
-
-  assert.equal(first.delegated, true)
-  assert.equal(second.delegated, true)
-  assert.equal(
-    [first, second].filter(result => result.postDecision.additionalContexts !== undefined).length,
-    2,
-  )
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    2,
-  )
-})
-
-test('an uncertain prerequisite commit cannot turn a completed mutation into a retryable error', async () => {
-  const subject = harness({ prerequisiteCommitFailsAfter: 0 })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const completed = await subject.invoke({ value: 41 }, {
-    callId: 'uncertain-cache-completion',
-    downstreamDecision: { kind: 'ask', reason: 'confirm execution' },
-    askOutcome: 'approved',
-  })
-
-  assert.equal(completed.delegated, true)
-  assert.equal(subject.service.plusOneExecutions, 1)
-  assert.deepEqual(completed.executionResult, {
-    isError: false,
-    value: 42,
-    content: [],
-  })
-  assert.deepEqual(completed.postDecision.additionalContexts?.[0]?.content, [
-    { type: 'text', text: 'bounded policy\n' },
-  ])
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    2,
-  )
-  assert.deepEqual(subject.warnings, [
-    'prerequisite cache completion remained uncertain after bounded reconciliation',
-  ])
-  assert.equal(subject.service.pendingPrerequisites, 0)
-})
-
-test('a successful mutating execute wrapper linearizes after one prerequisite check', async () => {
-  const subject = harness()
-  const controller = new AbortController()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  subject.ctx.on('tools/execute', async () => {
-    controller.abort('caller stopped after wrapper mutation')
-    return { isError: false, value: 42, content: [] }
-  })
-
-  const result = await subject.invoke({ value: 41 }, {
-    callId: 'mutating-wrapper-late-abort',
-    signal: controller.signal,
-  })
-
-  assert.equal(result.executionResult.isError, false)
-  assert.equal(result.executionResult.value, 42)
-  assert.equal(subject.service.plusOneExecutions, 0)
-  assert.deepEqual(result.postDecision.additionalContexts?.[0]?.content, [
-    { type: 'text', text: 'bounded policy\n' },
-  ])
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
-      && !spec.argv.includes('commit-prerequisite')).length,
-    2,
-  )
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-})
-
-test('malformed prerequisite decisions deny before policy and tool execution', async () => {
-  const subject = harness({ prerequisiteBeginMalformed: true })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const denied = await subject.invoke({ value: 41 }, { callId: 'malformed-prerequisite' })
-  assert.equal(denied.result.kind, 'deny')
-  assert.equal(denied.delegated, false)
-  assert.match(denied.result.reason, /prerequisite-unavailable/)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('dispatch')),
-    false,
-  )
-})
-
-test('nested and code-mode-shaped calls use the same execution-bound prerequisite path', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  const parent = await subject.prepare({ value: 40 }, {
-    callId: 'code-mode-parent',
-    rootCallId: 'code-mode-root',
-  })
-
-  const nested = await subject.invoke({ value: 41 }, {
-    callId: 'nested-call',
-    rootCallId: 'code-mode-root',
-    parent: parent.exec.token,
-  })
-
-  assert.equal(nested.delegated, true)
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
-      && !spec.argv.includes('commit-prerequisite')).length,
-    4,
-  )
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    1,
-  )
-  const ingress = subject.spawnSpecs
-    .filter(spec => spec.argv.includes('dispatch'))
-    .map(spec => JSON.parse(spec.stdio.stdin.data))
-    .find(candidate => candidate.event === 'tools/pre-execute')
-  assert.equal(ingress.schema_version, 'agent-hook.dsh-ingress.v5')
-  assert.equal(ingress.call_id, 'nested-call')
-  const nestedDataRequest = subject.dataPolicySpecs
-    .map(spec => JSON.parse(spec.stdio.stdin.data))
-    .find(candidate => candidate.phase === 'pre-call'
-      && candidate.identity.call_id === 'nested-call')
-  assert.equal(nestedDataRequest.identity.parent_call_id, 'code-mode-parent')
-  assert.equal(nestedDataRequest.identity.root_call_id, 'code-mode-root')
-})
-
-test('prerequisite registration disposers cannot remove a newer declaration', async () => {
-  const subject = harness()
-  const custom = Object.freeze({
-    name: 'custom_mutator',
-    async execute() { return { value: 42 } },
-  })
-  subject.ctx.tools.register(custom)
-  const disposeFirst = subject.service.prerequisites.require(
-    custom,
-    'project-dev-context',
-  )
-  const disposeSecond = subject.service.prerequisites.require(
-    custom,
-    'project-dev-context',
-  )
-
-  disposeFirst()
-  const retained = await subject.invoke({}, {
-    callId: 'custom-retained',
-    name: 'custom_mutator',
-  })
-  disposeSecond()
-  const removed = await subject.invoke({}, {
-    callId: 'custom-removed',
-    name: 'custom_mutator',
-  })
-
-  assert.equal(retained.delegated, true)
-  assert.equal(removed.delegated, true)
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
-      && !spec.argv.includes('commit-prerequisite')).length,
-    3,
-  )
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    1,
-  )
-})
-
-test('removing a prerequisite after admission tombstones the selected definition', async () => {
-  const subject = harness()
-  let bodies = 0
-  const custom = Object.freeze({
-    name: 'late_dispose_mutator',
-    async execute() {
-      bodies += 1
-      return { value: 42 }
-    },
-  })
-  subject.ctx.tools.register(custom)
-  const dispose = subject.service.prerequisites.require(
-    custom,
-    'project-dev-context',
-  )
-
-  const invalidated = await subject.invoke({}, {
-    name: 'late_dispose_mutator',
-    beforeExecute() { dispose() },
-  })
-
-  assert.equal(invalidated.executionResult.isError, true)
-  assert.equal(bodies, 0)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-
-  const fresh = await subject.invoke({}, {
-    name: 'late_dispose_mutator',
-    callId: 'late-dispose-fresh',
-  })
-  assert.equal(fresh.executionResult.isError, false)
-  assert.equal(bodies, 1)
-})
-
-test('execute wrappers cannot hide requirement or workspace identity drift around the body', async () => {
-  for (const drift of ['requirement', 'cwd']) {
-    const subject = harness()
-    let bodies = 0
-    const custom = Object.freeze({
-      name: `wrapper_drift_${drift}`,
-      async execute() { bodies += 1; return { value: 42 } },
-    })
-    subject.ctx.tools.register(custom)
-    const dispose = subject.service.prerequisites.require(custom, 'project-dev-context')
-    subject.ctx.on('tools/execute', async (exec, next) => {
-      const originalCwd = exec.agent.session.header.cwd
-      if (drift === 'requirement') dispose()
-      else exec.agent.session.header.cwd = '/tmp/substituted-workspace'
-      try {
-        return await next()
-      } finally {
-        exec.agent.session.header.cwd = originalCwd
-      }
-    })
-
-    const result = await subject.invoke({}, {
-      name: custom.name,
-      callId: `wrapper-drift-${drift}`,
-    })
-
-    assert.equal(result.executionResult.isError, true, drift)
-    assert.equal(bodies, 0, drift)
-    assert.equal(
-      subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-      false,
-      drift,
-    )
-  }
-})
-
-test('a replaced visible definition cannot reuse or commit an execution prerequisite', async () => {
-  const subject = harness()
-  const original = subject.tool('runtime_kit_plus_one')
-  subject.service.prerequisites.require(
-    original,
-    'project-dev-context',
-  )
-
-  const substituted = await subject.invoke({ value: 41 }, {
-    beforeExecute() {
-      subject.ctx.tools.register({
-        ...subject.tool('runtime_kit_plus_one'),
-        execute: async () => ({ value: 99 }),
-      })
-      assert.notEqual(
-        subject.ctx.tools.get('runtime_kit_plus_one', subject.agent),
-        original,
-      )
-    },
-  })
-  assert.equal(substituted.delegated, false)
-  assert.equal(subject.service.plusOneExecutions, 0)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-  assert.equal(substituted.executionResult.isError, true)
-  assert.equal(subject.service.pendingPrerequisites, 0)
-
-  const recovered = await subject.invoke({ value: 42 }, { callId: 'replacement-retry' })
-  assert.equal(recovered.delegated, true)
-  const ingressDefinitions = subject.spawnSpecs
-    .filter(spec => spec.argv.includes('dispatch'))
-    .map(spec => JSON.parse(spec.stdio.stdin.data))
-    .filter(candidate => candidate.event === 'tools/pre-execute')
-    .map(candidate => candidate.tool.definition_id)
-  assert.equal(ingressDefinitions.length, 1)
-})
-
-test('approval rejection cancellation and downstream exceptions abandon pending prerequisites', async () => {
-  for (const run of [
-    subject => subject.invoke(
-      { value: 41 },
-      { downstreamDecision: { kind: 'ask' }, askOutcome: 'denied' },
-    ),
-    subject => {
-      const controller = new AbortController()
-      return subject.invoke({ value: 41 }, {
-        signal: controller.signal,
-        beforeExecute() { controller.abort() },
-      })
-    },
-  ]) {
-    const subject = harness()
-    subject.service.prerequisites.require(
-      subject.tool('runtime_kit_plus_one'),
-      'project-dev-context',
-    )
-    const result = await run(subject)
-    assert.equal(result.delegated, false)
-    assert.equal(
-      subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-      false,
-    )
-    assert.equal(subject.service.pendingPrerequisites, 0)
-  }
-
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  await assert.rejects(
-    subject.prepare({ value: 41 }, {
-      downstreamDecision() { throw new Error('later waterfall failed') },
-    }),
-    /later waterfall failed/,
-  )
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-  assert.equal(subject.service.pendingPrerequisites, 0)
-})
-
-test('downstream execute veto and cancellation do not commit a prerequisite', async () => {
-  for (const installDownstream of [
-    subject => subject.ctx.on('tools/execute', async () => ({
-      isError: true,
-      error: { message: 'downstream-veto' },
-      content: [],
-    })),
-    (subject, controller) => subject.ctx.on('tools/execute', async (_exec, next) => {
-      controller.abort()
-      return next()
-    }),
-  ]) {
-    const controller = new AbortController()
-    const subject = harness()
-    subject.service.prerequisites.require(
-      subject.tool('runtime_kit_plus_one'),
-      'project-dev-context',
-    )
-    installDownstream(subject, controller)
-
-    const result = await subject.invoke(
-      { value: 41 },
-      { signal: controller.signal },
-    )
-
-    assert.equal(result.delegated, false)
-    assert.equal(
-      subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-      false,
-    )
-    assert.equal(subject.service.pendingPrerequisites, 0)
-  }
-})
-
-test('prerequisite and pre and post policy contexts are all retained', async () => {
+test('pre and post policy contexts are both retained', async () => {
   const subject = harness({
     envelope: (spec) => {
       const ingress = spec.argv.includes('dispatch')
@@ -2382,84 +1564,12 @@ test('prerequisite and pre and post policy contexts are all retained', async () 
           : decision('allow', { event: 'UserPromptSubmit' })
     },
   })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
 
   const result = await subject.invoke({ value: 41 })
 
   assert.deepEqual(
     result.postDecision.additionalContexts.map(context => context.content[0].text),
-    ['pre policy context', 'post policy context', 'bounded policy\n'],
-  )
-})
-
-test('a post-policy failure leaves the prerequisite uncommitted', async () => {
-  const subject = harness({
-    throwOnSpawn: (spec) => {
-      if (!spec.argv.includes('dispatch')) return false
-      return JSON.parse(spec.stdio.stdin.data).event === 'tools/post-execute'
-    },
-  })
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-
-  const result = await subject.invoke({ value: 41 })
-
-  assert.equal(result.executionResult.isError, false)
-  assert.equal(result.postDecision.kind, 'block')
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-  assert.equal(result.postDecision.additionalContexts, undefined)
-})
-
-test('cancellation from the selected tool body leaves the prerequisite uncommitted', async () => {
-  const controller = new AbortController()
-  const subject = harness()
-  const canceling = Object.freeze({
-    name: 'canceling_mutator',
-    async execute() {
-      controller.abort()
-      return { value: 42 }
-    },
-  })
-  subject.ctx.tools.register(canceling)
-  subject.service.prerequisites.require(canceling, 'project-dev-context')
-
-  const result = await subject.invoke({}, {
-    name: 'canceling_mutator',
-    signal: controller.signal,
-  })
-
-  assert.equal(result.executionResult.isError, true)
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
-  )
-  assert.equal(result.postDecision.additionalContexts, undefined)
-})
-
-test('a downstream post-execute failure leaves the prerequisite uncommitted', async () => {
-  const subject = harness()
-  subject.service.prerequisites.require(
-    subject.tool('runtime_kit_plus_one'),
-    'project-dev-context',
-  )
-  const distinctive = new Error('post-execute rejected the result')
-  subject.ctx.on('tools/post-execute', async () => { throw distinctive })
-
-  await assert.rejects(
-    subject.invoke({ value: 41 }),
-    error => error === distinctive,
-  )
-  assert.equal(
-    subject.spawnSpecs.some(spec => spec.argv.includes('commit-prerequisite')),
-    false,
+    ['pre policy context', 'post policy context'],
   )
 })
 
@@ -2474,13 +1584,12 @@ test('downstream post-execute exceptions preserve their exact failure', async ()
   )
 })
 
-test('policy ingress v2 binds the exact DSH session position and agent-docs roots', async () => {
+test('policy ingress v2 binds the exact DSH session position and runtime state root', async () => {
   const subject = harness({
     config: {
       agentHookConfig: '/runtime/agent-hook/config.toml',
       agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
       agentHookStateDir: '/runtime/agent-hook/state',
-      agentDocsHome: '/runtime/docs',
       agentDocsStateHome: '/runtime/state',
     },
   })
@@ -2497,7 +1606,6 @@ test('policy ingress v2 binds the exact DSH session position and agent-docs root
       session_id: 'session-1',
       turn: 1,
       step: 1,
-      agent_docs_home: '/runtime/docs',
       agent_docs_state_home: '/runtime/state',
     },
     tool: {
@@ -2553,7 +1661,6 @@ test('post-tool ingress v4 sends only the terminal fact and blocks before downst
   const seen = []
   const subject = harness({
     config: {
-      agentDocsHome: '/runtime/docs',
       agentDocsStateHome: '/runtime/state',
     },
     envelope: (spec) => {
@@ -2592,7 +1699,6 @@ test('post-tool ingress v4 sends only the terminal fact and blocks before downst
       session_id: 'session-1',
       turn: 1,
       step: 1,
-      agent_docs_home: '/runtime/docs',
       agent_docs_state_home: '/runtime/state',
     },
     tool: {
@@ -2658,7 +1764,6 @@ test('the first accepted pre-step receives one bounded native lifecycle context'
       turn: 1,
       step: 1,
       session_start_source: 'startup',
-      agent_docs_home: '/runtime/docs',
       agent_docs_state_home: '/runtime/state',
     },
   })
@@ -3028,18 +2133,7 @@ test('an exact declared validation reaches finish-line before opaque shell polic
   assert.equal(invocation.executionResult.isError, false)
   assert.equal(invocation.executionResult.value.exitCode, 0)
   assert.equal(preExecutePolicies, 0)
-  assert.deepEqual(invocation.postDecision.additionalContexts?.[0]?.content, [
-    { type: 'text', text: 'bounded policy\n' },
-  ])
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('prerequisite')
-      && !spec.argv.includes('commit-prerequisite')).length,
-    2,
-  )
-  assert.equal(
-    subject.spawnSpecs.filter(spec => spec.argv.includes('commit-prerequisite')).length,
-    1,
-  )
+  assert.equal(subject.spawnSpecs.some(spec => spec.argv.includes('prerequisite')), false)
   assert.deepEqual(finishLineActions, ['open', 'run', 'run'])
   assert.equal(subject.service.activeFinishLineReservations, 0)
 })
@@ -4320,8 +3414,8 @@ test('policy denials report only blocking reasons from the normalized decision',
           disposition: 'allow',
         },
         {
-          rule_id: 'dsh.pre-edit-intent-gate',
-          code: 'pre-edit-intent-gate',
+          rule_id: 'dsh.checkout-lease-guard',
+          code: 'checkout-lease-guard',
           disposition: 'block',
         },
       ],
@@ -4331,151 +3425,9 @@ test('policy denials report only blocking reasons from the normalized decision',
   const { result, delegated } = await subject.invoke({ value: 41 })
 
   assert.equal(result.kind, 'deny')
-  assert.match(result.reason, /agent-hook:pre-edit-intent-gate/)
+  assert.match(result.reason, /agent-hook:checkout-lease-guard/)
   assert.doesNotMatch(result.reason, /owner-unclaimed|semantic-conflict/)
   assert.equal(delegated, false)
-})
-
-test('a DSH pre-edit denial gives the same-session DSH intent recovery entry', async () => {
-  const subject = harness({
-    envelope: decision('block', {
-      context: 'The edit needs a current agent-docs intent. Run `agent-docs session prepare --intent <intent>` for the relevant intent, then retry the edit.',
-      reasons: [{
-        rule_id: 'dsh.pre-edit-intent-gate',
-        code: 'pre-edit-intent-gate',
-        disposition: 'block',
-      }],
-    }),
-  })
-
-  const { result, delegated } = await subject.invoke({ value: 41 })
-  assert.equal(result.kind, 'deny')
-  assert.equal(delegated, false)
-  assert.match(result.reason, /runtime_context\(\{ intent: "project-dev", project_path:/)
-  assert.match(result.reason, /session started elsewhere/i)
-  assert.match(result.reason, /retry/i)
-  assert.match(result.reason, /project_path/)
-  assert.match(result.reason, /workdir/)
-  assert.doesNotMatch(result.reason, /agent-docs session prepare/)
-})
-
-test('target resolution denials name the corrective action for their own cause', async () => {
-  for (const [code, expected, unrelated] of [
-    ['worktree-target-ambiguous', /Split it into one target per tool call/, /Set Bash workdir/],
-    ['worktree-target-lease-unavailable', /Restore the lease provider/, /Set Bash workdir/],
-    ['worktree-target-workdir-mismatch', /Set Bash workdir to the exact canonical target directory/, /Restore the lease provider/],
-  ]) {
-    const subject = harness({
-      config: {
-        verifiedWorktreeTargets: {
-          async resolve() { throw new WorktreeTargetError(code) },
-        },
-      },
-    })
-    subject.service.prerequisites.require(
-      subject.tool('runtime_kit_plus_one'),
-      'project-dev-context',
-    )
-    const { result } = await subject.invoke({ value: 41 })
-    assert.equal(result.kind, 'deny')
-    assert.match(result.reason, expected)
-    assert.doesNotMatch(result.reason, unrelated)
-  }
-})
-
-test('the plugin prepares and edits another checkout from the session anchor', async t => {
-  const temporary = await mkdtemp(join(tmpdir(), 'dsh-plugin-worktree-'))
-  t.after(() => rm(temporary, { recursive: true, force: true }))
-  const current = join(temporary, 'current')
-  const target = join(temporary, 'managed-worktree')
-  await Promise.all([mkdir(current), mkdir(target)])
-  let verifiedTargets
-  const subject = harness({
-    workspace: current,
-    workspaceLease: {
-      async targets(exec) {
-        return exec.name === 'bash' ? []
-          : [exec.arguments?.file_path?.startsWith(target) ? target : current]
-      },
-    },
-    config: {
-      verifiedWorktreeTargets: {
-        resolve(exec, cwd) { return verifiedTargets.resolve(exec, cwd) },
-      },
-    },
-    envelope(spec) {
-      const finishLineIndex = spec.argv.indexOf('finish-line')
-      if (finishLineIndex >= 0) {
-        const action = spec.argv[finishLineIndex + 1]
-        const request = JSON.parse(spec.stdio.stdin.data)
-        if (action === 'run' && request.execution !== undefined) {
-          return {
-            schema_version: 'cli.agent-hook.finish-line-run.v1', ok: true,
-            data: {
-              schema_version: 'agent-hook.finish-line.run-result.v1',
-              status: 'ordinary-applied', operation_id: request.operation_id,
-              generation: 1, correlation_id: 'correlation:opaque',
-              execution: {
-                exit_code: 0, signal: null, timed_out: false, aborted: false,
-                timeout_ms: request.timeout_ms,
-                stdout: { text: `${target}\n`, truncated: false },
-                stderr: { text: '', truncated: false },
-                sandbox: { mode: 'danger-full-access', denied: false },
-              },
-            },
-          }
-        }
-        return action === 'open'
-          ? {
-              schema_version: 'cli.agent-hook.finish-line-open.v1', ok: true,
-              data: { schema_version: 'agent-hook.finish-line.open-result.v1', status: 'opened', runner_capability: 'runner:opaque', correlation_id: 'correlation:opaque' },
-            }
-          : action === 'begin'
-            ? {
-                schema_version: 'cli.agent-hook.finish-line-begin.v1', ok: true,
-                data: { schema_version: 'agent-hook.finish-line.begin-result.v1', status: 'registered', operation_id: request.operation_id, generation: 1, correlation_id: 'correlation:opaque' },
-              }
-            : action === 'release'
-              ? {
-                  schema_version: 'cli.agent-hook.finish-line-release.v1', ok: true,
-                  data: { schema_version: 'agent-hook.finish-line.release-result.v1', status: 'released', correlation_id: 'correlation:opaque' },
-                }
-          : {
-              schema_version: 'cli.agent-hook.finish-line-run.v1', ok: true,
-              data: { schema_version: 'agent-hook.finish-line.run-result.v1', status: 'ordinary-ready', operation_id: request.operation_id, correlation_id: 'correlation:opaque' },
-            }
-      }
-      const request = JSON.parse(spec.stdio.stdin.data)
-      return decision('allow')
-    },
-  })
-  verifiedTargets = createVerifiedWorktreeTargets(subject.ctx)
-  subject.ctx.tools.register({ name: 'write', async execute() { return { ok: true } } })
-  subject.ctx.tools.register({ name: 'bash', async execute() { return { ok: true } } })
-  const context = await subject.invoke({ intent: 'project-dev', project_path: target }, { name: 'runtime_context', callId: 'prepare-target' })
-  assert.equal(context.result.kind, 'allow')
-
-  const retried = await subject.invoke({ file_path: `${target}/file.txt`, content: 'two' }, { name: 'write', callId: 'retry-target' })
-  assert.equal(retried.result.kind, 'allow')
-  assert.equal(retried.executionResult.isError, false)
-  const bash = await subject.invoke({ command: 'pwd', description: 'Inspect the verified checkout', workdir: target }, { name: 'bash', callId: 'bash-target' })
-  assert.equal(bash.result.kind, 'allow', JSON.stringify(bash.result))
-  assert.equal(bash.executionResult.isError, false, JSON.stringify(bash.executionResult))
-  const docs = subject.spawnSpecs.filter(spec => spec.argv.includes('context')
-    || spec.argv.includes('prerequisite') || spec.argv.includes('commit-prerequisite'))
-  for (const spec of docs.filter(spec => spec.argv.includes('context') || spec.argv.includes('prerequisite'))) {
-    if (spec.argv.includes('context') || spec.argv.includes('prerequisite') && spec.argv.includes('retry-target')) {
-      assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
-    }
-  }
-  const retryDocs = docs.filter(spec => spec.argv.includes('prerequisite')
-    && spec.argv[spec.argv.indexOf('--call-id') + 1] === 'retry-target')
-  assert.ok(retryDocs.length >= 2)
-  for (const spec of retryDocs) assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
-  const bashDocs = docs.filter(spec => spec.argv.includes('prerequisite')
-    && spec.argv[spec.argv.indexOf('--call-id') + 1] === 'bash-target')
-  assert.ok(bashDocs.length >= 2)
-  for (const spec of bashDocs) assert.equal(spec.argv[spec.argv.indexOf('--project-path') + 1], target)
 })
 
 test('a multi-code denial without nils context lists every code and adds no retired fan-out text', async () => {

@@ -91,7 +91,7 @@ const LIFECYCLE_MANIFEST = Object.freeze({
     dsh: 'compatibility/dsh.json',
     nils_cli: 'compatibility/nils-cli.json',
   },
-  dependencies: ['agent-hook', 'agent-docs'],
+  dependencies: ['agent-hook'],
   migrations: [
     {
       id: 'operations-state-v1-to-v2',
@@ -100,16 +100,20 @@ const LIFECYCLE_MANIFEST = Object.freeze({
       path: 'doctor --repair',
     },
   ],
-  health_probes: ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'],
+  health_probes: ['dsh-version', 'agent-hook-doctor'],
   lifecycle_scripts: 'none',
   removal: 'owned-surfaces-only',
 })
 
 // The declaration an earlier package carries before it shipped DSH home
-// instructions. The engine must still admit it so rollback can restore it.
+// instructions and while it still declared the retired agent-docs companion
+// and its version probe. The engine must still admit it so rollback can
+// restore it; the retired probe no longer runs.
 const { home: _home, ...LEGACY_ACTIVATION_ASSETS } = LIFECYCLE_MANIFEST.activation_assets
 const LEGACY_LIFECYCLE_MANIFEST = Object.freeze({
   ...LIFECYCLE_MANIFEST,
+  dependencies: ['agent-hook', 'agent-docs'],
+  health_probes: ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'],
   owned_surfaces: {
     ...LIFECYCLE_MANIFEST.owned_surfaces,
     home: ['operations-state', 'operations-lock', 'artifact-store'],
@@ -482,6 +486,12 @@ if (existsSync(join(home, 'corrupt-after-success'))) writeFileSync(join(installe
   writeFileSync(agentHook, `#!/usr/bin/env node
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
+if (process.argv.length === 3 && process.argv[2] === '--version') {
+  const versionFile = join(dirname(process.argv[1]), 'agent-hook-version')
+  const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '1.33.13'
+  process.stdout.write('agent-hook ' + version + ' (v' + version + ', test)\\n')
+  process.exit(0)
+}
 if (!process.argv.includes('doctor') && !process.argv.includes('inventory')) process.exit(91)
 for (const flag of ['--config', '--policy', '--state-dir']) {
   const index = process.argv.indexOf(flag)
@@ -543,13 +553,7 @@ process.stdout.write(JSON.stringify({
 }) + '\\n')
 `)
   chmodSync(agentHook, 0o755)
-  const agentDocs = join(root, 'fake-agent-docs.mjs')
-  writeFileSync(agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
-`)
-  chmodSync(agentDocs, 0o755)
-  return { commandDir, dsh, pnpm, agentHook, agentDocs }
+  return { commandDir, dsh, pnpm, agentHook }
 }
 
 function fixture() {
@@ -603,7 +607,6 @@ function run(subject, args, extraEnv = {}) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(subject.root, 'agent-hook', 'config.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(subject.root, 'agent-hook', 'policy.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(subject.root, 'agent-hook', 'state'),
-      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: subject.agentDocs,
       DSH_RUNTIME_KIT_AGENT_DOCS_HOME: subject.agentDocsHome,
       DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: subject.agentDocsStateHome,
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: subject.privateRoot,
@@ -905,7 +908,7 @@ test('base operations-state v1 migrates explicitly before update rollback and re
     assert.deepEqual(diagnosed.value.data.advisories, [])
     assert.deepEqual(diagnosed.value.data.policy, { ok: true, status: 'not-activated', downgrades: [], tier_table_sha256: null })
     assert.deepEqual(Object.keys(diagnosed.value.data).sort(), [
-      'activation', 'advisories', 'agent_docs', 'agent_hook', 'dsh', 'lifecycle',
+      'activation', 'advisories', 'agent_hook', 'dsh', 'lifecycle',
       'observed', 'owned_status', 'policy', 'profile', 'recovery', 'schema_version', 'status',
     ])
     const preview = run(subject, ['doctor', '--profile', 'work', '--repair'])
@@ -2738,108 +2741,51 @@ test('doctor rejects missing DSH-only agent-hook isolation paths before executio
   }
 })
 
-test('doctor reports DSH-only agent-docs executable, catalog, and state health', () => {
+test('doctor enforces the supported nils release on the agent-hook companion and never runs agent-docs', () => {
   const subject = fixture()
+  const setVersion = version => writeFileSync(join(subject.root, 'agent-hook-version'), `${version}\n`)
   try {
+    // A planted agent-docs on PATH must never be resolved or spawned.
+    const sentinel = join(subject.root, 'agent-docs-ran')
+    writeFileSync(join(subject.commandDir, 'agent-docs'), `#!/bin/sh\ntouch ${JSON.stringify(sentinel)}\nexit 1\n`)
+    chmodSync(join(subject.commandDir, 'agent-docs'), 0o755)
+
     const healthy = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(healthy.status, 0, healthy.stderr)
     assert.equal(healthy.value.data.status, 'healthy')
-    assert.deepEqual(healthy.value.data.agent_docs, {
-      ok: true,
-      version: '1.33.13',
-      catalog: join(subject.agentDocsHome, 'AGENT_DOCS.toml'),
-      state_home: subject.agentDocsStateHome,
-    })
+    assert.equal(healthy.value.data.agent_docs, undefined)
+    assert.equal(healthy.value.data.agent_hook.version, '1.33.13')
+    assert.equal(existsSync(sentinel), false)
 
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
+    setVersion('1.27.13')
     const old = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(old.status, 65)
-    assert.equal(old.value.data.agent_docs.ok, false)
-    assert.match(old.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.13/)
+    assert.equal(old.value.data.agent_hook.ok, false)
+    assert.match(old.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
 
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const validatedCurrent = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(validatedCurrent.status, 0, validatedCurrent.stderr)
-    assert.equal(validatedCurrent.value.data.agent_docs.version, '1.33.13')
+    setVersion('1.33.14')
+    const newer = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(newer.status, 65)
+    assert.match(newer.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
 
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
+    setVersion('1.27.12')
     const retiredCandidate = run(subject, ['doctor', '--profile', 'work'], {
       DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
     })
     assert.equal(retiredCandidate.status, 65)
-    assert.match(retiredCandidate.value.data.agent_docs.error, /compatibility candidate is invalid/)
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.11 (v1.27.11, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const substitutedCandidate = run(subject, ['doctor', '--profile', 'work'], {
-      DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'authoritative-finish-line-acceptance',
-    })
-    assert.equal(substitutedCandidate.status, 65)
-    assert.match(
-      substitutedCandidate.value.data.agent_docs.error,
-      /compatibility candidate is invalid/,
-    )
+    assert.match(retiredCandidate.value.data.agent_hook.error, /compatibility candidate is invalid/)
 
     const unknownCandidate = run(subject, ['doctor', '--profile', 'work'], {
       DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE: 'unknown-candidate',
     })
     assert.equal(unknownCandidate.status, 65)
-    assert.equal(unknownCandidate.value.data.agent_docs.ok, false)
-    assert.match(unknownCandidate.value.data.agent_docs.error, /compatibility candidate is invalid/)
+    assert.match(unknownCandidate.value.data.agent_hook.error, /compatibility candidate is invalid/)
 
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const validatedLatest = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(validatedLatest.status, 0, validatedLatest.stderr)
-    assert.equal(validatedLatest.value.data.agent_docs.version, '1.33.13')
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.14 (v1.33.14, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const newer = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(newer.status, 65)
-    assert.equal(newer.value.data.agent_docs.ok, false)
-    assert.match(newer.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.13/)
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-
-    const absent = run(subject, ['doctor', '--profile', 'work'], {
-      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: '',
-    })
-    assert.equal(absent.status, 65)
-    assert.equal(absent.value.data.status, 'needs-attention')
-    assert.equal(absent.value.data.agent_docs.ok, false)
-    assert.match(absent.value.data.agent_docs.error, /agentDocsHome is required/)
-
-    rmSync(join(subject.agentDocsHome, 'AGENT_DOCS.toml'))
-    const missingCatalog = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(missingCatalog.status, 65)
-    assert.equal(missingCatalog.value.data.agent_docs.ok, false)
-    assert.match(missingCatalog.value.data.agent_docs.error, /catalog/)
+    setVersion('1.33.13')
+    const current = run(subject, ['doctor', '--profile', 'work'])
+    assert.equal(current.status, 0, current.stderr)
+    assert.equal(current.value.data.agent_hook.version, '1.33.13')
+    assert.equal(existsSync(sentinel), false)
   } finally {
     subject.cleanup()
   }
@@ -2847,63 +2793,29 @@ process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
 
 test('doctor requires the validated nils release for every reviewed DSH row', () => {
   const subject = fixture()
+  const setVersion = version => writeFileSync(join(subject.root, 'agent-hook-version'), `${version}\n`)
   try {
-    writeFileSync(subject.dsh, `#!/usr/bin/env node
+    for (const dshRelease of ['0.1.7-rc.1', '0.2.0-rc.2']) {
+      writeFileSync(subject.dsh, `#!/usr/bin/env node
 if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.1.7-rc.1\\n')
+process.stdout.write('${dshRelease}\\n')
 `)
-    chmodSync(subject.dsh, 0o755)
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-
-    const oldNils = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(oldNils.status, 65, oldNils.stderr)
-    assert.equal(oldNils.value.data.status, 'needs-attention')
-    assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: '0.1.7-rc.1' })
-    assert.equal(oldNils.value.data.agent_docs.ok, false)
-    assert.match(oldNils.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.13/)
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.12 (v1.27.12, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const previousNils = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(previousNils.status, 65, previousNils.stderr)
-    assert.equal(previousNils.value.data.status, 'needs-attention')
-    assert.equal(previousNils.value.data.agent_docs.ok, false)
-    assert.match(previousNils.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.13/)
-
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.13 (v1.33.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const currentNils = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(currentNils.status, 0, currentNils.stderr)
-    assert.equal(currentNils.value.data.status, 'healthy')
-    assert.equal(currentNils.value.data.agent_docs.version, '1.33.13')
-
-    writeFileSync(subject.dsh, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('0.2.0-rc.2\\n')
-`)
-    chmodSync(subject.dsh, 0o755)
-    writeFileSync(subject.agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.27.13 (v1.27.13, test)\\n')
-`)
-    chmodSync(subject.agentDocs, 0o755)
-    const retained = run(subject, ['doctor', '--profile', 'work'])
-    assert.equal(retained.status, 65, retained.stderr)
-    assert.equal(retained.value.data.status, 'needs-attention')
-    assert.deepEqual(retained.value.data.dsh, { ok: true, version: '0.2.0-rc.2' })
-    assert.equal(retained.value.data.agent_docs.ok, false)
-    assert.match(retained.value.data.agent_docs.error, /supported range 1\.33\.0 through 1\.33\.13/)
+      chmodSync(subject.dsh, 0o755)
+      for (const version of ['1.27.13', '1.27.12']) {
+        setVersion(version)
+        const oldNils = run(subject, ['doctor', '--profile', 'work'])
+        assert.equal(oldNils.status, 65, oldNils.stderr)
+        assert.equal(oldNils.value.data.status, 'needs-attention')
+        assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: dshRelease })
+        assert.equal(oldNils.value.data.agent_hook.ok, false)
+        assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
+      }
+      setVersion('1.33.13')
+      const currentNils = run(subject, ['doctor', '--profile', 'work'])
+      assert.equal(currentNils.status, 0, currentNils.stderr)
+      assert.equal(currentNils.value.data.status, 'healthy')
+      assert.equal(currentNils.value.data.agent_hook.version, '1.33.13')
+    }
   } finally {
     subject.cleanup()
   }
@@ -4252,7 +4164,7 @@ test('reviewed plans bind the declared lifecycle and refuse a package whose decl
     )
     assert.deepEqual(lifecycle.dsh_releases, DEFAULT_FIXTURE_DSH_RELEASES)
     assert.deepEqual(lifecycle.migrations, ['operations-state-v1-to-v2'])
-    assert.deepEqual(lifecycle.health_probes, ['dsh-version', 'agent-hook-doctor', 'agent-docs-version'])
+    assert.deepEqual(lifecycle.health_probes, ['dsh-version', 'agent-hook-doctor'])
     assert.deepEqual(setup.applied.plan.lifecycle, lifecycle)
     assert.deepEqual(readOperationsState(subject).last_applied.plan.lifecycle, lifecycle)
 

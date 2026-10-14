@@ -225,22 +225,17 @@ async function benchmarkPackedRuntime() {
     const home = join(temporary, 'home')
     const runtime = join(temporary, 'runtime')
     const hookRoot = join(runtime, 'agent-hook')
-    const docsHome = join(runtime, 'agent-docs')
     const hookState = join(runtime, 'state', 'agent-hook')
     const docsState = join(runtime, 'state', 'agent-docs')
     const workspace = join(temporary, 'workspace')
-    for (const directory of [home, runtime, hookRoot, docsHome, hookState, docsState, workspace]) {
+    for (const directory of [home, runtime, hookRoot, hookState, docsState, workspace]) {
       mkdirSync(directory, { recursive: true, mode: 0o700 })
       chmodSync(directory, 0o700)
     }
     const policy = join(hookRoot, 'policy.toml')
     const config = join(hookRoot, 'config.toml')
     copyFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml'), policy)
-    copyFileSync(join(projectRoot, 'agent-docs', 'AGENT_DOCS.toml'), join(docsHome, 'AGENT_DOCS.toml'))
-    copyFileSync(join(projectRoot, 'agent-docs', 'PROJECT_DEV_EDIT.md'), join(docsHome, 'PROJECT_DEV_EDIT.md'))
-    for (const path of [policy, join(docsHome, 'AGENT_DOCS.toml'), join(docsHome, 'PROJECT_DEV_EDIT.md')]) {
-      chmodSync(path, 0o600)
-    }
+    chmodSync(policy, 0o600)
     writeFileSync(config, `schema_version = "agent-hook.config.v1"\n\n[policy]\npath = ${JSON.stringify(policy)}\ndigest = "sha256:${sha256(readFileSync(policy))}"\n`, { mode: 0o600 })
 
     const ctx = {
@@ -255,7 +250,6 @@ async function benchmarkPackedRuntime() {
       agentHookConfig: config,
       agentHookPolicy: policy,
       agentHookStateDir: hookState,
-      agentDocsHome: docsHome,
       agentDocsStateHome: docsState,
       maxActivePolicyChecks: 1,
     })
@@ -274,7 +268,7 @@ async function benchmarkPackedRuntime() {
         cwd: workspace,
         turn: 1,
         step: sequence,
-      }, undefined)
+      })
       if (result !== undefined) throw new Error(`released policy did not allow benchmark input: ${JSON.stringify(result)}`)
     }
     const evaluateLifecycle = async () => {
@@ -327,7 +321,7 @@ async function benchmarkPackedRuntime() {
         }
       }
       await evaluateData(dataRequest('pre-call', 'session.persist', exec.arguments))
-      const pre = await transport.evaluate(exec, context, undefined)
+      const pre = await transport.evaluate(exec, context)
       if (pre !== undefined) throw new Error(`candidate pre-tool policy did not allow benchmark input: ${JSON.stringify(pre)}`)
       await evaluateData(dataRequest('pre-call', 'tool.execute', exec.arguments))
       const result: ToolExecutionResult = { isError: false, value: 42, content: [{ type: 'text', text: '42' }] }

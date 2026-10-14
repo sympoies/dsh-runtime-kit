@@ -7,7 +7,7 @@ import { dirname, join, parse } from 'node:path'
 
 import { symbols } from '@deepseek-ai/cordis'
 
-import { requiredAbsolutePath, resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
+import { resolveAgentHookRuntime } from '../nils/agent-hook-runtime.js'
 import { isolatedNilsEnvironment } from '../nils/session-environment.js'
 import { resolveSubprocessArgv } from '../nils/subprocess-command.js'
 
@@ -664,10 +664,8 @@ export function resolveNilsHealthCompatibility(
   }
   const artifacts = requiredRecord(selected.artifacts, 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const hook = requiredRecord(artifacts['agent-hook'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
-  const docs = requiredRecord(artifacts['agent-docs'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   const session = requiredRecord(artifacts['agent-session'], 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   if (typeof hook.sha256 !== 'string' || !SHA256_PATTERN.test(hook.sha256)
-    || typeof docs.sha256 !== 'string' || !SHA256_PATTERN.test(docs.sha256)
     || typeof session.sha256 !== 'string' || !SHA256_PATTERN.test(session.sha256)) {
     throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID')
   }
@@ -675,7 +673,6 @@ export function resolveNilsHealthCompatibility(
     version,
     platform,
     hookSha256: hook.sha256,
-    docsSha256: docs.sha256,
     sessionSha256: session.sha256,
   })
 }
@@ -716,28 +713,12 @@ function validDoctor(value: unknown) {
     && row.dispatch_supported === true
 }
 
-function validAudit(value: unknown, docsHome: string, projectPath: string) {
-  const report = record(value)
-  return report?.schema_version === 'agent-docs.audit.v2'
-    && report.target === 'project'
-    && report.product === null
-    && report.strict === true
-    && report.docs_home === docsHome
-    && report.project_path === projectPath
-    && Array.isArray(report.wiring)
-    && Array.isArray(report.skills)
-    && Array.isArray(report.documents)
-    && Number.isSafeInteger(report.problems)
-    && report.problems >= 0
-    && Array.isArray(report.suggested_actions)
-}
-
 function ownRegistration(ctx: Context, dispose: () => void, label: string) {
   ctx.effect(() => dispose, label)
 }
 
 /** Install authenticated nils and optional-child health providers. */
-export async function installNilsHealthProviders(ctx: Context, health: import('./index.js').RuntimeHealth, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}, options: {compatibility?: unknown, dshRuntime: unknown, childPlugins: {review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}) {
+export async function installNilsHealthProviders(ctx: Context, health: import('./index.js').RuntimeHealth, config: {agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, nilsCompatibilityCandidate?: string, [key: string]: unknown}, options: {compatibility?: unknown, dshRuntime: unknown, childPlugins: {review_specialists: {state:string}}, commandQuiescenceMs?: number, beforeCommandSpawn?: () => Promise<void>}) {
   if (health === undefined || typeof health.register !== 'function') {
     throw new TypeError('dsh-runtime-kit: runtime health service is required')
   }
@@ -768,25 +749,14 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
     spawnDescriptor: subprocess.spawnDescriptor,
   })
   const agentHook = resolveAgentHookRuntime(config)
-  const agentDocs = config.agentDocs ?? 'agent-docs'
-  if (typeof agentDocs !== 'string' || agentDocs.length === 0 || agentDocs.includes('\0')) {
-    throw new TypeError('dsh-runtime-kit: agentDocs must be a non-empty executable name')
-  }
-  const docsHome = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
-  requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
   let runtimeCwd
-  let canonicalDocsHome
   let sourceHook
-  let sourceDocs
   let sourceSession
   try {
     runtimeCwd = await realpath(agentHook.stateDir)
-    canonicalDocsHome = await realpath(docsHome)
     const prepareSignal = new AbortController().signal
     const hookArgv = await resolveSubprocessArgv(ctx, agentHook.argv([]), prepareSignal)
-    const docsArgv = await resolveSubprocessArgv(ctx, [agentDocs], prepareSignal)
     sourceHook = await readAuthenticatedBinary(hookArgv[0], compatibility.hookSha256)
-    sourceDocs = await readAuthenticatedBinary(docsArgv[0], compatibility.docsSha256)
     sourceSession = await readAuthenticatedBinary(
       join(dirname(sourceHook.path), 'agent-session'),
       compatibility.sessionSha256,
@@ -798,7 +768,6 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
   const snapshotRoot = await mkdtemp(join(tmpdir(), 'dsh-runtime-health-executables-'))
   let snapshotRootHandle
   let hook
-  let docs
   let session
   try {
     snapshotRootHandle = await open(
@@ -819,26 +788,19 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
       sourceHook.bytes,
       compatibility.hookSha256,
     )
-    docs = await snapshotExecutable(
-      snapshotRoot,
-      'agent-docs',
-      sourceDocs.bytes,
-      compatibility.docsSha256,
-    )
     session = await snapshotExecutable(
       snapshotRoot,
       'agent-session',
       sourceSession.bytes,
       compatibility.sessionSha256,
     )
-    const retained = await retainSnapshotLinks(snapshotRoot, snapshotRootHandle, [hook, docs, session])
+    const retained = await retainSnapshotLinks(snapshotRoot, snapshotRootHandle, [hook, session])
     hook = retained[0]
-    docs = retained[1]
-    session = retained[2]
+    session = retained[1]
   } catch (error) {
     if (snapshotRootHandle !== undefined) {
       await snapshotRootHandle.chmod(0o700).catch(() => {})
-      for (const binary of [hook, docs, session]) {
+      for (const binary of [hook, session]) {
         if (binary !== undefined
           && await pathReferencesOpenFile(binary.path, binary.handle).catch(() => false)) {
           await unlink(binary.path).catch(() => {})
@@ -849,7 +811,7 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
       }
       await snapshotRootHandle.close().catch(() => {})
     }
-    const binaries = [hook, docs, session].filter(binary => binary !== undefined)
+    const binaries = [hook, session].filter(binary => binary !== undefined)
     await Promise.allSettled(binaries.map(binary => binary.handle.close()))
     throw error
   }
@@ -857,11 +819,10 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
   const disposeSnapshot = async () => {
     if (snapshotDisposed) return
     snapshotDisposed = true
-    await cleanupLinkedSnapshot(snapshotRoot, snapshotRootHandle, [hook, docs, session])
+    await cleanupLinkedSnapshot(snapshotRoot, snapshotRootHandle, [hook, session])
   }
   const spawnDescriptor = authenticatedDescriptorSpawner(ctx, new Map([
     [hook.path, hook],
-    [docs.path, docs],
   ]), descriptorBinding)
   const executionOwner = createSnapshotExecutionOwner(
     disposeSnapshot,
@@ -898,9 +859,6 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
         if (!validDoctor(doctorValue)) {
           throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_AGENT_HOOK_INVALID')
         }
-        // The agent-docs executable is already authenticated byte-for-byte
-        // against the released compatibility digest above; a version banner
-        // would only re-prove what that digest proves.
         return { state: (('ready') as const), code: 'DSH_RUNTIME_HEALTH_RUNTIME_READY' }
       } catch (error) {
         return blocked(error, signal, 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
@@ -908,37 +866,6 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
     },
   })
   ownRegistration(ctx, disposeRuntime, 'dsh-runtime-kit runtime health provider')
-
-  const disposeProject = health.register({
-    capability: 'project-docs',
-    owner: OWNER,
-    async probe({ scope, signal }) {
-      try {
-        const projectPath = await realpath(requiredAbsolutePath(scope, 'project health scope'))
-        const result = await runAuthenticatedHealthCommand(executionOwner, ctx, docs, [
-          docs.path,
-          '--docs-home', canonicalDocsHome,
-          '--project-path', projectPath,
-          'audit', '--target', 'project', '--strict', '--format', 'json',
-        ], projectPath, signal, commandQuiescenceMs, options.beforeCommandSpawn)
-        let audit
-        try { audit = JSON.parse(result.stdout) } catch {}
-        if (!validAudit(audit, canonicalDocsHome, projectPath)) {
-          throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
-        }
-        if (audit.problems > 0 && result.outcome.exitCode === 1 && result.outcome.signal === null) {
-          return { state: (('blocked') as const), code: 'DSH_RUNTIME_HEALTH_PROJECT_INVALID' }
-        }
-        if (audit.problems !== 0 || result.outcome.exitCode !== 0 || result.outcome.signal !== null) {
-          throw new HealthProbeFailure('DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
-        }
-        return { state: (('ready') as const), code: 'DSH_RUNTIME_HEALTH_PROJECT_READY' }
-      } catch (error) {
-        return blocked(error, signal, 'DSH_RUNTIME_HEALTH_PROJECT_UNAVAILABLE')
-      }
-    },
-  })
-  ownRegistration(ctx, disposeProject, 'dsh-runtime-kit project docs health provider')
 
   const childCapabilities = (([
     ['review-specialists', 'review_specialists'],
@@ -962,7 +889,6 @@ export async function installNilsHealthProviders(ctx: Context, health: import('.
   }
   return Object.freeze({
     agentHook: hook.path,
-    agentDocs: docs.path,
     authenticatedNilsExecution: Object.freeze({
       createScope() { return executionOwner.createScope() },
     }),

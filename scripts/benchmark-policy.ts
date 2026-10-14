@@ -86,7 +86,6 @@ if (typeof global.gc !== 'function') {
     agentHookConfig: '/benchmark/agent-hook/config.toml',
     agentHookPolicy: '/benchmark/agent-hook/policy.toml',
     agentHookStateDir: '/benchmark/agent-hook/state',
-    agentDocsHome: '/benchmark/agent-docs',
     agentDocsStateHome: '/benchmark/state',
     maxActivePolicyChecks: 1,
   })
@@ -106,7 +105,7 @@ if (typeof global.gc !== 'function') {
       cwd: projectRoot,
       turn: 1,
       step: sequence,
-    }, undefined)
+    })
     if (result !== undefined) throw new Error('controlled policy provider did not allow')
   }
 

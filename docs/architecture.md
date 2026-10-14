@@ -35,10 +35,9 @@ boundary.
 
 Runtime health follows that boundary as well. The bundle owns a typed Cordis
 health service and DSH admission/invariant integration, DSH owns lifecycle and
-subprocess execution, and nils-cli owns the deterministic doctor/audit
-contracts. `runtime-core` blocks activation, `project-docs` gates every
-session-associated model stream attempt, and optional child degradation blocks
-only dependent tools. DSH evaluates model health before cooperative stream
+subprocess execution, and nils-cli owns the deterministic doctor contract.
+`runtime-core` blocks activation, and optional child degradation blocks only
+dependent tools. DSH evaluates model health before cooperative stream
 middleware, so cache, routing, and short-circuit listeners cannot bypass it;
 its public post-waterfall tool guard enforces optional-tool health
 monotonically. Snapshot projection contains
@@ -51,10 +50,10 @@ added to model messages. See
 Live composition has an explicit runtime-root boundary. The package requires
 absolute DSH-only agent-hook config, policy, and state paths and passes them on
 every dispatch, finish-line, workspace-lease, and doctor invocation. It
-likewise requires an absolute DSH-only agent-docs catalog and state root. There
-is no ambient XDG,
+likewise requires an absolute DSH-only packaged docs root and the agent-hook
+DSH subject state root. There is no ambient XDG,
 Codex, or Claude Code fallback. The packaged `agent-docs/` directory is the
-source catalog for a copied owner-only activation root; the policy is copied to
+source of the guidance documents copied into an owner-only activation root; the policy is copied to
 an owner-only regular file with link count one before its digest is recorded in
 the DSH-only hook config.
 
@@ -103,7 +102,8 @@ The runtime policy protocol is versioned independently. Tool admission uses
 `agent-hook.dsh-ingress.v2`; its exact post-tool correlation uses strict v4 and
 projects only `result.is_error`. Accepted pre-step and turn-stop evaluation use
 strict v3 shapes normalized to `UserPromptSubmit` and `Stop`. The wires include
-the exact session/turn/step and configured absolute agent-docs roots required by
+the exact session/turn/step and the configured absolute agent-hook DSH subject
+state root (wire field `agent_docs_state_home`) required by
 typed nils policy; only pre-step carries a UTF-8-bounded user prompt and an
 optional first-step session source. Opaque token and root-call facts remain
 process-local.
@@ -153,7 +153,7 @@ rule; ordinary runtime request and result payloads do not claim to derive that
 filesystem classification.
 
 DSH first completes its ordinary persistence/result waterfalls, definition
-finalizer, downstream listeners, prerequisite contexts, and cancellation
+finalizer, downstream listeners, and cancellation
 projection. It then invokes the one registered `ToolTerminalPolicy`; no later
 content-bearing transform runs before durable persistence or the public result
 event. This terminal provider, rather than runtime listener order, is the final
@@ -661,38 +661,28 @@ failure, persistence, and rollback semantics are in
 
 ## Selective runtime context
 
-`src/context/nils-context.ts` owns a separate bounded subprocess lifecycle for
-`agent-docs session context`. A tool call derives the exact DSH Session id and
-absolute cwd from the live Agent. For another checkout, it accepts only the
-exact canonical managed-worktree path independently verified by nils workspace
-recovery for this session; it then mints a fresh request id and asks nils to
-resolve, budget-check, fingerprint, and persist one intent atomically. The
-transport validates an exact `cli.agent-docs.session.context.v1` envelope and
-`decision.context.v1` payload, including request, product, intent, optional
-phase, document count, and UTF-8 byte count. It never trusts a previous tool
-result as authorization. Nils remains the owner of session/project/product and
-catalog-content replay binding; the plugin removes correlation and filesystem
-metadata before DSH materializes the canonical tool result.
+`src/context/index.ts` registers the `runtime_context` tool. It reads the
+packaged guidance documents from the activated docs home, whose bytes the
+activation manifest binds by digest, using the fixed intent and phase map in
+`src/context/intents.ts`; `test/context.test.ts` proves that map equals the
+packaged `agent-docs/AGENT_DOCS.toml` routes. Each document is opened without
+following a link, must be a regular file, and the whole result must fit the
+configured byte budget (20 KiB by default). No external companion, session
+state, or receipt participates.
 
-The tool result itself is the only model-facing delivery path for this catalog.
-The runtime-context plugin attaches nothing to the system prompt or
-session-start event, and it does not duplicate the same document through
-`deferContext()`. The only session-start instructions are the separate DSH home
-instructions below, which DSH's own instruction loader reads.
+The tool result itself is the only model-facing delivery path for these
+documents. The runtime-context plugin attaches nothing to the system prompt or
+session-start event, gates no other tool on a call, and does not duplicate the
+same document through `deferContext()`. The only session-start instructions are
+the separate DSH home instructions below, which DSH's own instruction loader
+reads.
 
 The public tool schema allows `project-dev` with an optional `phase` of `edit`
-(the default, and the only phase the mutation prerequisite prepares),
-`delivery`, or `review`, and the phaseless `devlog`, `external-facts`,
-`web-testing`, `memory`, `upstream-contribution`, and `peer-coordination`
-intents, plus an optional absolute `project_path`; the transport repeats the
-same allowlist checks before spawning `agent-docs` and omits `--phase` for a
-phaseless intent. These resolve the packaged home policies in `agent-docs/` only
-when the model asks for them, so the automatic edit-phase injection stays the
-compact edit contract.
-
-Context cancellation, timeout, and disposal join the complete child process
-tree. Unknown quiescence permanently closes this context surface but does not
-change the independent monotonic policy-transport state.
+(the default), `delivery`, or `review`, and the phaseless `devlog`,
+`external-facts`, `web-testing`, `memory`, `upstream-contribution`, and
+`peer-coordination` intents. Repository validation is not delivered through
+this tool: agent-hook's finish-line service reads each repository's declared
+validation contract.
 
 The security boundary ends at DSH's monotonic guard. Public `tools/execute`
 wrappers run afterward, but they cannot bind an exact agent-scoped definition
@@ -734,51 +724,12 @@ file belongs to the DSH home, not to one profile: profiles activated in the same
 home share it, and the most recent activation, rollback, or removal decides its
 content.
 
-## Automatic tool prerequisites
+## Retired automatic tool prerequisites
 
-`src/prerequisite/index.ts` assigns process-local identities to the exact
-Agent, runtime workspace generation, and visible `ToolDefinition` object. It
-uses the version-scoped `tools.bindPrerequisite` seam supplied by
-the `native-execution-boundaries-v5` release artifact selected through
-`compatibility/dsh-patches.json`.
-The default mutation surface (`bash`, `write`, `edit`,
-`str_replace_editor`, and `runtime_kit_governed_commit`) requires the named
-`project-dev-context` capability. Another trusted bundle may attach the same
-capability to an exact visible definition through
-`dshRuntimeKit.prerequisites.require(definition, capability)`; its disposer is
-registration-bound and cannot erase a later declaration.
-
-At `tools/pre-execute`, after DSH correlation exists but before nils policy,
-the coordinator asks `agent-docs session prerequisite` for a side-effect-free
-decision. The workspace lease supplies the authenticated canonical repository
-target for Bash and native file edits. A target outside the session cwd must
-match the session's verified handoff path. The receipt binds hashes of the DSH session, repository, Agent,
-workspace generation, call, turn/step, tool name, visible definition, and the
-resolved `project-dev`/`edit` policy fingerprint. The strict v5 policy ingress
-carries that exact proof. Older ingress versions remain available for tools
-without an automatic prerequisite and cannot partially parse v5 fields.
-
-Immediately before the selected body, patched DSH proves that the registered
-definition is still the exact bound object and invokes a second side-effect-free
-`session prerequisite` and policy check. HMR replacement, declaration disposal,
-stale or cross-scope receipts, a changed target `workdir`, policy drift after an approval, and cancellation
-fail before the body. DSH then runs the body and the complete
-`tools/post-execute` waterfall, finalizes result content and context, and
-linearizes the accepted result. Post-policy rejection, downstream exception,
-body failure, cancellation, and finalizer failure therefore produce no cache
-completion.
-
-Only after accepted completion has linearized does DSH invoke
-`commit-prerequisite`. That call is an idempotent cache-completion optimization,
-not activation, authorization, or the mutation's transaction boundary. The
-runtime retries the exact receipt once when completion is uncertain; continued
-ambiguity logs one stable warning while preserving the already-finalized result
-and its verified context. Later calls freshly revalidate and reconcile the cache.
-The completion transport detaches only caller cancellation while retaining its
-own timeouts, disposal, process-tree quiescence, and fail-closed admission.
-Concurrent pending calls may verify together, but every execution binds only
-its own latest verified context. Cache completion converges idempotently without
-duplicating context inside one execution.
+Runtime-kit no longer binds an execution-bound `project-dev` prerequisite to
+mutating tools. The `tools.bindPrerequisite` seam remains in the authenticated
+DSH patch for compatibility, but no runtime-kit code calls it, and policy
+admission always uses `agent-hook.dsh-ingress.v2`.
 
 Public DSH registry APIs cannot provide this exact transaction: an agent-scoped
 definition cannot be wrapped at the same layer, `tools/change` carries no
