@@ -1616,7 +1616,9 @@ export function apply(ctx) {
       if (acceptanceEnabled) {
         const bashDefinition = ctx.tools.get('bash')
         const writeDefinition = ctx.tools.get('write')
-        if (bashDefinition === undefined || writeDefinition === undefined) {
+        const plusOneDefinition = ctx.tools.get('runtime_kit_plus_one')
+        if (bashDefinition === undefined || writeDefinition === undefined
+          || plusOneDefinition === undefined) {
           throw new Error('acceptance smoke definitions are unavailable')
         }
         ctx.dshAcceptance.register({

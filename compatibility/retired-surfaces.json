@@ -387,10 +387,10 @@
       ],
       "replacement": {
         "owner": "nils-cli",
-        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14); the nils release floor is enforced on the agent-hook companion release"
+        "contract": "agent-hook finish-line validation contract; the validated nils-cli 1.33.13 agent-hook still reads a project's [[validation]] tables from AGENT_DOCS.toml, and the VALIDATION.toml reader arrives with the separately owned nils-cli 1.33.14 companion bump"
       },
-      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
-      "compatibility_window": "agent-hook releases inside the declared nils window; a target package that still declares the agent-docs dependency or the agent-docs-version probe is refused as unsupported by this engine",
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.13" },
+      "compatibility_window": "agent-hook releases inside the declared nils window (validated 1.33.13); a target package that still declares the agent-docs dependency or the agent-docs-version probe is accepted as an inert legacy lifecycle declaration that this engine neither authenticates nor runs",
       "rollback": "Reinstall a separately reviewed previous runtime package with its own operations engine and matching companion tuple, which still includes agent-docs."
     },
     {
@@ -403,9 +403,9 @@
       "identifiers": ["createPrerequisiteCoordinator", "beginPrerequisite", "commitPrerequisite"],
       "replacement": {
         "owner": "nils-cli",
-        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14)"
+        "contract": "agent-hook finish-line validation contract; the validated nils-cli 1.33.13 agent-hook still reads a project's [[validation]] tables from AGENT_DOCS.toml, and the VALIDATION.toml reader arrives with the separately owned nils-cli 1.33.14 companion bump"
       },
-      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.13" },
       "compatibility_window": "none; mutating tools are admitted by the remaining policy groups and checkout lease without an intent receipt",
       "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple."
     },
@@ -418,9 +418,9 @@
       "identifiers": ["dsh.pre-edit-intent-gate"],
       "replacement": {
         "owner": "nils-cli",
-        "contract": "agent-hook finish-line validation contract (VALIDATION.toml, nils-cli 1.33.14)"
+        "contract": "agent-hook finish-line validation contract; the validated nils-cli 1.33.13 agent-hook still reads a project's [[validation]] tables from AGENT_DOCS.toml, and the VALIDATION.toml reader arrives with the separately owned nils-cli 1.33.14 companion bump"
       },
-      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.14" },
+      "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.13" },
       "compatibility_window": "none; agent-hook 1.33.14 and later refuse the binding",
       "rollback": "Reinstall a separately reviewed previous runtime package and its matching companion tuple."
     }
