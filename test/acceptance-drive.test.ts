@@ -125,12 +125,10 @@ test('catalog expands every planned owner into stable folder-kind scenarios', ()
   }
 })
 
-test('acceptance-harness is a Codex and Claude project intent', () => {
-  const catalog = readFileSync(join(ROOT, 'AGENT_DOCS.toml'), 'utf8')
+test('acceptance-harness runbook is reachable from the repository policy', () => {
+  const agents = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8')
   const runbook = readFileSync(join(ROOT, 'docs', 'acceptance-harness.md'), 'utf8')
-  assert.match(catalog, /context = "acceptance-harness"/u)
-  assert.match(catalog, /path = "docs\/acceptance-harness\.md"/u)
-  assert.match(catalog, /product = \["codex", "claude"\]/u)
+  assert.match(agents, /docs\/acceptance-harness\.md/u)
   assert.match(runbook, /DSH_PERMISSION_MODE=danger-full-access/u)
   assert.match(runbook, /disposable\s+scratch repositories/u)
   assert.match(runbook, /outer OS sandbox/u)
