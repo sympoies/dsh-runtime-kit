@@ -86,7 +86,7 @@ if (typeof global.gc !== 'function') {
     agentHookConfig: '/benchmark/agent-hook/config.toml',
     agentHookPolicy: '/benchmark/agent-hook/policy.toml',
     agentHookStateDir: '/benchmark/agent-hook/state',
-    agentDocsStateHome: '/benchmark/state',
+    sessionStateHome: '/benchmark/state',
     maxActivePolicyChecks: 1,
   })
   let sequence = 0

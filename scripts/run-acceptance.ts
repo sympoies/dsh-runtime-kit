@@ -121,6 +121,9 @@ function parseCli() {
       options: {
         'dsh-source-root': { type: 'string' },
         'agent-hook-bin': { type: 'string' },
+        // Retired with the agent-docs companion; accepted and ignored so older
+        // acceptance drivers that still pass it keep working.
+        'agent-docs-bin': { type: 'string' },
         'agent-session-bin': { type: 'string' },
         'git-cli-bin': { type: 'string' },
         'review-specialists-bin': { type: 'string' },

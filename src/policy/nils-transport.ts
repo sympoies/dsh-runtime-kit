@@ -375,14 +375,15 @@ function cancellationDenial(cause: CancellationCause) {
  * bookkeeping only after permanently closing admission and cancelling every
  * sibling operation, so possible survivors can never create reusable capacity.
  */
-export function createNilsTransport(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} } = {}) {
+export function createNilsTransport(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, sessionStateHome?: string, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, managedSessionBridge?: {resolve?: (id:string) => unknown} } = {}) {
   const agentHook = resolveAgentHookRuntime(config)
   const timeoutMs = policyTimeout(config.policyTimeoutMs)
   const teardownTimeoutMs = policyTeardownTimeout(config.policyTeardownTimeoutMs)
   const maxActive = policyConcurrency(config.maxActivePolicyChecks)
   // agent-hook's DSH ingress names its per-runtime operations state root
-  // `agent_docs_state_home`; it is a kit-owned state directory, not a companion.
-  const agentDocsStateHome = requiredAbsolutePath(config.agentDocsStateHome, 'agentDocsStateHome')
+  // `agent_docs_state_home`, a required wire field of agent-hook.dsh-ingress.v2;
+  // it carries this kit-owned session state directory, not a companion.
+  const sessionStateHome = requiredAbsolutePath(config.sessionStateHome, 'sessionStateHome')
   const authenticatedExecution = resolveAuthenticatedNilsExecution(ctx, config)
   const managedSessionBridge = config.managedSessionBridge
   const active: Set<ActiveOperation> = new Set()
@@ -632,7 +633,7 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           session_id: principal?.sessionId ?? context.sessionId,
           turn: context.turn,
           step: context.step,
-          agent_docs_state_home: agentDocsStateHome,
+          agent_docs_state_home: sessionStateHome,
         },
         tool: {
           name: exec.name,
@@ -659,7 +660,7 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           session_id: principal?.sessionId ?? context.sessionId,
           turn: context.turn,
           step: context.step,
-          agent_docs_state_home: agentDocsStateHome,
+          agent_docs_state_home: sessionStateHome,
         },
         tool: {
           name: exec.name,
@@ -699,7 +700,7 @@ export function createNilsTransport(ctx: Context, config: { agentHook?: string, 
           ...preStep && request.sessionStartSource !== undefined
             ? { session_start_source: request.sessionStartSource }
             : {},
-          agent_docs_state_home: agentDocsStateHome,
+          agent_docs_state_home: sessionStateHome,
         },
       }
       return evaluateIngress(

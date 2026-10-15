@@ -547,13 +547,19 @@ them individually:
 - `DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG`
 - `DSH_RUNTIME_KIT_AGENT_HOOK_POLICY`
 - `DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR`
-- `DSH_RUNTIME_KIT_AGENT_DOCS_HOME`
-- `DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME`
+- `DSH_RUNTIME_KIT_SESSION_STATE_HOME`: the agent-hook DSH subject state
+  directory (`state/agent-docs` when activated, `agent-docs-state` otherwise)
+- `DSH_RUNTIME_KIT_CONTEXT_HOME`: set only for an activated runtime, to its
+  digest-verified copy of the packaged guidance documents; without an
+  activation `runtime_context` reads them from the installed package
 
 `DSH_RUNTIME_KIT_AGENT_HOOK_BIN` must pin the released and validated v1.33.13
 executable for every supported DSH row. The `agent-docs` companion is retired;
 the runtime neither resolves nor runs it, and a package that still declares it
-is read only as an inert legacy lifecycle declaration.
+is read only as an inert legacy lifecycle declaration. The retired agent-docs
+environment variables and the `--agent-docs-bin` flag of the deploy dispatcher
+and acceptance driver are accepted and ignored, so provisioning that still
+passes them keeps working.
 An older or any other unreviewed replacement is intentionally rejected.
 Restore the exact recorded release and restart DSH, or promote the new release
 through the full compatibility matrix; do not work around the health gate from

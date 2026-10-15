@@ -39,10 +39,13 @@ const environment: NodeJS.ProcessEnv = {
     DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(runtimeRoot, 'agent-hook', 'config.toml'),
     DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(runtimeRoot, 'agent-hook', 'policy.toml'),
     DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(runtimeRoot, 'state', 'agent-hook'),
-    DSH_RUNTIME_KIT_AGENT_DOCS_HOME: join(runtimeRoot, 'agent-docs'),
-    DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: join(runtimeRoot, 'agent-docs-state'),
+    // Without an activation the guidance documents come from the package
+    // itself, so no context home is set. The session state path is unchanged.
+    DSH_RUNTIME_KIT_SESSION_STATE_HOME: join(runtimeRoot, 'agent-docs-state'),
   },
 }
+// Only an activation names a context home; an inherited one is not trusted.
+if (activatedEnvironment === undefined) delete environment.DSH_RUNTIME_KIT_CONTEXT_HOME
 
 function resolveCommand(command: string) {
   if (command.includes('/')) return command

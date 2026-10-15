@@ -342,12 +342,15 @@ test('missing or ambiguous deploy scope fails typed before any engine or profile
   }
 })
 
-test('the retired agent-docs executable flag is refused as an unknown argument', () => {
+test('the retired agent-docs executable flag is accepted and ignored', () => {
   const subject = fixture()
   try {
-    const refused = deploy(subject, scopeArgs(subject, 'setup', ['--agent-docs-bin', subject.agentHook]))
-    assert.notEqual(refused.status, 0)
-    assert.equal(refused.value.error.code, 'invalid-arguments')
+    const baseline = deploy(subject, scopeArgs(subject, 'setup'))
+    const legacy = deploy(subject, scopeArgs(subject, 'setup', ['--agent-docs-bin', '/legacy/bin/agent-docs']))
+    assert.equal(legacy.status, baseline.status)
+    assert.notEqual(legacy.value?.error?.code, 'invalid-arguments')
+    assert.equal(legacy.value?.ok, baseline.value?.ok)
+    assert.equal(legacy.value?.error?.code, baseline.value?.error?.code)
   } finally {
     subject.cleanup()
   }
