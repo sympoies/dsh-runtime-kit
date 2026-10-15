@@ -38,32 +38,16 @@ function sha256(value) {
 async function fixture(overrides = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-runtime-health-provider-')))
   const hook = join(root, 'agent-hook')
-  const docs = join(root, 'agent-docs')
   const session = join(root, 'agent-session')
   const hookBytes = Buffer.from('authenticated agent-hook fixture')
-  const docsBytes = Buffer.from('authenticated agent-docs fixture')
   const sessionBytes = Buffer.from('authenticated agent-session fixture')
   await writeFile(hook, hookBytes, { mode: 0o700 })
-  await writeFile(docs, docsBytes, { mode: 0o700 })
   await writeFile(session, sessionBytes, { mode: 0o700 })
   const calls = []
   let terminations = 0
   let quiescenceWaits = 0
   let releaseQuiescence
   const pendingQuiescence = new Promise(resolve => { releaseQuiescence = resolve })
-  let audit = {
-    schema_version: 'agent-docs.audit.v2',
-    target: 'project',
-    product: null,
-    strict: true,
-    docs_home: root,
-    project_path: root,
-    wiring: [],
-    skills: [],
-    documents: [],
-    problems: 0,
-    suggested_actions: [],
-  }
   function spawned(spec) {
     calls.push(spec)
     let stdout
@@ -77,10 +61,8 @@ async function fixture(overrides = {}) {
           dispatch_supported: true,
         }],
       })
-    } else if (spec.argv.includes('--version')) {
-      stdout = 'agent-docs 1.27.8 (fixture)\n'
     } else {
-      stdout = JSON.stringify(audit)
+      stdout = ''
     }
     return {
       done: overrides.doneReject === true
@@ -115,7 +97,6 @@ async function fixture(overrides = {}) {
         return join(root, 'missing-agent-hook')
       }
       if (command === 'agent-hook') return hook
-      if (command === 'agent-docs') return docs
       throw new Error('unexpected executable')
     },
     spawn(spec) { return spawned({ ...spec, executionBinding: 'path' }) },
@@ -129,7 +110,6 @@ async function fixture(overrides = {}) {
       source_revision: 'v1.27.8',
       artifacts: {
         'agent-hook': { sha256: sha256(hookBytes) },
-        'agent-docs': { sha256: sha256(docsBytes) },
         'agent-session': { sha256: sha256(sessionBytes) },
       },
     },
@@ -155,9 +135,6 @@ async function fixture(overrides = {}) {
       agentHookConfig: join(root, 'hook-config.toml'),
       agentHookPolicy: join(root, 'hook-policy.toml'),
       agentHookStateDir: root,
-      agentDocs: 'agent-docs',
-      agentDocsHome: root,
-      agentDocsStateHome: root,
     }, {
       compatibility,
       dshRuntime: { versions: { '@deepseek-ai/dsh-agent': '0.1.1-rc.2' } },
@@ -176,14 +153,12 @@ async function fixture(overrides = {}) {
     calls,
     ctx,
     subprocess,
-    docs,
     hook,
     session,
     childPlugins,
     get terminations() { return terminations },
     get quiescenceWaits() { return quiescenceWaits },
     releaseQuiescence(value = true) { releaseQuiescence(value) },
-    setAudit(value) { audit = value },
     async dispose() {
       await ctx.fiber.dispose()
       await rm(root, { recursive: true, force: true })
@@ -191,21 +166,21 @@ async function fixture(overrides = {}) {
   }
 }
 
-test('authenticated nils providers report runtime and project readiness without projecting paths', async () => {
+test('authenticated nils providers report runtime readiness without projecting paths or a project docs audit', async () => {
   const subject = await fixture()
   try {
     const runtime = await subject.ctx.dshRuntimeHealth.require('runtime-core')
-    const project = await subject.ctx.dshRuntimeHealth.require('project-docs', {
-      scope: subject.root,
-    })
     assert.equal(runtime.state, 'ready')
     assert.equal(runtime.code, 'DSH_RUNTIME_HEALTH_RUNTIME_READY')
-    assert.equal(project.state, 'ready')
-    assert.equal(project.code, 'DSH_RUNTIME_HEALTH_PROJECT_READY')
-    assert.doesNotMatch(JSON.stringify({ runtime, project }), new RegExp(subject.root))
-    assert.equal(subject.calls.length, 2)
+    assert.doesNotMatch(JSON.stringify(runtime), new RegExp(subject.root))
+    // No project-scoped catalog audit is registered; agent-docs is not a companion.
+    assert.throws(
+      () => subject.ctx.dshRuntimeHealth.snapshot('project-docs', subject.root),
+      { code: 'DSH_RUNTIME_HEALTH_CAPABILITY_UNKNOWN' },
+    )
+    assert.equal(subject.calls.length, 1)
     assert.equal(subject.calls.every(call => call.env?.HOME === undefined), true)
-    assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook && call.argv[0] !== subject.docs), true)
+    assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook), true)
     assert.equal(subject.calls.every(call => call.executionBinding === 'descriptor'), true)
     assert.equal(subject.calls.every(call => Number.isSafeInteger(call.executableFd)), true)
     assert.equal(subject.calls[0].argv[0], subject.authenticatedConfig.agentHook)
@@ -268,7 +243,7 @@ test('runtime health normalizes a missing companion path without spawning or exp
 
 test('runtime health normalizes bare companion resolution failure before spawning', async () => {
   const subject = await fixture({
-    resolveExecutableFailure: 'agent-docs',
+    resolveExecutableFailure: 'agent-hook',
     captureInstallFailure: true,
   })
   try {
@@ -346,14 +321,12 @@ test('runtime health selects platform-specific authenticated companion artifacts
       platform: 'x86_64-unknown-linux-gnu',
       artifacts: {
         'agent-hook': { sha256: '1'.repeat(64) },
-        'agent-docs': { sha256: '2'.repeat(64) },
         'agent-session': { sha256: '5'.repeat(64) },
       },
       platforms: {
         'aarch64-apple-darwin': {
           artifacts: {
             'agent-hook': { sha256: '3'.repeat(64) },
-            'agent-docs': { sha256: '4'.repeat(64) },
             'agent-session': { sha256: '6'.repeat(64) },
           },
         },
@@ -366,7 +339,6 @@ test('runtime health selects platform-specific authenticated companion artifacts
       version: '1.27.8',
       platform: 'aarch64-apple-darwin',
       hookSha256: '3'.repeat(64),
-      docsSha256: '4'.repeat(64),
       sessionSha256: '6'.repeat(64),
     },
   )
@@ -384,7 +356,6 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       platform: 'x86_64-unknown-linux-gnu',
       artifacts: {
         'agent-hook': { sha256: '1'.repeat(64) },
-        'agent-docs': { sha256: '2'.repeat(64) },
         'agent-session': { sha256: '5'.repeat(64) },
       },
     },
@@ -396,7 +367,6 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       platform: 'x86_64-unknown-linux-gnu',
       artifacts: {
         'agent-hook': { sha256: '3'.repeat(64) },
-        'agent-docs': { sha256: '4'.repeat(64) },
         'agent-session': { sha256: '6'.repeat(64) },
       },
     },
@@ -411,7 +381,6 @@ test('runtime health can select one manifest-authenticated reviewed source candi
       version: '1.27.10',
       platform: 'x86_64-unknown-linux-gnu',
       hookSha256: '3'.repeat(64),
-      docsSha256: '4'.repeat(64),
       sessionSha256: '6'.repeat(64),
     },
   )
@@ -423,42 +392,6 @@ test('runtime health can select one manifest-authenticated reviewed source candi
     ),
     error => error?.code === 'DSH_RUNTIME_HEALTH_COMPATIBILITY_INVALID',
   )
-})
-
-test('project audit failures stay typed and recover on the same hashed scope', async () => {
-  const subject = await fixture()
-  try {
-    await subject.ctx.dshRuntimeHealth.require('runtime-core')
-    subject.setAudit({ schema_version: 'unexpected', project_path: subject.root })
-    const blocked = await subject.ctx.dshRuntimeHealth.probe('project-docs', {
-      scope: subject.root,
-    })
-    assert.equal(blocked.state, 'blocked')
-    assert.equal(blocked.code, 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
-    assert.doesNotMatch(JSON.stringify(blocked), new RegExp(subject.root))
-
-    subject.setAudit({
-      schema_version: 'agent-docs.audit.v2',
-      target: 'project',
-      product: null,
-      strict: true,
-      docs_home: subject.root,
-      project_path: subject.root,
-      wiring: [],
-      skills: [],
-      documents: [],
-      problems: 0,
-      suggested_actions: [],
-    })
-    const repaired = await subject.ctx.dshRuntimeHealth.probe('project-docs', {
-      scope: subject.root,
-      force: true,
-    })
-    assert.equal(repaired.state, 'ready')
-    assert.equal(repaired.code, 'DSH_RUNTIME_HEALTH_PROJECT_READY')
-  } finally {
-    await subject.dispose()
-  }
 })
 
 test('optional child health is degraded until activation and can be refreshed natively', async () => {
@@ -549,10 +482,9 @@ test('post-start source replacement cannot change the authenticated executable s
   const subject = await fixture()
   try {
     await writeFile(subject.hook, 'malicious replacement', { mode: 0o700 })
-    await writeFile(subject.docs, 'malicious replacement', { mode: 0o700 })
     const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
     assert.equal(runtime.state, 'ready')
-    assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook && call.argv[0] !== subject.docs), true)
+    assert.equal(subject.calls.every(call => call.argv[0] !== subject.hook), true)
   } finally {
     await subject.dispose()
   }
@@ -567,7 +499,6 @@ test('descriptor execution retains private self-resolution paths until snapshot 
     assert.equal(rootMetadata.isDirectory(), true)
     assert.equal(rootMetadata.mode & 0o077, 0)
     assert.equal((await stat(subject.authenticatedConfig.agentHook)).mode & 0o077, 0)
-    assert.equal((await stat(subject.authenticatedConfig.agentDocs)).mode & 0o077, 0)
 
     const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
     assert.equal(runtime.state, 'ready')
@@ -590,12 +521,11 @@ test('snapshot execution stays descriptor-bound when its private root is replace
   try {
     assert.deepEqual(
       Object.keys(subject.authenticatedConfig).sort(),
-      ['agentDocs', 'agentHook', 'authenticatedNilsExecution'],
+      ['agentHook', 'authenticatedNilsExecution'],
     )
     await rename(snapshotRoot, displacedRoot)
     await mkdir(snapshotRoot, { mode: 0o700 })
     await writeFile(join(snapshotRoot, 'agent-hook'), 'replacement hook', { mode: 0o700 })
-    await writeFile(join(snapshotRoot, 'agent-docs'), 'replacement docs', { mode: 0o700 })
 
     const runtime = await subject.ctx.dshRuntimeHealth.probe('runtime-core')
     assert.equal(runtime.state, 'ready')
@@ -605,7 +535,6 @@ test('snapshot execution stays descriptor-bound when its private root is replace
     await subject.ctx.fiber.dispose()
     disposed = true
     assert.equal(await readFile(join(snapshotRoot, 'agent-hook'), 'utf8'), 'replacement hook')
-    assert.equal(await readFile(join(snapshotRoot, 'agent-docs'), 'utf8'), 'replacement docs')
   } finally {
     await rm(snapshotRoot, { recursive: true, force: true })
     await rm(displacedRoot, { recursive: true, force: true })

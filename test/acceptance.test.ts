@@ -41,7 +41,6 @@ const run = promisify(execFile)
 const DSH_REVISION = '9'.repeat(40)
 const HEAD = '1'.repeat(40)
 const HOOK_SHA = 'a'.repeat(64)
-const DOCS_SHA = 'b'.repeat(64)
 const AGENT_SESSION_SHA = '6'.repeat(64)
 const GIT_CLI_SHA = 'c'.repeat(64)
 const REVIEW_SHA = 'd'.repeat(64)
@@ -138,7 +137,6 @@ function authoritativeMatrix() {
       nils_source_commit: SOURCE_COMMIT,
       nils_artifacts: {
         'agent-hook': HOOK_SHA,
-        'agent-docs': DOCS_SHA,
         'agent-session': AGENT_SESSION_SHA,
         'forge-cli': FORGE_CLI_SHA,
         'git-cli': GIT_CLI_SHA,
@@ -314,11 +312,6 @@ function runtimeReceipt({ dataPolicy = true } = {}) {
         'finish-line:edit-generation-recorded',
         'artifact:session-owned-roundtrip-exported-disposed',
       ]),
-      scenario('automatic-prerequisite', 'packed-runtime', [
-        'prerequisite:mutating-tool-body-gated',
-        'prerequisite:code-mode-nested-dispatch-gated',
-        'prerequisite:context-ferried-through-run-code',
-      ]),
       scenario('validate', 'packed-runtime'),
       scenario('review', 'packed-runtime'),
       ...(dataPolicy
@@ -431,7 +424,6 @@ function nilsIdentity(
     },
     artifacts: {
       'agent-hook': { sha256: HOOK_SHA },
-      'agent-docs': { sha256: DOCS_SHA },
       'agent-session': { sha256: AGENT_SESSION_SHA },
       'git-cli': { sha256: GIT_CLI_SHA },
       'review-specialists': { sha256: REVIEW_SHA },
@@ -477,7 +469,6 @@ function releasedCompatibility(version = '1.26.4', minimum = '1.26.4') {
       },
       artifacts: {
         'agent-hook': { sha256: HOOK_SHA },
-        'agent-docs': { sha256: DOCS_SHA },
         'agent-session': { sha256: AGENT_SESSION_SHA },
         'git-cli': { sha256: GIT_CLI_SHA },
         'review-specialists': { sha256: REVIEW_SHA },
@@ -618,7 +609,7 @@ test('source rehearsal keeps delivery pending and makes only a scoped functional
   assert.equal(summary.schema_version, 'dsh-runtime-kit.acceptance-summary.v2')
   assert.equal(summary.status, 'incomplete')
   assert.equal(summary.mode, 'source-rehearsal')
-  assert.deepEqual(summary.counts, { passed: 13, pending: 2, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 12, pending: 2, failed: 0 })
   assert.deepEqual(
     summary.scenarios.filter(item => item.status === 'pending-authorization').map(item => item.id),
     ['semantic-commit', 'pr-delivery'],
@@ -701,24 +692,16 @@ test('hosted acceptance binds structured provider isolation evidence', () => {
   )
 })
 
-test('automatic prerequisite acceptance requires every native gating marker', () => {
-  const required = [
+test('the retired automatic prerequisite scenario is not an acceptance producer', () => {
+  const input = baseInput()
+  input.runtime.scenarios.splice(1, 0, scenario('automatic-prerequisite', 'packed-runtime', [
     'prerequisite:mutating-tool-body-gated',
-    'prerequisite:code-mode-nested-dispatch-gated',
-    'prerequisite:context-ferried-through-run-code',
-  ]
-  assert.doesNotThrow(() => buildAcceptanceSummary(baseInput()))
-  for (const missing of required) {
-    const input = baseInput()
-    const automatic = input.runtime.scenarios.find(item => item.id === 'automatic-prerequisite')
-    automatic.evidence = automatic.evidence.filter(value => value !== missing)
-    assert.throws(
-      () => buildAcceptanceSummary(input),
-      error => error instanceof AcceptanceError
-        && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
-      missing,
-    )
-  }
+  ]))
+  assert.throws(
+    () => buildAcceptanceSummary(input),
+    error => error instanceof AcceptanceError
+      && error.code === 'DSH_RUNTIME_KIT_ACCEPTANCE_RECEIPT_INVALID',
+  )
 })
 
 test('native subagent acceptance requires distinct workspace and pre-prompt lease evidence', () => {
@@ -931,7 +914,7 @@ test('only exact released artifacts plus one correlated no-merge delivery comple
 
   assert.equal(summary.status, 'pass')
   assert.equal(summary.mode, 'released')
-  assert.deepEqual(summary.counts, { passed: 14, pending: 0, failed: 0 })
+  assert.deepEqual(summary.counts, { passed: 13, pending: 0, failed: 0 })
 })
 
 test('a newer exact release may retain an older supported minimum', () => {
@@ -2059,7 +2042,7 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
   assert.match(authoritativeSmoke, /DSH_RUNTIME_HEALTH_COMPANION_IDENTITY_INVALID/u)
   assert.match(
     authoritativeSmoke,
-    /DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion/u,
+    /DSH_RUNTIME_KIT_AGENT_HOOK_BIN: mismatchCompanion/u,
     'the negative health leg must inject a deterministic unauthenticated companion',
   )
   assert.doesNotMatch(
@@ -2178,7 +2161,6 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
-      '--agent-docs-bin', '/bin/true',
       '--agent-session-bin', '/bin/true',
       '--git-cli-bin', '/bin/true',
       '--review-specialists-bin', '/bin/true',
@@ -2202,7 +2184,6 @@ test('acceptance runner is packaged with its scenario programs and rejects old r
       join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
       '--dsh-source-root', '/tmp',
       '--agent-hook-bin', '/bin/true',
-      '--agent-docs-bin', '/bin/true',
       '--agent-session-bin', '/bin/true',
       '--git-cli-bin', '/bin/true',
       '--review-specialists-bin', '/bin/true',
@@ -2235,7 +2216,6 @@ test('acceptance runner reports a sanitized phase for unexpected workspace failu
         join(projectRoot, 'dist', 'scripts', 'run-acceptance.js'),
         '--dsh-source-root', '/tmp',
         '--agent-hook-bin', '/bin/true',
-        '--agent-docs-bin', '/bin/true',
         '--agent-session-bin', '/bin/true',
         '--git-cli-bin', '/bin/true',
         '--review-specialists-bin', '/bin/true',

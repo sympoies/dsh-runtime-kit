@@ -154,6 +154,13 @@ writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\\n')
 
   const agentHook = join(root, 'fake-agent-hook.mjs')
   writeFileSync(agentHook, `#!/usr/bin/env node
+if (process.argv.length === 3 && process.argv[2] === '--version') {
+  const { existsSync } = await import('node:fs')
+  const { dirname, join } = await import('node:path')
+  const version = existsSync(join(dirname(process.argv[1]), 'agent-hook-unsupported')) ? '1.27.0' : '1.33.0'
+  process.stdout.write('agent-hook ' + version + ' (v' + version + ', test)\\n')
+  process.exit(0)
+}
 if (process.argv.includes('inventory')) {
   process.stdout.write(JSON.stringify({
     schema_version: 'cli.agent-hook.inventory.v1',
@@ -170,13 +177,7 @@ process.stdout.write(JSON.stringify({
 }) + '\\n')
 `)
   chmodSync(agentHook, 0o755)
-  const agentDocs = join(root, 'fake-agent-docs.mjs')
-  writeFileSync(agentDocs, `#!/usr/bin/env node
-if (process.argv.length !== 3 || process.argv[2] !== '--version') process.exit(91)
-process.stdout.write('agent-docs 1.33.0 (v1.33.0, test)\\n')
-`)
-  chmodSync(agentDocs, 0o755)
-  return { commandDir, dsh, agentHook, agentDocs }
+  return { commandDir, dsh, agentHook }
 }
 
 function fixture() {
@@ -217,7 +218,6 @@ function scopeArgs(subject, phase, extra = []) {
     '--runtime-root', subject.runtimeRoot,
     '--dsh-bin', subject.dsh,
     '--agent-hook-bin', subject.agentHook,
-    '--agent-docs-bin', subject.agentDocs,
     ...extra,
   ]
 }
@@ -342,6 +342,17 @@ test('missing or ambiguous deploy scope fails typed before any engine or profile
   }
 })
 
+test('the retired agent-docs executable flag is refused as an unknown argument', () => {
+  const subject = fixture()
+  try {
+    const refused = deploy(subject, scopeArgs(subject, 'setup', ['--agent-docs-bin', subject.agentHook]))
+    assert.notEqual(refused.status, 0)
+    assert.equal(refused.value.error.code, 'invalid-arguments')
+  } finally {
+    subject.cleanup()
+  }
+})
+
 test('an artifact whose digest or structure does not match is refused before staging or mutation', () => {
   const subject = fixture()
   try {
@@ -428,9 +439,12 @@ test('canary scope refuses the primary DSH home and primary scope requires recor
   }
 })
 
-test('doctor on a profile without an activation is a typed profile-unhealthy result', () => {
+test('doctor on a profile with an unsupported companion is a typed profile-unhealthy result', () => {
   const subject = fixture()
   try {
+    // A profile without an activation is otherwise healthy; an agent-hook
+    // outside the supported nils window makes the engine report it unhealthy.
+    writeFileSync(join(subject.root, 'agent-hook-unsupported'), '')
     const receiptPath = join(subject.root, 'receipts', 'doctor.json')
     const unhealthy = deploy(subject, scopeArgs(subject, 'doctor', ['--receipt', receiptPath]))
     assert.equal(unhealthy.status, 65, `${unhealthy.stdout}\n${unhealthy.stderr}`)

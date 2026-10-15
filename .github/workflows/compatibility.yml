@@ -67,11 +67,6 @@ jobs:
         env:
           AGENT_SESSION_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin/agent-session
         run: npm run test:managed-session-readiness-smoke
-      - name: Validate repository agent-docs loading contract
-        env:
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin/agent-docs
-          AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin/agent-hook
-        run: npm run test:agent-docs-catalog
       - name: Provision systemd user scope for released Git trust smoke
         run: |
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
@@ -282,7 +277,6 @@ jobs:
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_FULL_HOST: ${{ matrix.channel == 'pinned' && '1' || '0' }}
           DSH_RUNTIME_KIT_SMOKE_ACCEPTANCE: ${{ matrix.channel == 'pinned' && '1' || '0' }}
         run: npm run test:smoke
@@ -348,8 +342,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.33.13-x86_64-unknown-linux-gnu/bin" \
           DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb \
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb","agent-docs":"bec837fb2c227366b4cbbeeaa1dc8c96ebe9dfe709aa2a10a655416941eea431"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb","agent-docs":"bec837fb2c227366b4cbbeeaa1dc8c96ebe9dfe709aa2a10a655416941eea431"}' \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"d882195b88ab5c7c788abdae2958a1d7e97354246c62928cf7b610955eb288eb"}' \
           DSH_ACCEPTANCE_DSH_VERSION=0.1.7-rc.1 \
           DSH_ACCEPTANCE_DSH_REVISION=46a7f68b0922371ce7144b668b90e377d8e799f4 \
           PNPM_BIN="$(command -v pnpm)" \
@@ -461,7 +455,6 @@ jobs:
         env:
           DSH_SOURCE_ROOT: ${{ github.workspace }}/deepseek-harness
           AGENT_HOOK_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-aarch64-apple-darwin/bin/agent-hook
-          AGENT_DOCS_BIN: ${{ runner.temp }}/nils-cli-v1.33.13-aarch64-apple-darwin/bin/agent-docs
           DSH_RUNTIME_KIT_SMOKE_HEALTH_ONLY: '1'
         run: npm run test:smoke
       - name: Reverse authenticated DSH patch
@@ -517,8 +510,8 @@ jobs:
           DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="$RUNNER_TEMP/nils-cli-v1.33.13-aarch64-apple-darwin/bin" \
           DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb \
           DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb \
-          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f","agent-docs":"9b80b776b9935cdc70d2e69ea5bc167e59bdf92ff6ba8ec8306ee2268ba1b003"}' \
-          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f","agent-docs":"9b80b776b9935cdc70d2e69ea5bc167e59bdf92ff6ba8ec8306ee2268ba1b003"}' \
+          DSH_ACCEPTANCE_CANDIDATE_NILS_ARTIFACTS='{"agent-hook":"2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f"}' \
+          DSH_ACCEPTANCE_BASELINE_NILS_ARTIFACTS='{"agent-hook":"2dc77341c225b7dce1c9a70453891528ce01265864c1c980888da0815834007f"}' \
           DSH_ACCEPTANCE_DSH_VERSION=0.1.7-rc.1 \
           DSH_ACCEPTANCE_DSH_REVISION=46a7f68b0922371ce7144b668b90e377d8e799f4 \
           PNPM_BIN="$(command -v pnpm)" \

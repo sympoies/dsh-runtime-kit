@@ -148,7 +148,6 @@ test('a sole failing doctor check is classified as itself, not as an unavailable
   const doctor = {
     status: 'needs-attention',
     agent_hook: healthy,
-    agent_docs: healthy,
     activation: healthy,
     dsh: healthy,
     lifecycle: { error: 'declared lifecycle is invalid' },
@@ -171,8 +170,11 @@ test('pre-model runtime-health failure keeps its allowlisted typed code', () => 
     'HealthProbeFailure: DSH_RUNTIME_HEALTH_NOT_A_REAL_CODE',
   ), undefined)
   assert.equal(runtimeHealthCodeFromCommandOutput(
-    'dsh: DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID: LLM call denied by a monotonic guard\n',
-  ), 'DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID')
+    'dsh: DSH_RUNTIME_HEALTH_RUNTIME_READY: LLM call denied by a monotonic guard\n',
+  ), undefined)
+  assert.equal(runtimeHealthCodeFromCommandOutput(
+    'dsh: DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE: LLM call denied by a monotonic guard\n',
+  ), 'DSH_RUNTIME_HEALTH_COMPANION_UNAVAILABLE')
   const outcome = classifySessionOutcome({
     exit_code: 1,
     error_code: runtimeHealthCodeFromCommandOutput(stderr),

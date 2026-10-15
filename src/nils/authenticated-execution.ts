@@ -1,4 +1,4 @@
-const AUTHENTICATED_EXECUTABLE_PATH = /^(?:(?:\/proc\/\d+\/fd\/\d+|\/dev\/fd\/\d+)(?:\/|$)|\/[^\0]*\/dsh-runtime-health-executables-[^/]+\/(?:agent-hook|agent-docs)$)/u
+const AUTHENTICATED_EXECUTABLE_PATH = /^(?:(?:\/proc\/\d+\/fd\/\d+|\/dev\/fd\/\d+)(?:\/|$)|\/[^\0]*\/dsh-runtime-health-executables-[^/]+\/agent-hook$)/u
 
 function unboundExecution(ctx: import('@deepseek-ai/cordis').Context) {
   return Object.freeze({
@@ -18,11 +18,10 @@ function unboundExecution(ctx: import('@deepseek-ai/cordis').Context) {
  * authenticated descriptor path. Standalone clients may retain ordinary
  * executable paths without a lease; a naked descriptor path always fails.
  */
-export function resolveAuthenticatedNilsExecution(ctx: import('@deepseek-ai/cordis').Context, config: {agentHook?: string, agentDocs?: string, authenticatedNilsExecution?: {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, createScope?: () => {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, dispose?: () => void | Promise<void>}}}) {
+export function resolveAuthenticatedNilsExecution(ctx: import('@deepseek-ai/cordis').Context, config: {agentHook?: string, authenticatedNilsExecution?: {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, createScope?: () => {acquire?: (signal: AbortSignal) => {signal: AbortSignal, release: () => void, spawn?: (spec: Record<string, unknown>) => import('@deepseek-ai/dsh-subprocess').SubprocessHandle}, dispose?: () => void | Promise<void>}}}) {
   const execution = config.authenticatedNilsExecution
   if (execution === undefined) {
-    if ([config.agentHook, config.agentDocs]
-      .some(path => typeof path === 'string' && AUTHENTICATED_EXECUTABLE_PATH.test(path))) {
+    if (typeof config.agentHook === 'string' && AUTHENTICATED_EXECUTABLE_PATH.test(config.agentHook)) {
       throw new TypeError('dsh-runtime-kit: authenticated nils executable requires an execution owner')
     }
     return unboundExecution(ctx)

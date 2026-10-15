@@ -404,7 +404,7 @@ test('mandatory workflow policy references resolve to DSH-owned public resources
   }
 })
 
-test('repository agent-docs semantic smoke is wired to the documented product entrypoints', () => {
+test('repository documentation entrypoints need no agent-docs activation', () => {
   const development = readFileSync(join(projectRoot, 'DEVELOPMENT.md'), 'utf8')
   const developmentReference = readFileSync(
     join(projectRoot, 'docs', 'development-reference.md'),
@@ -422,37 +422,33 @@ test('repository agent-docs semantic smoke is wired to the documented product en
 
   assert.equal(existsSync(join(projectRoot, 'CLAUDE.md')), false)
   assert.doesNotMatch(contributorEditContract, /DeepSeek|\bDSH\b|DSH runtime/iu)
-  assert.equal(
-    packageManifest.scripts['test:agent-docs-catalog'],
-    'node test/agent-docs-catalog-smoke.ts',
-  )
-  assert.match(compatibilityWorkflow, /name: Validate repository agent-docs loading contract/u)
-  assert.match(compatibilityWorkflow, /AGENT_DOCS_BIN:[^\n]*agent-docs/u)
+  assert.equal(packageManifest.scripts['test:agent-docs-catalog'], undefined)
+  assert.doesNotMatch(compatibilityWorkflow, /AGENT_DOCS_BIN|test:agent-docs-catalog/u)
   assert.match(compatibilityWorkflow, /AGENT_HOOK_BIN:[^\n]*agent-hook/u)
-  assert.match(compatibilityWorkflow, /run: npm run test:agent-docs-catalog/u)
 
-  assert.match(development, /--phase edit[\s\\]+\n\s+--strict --require-declared-intent/u)
+  assert.doesNotMatch(development, /agent-docs|preflight/u)
   assert.match(development, /docs\/development-reference\.md/u)
-  assert.match(developmentReference, /Two catalogs intentionally coexist\./u)
+  assert.doesNotMatch(developmentReference, /agent-docs preflight|--require-declared-intent/u)
+  assert.match(developmentReference, /There is no intent activation or preflight step/u)
   assert.match(developmentReference, /\| Harness \| `AGENTS\.md` \| Codex, Claude, Hermes, DSH/u)
   assert.match(
     developmentReference,
-    /\| Root catalog \| `PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,
+    /\| Repository \| `PROJECT_DEV_EDIT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit` \| yes/u,
   )
   assert.match(
     developmentReference,
-    /\| Root catalog \| `DEVELOPMENT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit`, `delivery` \| no/u,
+    /\| Repository \| `DEVELOPMENT\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `edit`, `delivery` \| no/u,
   )
   assert.match(
     developmentReference,
-    /\| Root catalog \| `docs\/policies\/upstream-contribution\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `delivery` \| no in the catalog/u,
+    /\| Repository \| `docs\/policies\/upstream-contribution\.md` \| Codex, Claude, Hermes \| `project-dev` \/ `delivery` \| no on its own/u,
   )
   assert.match(
     developmentReference,
-    /\| Packaged DSH catalog \| installed `PROJECT_DEV_EDIT\.md` \(source: `agent-docs\/PROJECT_DEV_EDIT\.md`\) \| DSH \| `project-dev` \/ `edit` \| yes/u,
+    /\| Packaged DSH guidance \| installed `PROJECT_DEV_EDIT\.md` \(source: `agent-docs\/PROJECT_DEV_EDIT\.md`\) \| DSH \| `project-dev` \/ `edit` \| yes/u,
   )
   assert.match(developmentReference, /after\s+the final mutation and before declaring the task complete/u)
-  assert.match(developmentReference, /authoritative finish-line resolver/u)
+  assert.match(developmentReference, /agent-hook's finish-line\s+service enforces it/u)
   assert.match(developmentReference, /they are not automatic model context/u)
 })
 
@@ -502,50 +498,7 @@ test('nils-cli compatibility is machine-readable and pinned to the current DSH-c
       'sympoies/nils-cli#1784',
     ],
   })
-  assert.deepEqual(
-    manifest.commands.find(command => command.id === 'agent-docs.session.context.dsh'),
-    {
-      id: 'agent-docs.session.context.dsh',
-      binary: 'agent-docs',
-      status: 'released',
-      validation: 'release-artifact-validated',
-      contracts: [
-        'cli.agent-docs.session.context.v1',
-        'decision.context.v1',
-        'agent-docs.session.v2',
-      ],
-      source_task: 'sympoies/nils-cli task 2.2',
-    },
-  )
-  assert.deepEqual(
-    manifest.commands.find(command => command.id === 'agent-docs.session.prerequisite.dsh'),
-    {
-      id: 'agent-docs.session.prerequisite.dsh',
-      binary: 'agent-docs',
-      status: 'released',
-      validation: 'release-artifact-validated',
-      contracts: [
-        'cli.agent-docs.session.prerequisite.v1',
-        'decision.prerequisite.v1',
-        'agent-docs.session.v2',
-      ],
-      source_task: 'sympoies/nils-cli#1497',
-    },
-  )
-  assert.deepEqual(
-    manifest.commands.find(command => command.id === 'agent-docs.session.commit-prerequisite.dsh'),
-    {
-      id: 'agent-docs.session.commit-prerequisite.dsh',
-      binary: 'agent-docs',
-      status: 'released',
-      validation: 'release-artifact-validated',
-      contracts: [
-        'cli.agent-docs.session.commit-prerequisite.v1',
-        'agent-docs.session.v2',
-      ],
-      source_task: 'sympoies/nils-cli#1497',
-    },
-  )
+  assert.ok(manifest.commands.every(command => command.binary !== 'agent-docs'))
   assert.deepEqual(
     manifest.commands.find(command => command.id === 'agent-hook.finish-line.dsh'),
     {

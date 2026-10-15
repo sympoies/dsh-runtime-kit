@@ -22,7 +22,7 @@
     "dsh": "compatibility/dsh.json",
     "nils_cli": "compatibility/nils-cli.json"
   },
-  "dependencies": ["agent-hook", "agent-docs"],
+  "dependencies": ["agent-hook"],
   "migrations": [
     {
       "id": "operations-state-v1-to-v2",
@@ -31,7 +31,7 @@
       "path": "doctor --repair"
     }
   ],
-  "health_probes": ["dsh-version", "agent-hook-doctor", "agent-docs-version"],
+  "health_probes": ["dsh-version", "agent-hook-doctor"],
   "lifecycle_scripts": "none",
   "removal": "owned-surfaces-only"
 }

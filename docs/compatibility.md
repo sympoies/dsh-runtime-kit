@@ -57,12 +57,12 @@ The source changes were checked against DSH by behavior and owner:
 
 | Source change | DSH route |
 | --- | --- |
-| Trusted pre-edit intent recovery | `runtime_context` prepares `project-dev` for an explicit absolute `project_path`, regardless of the session's starting cwd or the target's dirty state. Bash `workdir` and native file edits use the checkout lease's authenticated target. A pre-edit denial names the target-context route. |
+| Trusted pre-edit intent recovery | Retired: agent-hook no longer gates edits on a prepared intent. Bash `workdir` and native file edits use the checkout lease's authenticated target, regardless of the session's starting cwd or the target's dirty state. |
 | Default-branch and persistent-integration delivery hook | DSH uses the released nils-cli `block-unsafe-default-delivery` group and governed `git-cli`/`semantic-commit` routes. The Codex/Claude Python parser is not loaded by DSH. The DSH-native default-branch proof is a separate nils-cli contract. |
-| Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` for inspecting the session's repository. The v2 lease permits an explicitly resolved dirty target to pass to another session after release and terminal operations. With nils-cli v1.28.46, an idle live foreign owner may transfer an exact-target lease after one approval; active operations and stale conflicts stay fenced. A session started outside Git uses `runtime_context` with the target path directly. |
+| Dirty checkout recovery hook | DSH uses its native checkout lease and `workspace_recovery`/`workspace_recovery_handoff` for inspecting the session's repository. The v2 lease permits an explicitly resolved dirty target to pass to another session after release and terminal operations. With nils-cli v1.28.46, an idle live foreign owner may transfer an exact-target lease after one approval; active operations and stale conflicts stay fenced. A session started outside Git sets Bash `workdir` to the target directly. |
 | Artifact routing and portable path hook | DSH provides session-owned `artifact_*` tools. The released nils-cli v1.28.43 native `portable-paths-scan` group also rejects hand-built `agent-out` directories and repo-local `.cache` scratch for DSH; the rule is not reimplemented in JavaScript. |
 | Coordination, health, skills, docs prompt, and finish-line hooks | DSH uses native coordination and runtime-health surfaces, selective `runtime_context`, and its nils/runtime-kit finish-line coordinator. macOS Bash and symlink fixes apply to the host-hook launchers, not to DSH's subprocess adapter. |
-| Devlog, upstream, Git delivery, review, browser, evidence, memory, and work-mode documents | DSH sessions in any repository receive DSH-native adaptations from the packaged `agent-docs/` catalog through `runtime_context`; see the home-policy dispositions below. A repository's own catalog adds project documents only for the products it names. Codex/Claude-only invocation text is not copied. |
+| Devlog, upstream, Git delivery, review, browser, evidence, memory, and work-mode documents | DSH sessions in any repository receive DSH-native adaptations of the packaged `agent-docs/` documents through `runtime_context`; see the home-policy dispositions below. Codex/Claude-only invocation text is not copied. |
 
 ### Home-policy dispositions
 
@@ -222,7 +222,8 @@ are recorded in
 [`compatibility/retired-surfaces.json`](../compatibility/retired-surfaces.json);
 see [Retired surfaces](#retired-surfaces). A
 platform may activate native health only when its exact archive, `agent-hook`,
-and `agent-docs` digests are recorded. A local nils checkout or ambient
+and `agent-session` digests are recorded. The `agent-docs` companion is retired
+and is neither pinned nor run; the release floor is enforced on `agent-hook`. A local nils checkout or ambient
 prototype binary is not release compatibility evidence.
 
 The same manifest may carry a separate exact-head candidate validation record.
@@ -354,7 +355,7 @@ companion is available, against the inventory.
 | Tier | Rules | Default | Downgrade |
 | --- | --- | --- | --- |
 | `integrity` (A) | `dsh.owner-unclaimed`, `dsh.semantic-conflict`, `dsh.operation-lifecycle-tool`, `dsh.operation-lifecycle-stop`, `dsh.agent-scope-lock-guard`, `dsh.checkout-lease-guard`, `dsh.mcp-secret-scan` | block | none; `locked`, and nils rejects any other declaration (`tier-a-rule-not-locked`) |
-| `governed-seam` (B) | `dsh.block-direct-git-commit`, `dsh.block-direct-git-worktree`, `dsh.block-direct-pr-create`, `dsh.block-unsafe-default-delivery`, `dsh.semantic-commit-body-gate`, `dsh.block-project-memory-write`, `dsh.portable-paths-scan`, `dsh.pre-edit-intent-gate` | block, naming the governed replacement | per rule to `advise` through `--policy-overrides` (see [operations](operations.md#debug-time-policy-downgrades)); `downgrade-only` |
+| `governed-seam` (B) | `dsh.block-direct-git-commit`, `dsh.block-direct-git-worktree`, `dsh.block-direct-pr-create`, `dsh.block-unsafe-default-delivery`, `dsh.semantic-commit-body-gate`, `dsh.block-project-memory-write`, `dsh.portable-paths-scan` | block, naming the governed replacement | per rule to `advise` through `--policy-overrides` (see [operations](operations.md#debug-time-policy-downgrades)); `downgrade-only` |
 | `reminder` (C) | `dsh.block-direct-python`, `dsh.forge-label-reminder`, `dsh.memory-write-principle-reminder`, `dsh.skill-usage-reminder`, `dsh.stop-pre-pr-reminder`, `dsh.user-prompt-agent-memory`, `dsh.agent-activity` | context, once per session | n/a; `locked`, and a reminder never blocks |
 
 Two nils behaviours that this table changed are recorded as reduced surfaces:

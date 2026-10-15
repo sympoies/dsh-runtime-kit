@@ -20,10 +20,8 @@ import { spawnSync } from 'node:child_process'
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const dshRoot = resolve(process.env.DSH_SOURCE_ROOT ?? '')
 const agentHookBin = resolve(process.env.AGENT_HOOK_BIN ?? '')
-const agentDocsBin = resolve(process.env.AGENT_DOCS_BIN ?? '')
 assert.notEqual(process.env.DSH_SOURCE_ROOT, undefined, 'set DSH_SOURCE_ROOT')
 assert.notEqual(process.env.AGENT_HOOK_BIN, undefined, 'set AGENT_HOOK_BIN')
-assert.notEqual(process.env.AGENT_DOCS_BIN, undefined, 'set AGENT_DOCS_BIN')
 assert.notEqual(
   process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1,
   undefined,
@@ -204,7 +202,6 @@ function operation(args) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
-      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: agentDocsBin,
       DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
       DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
@@ -298,7 +295,6 @@ function deployScope(phase, extra = [], target = { profile: 'operations-smoke', 
     '--runtime-root', target.runtimeRoot,
     '--dsh-bin', wrapper,
     '--agent-hook-bin', agentHookBin,
-    '--agent-docs-bin', agentDocsBin,
     '--stage-root', join(temporaryRoot, 'deploy-stage'),
     ...extra,
   ]
@@ -369,9 +365,9 @@ try {
   const doctor = operation(['doctor', '--profile', 'operations-smoke'])
   assert.equal(doctor.status, 'healthy')
   assert.equal(doctor.agent_hook.ok, true)
-  assert.equal(doctor.agent_docs.ok, true)
+  assert.equal(doctor.agent_docs, undefined)
+  assert.match(doctor.agent_hook.version, /^\d+\.\d+\.\d+$/u)
   assert.equal(doctor.activation.status, 'activated')
-  assert.equal(doctor.agent_docs.catalog.startsWith(`${runtimeRoot}/assets/`), true)
   assert.equal(doctor.dsh.version, pinnedDshVersion)
 
   acceptanceStep = 'profile-update'

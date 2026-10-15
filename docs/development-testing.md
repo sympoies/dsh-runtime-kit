@@ -274,7 +274,7 @@ receipt and a focused owner regression before restoring the outer matrix.
 
 | Observed gap | Canonical owner | Required response |
 | --- | --- | --- |
-| Test-first evidence, agent-docs, worktrees, semantic commit, forge delivery, or reusable deterministic CLI policy | `sympoies/nils-cli` | Repair or release the shared CLI contract; do not add a JavaScript policy clone here. |
+| Test-first evidence, validation contracts, worktrees, semantic commit, forge delivery, or reusable deterministic CLI policy | `sympoies/nils-cli` | Repair or release the shared CLI contract; do not add a JavaScript policy clone here. |
 | Runtime composition, admission, operations, installed identity, receipts, scenario driver, fixtures, or this package's docs | `sympoies/dsh-runtime-kit` | Add the focused regression and repair this repository. |
 | Public application/profile semantics or reusable application acceptance | `sympoies/dsh-applications` | Repair and release the public owner, then repin the consumer. |
 | Independently released DSH plugin behavior | `sympoies/dsh-plugins` | Repair and release the plugin owner, then update compatibility evidence. |

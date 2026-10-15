@@ -40,7 +40,6 @@ const OPERATIONS = Object.freeze({
 const FAILURE_KINDS = Object.freeze([
   'workspace-lease-conflict',
   'governed-precondition',
-  'prerequisite-digest-mismatch',
   'companion-identity-mismatch',
   'unmet-validation',
   'protected-root-destination',
@@ -402,7 +401,6 @@ function fixtureContent(family: AcceptanceFixtureFamily, path: string, input: Ac
   if (path === 'fixture-source.test.mjs') {
     return "import assert from 'node:assert/strict'\nimport { plusOne } from './fixture-source.mjs'\nassert.equal(plusOne(1), 2)\n"
   }
-  if (path === 'prerequisite-marker.txt') return 'project-dev-prerequisite-ready\n'
   if (path === 'health-target.txt') return 'health-ready\n'
   if (path === 'acceptance-target.txt') return 'acceptance-before\n'
   if (path === 'acceptance-validation.mjs') {
@@ -538,7 +536,6 @@ process.stdout.write(JSON.stringify({ schema_version: 'dsh-runtime-kit.acceptanc
     runtime_kit_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_RUNTIME_KIT_BIN ?? null,
     dsh_bin: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_HOST_DSH_BIN ?? null,
     agent_hook_bin: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN ?? null,
-    agent_docs_bin: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_BIN ?? null,
     primary_artifact: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_ARTIFACT ?? null,
     primary_artifact_sha256: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_PRIMARY_ARTIFACT_SHA256 ?? null,
     update_artifact: process.env.DSH_RUNTIME_KIT_ACCEPTANCE_UPDATE_ARTIFACT ?? null,
@@ -553,7 +550,7 @@ process.umask(0o077)
 
 const input = JSON.parse(readFileSync('deploy-inputs.json', 'utf8'))
 const required = [
-  'profile', 'dsh_home', 'deploy_bin', 'engine_root', 'dsh_bin', 'agent_hook_bin', 'agent_docs_bin',
+  'profile', 'dsh_home', 'deploy_bin', 'engine_root', 'dsh_bin', 'agent_hook_bin',
   'primary_artifact', 'primary_artifact_sha256', 'update_artifact', 'update_artifact_sha256',
 ]
 if (input.schema_version !== 'dsh-runtime-kit.acceptance-deploy-inputs.v1'
@@ -567,7 +564,6 @@ const common = [
   '--runtime-root', join(input.dsh_home, 'runtime'),
   '--dsh-bin', input.dsh_bin,
   '--agent-hook-bin', input.agent_hook_bin,
-  '--agent-docs-bin', input.agent_docs_bin,
   '--scope', 'canary',
   '--stage-root', join(input.dsh_home, 'stage'),
   '--engine-root', input.engine_root,
@@ -872,7 +868,6 @@ function projectValidationCommands(family: AcceptanceFixtureFamily, input: Accep
     ? ['./deploy-probe.mjs', './fixture-validation.mjs']
     : ['./fixture-validation.mjs']
   if (!input.scenarioId.endsWith('.non-git')) {
-    if (family.id === 'automatic-prerequisite') commands.push('node fixture-source.test.mjs')
     if (family.id === 'authoritative-acceptance') commands.push('node acceptance-validation.mjs')
   }
   return commands
@@ -906,9 +901,6 @@ unmatched = "unknown"
 
 function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
   const validationCommands = projectValidationCommands(family, input)
-  const prerequisite = family.id === 'automatic-prerequisite'
-    ? '\nFor the plain-directory scenario, read `prerequisite-marker.txt` and create `prerequisite.txt` with exactly that marker. For source scenarios, repair `plusOne` so the prepared focused test passes.\n'
-    : ''
   const inducedTerminalFailure = input.phase === 'deliberate-failure'
     && validationCommands.length === 0
   const terminalMarker = inducedTerminalFailure
@@ -928,7 +920,7 @@ the catalog task, weaken a policy denial, or treat fixture metadata as proof of
 the observable outcome.
 
 When the catalog task says to run a command through DSH, use the current DSH session's Bash tool from this scenario directory. Never launch dsh, dsh-host, or another nested agent session to satisfy that instruction.
-${prerequisite}${terminalMarker}
+${terminalMarker}
 
 Capability family: ${family.id}
 `
@@ -1031,7 +1023,6 @@ function stageFixture(
     failure_kind: family.failure_kind,
     fixture_files: family.fixture_files,
     validation: {
-      source_test: family.id === 'automatic-prerequisite' ? 'node fixture-source.test.mjs' : null,
       acceptance_test: family.id === 'authoritative-acceptance' ? 'node acceptance-validation.mjs' : null,
     },
   }
@@ -1399,14 +1390,6 @@ function induceFailure(family: AcceptanceFixtureFamily, input: AcceptanceFixture
       throw error
     }
   }
-  if (state.external_snapshot === null && family.failure_kind === 'prerequisite-digest-mismatch') {
-    state.external_snapshot = snapshotAndReplace(
-      join(input.workdir, 'AGENT_DOCS.toml'),
-      input.workdir,
-      'automatic-prerequisite catalog',
-      '[[document]\n',
-    )
-  }
   if (state.external_snapshot === null && family.failure_kind === 'companion-identity-mismatch') {
     const hook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN
     if (hook === undefined) {
@@ -1449,13 +1432,6 @@ function induceFailure(family: AcceptanceFixtureFamily, input: AcceptanceFixture
 }
 
 function expectedSnapshotPath(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
-  if (family.failure_kind === 'prerequisite-digest-mismatch') {
-    return privateExternalFile(
-      join(input.workdir, 'AGENT_DOCS.toml'),
-      input.workdir,
-      'automatic-prerequisite catalog',
-    ).path
-  }
   if (family.failure_kind === 'companion-identity-mismatch') {
     const hook = process.env.DSH_RUNTIME_KIT_AGENT_HOOK_BIN
     if (hook === undefined) {

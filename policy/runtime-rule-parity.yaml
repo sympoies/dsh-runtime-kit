@@ -214,16 +214,16 @@ capability_groups:
       - nils-cli:crates/agent-hook/tests/dsh_policy.rs#task-3.3-privacy-corpus
       - dsh-runtime-kit:test/plugin-contract.test.ts#task-3.3-native-context
   - id: pre-edit-intent-gate
-    disposition: nils-capability
+    disposition: capability-retired
     migration_task: "3.2"
-    status: implemented
+    status: retired
     source_keys:
       - handler:pre-edit-intent-gate
-    implementation_owner: nils-cli:crates/agent-hook/src/dsh_policy.rs#pre-edit-intent-gate
-    test_owners:
-      - nils-cli:crates/agent-hook/tests/dsh_policy.rs#pre-edit-intent-gate
-      - dsh-runtime-kit:test/plugin-contract.test.ts#automatic-tool-prerequisites
-      - dsh-runtime-kit:test/smoke.ts#task-3.2-policy
+    implementation_owner: null
+    test_owners: []
+    replacement_groups:
+      - finish-line-record
+    retirement_evidence: agent-hook no longer gates edits on a prepared agent-docs intent; the DSH policy bundle no longer selects the group and the automatic project-dev prerequisite is removed. Repository validation contracts remain enforced by the agent-hook finish-line service.
   - id: semantic-commit-body-gate
     disposition: nils-capability
     migration_task: "3.2"
@@ -280,8 +280,7 @@ capability_groups:
     implementation_owner: dsh-runtime-kit:src/context/index.ts#createRuntimeContextTool
     test_owners:
       - dsh-runtime-kit:test/context.test.ts
-      - dsh-runtime-kit:test/plugin-contract.test.ts#automatic-tool-prerequisites
-    stronger_replacement: DSH loads no agent-docs policy corpus at session start; only the separate kit-managed home instructions load as DSH's native user-global AGENTS.md. Mutating tools resolve one execution-bound nils-owned project-dev prerequisite automatically, inject bounded context only when first materialized, and freshly verify every execution; the explicit runtime_context tool remains available for direct requests.
+    stronger_replacement: DSH loads no policy corpus at session start; only the separate kit-managed home instructions load as DSH's native user-global AGENTS.md. The explicit runtime_context tool returns the activated, digest-verified packaged guidance for a requested intent on demand.
   - id: user-prompt-agent-memory
     disposition: nils-capability
     migration_task: "3.3"

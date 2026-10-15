@@ -12,16 +12,8 @@ independently controlled hosted job can promote a candidate.
 
 ## Load this runbook
 
-Inside this repository, prepare the dedicated intent before an acceptance edit
-or delivery phase:
-
-```sh
-agent-docs preflight --intent acceptance-harness --phase edit \
-  --product codex --strict --require-declared-intent
-```
-
-Use `--product claude` for Claude Code. The root `AGENT_DOCS.toml` owns this
-intent. The installed DSH catalog remains separate and does not duplicate it.
+Inside this repository, read this runbook before an acceptance edit or
+delivery phase. The installed DSH package does not duplicate it.
 
 ## Fixed inputs
 
@@ -103,13 +95,12 @@ DSH_HOME=<clean-dsh-home>
 DSH_RUNTIME_KIT_RUNTIME_ROOT=<owner-only-runtime-root>
 DSH_RUNTIME_KIT_DSH_BIN=<absolute-host-dsh-wrapper>
 DSH_RUNTIME_KIT_AGENT_HOOK_BIN=<companions>/agent-hook
-DSH_RUNTIME_KIT_AGENT_DOCS_BIN=<companions>/agent-docs
 ```
 
 `DSH_RUNTIME_KIT_DSH_BIN` is the executable identity bound by setup and doctor.
 For `--dump-config`, direct tasks, and `acceptance-drive --dsh-bin`, invoke DSH
 through the package's launcher so it derives the exact activated policy,
-agent-docs, config, and state paths instead of relying on hand-copied values:
+packaged documents, config, and state paths instead of relying on hand-copied values:
 
 ```sh
 /absolute/dsh-runtime-kit-launch --runtime-root /absolute/runtime-root -- \
@@ -284,7 +275,7 @@ folder kind. Non-Git rows reuse one directory and must not pass
 ```sh
 /absolute/dsh-runtime-kit acceptance-drive \
   --profile headless \
-  --scenario automatic-prerequisite.git-repo \
+  --scenario governed-commit.git-repo \
   --workdir /absolute/scenario-repository \
   --output /absolute/results/baseline.jsonl \
   --artifact-dir /absolute/results/artifacts \
@@ -309,7 +300,7 @@ child of the program, not an invitation to fix it during baseline capture.
 ## Run the #D feature scenario pack
 
 `compatibility/acceptance-scenario-pack.json` is the executable accounting
-contract for child #D. It maps all 31 #D catalog rows into eleven capability
+contract for child #D. It maps all 28 #D catalog rows into ten capability
 families and gives each row two case identities:
 
 - `<scenario-id>.success` runs the committed `task` and requires an
@@ -391,7 +382,7 @@ The attestation append rejects diagnosis fields that do not match that exact
 failed result.
 
 `compatibility/acceptance-fixtures.json` is the public fixture ownership
-contract. Its eleven family recipes cover every `#D` scenario exactly once,
+contract. Its ten family recipes cover every `#D` scenario exactly once,
 name only bounded relative fixture files, select one closed failure kind, and
 declare the fixed typed operation sequence for all four transitions. The
 provider never executes manifest shell text. It writes an
@@ -418,8 +409,8 @@ evidence rows. The driver refuses a missing, changed, non-executable, malformed,
 or mismatched provider. A deliberate-failure result passes only when induction
 produced a failed structured outcome, recovery succeeded, the byte-identical
 `deliberate_failure_task` then passed as a clean retry, and cleanup succeeded.
-All eleven failure kinds are executable: workspace lease ownership, governed
-commit ordering, prerequisite digest, companion identity, authoritative
+All ten failure kinds are executable: workspace lease ownership, governed
+commit ordering, companion identity, authoritative
 validation ordering, protected destination,
 restricted-role mutation, artifact retrieval identity, lifecycle plan digest,
 dispatcher executable role, and retired-surface invocation. Each non-global
@@ -499,7 +490,7 @@ After all families and folder kinds finish, append the aggregate proof:
   --summarize-pack
 ```
 
-`dsh-runtime-kit.acceptance-drive-pack-summary.v1` passes only with all 62
+`dsh-runtime-kit.acceptance-drive-pack-summary.v1` passes only with all 56
 distinct case ids, passing driver rows, passing external attestations, and
 distinct result run ids. Retain failed attempts in the JSONL; fix only an
 in-boundary defect already recorded on the child issue, recover through the

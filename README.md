@@ -30,10 +30,9 @@ compatibility, acceptance, and delivery procedures are in the
 
 - 28 bundled public workflow skills, with native project-skill discovery and
   an optional private-skill directory.
-- Automatic execution-bound `project-dev-context` prerequisites for mutating
-  tools, with context injected once and policy freshness checked on every call.
-- Explicit `runtime_context({ intent: "project-dev" })` delivery remains
-  available without injecting a documentation corpus into every prompt.
+- Explicit `runtime_context({ intent: "project-dev" })` returns the packaged
+  edit guidance on demand, without injecting a documentation corpus into every
+  prompt or gating any tool on it.
   `runtime_context({ intent: "project-dev", phase: "delivery" })` returns the
   packaged delivery policy (the named work modes and Git delivery) and phase
   `review` the review-convergence and evidence policy, on demand. The
@@ -41,18 +40,16 @@ compatibility, acceptance, and delivery procedures are in the
   `upstream-contribution`, and `peer-coordination` intents return their
   packaged home policies.
   To work in another checkout, including from a session started outside a Git
-  repository, use
-  `runtime_context({ intent: "project-dev", project_path: "/absolute/worktree" })`
-  for the target. Set Bash `workdir` to that checkout; native file edits use
-  the checkout lease's authenticated target. A released dirty worktree may be
+  repository, set Bash `workdir` to that checkout; native file edits use the
+  checkout lease's authenticated target. A released dirty worktree may be
   picked up by the next session without moving its starting cwd. With nils-cli
   v1.28.46 and a DSH session approval policy of `ask`, an idle live foreign
   lease can transfer after approval of the exact tool call; active or uncertain
   operations remain fenced.
 - DSH lifecycle policy and result-driven validation through released nils-cli
   contracts.
-- Model-hidden native runtime health for exact DSH/nils identity, project
-  catalog readiness, and optional child capabilities. Failed dependencies are
+- Model-hidden native runtime health for exact DSH/nils identity and optional
+  child capabilities. Failed dependencies are
   rejected at DSH admission boundaries instead of becoming prompt context.
 - Strict public plugin and bot composition contracts with canonical
   dependency resolution and secret-free sibling lock receipts.
@@ -238,7 +235,7 @@ explicit `DSH_PERMISSION_MODE`, the matching approval policy, and environment-
 name credential references.
 
 All mutating operations are preview-first and digest-bound. The launcher owns
-the DSH-only hook, policy, agent-docs, and state paths; do not copy those values
+the DSH-only hook, policy, guidance, and state paths; do not copy those values
 into `$DSH_HOME/.env` or populate them individually. Full update, rollback,
 repair, remove, storage, and isolation guidance lives in the
 [operations guide](docs/operations.md).

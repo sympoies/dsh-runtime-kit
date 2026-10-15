@@ -60,17 +60,18 @@ test('every source row resolves to one completed migration with active implement
   const inventory = loadInventory()
   const groups = new Map(inventory.capability_groups.map((group) => [group.id, group]))
   assert.equal(groups.size, inventory.capability_groups.length)
-  assert.equal([...groups.values()].filter((group) => group.disposition === 'nils-capability').length, 22)
+  assert.equal([...groups.values()].filter((group) => group.disposition === 'nils-capability').length, 21)
   assert.equal([...groups.values()].filter((group) => group.disposition === 'dsh-native').length, 3)
   assert.equal([...groups.values()].filter((group) => group.disposition === 'provider-obsolete').length, 1)
+  assert.equal([...groups.values()].filter((group) => group.disposition === 'capability-retired').length, 1)
 
   for (const group of groups.values()) {
-    assert.ok(['nils-capability', 'dsh-native', 'provider-obsolete'].includes(group.disposition), group.id)
+    assert.ok(['nils-capability', 'dsh-native', 'provider-obsolete', 'capability-retired'].includes(group.disposition), group.id)
     assert.ok(['implemented', 'retired'].includes(group.status), group.id)
     assert.match(group.migration_task, /^(2\.[123]|3\.[1234])$/, group.id)
     assert.ok(Array.isArray(group.source_keys) && group.source_keys.length > 0, group.id)
     assert.equal(new Set(group.source_keys).size, group.source_keys.length, group.id)
-    if (group.disposition === 'provider-obsolete') {
+    if (group.disposition === 'provider-obsolete' || group.disposition === 'capability-retired') {
       assert.equal(group.status, 'retired', group.id)
       assert.ok(group.retirement_evidence?.length > 0, group.id)
       assert.ok(group.replacement_groups?.length > 0, group.id)
@@ -93,10 +94,18 @@ test('every source row resolves to one completed migration with active implement
     .filter((group) => group.disposition === 'provider-obsolete')
     .flatMap((group) => group.source_keys)
   assert.deepEqual(retiredSourceKeys, ['handler:block-claude-coauthor-trailer'])
+  // agent-hook retired the DSH pre-edit intent gate with agent-docs; the
+  // finish-line validation contract is the remaining edit-completion gate.
+  assert.deepEqual(
+    [...groups.values()]
+      .filter((group) => group.disposition === 'capability-retired')
+      .map((group) => [group.id, group.source_keys, group.replacement_groups]),
+    [['pre-edit-intent-gate', ['handler:pre-edit-intent-gate'], ['finish-line-record']]],
+  )
   for (const group of groups.values()) {
     for (const replacement of group.replacement_groups ?? []) {
       assert.equal(groups.has(replacement), true, `${group.id} replacement ${replacement}`)
-      assert.notEqual(groups.get(replacement).disposition, 'provider-obsolete', replacement)
+      assert.ok(!['provider-obsolete', 'capability-retired'].includes(groups.get(replacement).disposition), replacement)
     }
   }
 
@@ -202,7 +211,6 @@ test('the packaged Task 3.2 through 3.4 policy selects every implemented typed c
     'block-direct-python',
     'block-unsafe-default-delivery',
     'checkout-lease-guard',
-    'pre-edit-intent-gate',
     'semantic-commit-body-gate',
     'block-project-memory-write',
     'forge-label-reminder',
@@ -243,7 +251,6 @@ const TIER_TABLE = Object.freeze({
     'dsh.block-direct-git-worktree',
     'dsh.block-direct-pr-create',
     'dsh.block-unsafe-default-delivery',
-    'dsh.pre-edit-intent-gate',
     'dsh.semantic-commit-body-gate',
     'dsh.block-project-memory-write',
     'dsh.portable-paths-scan',
@@ -276,7 +283,7 @@ function tierAnnotations() {
 
 test('the packaged policy declares the accepted enforcement tiers: Tier B seams are downgrade-only and every other rule is locked', () => {
   const rules = policyRules()
-  assert.equal(rules.length, 22)
+  assert.equal(rules.length, 21)
   const annotated = new Map(tierAnnotations())
   assert.equal(annotated.size, rules.length, 'every rule carries one # tier: line')
   for (const [tier, ids] of Object.entries(TIER_TABLE)) {

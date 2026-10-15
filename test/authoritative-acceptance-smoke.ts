@@ -169,7 +169,7 @@ const cancellationPid = join(workspace, '.git', 'dsh-contained-body.pid')
 const cancellationHeartbeat = join(workspace, '.git', 'dsh-contained-body.heartbeat')
 const crashMarker = join(workspace, '.git', 'dsh-crash-body-started')
 const providerProbePath = join(hookRoot, 'provider-mismatch-probe.json')
-const mismatchCompanion = join(temporaryRoot, 'unauthenticated-agent-docs')
+const mismatchCompanion = join(temporaryRoot, 'unauthenticated-agent-hook')
 const validationCommand = `node -e ${JSON.stringify(
   "require('node:fs').appendFileSync(process.env.DSH_ACCEPTANCE_VALIDATION_MARKER,process.env.DSH_ACCEPTANCE_VALIDATION_TOKEN + '\\n',{mode:0o600})",
 )}`
@@ -233,7 +233,8 @@ function nilsEnvironment(kind) {
   const binDir = kind === 'candidate' ? candidateBinDir : baselineBinDir
   return {
     DSH_RUNTIME_KIT_AGENT_HOOK_BIN: join(binDir, 'agent-hook'),
-    DSH_RUNTIME_KIT_AGENT_DOCS_BIN: join(binDir, 'agent-docs'),
+    // A baseline package that predates the agent-docs retirement resolves
+    // that companion from PATH, which already names the baseline bin dir.
     ...kind === 'candidate' ? {
       DSH_RUNTIME_KIT_AGENT_SESSION_BIN: join(binDir, 'agent-session'),
     } : {},
@@ -494,7 +495,7 @@ digest = ${JSON.stringify(policyDigest)}
       env: {
         ...baseEnvironment,
         ...nilsEnvironment('candidate'),
-        DSH_RUNTIME_KIT_AGENT_DOCS_BIN: mismatchCompanion,
+        DSH_RUNTIME_KIT_AGENT_HOOK_BIN: mismatchCompanion,
         DSH_ACCEPTANCE_PHASE: 'provider-mismatch-probe',
         DSH_ACCEPTANCE_SESSION_ID: 'acceptance-mismatch',
         DSH_ACCEPTANCE_PROCESS_INSTANCE_SHA256: mismatchProcess,

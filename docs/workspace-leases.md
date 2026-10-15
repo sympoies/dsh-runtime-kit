@@ -257,10 +257,9 @@ allowlisted fields into DSH tool output.
 `workspace_recovery_handoff({ path })` remains a read-only inspection of a
 different clean managed worktree. It does not create, clean, stash, switch,
 adopt, commit, or transfer authority. From any session cwd, including outside
-Git, prepare `runtime_context({ intent: "project-dev", project_path: "<absolute target>" })`
-and set Bash `workdir` to the target checkout. Native
+Git, set Bash `workdir` to the target checkout. Native
 file edits use the lease's authenticated repository root. Nils checks the
-target's intent and lease for each mutation. A dirty target can pass to a new
+target's lease for each mutation. A dirty target can pass to a new
 session after the former owner releases its lease with every operation terminal.
 With nils-cli v1.28.46, a live idle owner can also transfer after the
 user approves the exact tool and takeover request. Active or uncertain operations still deny the targeted

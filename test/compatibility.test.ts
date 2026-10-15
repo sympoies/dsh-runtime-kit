@@ -1118,11 +1118,10 @@ test('compatibility workflow keeps selected channels and every patch release blo
   // The rollback_validation record keeps the frozen PR #254 package anchor separately.
   assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb/)
   assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.33\.13-x86_64-unknown-linux-gnu\/bin"/)
-  // The acceptance smoke authenticates agent-hook and agent-docs by digest, so
-  // every env-embedded artifact literal must be the manifest's for its platform.
+  // The acceptance smoke authenticates agent-hook by digest, so every
+  // env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
     'agent-hook': artifacts['agent-hook'].sha256,
-    'agent-docs': artifacts['agent-docs'].sha256,
   })
   const linuxJob = workflow.slice(0, workflow.indexOf('  macos-runtime-health:'))
   assert.match(

@@ -34,7 +34,7 @@ export function validatePolicyOverrides(value: unknown): Record<string, 'advise'
   return sorted
 }
 
-/** The catalog and edit contract every packaged `agent-docs` directory carries. */
+/** The catalog and edit contract every packaged docs directory (`agent-docs/`) carries. */
 export const AGENT_DOCS_FIXED_ENTRIES = Object.freeze(['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md'])
 /** Name of any further policy document the packaged catalog may route. */
 export const POLICY_DOCUMENT_NAME = /^[A-Z][A-Z0-9_]{0,63}\.md$/

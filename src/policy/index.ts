@@ -4,11 +4,8 @@ import { createAuthoritativeAcceptanceCoordinator } from '../authoritative-accep
 import { DshCompatibilityError } from '../compat/contract.js'
 import { onDshSessionStart } from '../compat/dsh-agent-lifecycle.js'
 import { createDshRc7Compatibility } from '../compat/dsh-rc7.js'
-import { createRuntimeContextTool } from '../context/index.js'
-import { createNilsContextClient } from '../context/nils-context.js'
-import { WorktreeTargetError } from '../workspace-recovery/verified-targets.js'
+import { createPackagedContextClient, createRuntimeContextTool } from '../context/index.js'
 import { createFinishLineCoordinator, resolveFinishLineShellTimeout } from '../finish-line/index.js'
-import { createPrerequisiteCoordinator } from '../prerequisite/index.js'
 import { createNilsFinishLineClient } from '../finish-line/nils-client.js'
 import { resolveManagedSessionPrincipal } from '../nils/session-environment.js'
 import { createNilsTransport } from './nils-transport.js'
@@ -281,7 +278,7 @@ export function normalizeSandboxEscalationRequest({
  * guard. The transport effect is registered first so reverse disposal removes
  * every ingress listener and guard before process-tree draining begins.
  */
-export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocs?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, contextTimeoutMs?: number, contextTeardownTimeoutMs?: number, maxActiveContextRequests?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>}, verifiedWorktreeTargets?: ReturnType<typeof import('../workspace-recovery/verified-targets.js').createVerifiedWorktreeTargets> } = {}, dshRuntime?: {ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}, childPlugins: ReturnType<typeof createChildPluginStatus> = createChildPluginStatus()) {
+export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHookConfig?: string, agentHookPolicy?: string, agentHookStateDir?: string, agentDocsHome?: string, agentDocsStateHome?: string, contextMaxBytes?: number, policyTimeoutMs?: number, policyTeardownTimeoutMs?: number, maxActivePolicyChecks?: number, finishLineTimeoutMs?: number, finishLineTeardownTimeoutMs?: number, maxActiveFinishLineRequests?: number, maxSameTurnFinishLineSteers?: number, nilsCompatibilityCandidate?: string, protectedRoots?: string[], dataPolicyOpaqueTools?: string[], managedSessionBridge?: {resolve?: (id:string) => unknown, authenticate?: (id:string, execution:unknown) => Promise<unknown>} } = {}, dshRuntime?: {ENV_OVERRIDES: Record<string, string>, HarnessError: new (...args: any[]) => Error, TOOL_ABORTED: string, createUserMessage(input: any): any, approveEscalation(input: any, context: any): Promise<any>, canonicalPath(path: string): string, isNonWideningSandboxEcho(permissions: string | undefined, effectiveMode: 'read-only' | 'workspace-write' | 'danger-full-access'): boolean, validateEscalationArgs(permissions: any, justification: any): void}, childPlugins: ReturnType<typeof createChildPluginStatus> = createChildPluginStatus()) {
   if (dshRuntime === undefined) {
     throw new TypeError('dsh-runtime-kit: validated DSH runtime dependencies are required')
   }
@@ -327,7 +324,7 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     throw new TypeError('dsh-runtime-kit: dataPolicyOpaqueTools must be an array of non-empty tool names')
   }
   const opaqueTools = new Set(opaqueToolConfig)
-  const contextClient = createNilsContextClient(ctx, { ...config, verifiedWorktreeTargets: config.verifiedWorktreeTargets })
+  const contextClient = createPackagedContextClient(config)
   let finishLineCoordinator: ReturnType<typeof createFinishLineCoordinator> | undefined
   const finishLineClient = createNilsFinishLineClient(ctx, {
     ...config,
@@ -493,29 +490,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
   const toolContexts: Map<Readonly<ToolExecution>, import('@deepseek-ai/dsh-llm').UserMessage[]> = new Map()
   let dataPolicyGenerations: WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], string> = new WeakMap()
   let dataPolicyAuditCount = 0
-  const prerequisites = createPrerequisiteCoordinator(
-    ctx,
-    contextClient,
-    createUserMessage,
-    async (exec, correlation, proof) => {
-      // The authoritative finish-line probe already classified this exact
-      // execution as the declared validation. Re-running generic opaque-shell
-      // policy during native prerequisite verification would contradict that
-      // typed classification and poison the still-reserved validation.
-      if (finishLine.isDeclaredValidation(exec)) return undefined
-      // A last-mile decision supersedes the earlier pre-approval advisory.
-      // Publish it only after transport succeeds so a repeated native check is
-      // transactional: uncertainty retains the last verified bounded context.
-      const decision = await transport.evaluate(exec, correlation, proof)
-      if (decision?.kind === 'context') {
-        toolContexts.set(exec, [policyContextMessage(createUserMessage, decision.context)])
-      } else {
-        toolContexts.delete(exec)
-      }
-      return decision
-    },
-    config.verifiedWorktreeTargets?.resolve,
-  )
   const authorizedTools: WeakSet<Readonly<ToolExecution>> = new WeakSet()
   let acceptedLifecycleSteps: WeakMap<import('@deepseek-ai/dsh-agent').Agent['session'], { position: string, promptDigest: string, status: 'pending' | 'accepted', context?: string, settled: Promise<boolean>, resolve: (accepted: boolean) => void }> = new WeakMap()
   let startupEvaluated: WeakSet<import('@deepseek-ai/dsh-agent').Agent['session']> = new WeakSet()
@@ -713,7 +687,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     stopPipelineOutcomes = new WeakMap()
     dataPolicyGenerations = new WeakMap()
     compatibility.dispose()
-    prerequisites.dispose()
   }, 'dsh-runtime-kit policy state')
 
   let plusOneExecutions = 0
@@ -729,7 +702,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
 
   onDshSessionStart(ctx, payload => {
     attachDataPolicyGeneration(payload.agent)
-    if (!isReviewer(payload.agent)) prerequisites.attachAgent(payload.agent)
     compatibility.sessionStart(payload)
     if (!isReviewer(payload.agent)) {
       void acceptance.sessionStarted(payload).catch(() => {})
@@ -738,7 +710,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
   ctx.on('agent/disposed', ({ agent }) => {
     dataPolicyGenerations.delete(agent.session)
     if (isReviewer(agent)) return
-    prerequisites.detachAgent(agent)
     void workspaceDisposals.track(agent, async () => {
       try {
         await acceptance.agentDisposed(agent)
@@ -961,39 +932,13 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     const rememberDenial = (reason: string) => {
       finishLine.reject(exec)
       acceptance.reject(exec)
-      prerequisites.reject(exec)
       toolContexts.delete(exec)
       authorizations.set(exec, { kind: 'deny', reason, ...identity })
       return { kind: (('deny') as const), reason }
     }
-    const prerequisiteDenial = (error: unknown) => {
-      if (error instanceof WorktreeTargetError) {
-        const guidance = error.code === 'worktree-target-ambiguous'
-          ? 'This operation spans multiple checkout targets. Split it into one target per tool call and prepare project-dev context for each target.'
-          : error.code === 'worktree-target-lease-unavailable'
-            ? 'The checkout lease could not identify this operation. Restore the lease provider, then retry the targeted call.'
-            : 'Set Bash workdir to the exact canonical target directory and call runtime_context({ intent: "project-dev", project_path: "<absolute target directory>" }) for that project.'
-        return rememberDenial(
-          `dsh-runtime-kit:${error.code}: ${guidance} The checkout lease still fences concurrent writers.`,
-        )
-      }
-      return rememberDenial(denial('prerequisite-unavailable').reason)
-    }
-
-    try {
-      prerequisites.prepare(exec)
-    } catch (error) {
-      return prerequisiteDenial(error)
-    }
     const correlation = compatibility.beginTool(exec)
     if (!correlation.ok) {
       return rememberDenial(denial(correlation.reason).reason)
-    }
-    let prerequisiteProof
-    try {
-      prerequisiteProof = await prerequisites.begin(exec, correlation.context)
-    } catch (error) {
-      return prerequisiteDenial(error)
     }
     if (closing || exec.signal.aborted) {
       return rememberDenial(denial(closing
@@ -1010,11 +955,10 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
       return rememberDenial(denial(finishProbe.reason ?? 'finish-line-unavailable').reason)
     }
 
-    if (finishProbe.kind !== 'validation'
-      && (prerequisiteProof === undefined || finishProbe.kind === 'ordinary')) {
+    if (finishProbe.kind !== 'validation') {
       let decision
       try {
-        decision = await transport.evaluate(exec, correlation.context, prerequisiteProof)
+        decision = await transport.evaluate(exec, correlation.context)
       } catch {
         if (closing) return rememberDenial(denial('policy-disposed').reason)
         return rememberDenial(denial('policy-unavailable').reason)
@@ -1074,7 +1018,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     } catch (error) {
       finishLine.reject(exec)
       acceptance.reject(exec)
-      prerequisites.reject(exec)
       compatibility.result(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
@@ -1083,7 +1026,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     if (downstream.kind !== 'allow' && downstream.kind !== 'ask') {
       finishLine.reject(exec)
       acceptance.reject(exec)
-      prerequisites.reject(exec)
       compatibility.result(exec)
       authorizations.delete(exec)
       toolContexts.delete(exec)
@@ -1184,7 +1126,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     toolContexts.delete(exec)
     finishLine.result(exec, result)
     acceptance.result(exec, result)
-    prerequisites.result(exec)
     compatibility.result(exec)
   })
 
@@ -1193,7 +1134,6 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
     get childPluginStatus() { return snapshotChildPluginStatus(childPlugins) },
     get plusOneExecutions() { return plusOneExecutions },
     get activePolicyChecks() { return transport.active },
-    get activeContextRequests() { return contextClient.active },
     get activeFinishLineRequests() { return finishLineClient.active },
     get activeFinishLineReservations() { return finishLine.activeReservations },
     get policyTransportDegraded() { return transport.degraded },
@@ -1214,21 +1154,15 @@ export function applyPolicy(ctx: Context, config: { agentHook?: string, agentHoo
         ? observed.outcome
         : undefined
     },
-    get contextTransportDegraded() { return contextClient.degraded },
     get finishLineTransportDegraded() { return finishLineClient.degraded },
     get finishLineDegraded() { return finishLine.degraded },
     get pendingPolicyMarkers() { return authorizations.size },
-    get pendingPrerequisites() { return prerequisites.pending },
     get activeAcceptanceOperations() { return acceptance.activeOperations },
-    prerequisites: prerequisites.service,
     get pendingCorrelations() { return compatibility.pendingCorrelations },
     policyTimeoutMs: transport.timeoutMs,
     policyTeardownTimeoutMs: transport.teardownTimeoutMs,
     maxActivePolicyChecks: transport.maxActive,
     contextMaxBytes: contextClient.maxBytes,
-    contextTimeoutMs: contextClient.timeoutMs,
-    contextTeardownTimeoutMs: contextClient.teardownTimeoutMs,
-    maxActiveContextRequests: contextClient.maxActive,
     finishLineTimeoutMs: finishLineClient.timeoutMs,
     finishLineTeardownTimeoutMs: finishLineClient.teardownTimeoutMs,
     maxActiveFinishLineRequests: finishLineClient.maxActive,

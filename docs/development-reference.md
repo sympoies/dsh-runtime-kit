@@ -24,7 +24,7 @@ upstream source.
   checkout for generic compatibility, patch, and packed smoke validation.
 - A released nils-cli version accepted by
   [`compatibility/nils-cli.json`](../compatibility/nils-cli.json) when
-  exercising the real policy, agent-docs, Git, review, or delivery boundaries.
+  exercising the real policy, finish-line, Git, review, or delivery boundaries.
 
 Install the package dependencies without running dependency lifecycle scripts:
 
@@ -33,43 +33,42 @@ npm ci --ignore-scripts
 ```
 
 Before editing, load the repository policy through the product-native entrypoint
-(`AGENTS.md`) and run the declared edit-phase
-preflight. `--require-declared-intent` prevents a missing or undiscovered root
-catalog from passing as an empty success:
+(`AGENTS.md`). There is no intent activation or preflight step: harness-native
+`AGENTS.md` loading carries the always-on rules, and the documents below are
+read on demand.
 
-```sh
-agent-docs preflight --intent project-dev --phase edit \
-  --strict --require-declared-intent
-```
-
-Two catalogs intentionally coexist. The repository-root `AGENT_DOCS.toml`
-routes contributor work in this checkout. The packaged
-`agent-docs/AGENT_DOCS.toml` is a DSH runtime asset whose home-scoped paths
-resolve inside the installed `agent-docs/` directory; it is not the owner of
-repository contributor routing and must not be copied over the root catalog.
+The repository-root `AGENT_DOCS.toml` still carries the `[[validation]]`
+contract and the `[path_classes]` table that nils-cli workflow primitives read;
+agent-hook's finish-line service reads that validation contract transitionally
+until it moves to a root `VALIDATION.toml`. No runtime-kit code reads the root
+file. The packaged `agent-docs/` directory is a DSH runtime asset: its guidance
+documents are installed into the activation asset set and returned by the
+`runtime_context` tool. It is not the owner of repository contributor routing
+and must not be copied over the root file.
 
 | Owner | Document | Products | Intent / phase | Required | Load timing |
 | --- | --- | --- | --- | --- | --- |
-| Harness | `AGENTS.md` | Codex, Claude, Hermes, DSH | session policy | yes | Loaded by each harness at session start; it is deliberately not duplicated in either catalog. |
-| Root catalog | `PROJECT_DEV_EDIT.md` | Codex, Claude, Hermes | `project-dev` / `edit` | yes | Loaded on every repository edit preflight as the runtime-neutral compact contributor contract. |
-| Root catalog | `docs/development-testing.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | yes | Mandatory ordered validation, receipt, owner-routing, and self-improvement contract for runtime-kit development. |
-| Root catalog | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Concise routine maintenance principles, validation, and reference routing; it is not mandatory prompt context. |
-| Root catalog | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no in the catalog | Available only in delivery preflight. The repository policy (`AGENTS.md`) makes reading it mandatory before proposing work outside this repository. |
-| Packaged DSH catalog | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Loaded from the activated DSH home catalog. DSH is excluded from the root document entries so it never receives a duplicate copy. |
-| Packaged DSH catalog | installed `WORK_MODES.md` (source: `agent-docs/WORK_MODES.md`) | DSH | `project-dev` / `delivery` | yes | Returned only by an explicit `runtime_context` call with phase `delivery`; the named work modes that decide tracking records. |
-| Packaged DSH catalog | installed `GIT_DELIVERY.md` (source: `agent-docs/GIT_DELIVERY.md`) | DSH | `project-dev` / `delivery` | yes | Returned with the work modes by an explicit `runtime_context` call with phase `delivery`; Git mutation owners, delivery modes, and cleanup. |
-| Packaged DSH catalog | installed `REVIEW_CONVERGENCE.md` (source: `agent-docs/REVIEW_CONVERGENCE.md`) | DSH | `project-dev` / `review` | yes | Returned by an explicit `runtime_context` call with phase `review`; discovery and closure generations and finding triage. |
-| Packaged DSH catalog | installed `EVIDENCE.md` (source: `agent-docs/EVIDENCE.md`) | DSH | `project-dev` / `review` | yes | Returned with review convergence in phase `review`; when evidence is warranted and test-first discipline. |
-| Packaged DSH catalog | installed `DEVLOG.md` (source: `agent-docs/DEVLOG.md`) | DSH | `devlog` | yes | Returned by an explicit `runtime_context` call with intent `devlog`; reading and appending to a repository development log. |
-| Packaged DSH catalog | installed `EXTERNAL_FACTS.md` (source: `agent-docs/EXTERNAL_FACTS.md`) | DSH | `external-facts` | yes | Returned for intent `external-facts`; verifying external claims, citations, and command-line defaults. |
-| Packaged DSH catalog | installed `BROWSER_TESTING.md` (source: `agent-docs/BROWSER_TESTING.md`) | DSH | `web-testing` | yes | Returned for intent `web-testing`; routing browser claims to the surfaces a DSH composition provides. |
-| Packaged DSH catalog | installed `MEMORY.md` (source: `agent-docs/MEMORY.md`) | DSH | `memory` | yes | Returned for intent `memory`; the personal-memory content boundary. |
-| Packaged DSH catalog | installed `UPSTREAM_CONTRIBUTION.md` (source: `agent-docs/UPSTREAM_CONTRIBUTION.md`) | DSH | `upstream-contribution` | yes | Returned for intent `upstream-contribution`; changes outside the current repository. |
-| Packaged DSH catalog | installed `PEER_COORDINATION.md` (source: `agent-docs/PEER_COORDINATION.md`) | DSH | `peer-coordination` | yes | Returned for intent `peer-coordination`; session board check, mailbox checkpoints, and disposition replies for managed peer sessions. |
-| Packaged DSH home | kit-managed `<dshHome>/AGENTS.md` (source: `agent-home/AGENTS.md`) | DSH | session policy | yes | DSH's native instruction loader reads it at session start in every composition. It is home-scope runtime policy for DSH sessions, not repository contributor policy, and is in neither catalog. |
+| Harness | `AGENTS.md` | Codex, Claude, Hermes, DSH | session policy | yes | Loaded by each harness at session start. |
+| Repository | `PROJECT_DEV_EDIT.md` | Codex, Claude, Hermes | `project-dev` / `edit` | yes | The runtime-neutral compact contributor contract; read before a repository edit. |
+| Repository | `docs/development-testing.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | yes | Mandatory ordered validation, receipt, owner-routing, and self-improvement contract for runtime-kit development. |
+| Repository | `DEVELOPMENT.md` | Codex, Claude, Hermes | `project-dev` / `edit`, `delivery` | no | Concise routine maintenance principles, validation, and reference routing; it is not mandatory prompt context. |
+| Repository | `docs/policies/upstream-contribution.md` | Codex, Claude, Hermes | `project-dev` / `delivery` | no on its own | The repository policy (`AGENTS.md`) makes reading it mandatory before proposing work outside this repository. |
+| Packaged DSH guidance | installed `PROJECT_DEV_EDIT.md` (source: `agent-docs/PROJECT_DEV_EDIT.md`) | DSH | `project-dev` / `edit` | yes | Returned by an explicit `runtime_context` call with intent `project-dev` (default phase `edit`); no tool call loads it automatically. |
+| Packaged DSH guidance | installed `WORK_MODES.md` (source: `agent-docs/WORK_MODES.md`) | DSH | `project-dev` / `delivery` | yes | Returned only by an explicit `runtime_context` call with phase `delivery`; the named work modes that decide tracking records. |
+| Packaged DSH guidance | installed `GIT_DELIVERY.md` (source: `agent-docs/GIT_DELIVERY.md`) | DSH | `project-dev` / `delivery` | yes | Returned with the work modes by an explicit `runtime_context` call with phase `delivery`; Git mutation owners, delivery modes, and cleanup. |
+| Packaged DSH guidance | installed `REVIEW_CONVERGENCE.md` (source: `agent-docs/REVIEW_CONVERGENCE.md`) | DSH | `project-dev` / `review` | yes | Returned by an explicit `runtime_context` call with phase `review`; discovery and closure generations and finding triage. |
+| Packaged DSH guidance | installed `EVIDENCE.md` (source: `agent-docs/EVIDENCE.md`) | DSH | `project-dev` / `review` | yes | Returned with review convergence in phase `review`; when evidence is warranted and test-first discipline. |
+| Packaged DSH guidance | installed `DEVLOG.md` (source: `agent-docs/DEVLOG.md`) | DSH | `devlog` | yes | Returned by an explicit `runtime_context` call with intent `devlog`; reading and appending to a repository development log. |
+| Packaged DSH guidance | installed `EXTERNAL_FACTS.md` (source: `agent-docs/EXTERNAL_FACTS.md`) | DSH | `external-facts` | yes | Returned for intent `external-facts`; verifying external claims, citations, and command-line defaults. |
+| Packaged DSH guidance | installed `BROWSER_TESTING.md` (source: `agent-docs/BROWSER_TESTING.md`) | DSH | `web-testing` | yes | Returned for intent `web-testing`; routing browser claims to the surfaces a DSH composition provides. |
+| Packaged DSH guidance | installed `MEMORY.md` (source: `agent-docs/MEMORY.md`) | DSH | `memory` | yes | Returned for intent `memory`; the personal-memory content boundary. |
+| Packaged DSH guidance | installed `UPSTREAM_CONTRIBUTION.md` (source: `agent-docs/UPSTREAM_CONTRIBUTION.md`) | DSH | `upstream-contribution` | yes | Returned for intent `upstream-contribution`; changes outside the current repository. |
+| Packaged DSH guidance | installed `PEER_COORDINATION.md` (source: `agent-docs/PEER_COORDINATION.md`) | DSH | `peer-coordination` | yes | Returned for intent `peer-coordination`; session board check, mailbox checkpoints, and disposition replies for managed peer sessions. |
+| Packaged DSH home | kit-managed `<dshHome>/AGENTS.md` (source: `agent-home/AGENTS.md`) | DSH | session policy | yes | DSH's native instruction loader reads it at session start in every composition. It is home-scope runtime policy for DSH sessions, not repository contributor policy. |
 
-The root catalog's `project-dev` validation contract applies to Codex, Claude,
-Hermes, and DSH when they work in this repository. Run its three commands after
+The repository's `project-dev` validation contract applies to Codex, Claude,
+Hermes, and DSH when they work in this repository; agent-hook's finish-line
+service enforces it. Run its three commands after
 the final mutation and before declaring the task complete: `npm test`,
 `npm run typecheck`, and `npm run benchmark:policy`. Architecture, operations,
 acceptance, and retained evidence remain on-demand references reached through
@@ -186,12 +185,9 @@ npm run typecheck
 npm run benchmark:policy
 ```
 
-The GitHub package matrix runs these commands on Node.js 24. It also uses the
-pinned released `agent-docs` and `agent-hook` binaries to audit the root
-catalog, resolve every Codex/Claude/Hermes phase, prove packaged DSH document
-isolation, and classify all three DSH validation commands through the
-authoritative finish-line resolver. The remaining jobs benchmark the packed
-runtime and validate the selected DSH public package closure.
+The GitHub package matrix runs these commands on Node.js 24. The remaining jobs
+use the pinned released `agent-hook` binary, benchmark the packed runtime, and
+validate the selected DSH public package closure.
 
 For documentation-only changes, also check whitespace, local Markdown links,
 and the publishable package contents:
@@ -226,7 +222,6 @@ node dist/scripts/manage-dsh-patch.js --action apply \
 pnpm --dir /path/to/deepseek-harness run build:lib:host
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
-AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_SMOKE_GIT_CLI_BIN=/path/to/nils-cli/bin/git-cli \
 DSH_RUNTIME_KIT_SMOKE_SEMANTIC_COMMIT_BIN=/path/to/nils-cli/bin/semantic-commit \
 npm run test:smoke
@@ -280,7 +275,6 @@ and the repository-owned deploy dispatcher it drives through real DSH:
 ```sh
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-cli/bin/agent-hook \
-AGENT_DOCS_BIN=/path/to/nils-cli/bin/agent-docs \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V1=/path/to/package-v1 \
 DSH_RUNTIME_KIT_ACCEPTANCE_PACKAGE_V2=/path/to/package-v2 \
 DSH_RUNTIME_KIT_DEPLOY_DISPATCHER=/path/to/checkout/.agents/scripts/deploy.sh \
@@ -393,7 +387,6 @@ executables and provenance, and package-manager paths:
 npm run acceptance -- \
   --dsh-source-root /absolute/path/to/deepseek-harness \
   --agent-hook-bin /absolute/path/to/nils-cli/bin/agent-hook \
-  --agent-docs-bin /absolute/path/to/nils-cli/bin/agent-docs \
   --agent-session-bin /absolute/path/to/nils-cli/bin/agent-session \
   --git-cli-bin /absolute/path/to/nils-cli/bin/git-cli \
   --review-specialists-bin /absolute/path/to/nils-cli/bin/review-specialists \
@@ -438,7 +431,6 @@ node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc -b tsconfig.hos
 cd -
 DSH_SOURCE_ROOT=/path/to/deepseek-harness \
 AGENT_HOOK_BIN=/path/to/nils-bin/agent-hook \
-AGENT_DOCS_BIN=/path/to/nils-bin/agent-docs \
 npm run test:smoke
 ```
 

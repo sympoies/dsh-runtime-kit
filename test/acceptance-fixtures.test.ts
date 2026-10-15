@@ -122,7 +122,7 @@ test('fixture manifest owns every #D row exactly once with bounded inverse recip
   const observed = manifest.families.flatMap(family => family.scenario_ids).sort()
 
   assert.equal(manifest.schema_version, 'dsh-runtime-kit.acceptance-fixtures.v1')
-  assert.equal(manifest.families.length, 11)
+  assert.equal(manifest.families.length, 10)
   assert.deepEqual(observed, expected)
   for (const family of manifest.families) {
     assert.deepEqual(family.transitions, {
@@ -163,20 +163,20 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
   const input = {
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
     phase: 'deliberate-failure' as const,
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.non-git',
-    profile: 'headless-automatic-prerequisite',
+    family: 'data-policy',
+    scenarioId: 'data-policy.non-git',
+    profile: 'headless-data-policy',
     workdir,
     dshHome,
   }
 
   const induced = runAcceptanceFixture({ ...input, stage: 'induce' })
   assert.equal(induced.data.status, 'pass')
-  assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
+  assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'), '.dsh-acceptance/protected/target.txt\n')
   assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), true)
   assert.equal(
     JSON.parse(readFileSync(join(workdir, 'acceptance-fixture.json'), 'utf8')).terminal_marker,
-    'DSH_ACCEPTANCE_RECOVERED:automatic-prerequisite.non-git',
+    'DSH_ACCEPTANCE_RECOVERED:data-policy.non-git',
   )
   assert.equal(statSync(join(workdir, 'fixture-validation.mjs')).mode & 0o777, 0o700)
   assert.match(
@@ -195,10 +195,8 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
     readFileSync(join(workdir, 'PROJECT_DEV_EDIT.md'), 'utf8'),
     /terminal_marker[\s\S]*do not derive it from a workdir/iu,
   )
-  assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
-  assert.equal(readFileSync(join(workdir, 'prerequisite-marker.txt'), 'utf8'), 'project-dev-prerequisite-ready\n')
-  assert.equal(existsSync(join(workdir, 'prerequisite.txt')), false)
-  assert.equal(
+  assert.equal(readFileSync(join(workdir, 'ordinary.txt'), 'utf8'), 'ordinary-ok\n')
+    assert.equal(
     readFileSync(join(workdir, '.dsh-acceptance', 'protected', '.fixture-root'), 'utf8'),
     'dsh-acceptance-protected-root\n',
   )
@@ -211,13 +209,13 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
 
   const recovered = runAcceptanceFixture({ ...input, stage: 'recover' })
   assert.equal(recovered.data.status, 'pass')
+  assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'), 'ordinary-copy.txt\n')
   assert.match(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), /context = "project-dev"/u)
   assert.match(
     readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'),
     /commands = \["\.\/fixture-validation\.mjs"\]/u,
   )
   assert.equal(existsSync(join(workdir, '.dsh-acceptance', 'failure.json')), false)
-  assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
   const recoveredValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
     cwd: workdir,
     encoding: 'utf8',
@@ -228,8 +226,8 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
   const cleaned = runAcceptanceFixture({ ...input, stage: 'cleanup' })
   assert.equal(cleaned.data.status, 'pass')
   assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), false)
-  assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
-  assert.equal(existsSync(join(workdir, 'prerequisite-marker.txt')), true)
+  assert.equal(existsSync(join(workdir, 'AGENT_DOCS.toml')), false)
+  assert.equal(existsSync(join(workdir, 'ordinary.txt')), true)
   assert.equal(readFileSync(join(workdir, 'caller-owned.txt'), 'utf8'), 'retain\n')
   assert.equal(cleaned.data.evidence.every(row => !row.reference.startsWith('/') && !row.reference.includes('..')), true)
 })
@@ -780,7 +778,6 @@ process.stdout.write(JSON.stringify({ ok: true, data }))
     runtime_kit_bin: process.execPath,
     dsh_bin: process.execPath,
     agent_hook_bin: process.execPath,
-    agent_docs_bin: process.execPath,
     primary_artifact: join(root, 'primary.tgz'),
     primary_artifact_sha256: 'a'.repeat(64),
     update_artifact: join(root, 'update.tgz'),
@@ -843,7 +840,7 @@ test('provider refuses to replace caller-owned fixture paths and symlinked roots
   }), /real directory/u)
 })
 
-test('automatic prerequisite source scenarios register the focused task validation', async () => {
+test('authoritative acceptance source scenarios register the focused task validation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'acceptance-fixture-source-validation-'))
   const workdir = join(root, 'workdir')
   const dshHome = join(root, 'dsh-home')
@@ -854,8 +851,8 @@ test('automatic prerequisite source scenarios register the focused task validati
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1',
     stage: 'prepare',
     phase: 'success',
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.git-repo',
+    family: 'authoritative-acceptance',
+    scenarioId: 'authoritative-acceptance.git-repo',
     profile: 'headless-source-validation',
     workdir,
     dshHome,
@@ -864,7 +861,7 @@ test('automatic prerequisite source scenarios register the focused task validati
   const catalog = readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8')
   assert.match(
     catalog,
-    /commands = \["\.\/fixture-validation\.mjs","node fixture-source\.test\.mjs"\]/u,
+    /commands = \["\.\/fixture-validation\.mjs","node acceptance-validation\.mjs"\]/u,
   )
 })
 
@@ -908,7 +905,7 @@ test('governed request gives the harness one concrete ordered operation', async 
   assert.deepEqual(recovered.commit, induced.commit)
 })
 
-test('all eleven typed failure recipes induce and recover exact inputs', { concurrency: false }, async () => {
+test('all ten typed failure recipes induce and recover exact inputs', { concurrency: false }, async () => {
   const manifest = loadAcceptanceFixtureManifest()
   for (const family of manifest.families) {
     const root = await mkdtemp(join(tmpdir(), `acceptance-fixture-${family.id}-`))
@@ -991,9 +988,6 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
         assert.equal(JSON.parse(readFileSync(join(workdir, 'governed-request.json'), 'utf8')).expected_outcome,
           'stop-on-governed-precondition-refusal')
       }
-      if (family.id === 'automatic-prerequisite') {
-        assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
-      }
       if (family.id === 'runtime-health') assert.equal(statSync(hook).mode & 0o111, 0)
       if (family.id === 'authoritative-acceptance') {
         assert.deepEqual(JSON.parse(readFileSync(join(workdir, 'acceptance-request.json'), 'utf8')).sequence,
@@ -1039,7 +1033,6 @@ process.stdout.write(JSON.stringify({ ok: true, data: action === 'release' ? {
         assert.equal(JSON.parse(readFileSync(join(workdir, 'governed-request.json'), 'utf8')).expected_outcome,
           'typed-default-branch-refusal')
       }
-      if (family.id === 'automatic-prerequisite') assert.match(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), /context = "project-dev"/u)
       if (family.id === 'runtime-health') assert.notEqual(statSync(hook).mode & 0o111, 0)
       if (family.id === 'authoritative-acceptance') {
         assert.deepEqual(JSON.parse(readFileSync(join(workdir, 'acceptance-request.json'), 'utf8')).sequence,
@@ -1089,8 +1082,8 @@ test('fixture state is independently bound to each canonical workdir', async () 
   const input = {
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
     phase: 'deliberate-failure' as const,
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.non-git',
+    family: 'data-policy',
+    scenarioId: 'data-policy.non-git',
     profile: 'headless-state-binding',
     workdir,
     dshHome,
@@ -1099,7 +1092,7 @@ test('fixture state is independently bound to each canonical workdir', async () 
   writeFileSync(join(otherWorkdir, 'AGENT_DOCS.toml'), 'caller-owned\n', { mode: 0o600 })
   runAcceptanceFixture({ ...input, workdir: otherWorkdir, stage: 'cleanup' })
   assert.equal(readFileSync(join(otherWorkdir, 'AGENT_DOCS.toml'), 'utf8'), 'caller-owned\n')
-  assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
+  assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'), '.dsh-acceptance/protected/target.txt\n')
   runAcceptanceFixture({ ...input, stage: 'recover' })
   runAcceptanceFixture({ ...input, stage: 'cleanup' })
 })
@@ -1112,26 +1105,26 @@ test('success evidence remains attestable and is reset only for the paired failu
   mkdirSync(dshHome, { mode: 0o700 })
   const base = {
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.non-git',
+    family: 'data-policy',
+    scenarioId: 'data-policy.non-git',
     profile: 'headless-phase-pair',
     workdir,
     dshHome,
   }
   runAcceptanceFixture({ ...base, stage: 'prepare', phase: 'success' })
-  writeFileSync(join(workdir, 'fixture-source.mjs'), 'externally-attested-task-result\n', { mode: 0o600 })
+  writeFileSync(join(workdir, 'ordinary.txt'), 'externally-attested-task-result\n', { mode: 0o600 })
   runAcceptanceFixture({ ...base, stage: 'cleanup', phase: 'success' })
   assert.equal(
-    readFileSync(join(workdir, 'fixture-source.mjs'), 'utf8'),
+    readFileSync(join(workdir, 'ordinary.txt'), 'utf8'),
     'externally-attested-task-result\n',
   )
 
   runAcceptanceFixture({ ...base, stage: 'induce', phase: 'deliberate-failure' })
   assert.equal(
-    readFileSync(join(workdir, 'fixture-source.mjs'), 'utf8'),
-    'export const plusOne = value => value\n',
+    readFileSync(join(workdir, 'ordinary.txt'), 'utf8'),
+    'ordinary-ok\n',
   )
-  assert.equal(readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'), '[[document]\n')
+  assert.equal(readFileSync(join(workdir, 'data-destination.txt'), 'utf8'), '.dsh-acceptance/protected/target.txt\n')
   assert.throws(
     () => runAcceptanceFixture({ ...base, stage: 'prepare', phase: 'success' }),
     /active fixture phase does not match/u,
@@ -1148,8 +1141,8 @@ test('a cleaned fixture may replay the same phase after a harness-level failure'
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
     stage: 'prepare' as const,
     phase: 'success' as const,
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.git-repo',
+    family: 'data-policy',
+    scenarioId: 'data-policy.git-repo',
     profile: 'headless-replay',
     workdir,
     dshHome,
@@ -1161,7 +1154,7 @@ test('a cleaned fixture may replay the same phase after a harness-level failure'
 
   assert.equal(replay.data.status, 'pass')
   assert.equal(replay.data.phase, 'success')
-  assert.equal(existsSync(join(workdir, 'fixture-source.mjs')), true)
+  assert.equal(existsSync(join(workdir, 'ordinary.txt')), true)
 })
 
 test('prepare may follow idempotent cleanup when no fixture was staged', async () => {
@@ -1173,8 +1166,8 @@ test('prepare may follow idempotent cleanup when no fixture was staged', async (
   const input = {
     schema: 'dsh-runtime-kit.acceptance-fixture-provider.v1' as const,
     phase: 'success' as const,
-    family: 'automatic-prerequisite',
-    scenarioId: 'automatic-prerequisite.git-repo',
+    family: 'data-policy',
+    scenarioId: 'data-policy.git-repo',
     profile: 'headless-empty-cleanup',
     workdir,
     dshHome,
