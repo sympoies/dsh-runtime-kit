@@ -37,10 +37,9 @@ Before editing, load the repository policy through the product-native entrypoint
 `AGENTS.md` loading carries the always-on rules, and the documents below are
 read on demand.
 
-The repository-root `AGENT_DOCS.toml` still carries the `[[validation]]`
-contract and the `[path_classes]` table that nils-cli workflow primitives read;
-agent-hook's finish-line service reads that validation contract transitionally
-until it moves to a root `VALIDATION.toml`. No runtime-kit code reads the root
+The repository-root `VALIDATION.toml` carries the `[[validation]]` contract
+that agent-hook's finish-line service enforces and the `[path_classes]` table
+that nils-cli workflow primitives read. No runtime-kit code reads the root
 file. The packaged `agent-docs/` directory is a DSH runtime asset: its guidance
 documents are installed into the activation asset set and returned by the
 `runtime_context` tool. It is not the owner of repository contributor routing

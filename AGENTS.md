@@ -36,6 +36,8 @@ this file natively as the repository policy.
 - Read `DEVELOPMENT.md` for routine contributor principles and
   `docs/development-reference.md` for build, package, compatibility, patch,
   smoke, and delivery procedures.
+- Read `PROJECT_DEV_EDIT.md` before a repository edit; for external-harness
+  acceptance runs, read `docs/acceptance-harness.md`.
 - Inspect affected targets, callers, tests, manifests, compatibility evidence,
   package contents, and runtime boundaries before editing.
 - Deliver the smallest observable contract change. Exclude hypothetical

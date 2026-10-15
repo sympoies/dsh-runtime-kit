@@ -4,12 +4,6 @@ import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
 
-function documentBlock(catalog: string, path: string): string | undefined {
-  return catalog
-    .split(/(?=\[\[document\]\])/u)
-    .find((block) => block.includes(`path = "${path}"`))
-}
-
 function markdownSection(markdown: string, heading: string): string {
   const start = markdown.indexOf(heading)
   assert.notEqual(start, -1, `missing section: ${heading}`)
@@ -33,9 +27,9 @@ function normalizedSection(markdown: string, heading: string): string {
 }
 
 test('layered development policy is mandatory and routed through the project skill', async () => {
-  const [agents, catalog, development] = await Promise.all([
+  const [agents, validation, development] = await Promise.all([
     readFile(new URL('AGENTS.md', root), 'utf8'),
-    readFile(new URL('AGENT_DOCS.toml', root), 'utf8'),
+    readFile(new URL('VALIDATION.toml', root), 'utf8'),
     readFile(new URL('DEVELOPMENT.md', root), 'utf8'),
   ])
 
@@ -44,13 +38,7 @@ test('layered development policy is mandatory and routed through the project ski
   assert.match(agents, /stop and replan/iu)
   assert.match(development, /Layered development and testing/u)
 
-  const block = documentBlock(catalog, 'docs/development-testing.md')
-  assert.ok(block, 'AGENT_DOCS.toml must declare the layered development policy')
-  assert.match(block, /context = "project-dev"/u)
-  assert.match(block, /product = \["codex", "claude", "hermes"\]/u)
-  assert.match(block, /phase = \["edit", "delivery"\]/u)
-  assert.match(block, /required = true/u)
-  assert.match(catalog, /production = \[[^\n]*"\.agents\/\*\*"/u)
+  assert.match(validation, /production = \[[^\n]*"\.agents\/\*\*"/u)
 })
 
 test('project runtime development skill applies one canonical policy and closes its improvement loop', async () => {
