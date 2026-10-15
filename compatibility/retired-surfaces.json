@@ -382,7 +382,6 @@
       "identifiers": [
         "agentDocsDoctor",
         "DSH_RUNTIME_KIT_AGENT_DOCS_BIN",
-        "agent-docs-bin",
         "DSH_RUNTIME_HEALTH_PROJECT_AUDIT_INVALID"
       ],
       "replacement": {
@@ -392,6 +391,47 @@
       "first_supported": { "runtime_kit": "agent-docs retirement", "nils_cli": "1.33.13" },
       "compatibility_window": "agent-hook releases inside the declared nils window (validated 1.33.13); a target package that still declares the agent-docs dependency or the agent-docs-version probe is accepted as an inert legacy lifecycle declaration that this engine neither authenticates nor runs",
       "rollback": "Reinstall a separately reviewed previous runtime package with its own operations engine and matching companion tuple, which still includes agent-docs."
+    },
+    {
+      "id": "agent-docs-runtime-environment",
+      "category": "profile-lifecycle",
+      "status": "removed",
+      "summary": "The launcher, activation environment, and bundle patch named the packaged guidance home and the agent-hook DSH subject state directory after the agent-docs companion. They are now DSH_RUNTIME_KIT_CONTEXT_HOME (set only for an activated runtime; otherwise runtime_context reads the installed package) and DSH_RUNTIME_KIT_SESSION_STATE_HOME. The kit neither sets nor reads the old names, so an inherited value is ignored. The packaged guidance directory and its activation v1 digests are unchanged.",
+      "paths": [
+        "bin/dsh-runtime-kit-launch.ts",
+        "src/activation/index.ts",
+        "src/context/index.ts",
+        "src/policy/nils-transport.ts",
+        "cordis.patch.yml"
+      ],
+      "identifiers": [
+        "DSH_RUNTIME_KIT_AGENT_DOCS_HOME",
+        "DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME",
+        "agentDocsHome",
+        "agentDocsStateHome"
+      ],
+      "replacement": {
+        "owner": "runtime-kit",
+        "contract": "DSH_RUNTIME_KIT_CONTEXT_HOME and DSH_RUNTIME_KIT_SESSION_STATE_HOME derived by the owner launcher; the session state path is unchanged and still travels as the agent-hook.dsh-ingress.v2 subject field agent_docs_state_home"
+      },
+      "first_supported": { "runtime_kit": "agent-docs binary retirement", "nils_cli": "1.33.13" },
+      "compatibility_window": "provisioning that still exports the old names keeps working because they are ignored; activated and fallback runtimes keep their state paths",
+      "rollback": "Reinstall a separately reviewed previous runtime package; its launcher sets the old names again."
+    },
+    {
+      "id": "agent-docs-bin-flag",
+      "category": "compatibility",
+      "status": "reduced",
+      "summary": "The deploy dispatcher and the acceptance driver took --agent-docs-bin to authenticate the agent-docs companion. The flag now carries no meaning: it is parsed and discarded, so provisioning and acceptance drivers that still pass it are not refused.",
+      "paths": ["src/deploy/index.ts", "scripts/run-acceptance.ts"],
+      "identifiers": ["agent-docs-bin"],
+      "replacement": {
+        "owner": "runtime-kit",
+        "contract": "none; agent-hook is the only authenticated nils companion"
+      },
+      "first_supported": { "runtime_kit": "agent-docs binary retirement", "nils_cli": "1.33.13" },
+      "compatibility_window": "accepted and ignored until every caller stops passing it",
+      "rollback": "none needed; an ignored flag carries no state"
     },
     {
       "id": "automatic-project-dev-prerequisite",

@@ -137,8 +137,7 @@ const agentHookPolicy = join(agentHookRoot, 'policy.toml')
 const agentHookStateDir = join(runtimeRoot, 'state', 'agent-hook')
 const agentHookWrapper = join(temporaryRoot, 'agent-hook-isolation-wrapper')
 const providerSessionMarker = join(temporaryRoot, 'provider-session-env-observed')
-const agentDocsHome = join(runtimeRoot, 'agent-docs')
-const agentDocsStateHome = join(runtimeRoot, 'agent-docs-state')
+const sessionStateHome = join(runtimeRoot, 'agent-docs-state')
 const ownerLauncher = join(projectRoot, 'dist', 'bin', 'dsh-runtime-kit-launch.js')
 const privateSkillsRoot = join(temporaryRoot, 'private-skills')
 const projectWorkspace = join(temporaryRoot, 'project')
@@ -492,7 +491,7 @@ function resetCheckoutLease() {
     timeout: 10_000,
   })
   assert.equal(reset.status, 0, reset.stderr)
-  rmSync(join(agentDocsStateHome, 'agent-hook', 'dsh-checkout-leases'), {
+  rmSync(join(sessionStateHome, 'agent-hook', 'dsh-checkout-leases'), {
     recursive: true,
     force: true,
   })
@@ -540,15 +539,8 @@ function collectFiles(directory, prefix = '') {
 
 try {
   mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
-  mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
-  mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
-  for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
-    writeFileSync(
-      join(agentDocsHome, name),
-      readFileSync(join(projectRoot, 'agent-docs', name)),
-      { mode: 0o600 },
-    )
-  }
+  // No agent-docs home is staged: runtime_context reads the packaged documents.
+  mkdirSync(sessionStateHome, { recursive: true, mode: 0o700 })
   mkdirSync(dshHome, { recursive: true, mode: 0o700 })
   const forbiddenEnvironmentPath = join(dshHome, '.env')
   writeFileSync(
@@ -610,7 +602,7 @@ try {
       { mode: 0o700 },
     )
   }
-  mkdirSync(agentDocsStateHome, { recursive: true })
+  mkdirSync(sessionStateHome, { recursive: true })
   writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
   writeFileSync(join(projectWorkspace, '.gitignore'), '.dsh-validation-count\n')
   mkdirSync(plainWorkspace, { recursive: true })

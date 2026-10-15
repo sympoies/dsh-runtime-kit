@@ -250,7 +250,7 @@ async function benchmarkPackedRuntime() {
       agentHookConfig: config,
       agentHookPolicy: policy,
       agentHookStateDir: hookState,
-      agentDocsStateHome: docsState,
+      sessionStateHome: docsState,
       maxActivePolicyChecks: 1,
     })
     let sequence = 0

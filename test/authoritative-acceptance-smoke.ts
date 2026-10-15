@@ -206,8 +206,7 @@ Object.assign(baseEnvironment, {
   DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: hookConfig,
   DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: hookPolicy,
   DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: hookState,
-  DSH_RUNTIME_KIT_AGENT_DOCS_HOME: join(projectRoot, 'agent-docs'),
-  DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: docsState,
+  DSH_RUNTIME_KIT_SESSION_STATE_HOME: docsState,
   DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: join(temporaryRoot, 'empty-private-skills'),
   DSH_RUNTIME_KIT_LIFECYCLE_ADAPTER_URL: pathToFileURL(
     join(projectRoot, 'dist', 'src', 'compat', 'dsh-agent-lifecycle.js'),

@@ -21,11 +21,14 @@ function sources(path: string): string[] {
 }
 
 // Lines that name agent-docs only to read packages released before this
-// retirement: the acceptance rollback baseline's companion tuple, and the
-// inert legacy lifecycle declaration an older target package may still carry.
+// retirement: the acceptance rollback baseline's companion tuple, the inert
+// legacy lifecycle declaration an older target package may still carry, and
+// the retired --agent-docs-bin flag that older provisioning still passes and
+// the deploy dispatcher and acceptance driver accept and ignore.
 const LEGACY_PACKAGE_LINES: Record<string, number> = {
   'src/acceptance/contract.ts': 1,
-  'scripts/run-acceptance.ts': 1,
+  'scripts/run-acceptance.ts': 2,
+  'src/deploy/index.ts': 1,
   'src/operations/index.ts': 2,
 }
 
@@ -33,7 +36,7 @@ test('no agent-docs executable is spawned, resolved, or authenticated by shipped
   const offenders = [...sources('src'), ...sources('bin'), ...sources('scripts'), 'index.ts', 'cordis.patch.yml']
     .map(path => relative(ROOT, join(ROOT, path)))
     .filter(path => read(path).split('\n').filter(line => COMPANION.test(line)
-      || (/['"`]agent-docs['"`]/u.test(line) && !line.includes('join('))).length
+      || (/['"`]agent-docs['"`]/u.test(line) && !/\b(?:join|packageAsset)\(/u.test(line))).length
       > (LEGACY_PACKAGE_LINES[path] ?? 0))
   assert.deepEqual(offenders, [])
 })
@@ -55,4 +58,11 @@ test('agent-docs is not a lifecycle dependency, health probe, or authenticated c
   assert.ok(!JSON.parse(read('package.json')).scripts['test:agent-docs-catalog'])
   assert.equal(existsSync(join(ROOT, 'src/prerequisite/index.ts')), false)
   assert.equal(existsSync(join(ROOT, 'src/context/nils-context.ts')), false)
+})
+
+test('the kit neither reads nor sets the retired agent-docs environment', () => {
+  const retired = /DSH_RUNTIME_KIT_AGENT_DOCS_(?:BIN|HOME|STATE_HOME)/u
+  const offenders = [...sources('src'), ...sources('bin'), ...sources('scripts'), 'index.ts', 'cordis.patch.yml']
+    .filter(path => retired.test(read(path)))
+  assert.deepEqual(offenders, [])
 })

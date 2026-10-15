@@ -88,13 +88,11 @@ const policy = readFileSync(join(projectRoot, 'policy', 'dsh-runtime-kit-v1.toml
 const policyPath = join(temporaryRoot, 'policy.toml')
 const agentHookConfig = join(configHome, 'agent-hook', 'config.toml')
 const agentHookStateDir = join(stateHome, 'agent-hook-dsh')
-const agentDocsHome = join(temporaryRoot, 'agent-docs')
-const agentDocsStateHome = join(stateHome, 'agent-docs-dsh')
+const sessionStateHome = join(stateHome, 'agent-docs-dsh')
 const policyDigest = createHash('sha256').update(policy).digest('hex')
 mkdirSync(join(configHome, 'agent-hook'), { recursive: true })
 mkdirSync(stateHome, { recursive: true })
-mkdirSync(agentDocsHome, { recursive: true, mode: 0o700 })
-mkdirSync(agentDocsStateHome, { recursive: true, mode: 0o700 })
+mkdirSync(sessionStateHome, { recursive: true, mode: 0o700 })
 writeFileSync(policyPath, policy, { mode: 0o600 })
 writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 
@@ -102,13 +100,6 @@ writeFileSync(agentHookConfig, `schema_version = "agent-hook.config.v1"
 path = ${JSON.stringify(policyPath)}
 digest = "sha256:${policyDigest}"
 `, { mode: 0o600 })
-for (const name of ['AGENT_DOCS.toml', 'PROJECT_DEV_EDIT.md']) {
-  writeFileSync(
-    join(agentDocsHome, name),
-    readFileSync(join(projectRoot, 'agent-docs', name)),
-    { mode: 0o600 },
-  )
-}
 
 function stageUnrelatedBundle(name, version) {
   const dir = join(temporaryRoot, `${name.replace(/[^a-z]/gi, '-')}-${version}`)
@@ -202,8 +193,7 @@ function operation(args) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: agentHookConfig,
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policyPath,
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: agentHookStateDir,
-      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: agentDocsHome,
-      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: agentDocsStateHome,
+      DSH_RUNTIME_KIT_SESSION_STATE_HOME: sessionStateHome,
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: privateRoot,
       XDG_CONFIG_HOME: configHome,
       XDG_STATE_HOME: stateHome,

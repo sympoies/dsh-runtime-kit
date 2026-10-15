@@ -575,19 +575,15 @@ function fixture() {
   mkdirSync(runtimeRoot, { mode: 0o700 })
   writeFileSync(join(privateRoot, 'must-survive.txt'), 'private')
   const commands = stageFakeCommands(root)
-  const agentDocsHome = join(root, 'agent-docs')
-  const agentDocsStateHome = join(root, 'agent-docs-state')
-  mkdirSync(agentDocsHome, { mode: 0o700 })
-  mkdirSync(agentDocsStateHome, { mode: 0o700 })
-  writeFileSync(join(agentDocsHome, 'AGENT_DOCS.toml'), '[[document]]\ncontext = "project-dev"\n', { mode: 0o600 })
+  const sessionStateHome = join(root, 'agent-docs-state')
+  mkdirSync(sessionStateHome, { mode: 0o700 })
   return {
     root,
     home,
     profileDir,
     privateRoot,
     runtimeRoot,
-    agentDocsHome,
-    agentDocsStateHome,
+    sessionStateHome,
     v1: stageBundle(root, '1.0.0'),
     v2: stageBundle(root, '2.0.0'),
     ...commands,
@@ -607,8 +603,7 @@ function run(subject, args, extraEnv = {}) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: join(subject.root, 'agent-hook', 'config.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: join(subject.root, 'agent-hook', 'policy.toml'),
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: join(subject.root, 'agent-hook', 'state'),
-      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: subject.agentDocsHome,
-      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: subject.agentDocsStateHome,
+      DSH_RUNTIME_KIT_SESSION_STATE_HOME: subject.sessionStateHome,
       DSH_RUNTIME_KIT_PRIVATE_SKILLS_DIR: subject.privateRoot,
       DSH_RUNTIME_KIT_RUNTIME_ROOT: subject.runtimeRoot,
       PATH: `${subject.commandDir}${delimiter}${process.env.PATH ?? ''}`,

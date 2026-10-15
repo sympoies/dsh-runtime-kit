@@ -22,8 +22,8 @@ function invoke(runtimeRoot, extraEnvironment = {}) {
       hookConfig: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG,
       hookPolicy: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY,
       hookState: process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR,
-      docsHome: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME,
-      docsState: process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME,
+      docsHome: process.env.DSH_RUNTIME_KIT_CONTEXT_HOME,
+      docsState: process.env.DSH_RUNTIME_KIT_SESSION_STATE_HOME,
       argument: process.argv[1],
     }))`,
     'argument preserved',
@@ -105,7 +105,6 @@ test('owner launcher derives the complete DSH isolation environment from one run
       hookConfig: join(runtimeRoot, 'agent-hook', 'config.toml'),
       hookPolicy: join(runtimeRoot, 'agent-hook', 'policy.toml'),
       hookState: join(runtimeRoot, 'state', 'agent-hook'),
-      docsHome: join(runtimeRoot, 'agent-docs'),
       docsState: join(runtimeRoot, 'agent-docs-state'),
       argument: 'argument preserved',
     })
@@ -117,6 +116,34 @@ test('owner launcher derives the complete DSH isolation environment from one run
     assert.equal(activatedEnvironment.hookState, fallbackEnvironment.hookState)
     assert.equal(activatedEnvironment.hookConfig, join(activated.hookAssets, 'config.toml'))
     assert.equal(activatedEnvironment.hookPolicy, join(activated.hookAssets, 'policy.toml'))
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
+})
+
+test('owner launcher accepts and ignores the retired agent-docs environment', () => {
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-runtime-kit-launcher-'))
+  const runtimeRoot = join(temporary, 'runtime')
+  mkdirSync(runtimeRoot, { mode: 0o700 })
+  try {
+    const legacy = {
+      DSH_RUNTIME_KIT_AGENT_DOCS_BIN: '/legacy/bin/agent-docs',
+      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: '/legacy/agent-docs',
+      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: '/legacy/agent-docs-state',
+      DSH_RUNTIME_KIT_CONTEXT_HOME: '/inherited/context',
+    }
+    const fallback = invoke(runtimeRoot, legacy)
+    assert.equal(fallback.status, 0, fallback.stderr)
+    const fallbackEnvironment = JSON.parse(fallback.stdout)
+    assert.equal(fallbackEnvironment.docsHome, undefined)
+    assert.equal(fallbackEnvironment.docsState, join(runtimeRoot, 'agent-docs-state'))
+
+    const activated = activatedRuntimeRoot(temporary)
+    const activatedResult = invoke(activated.runtimeRoot, legacy)
+    assert.equal(activatedResult.status, 0, activatedResult.stderr)
+    const activatedEnvironment = JSON.parse(activatedResult.stdout)
+    assert.equal(activatedEnvironment.docsHome, activated.docsHome)
+    assert.equal(activatedEnvironment.docsState, activated.docsState)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }

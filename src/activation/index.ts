@@ -363,8 +363,8 @@ export function readActivation(root: string) {
       DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG: config,
       DSH_RUNTIME_KIT_AGENT_HOOK_POLICY: policy,
       DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR: hookState,
-      DSH_RUNTIME_KIT_AGENT_DOCS_HOME: docsHome,
-      DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME: docsState,
+      DSH_RUNTIME_KIT_CONTEXT_HOME: docsHome,
+      DSH_RUNTIME_KIT_SESSION_STATE_HOME: docsState,
     },
   }
 }

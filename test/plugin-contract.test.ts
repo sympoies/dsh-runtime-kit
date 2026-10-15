@@ -832,8 +832,7 @@ function harness({
     agentHookConfig: '/runtime/agent-hook/config.toml',
     agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
     agentHookStateDir: '/runtime/agent-hook/state',
-    agentDocsHome: '/runtime/docs',
-    agentDocsStateHome: '/runtime/state',
+    sessionStateHome: '/runtime/state',
     nilsCompatibilityCandidate: 'typed-data-policy-protected-roots',
     ...config,
   }, dshRuntime)
@@ -1590,7 +1589,7 @@ test('policy ingress v2 binds the exact DSH session position and runtime state r
       agentHookConfig: '/runtime/agent-hook/config.toml',
       agentHookPolicy: '/runtime/agent-hook/dsh-policy.toml',
       agentHookStateDir: '/runtime/agent-hook/state',
-      agentDocsStateHome: '/runtime/state',
+      sessionStateHome: '/runtime/state',
     },
   })
 
@@ -1661,7 +1660,7 @@ test('post-tool ingress v4 sends only the terminal fact and blocks before downst
   const seen = []
   const subject = harness({
     config: {
-      agentDocsStateHome: '/runtime/state',
+      sessionStateHome: '/runtime/state',
     },
     envelope: (spec) => {
       const ingress = JSON.parse(spec.stdio.stdin.data)
@@ -1712,7 +1711,7 @@ test('post-tool ingress v4 sends only the terminal fact and blocks before downst
 
 test('the first accepted pre-step receives one bounded native lifecycle context', async () => {
   const subject = harness({
-    config: { agentDocsStateHome: '/runtime/state' },
+    config: { sessionStateHome: '/runtime/state' },
     envelope: (spec) => {
       const ingress = JSON.parse(spec.stdio.stdin.data)
       assert.equal(ingress.event, 'agent/pre-step')

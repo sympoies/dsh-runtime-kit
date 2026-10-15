@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { requiredAbsolutePath } from '../nils/agent-hook-runtime.js'
+import { packageAsset } from '../package-root.js'
 
 export type ToolDefinition = import('@deepseek-ai/dsh-tools').ToolDefinition
 
@@ -57,12 +58,22 @@ async function readDocument(home: string, name: string, budget: number) {
 }
 
 /**
- * Serve the packaged guidance documents from the activated, digest-verified
- * docs home. This is a plain reader: no session state, receipt, or external
- * companion participates, and nothing gates other tools on it.
+ * The guidance documents this package ships. The directory keeps its historical
+ * `agent-docs/` name because activation v1 stages and digest-pins it under that
+ * name; no agent-docs executable reads it.
  */
-export function createPackagedContextClient(config: { agentDocsHome?: string, contextMaxBytes?: number } = {}): ContextClient {
-  const home = requiredAbsolutePath(config.agentDocsHome, 'agentDocsHome')
+export const PACKAGED_CONTEXT_HOME = packageAsset('agent-docs')
+
+/**
+ * Serve the packaged guidance documents. An activated runtime passes its
+ * digest-verified copy as `contextHome`; without one the documents are read
+ * from this package. This is a plain reader: no session state, receipt, or
+ * external companion participates, and nothing gates other tools on it.
+ */
+export function createPackagedContextClient(config: { contextHome?: string, contextMaxBytes?: number } = {}): ContextClient {
+  const home = config.contextHome === undefined
+    ? PACKAGED_CONTEXT_HOME
+    : requiredAbsolutePath(config.contextHome, 'contextHome')
   const maxBytes = boundedPositiveInteger(config.contextMaxBytes, DEFAULT_CONTEXT_BYTES, MAX_CONTEXT_BYTES)
   return Object.freeze({
     maxBytes,

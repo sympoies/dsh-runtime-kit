@@ -9,8 +9,8 @@
         agentHookConfig: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG
         agentHookPolicy: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_POLICY
         agentHookStateDir: !!js process.env.DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR
-        agentDocsHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_HOME
-        agentDocsStateHome: !!js process.env.DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME
+        contextHome: !!js process.env.DSH_RUNTIME_KIT_CONTEXT_HOME
+        sessionStateHome: !!js process.env.DSH_RUNTIME_KIT_SESSION_STATE_HOME
         nilsCompatibilityCandidate: !!js process.env.DSH_RUNTIME_KIT_NILS_COMPATIBILITY_CANDIDATE
         protectedRoots: !!js JSON.parse(process.env.DSH_RUNTIME_KIT_PROTECTED_ROOTS ?? '[]')
         artifactsRoot: !!js process.env.DSH_RUNTIME_KIT_ARTIFACTS_ROOT

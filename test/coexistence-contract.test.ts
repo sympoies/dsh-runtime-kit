@@ -166,12 +166,14 @@ test('the package owns a DSH-only docs catalog and explicit isolated activation 
     'DSH_RUNTIME_KIT_AGENT_HOOK_CONFIG',
     'DSH_RUNTIME_KIT_AGENT_HOOK_POLICY',
     'DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR',
-    'DSH_RUNTIME_KIT_AGENT_DOCS_HOME',
-    'DSH_RUNTIME_KIT_AGENT_DOCS_STATE_HOME',
+    'DSH_RUNTIME_KIT_CONTEXT_HOME',
+    'DSH_RUNTIME_KIT_SESSION_STATE_HOME',
   ]) {
     assert.match(patch, new RegExp(variable))
     assert.match(operations, new RegExp(variable))
   }
+  // The retired agent-docs environment is neither read nor documented as live.
+  assert.doesNotMatch(patch, /DSH_RUNTIME_KIT_AGENT_DOCS_/u)
   assert.match(
     patch,
     /agentSessionCli: !!js process\.env\.DSH_RUNTIME_KIT_AGENT_SESSION_BIN \?\? 'agent-session'/,

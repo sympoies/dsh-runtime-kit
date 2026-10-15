@@ -221,6 +221,9 @@ export function parseScope(argv: string[], env: NodeJS.ProcessEnv): {help: true}
         'runtime-root': { type: 'string' },
         'dsh-bin': { type: 'string' },
         'agent-hook-bin': { type: 'string' },
+        // Retired with the agent-docs companion. Older provisioning still
+        // passes it, so it is accepted and ignored rather than refused.
+        'agent-docs-bin': { type: 'string' },
         artifact: { type: 'string' },
         'artifact-sha256': { type: 'string' },
         apply: { type: 'boolean', default: false },

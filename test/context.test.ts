@@ -48,7 +48,7 @@ test('the packaged document map routes exactly the packaged catalog entries', as
 })
 
 test('runtime_context returns the packaged project-dev edit contract by default', async () => {
-  const tool = createRuntimeContextTool(createPackagedContextClient({ agentDocsHome: PACKAGED_HOME }))
+  const tool = createRuntimeContextTool(createPackagedContextClient({ contextHome: PACKAGED_HOME }))
   const result = await tool.execute({ intent: 'project-dev' })
   const content = await readFile(join(PACKAGED_HOME, 'PROJECT_DEV_EDIT.md'), 'utf8')
   assert.deepEqual(result, {
@@ -72,7 +72,7 @@ test('runtime_context resolves delivery, review, and phaseless intents in catalo
     'EVIDENCE.md': 'evidence\n',
     'DEVLOG.md': 'devlog\n',
   }, async home => {
-    const tool = createRuntimeContextTool(createPackagedContextClient({ agentDocsHome: home }))
+    const tool = createRuntimeContextTool(createPackagedContextClient({ contextHome: home }))
     const contents = async args => (await tool.execute(args)).documents.map(document => document.content)
     assert.deepEqual(await contents({ intent: 'project-dev', phase: 'delivery' }), ['modes\n', 'git\n'])
     assert.deepEqual(await contents({ intent: 'project-dev', phase: 'review' }), ['review\n', 'evidence\n'])
@@ -104,12 +104,24 @@ test('runtime_context rejects retired and ambiguous arguments before reading', a
   assert.equal(tool.parameters.properties.project_path, undefined)
 })
 
+test('without a context home the client serves this package\'s documents and ignores retired agent-docs config', async () => {
+  const retiredConfig = { agentDocsHome: '/retired/agent-docs', contextMaxBytes: 64 * 1024 }
+  const client = createPackagedContextClient(retiredConfig)
+  for (const [key, names] of Object.entries(RUNTIME_CONTEXT_DOCUMENTS)) {
+    const [intent, phase] = key.split(':')
+    const result = await client.prepare(intent, phase)
+    assert.equal(result.document_count, names.length)
+    for (const [index, name] of names.entries()) {
+      assert.equal(result.documents[index].content, await readFile(join(PACKAGED_HOME, name), 'utf8'))
+    }
+  }
+})
+
 test('the packaged context client reads only bounded regular files in its docs home', async () => {
-  assert.throws(() => createPackagedContextClient({}), /agentDocsHome is required/u)
-  assert.throws(() => createPackagedContextClient({ agentDocsHome: 'relative' }), /agentDocsHome is required/u)
+  assert.throws(() => createPackagedContextClient({ contextHome: 'relative' }), /contextHome is required/u)
   await withHome({ 'outside.md': 'outside\n', 'DEVLOG.md': 'x'.repeat(64) }, async home => {
     await symlink(join(home, 'outside.md'), join(home, 'MEMORY.md'))
-    const client = createPackagedContextClient({ agentDocsHome: home, contextMaxBytes: 32 })
+    const client = createPackagedContextClient({ contextHome: home, contextMaxBytes: 32 })
     assert.equal(client.maxBytes, 32)
     await assert.rejects(client.prepare('memory'), /runtime-context-document-unavailable/u)
     await assert.rejects(client.prepare('devlog'), /runtime-context-budget-exceeded/u)
