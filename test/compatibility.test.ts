@@ -1104,19 +1104,19 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
   assert.match(workflow, /nils-cli-v1\.33\.13-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /8d925c3c3a707f3e84d604affe0f61d8ba4f79131a059e4a28f55a1bf495e640/)
+  assert.match(workflow, /55b2cec4fd204f4b6d8c590b65ca6d16b237bd81ec41c782d611569c7f2a70e2/)
   assert.match(
     workflow,
     /Verify released git-cli safe worktree removal[\s\S]+GIT_CLI_BIN: \$\{\{ runner\.temp \}\}\/nils-cli-v1\.33\.13-x86_64-unknown-linux-gnu\/bin\/git-cli[\s\S]+node test\/worktree-safe-removal-smoke\.ts/,
   )
   assert.match(workflow, /nils-cli-v1\.33\.13-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /609f200a9fd00deb1b99315a704545f084a34424ce8dd4ff92e99d47ae4e07bd/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb/)
+  assert.match(workflow, /b208f82ed909c1b6523a3bec179c1886ed06d098df29d8cd821c2ef001e986a7/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=16ffcc1da49ac935bc055ee17c0c5eca777d62c6/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // The rollback_validation record keeps the frozen PR #254 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=466506168f77eef164976141e05aa57fd94ae3bb/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=16ffcc1da49ac935bc055ee17c0c5eca777d62c6/)
   assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.33\.13-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook by digest, so every
   // env-embedded artifact literal must be the manifest's for its platform.

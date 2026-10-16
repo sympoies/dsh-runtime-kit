@@ -488,7 +488,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 if (process.argv.length === 3 && process.argv[2] === '--version') {
   const versionFile = join(dirname(process.argv[1]), 'agent-hook-version')
-  const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '1.33.13'
+  const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '1.34.0'
   process.stdout.write('agent-hook ' + version + ' (v' + version + ', test)\\n')
   process.exit(0)
 }
@@ -2749,7 +2749,7 @@ test('doctor enforces the supported nils release on the agent-hook companion and
     assert.equal(healthy.status, 0, healthy.stderr)
     assert.equal(healthy.value.data.status, 'healthy')
     assert.equal(healthy.value.data.agent_docs, undefined)
-    assert.equal(healthy.value.data.agent_hook.version, '1.33.13')
+    assert.equal(healthy.value.data.agent_hook.version, '1.34.0')
     assert.equal(existsSync(sentinel), false)
 
     setVersion('1.27.13')
@@ -2776,10 +2776,10 @@ test('doctor enforces the supported nils release on the agent-hook companion and
     assert.equal(unknownCandidate.status, 65)
     assert.match(unknownCandidate.value.data.agent_hook.error, /compatibility candidate is invalid/)
 
-    setVersion('1.33.13')
+    setVersion('1.34.0')
     const current = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(current.status, 0, current.stderr)
-    assert.equal(current.value.data.agent_hook.version, '1.33.13')
+    assert.equal(current.value.data.agent_hook.version, '1.34.0')
     assert.equal(existsSync(sentinel), false)
   } finally {
     subject.cleanup()
@@ -2805,11 +2805,11 @@ process.stdout.write('${dshRelease}\\n')
         assert.equal(oldNils.value.data.agent_hook.ok, false)
         assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
       }
-      setVersion('1.33.13')
+      setVersion('1.34.0')
       const currentNils = run(subject, ['doctor', '--profile', 'work'])
       assert.equal(currentNils.status, 0, currentNils.stderr)
       assert.equal(currentNils.value.data.status, 'healthy')
-      assert.equal(currentNils.value.data.agent_hook.version, '1.33.13')
+      assert.equal(currentNils.value.data.agent_hook.version, '1.34.0')
     }
   } finally {
     subject.cleanup()
