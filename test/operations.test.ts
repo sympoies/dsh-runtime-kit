@@ -2756,12 +2756,12 @@ test('doctor enforces the supported nils release on the agent-hook companion and
     const old = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(old.status, 65)
     assert.equal(old.value.data.agent_hook.ok, false)
-    assert.match(old.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
+    assert.match(old.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.34\.0/)
 
-    setVersion('1.33.14')
+    setVersion('1.34.1')
     const newer = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(newer.status, 65)
-    assert.match(newer.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
+    assert.match(newer.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.34\.0/)
 
     setVersion('1.27.12')
     const retiredCandidate = run(subject, ['doctor', '--profile', 'work'], {
@@ -2803,7 +2803,7 @@ process.stdout.write('${dshRelease}\\n')
         assert.equal(oldNils.value.data.status, 'needs-attention')
         assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: dshRelease })
         assert.equal(oldNils.value.data.agent_hook.ok, false)
-        assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.33\.13/)
+        assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.34\.0/)
       }
       setVersion('1.34.0')
       const currentNils = run(subject, ['doctor', '--profile', 'work'])
