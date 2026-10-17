@@ -1073,7 +1073,7 @@ test('compatibility workflow keeps selected channels and every patch release blo
     workflow.indexOf('      - name: Reverse authenticated DSH patch'),
   )
   assert.match(handoffStep, /if: matrix\.channel == 'pinned'/)
-  assert.match(handoffStep, /GIT_CLI_BIN: .*nils-cli-v1\.36\.2-x86_64-unknown-linux-gnu\/bin\/git-cli/)
+  assert.match(handoffStep, /GIT_CLI_BIN: .*nils-cli-v1\.36\.3-x86_64-unknown-linux-gnu\/bin\/git-cli/)
   assert.match(handoffStep, /run: npm run test:workspace-lease-native-smoke/)
   assert.equal(workflow.match(/retained patched DSH tools smoke without runtime-kit/g)?.length, 2)
   // The retained 0.1.7 row and the 0.2.0 candidate rows run the same patched
@@ -1103,21 +1103,21 @@ test('compatibility workflow keeps selected channels and every patch release blo
   assert.doesNotMatch(workflow, /pristine-(?:tools|llm)-build\.sha256/)
   assert.match(workflow, /macos-runtime-health:/)
   assert.match(workflow, /runs-on: macos-15/)
-  assert.match(workflow, /nils-cli-v1\.36\.2-x86_64-unknown-linux-gnu\.tar\.gz/)
-  assert.match(workflow, /b4a63ec6c8deb80fe6e1fcc8ca88579066b78bcd1397ec27469183775accbf85/)
+  assert.match(workflow, /nils-cli-v1\.36\.3-x86_64-unknown-linux-gnu\.tar\.gz/)
+  assert.match(workflow, /17a182277514c532ca51f4ee8dad3a958335376a3c8bb1c5aa716531d167e36a/)
   assert.match(
     workflow,
-    /Verify released git-cli safe worktree removal[\s\S]+GIT_CLI_BIN: \$\{\{ runner\.temp \}\}\/nils-cli-v1\.36\.2-x86_64-unknown-linux-gnu\/bin\/git-cli[\s\S]+node test\/worktree-safe-removal-smoke\.ts/,
+    /Verify released git-cli safe worktree removal[\s\S]+GIT_CLI_BIN: \$\{\{ runner\.temp \}\}\/nils-cli-v1\.36\.3-x86_64-unknown-linux-gnu\/bin\/git-cli[\s\S]+node test\/worktree-safe-removal-smoke\.ts/,
   )
-  assert.match(workflow, /nils-cli-v1\.36\.2-aarch64-apple-darwin\.tar\.gz/)
-  assert.match(workflow, /f195015b95ace989ea5cabcddd7ffaf2a03936b9a35f3cae58b54da84d72b397/)
-  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=f1bc09a40d7448b07c64552a5cc377cb007ebf8f/)
+  assert.match(workflow, /nils-cli-v1\.36\.3-aarch64-apple-darwin\.tar\.gz/)
+  assert.match(workflow, /bb73097f40a968b9769567db59715c9960a7a49629bfb20ed6d63b96093532aa/)
+  assert.match(workflow, /DSH_ACCEPTANCE_CANDIDATE_NILS_SOURCE_COMMIT=92c492f6c613853d1f5503843028ca0ac0f5a92d/)
   // The baseline leg runs the same packed candidate package, and the runtime
   // fails closed on companion identities outside its validated release, so the
   // baseline must use the candidate's nils release rather than an older archive.
   // The rollback_validation record keeps the frozen PR #254 package anchor separately.
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=f1bc09a40d7448b07c64552a5cc377cb007ebf8f/)
-  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.36\.2-x86_64-unknown-linux-gnu\/bin"/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_SOURCE_COMMIT=92c492f6c613853d1f5503843028ca0ac0f5a92d/)
+  assert.match(workflow, /DSH_ACCEPTANCE_BASELINE_NILS_BIN_DIR="\$RUNNER_TEMP\/nils-cli-v1\.36\.3-x86_64-unknown-linux-gnu\/bin"/)
   // The acceptance smoke authenticates agent-hook by digest, so every
   // env-embedded artifact literal must be the manifest's for its platform.
   const artifactLiteral = artifacts => JSON.stringify({
