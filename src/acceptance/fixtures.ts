@@ -750,6 +750,7 @@ function assertStateContract(
     '.dsh-acceptance/guide.md',
     '.dsh-acceptance/protected/.fixture-root',
     'AGENT_DOCS.toml',
+    'VALIDATION.toml',
     'PROJECT_DEV_EDIT.md',
     'fixture-validation.mjs',
   ]
@@ -873,15 +874,29 @@ function projectValidationCommands(family: AcceptanceFixtureFamily, input: Accep
   return commands
 }
 
-function projectCatalog(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
+function projectValidation(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
   const commands = projectValidationCommands(family, input)
-  const validation = commands.length === 0 ? '' : `
+  return commands.length === 0 ? '' : `
 [[validation]]
 context = "project-dev"
 product = "dsh"
 commands = ${JSON.stringify(commands)}
 description = "Validate the bounded acceptance fixture state."
 `
+}
+
+const PROJECT_PATH_CLASSES = `
+[path_classes]
+production = ["*.txt", "*.mjs", "*.json", ".agents/**", ".dsh-acceptance/**"]
+test = []
+docs = ["PROJECT_DEV_EDIT.md"]
+unmatched = "unknown"
+`
+
+// nils-cli releases before 1.36.2 read the validation contract and path
+// classes from AGENT_DOCS.toml; 1.36.2 and later read only VALIDATION.toml.
+// Both carry the same contract while the supported window spans both.
+function projectCatalog(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
   return `[[document]]
 context = "project-dev"
 scope = "project"
@@ -890,13 +905,12 @@ product = "dsh"
 phase = "edit"
 required = true
 when = "always"
-${validation}
-[path_classes]
-production = ["*.txt", "*.mjs", "*.json", ".agents/**", ".dsh-acceptance/**"]
-test = []
-docs = ["PROJECT_DEV_EDIT.md"]
-unmatched = "unknown"
-`
+${projectValidation(family, input)}${PROJECT_PATH_CLASSES}`
+}
+
+function projectValidationContract(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
+  return `# Acceptance fixture finish-line validation contract.
+${projectValidation(family, input)}${PROJECT_PATH_CLASSES}`
 }
 
 function projectDocument(family: AcceptanceFixtureFamily, input: AcceptanceFixtureInput) {
@@ -1005,6 +1019,7 @@ function stageFixture(
     '.dsh-acceptance/guide.md',
     '.dsh-acceptance/protected/.fixture-root',
     'AGENT_DOCS.toml',
+    'VALIDATION.toml',
     'PROJECT_DEV_EDIT.md',
     'fixture-validation.mjs',
     ...family.fixture_files,
@@ -1035,6 +1050,7 @@ function stageFixture(
     owned,
   )
   writeOwnedFile(input.workdir, 'AGENT_DOCS.toml', projectCatalog(family, input), owned)
+  writeOwnedFile(input.workdir, 'VALIDATION.toml', projectValidationContract(family, input), owned)
   writeOwnedFile(input.workdir, 'PROJECT_DEV_EDIT.md', projectDocument(family, input), owned)
   writeOwnedFile(input.workdir, 'fixture-validation.mjs', fixtureValidation(), owned, 0o700)
   for (const path of family.fixture_files) {

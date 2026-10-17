@@ -215,6 +215,15 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
     readFileSync(join(workdir, 'AGENT_DOCS.toml'), 'utf8'),
     /commands = \["\.\/fixture-validation\.mjs"\]/u,
   )
+  // nils-cli 1.36.2 and later read the contract and path classes only from
+  // VALIDATION.toml; AGENT_DOCS.toml keeps them for releases before it.
+  const validationContract = readFileSync(join(workdir, 'VALIDATION.toml'), 'utf8')
+  assert.match(
+    validationContract,
+    /\[\[validation\]\]\ncontext = "project-dev"[\s\S]*commands = \["\.\/fixture-validation\.mjs"\]/u,
+  )
+  assert.match(validationContract, /\[path_classes\]\nproduction = /u)
+  assert.doesNotMatch(validationContract, /\[\[document\]\]/u)
   assert.equal(existsSync(join(workdir, '.dsh-acceptance', 'failure.json')), false)
   const recoveredValidation = spawnSync(process.execPath, ['./fixture-validation.mjs'], {
     cwd: workdir,
@@ -227,6 +236,7 @@ test('provider stages, induces, recovers, and cleans one scenario without touchi
   assert.equal(cleaned.data.status, 'pass')
   assert.equal(existsSync(join(workdir, 'acceptance-fixture.json')), false)
   assert.equal(existsSync(join(workdir, 'AGENT_DOCS.toml')), false)
+  assert.equal(existsSync(join(workdir, 'VALIDATION.toml')), false)
   assert.equal(existsSync(join(workdir, 'ordinary.txt')), true)
   assert.equal(readFileSync(join(workdir, 'caller-owned.txt'), 'utf8'), 'retain\n')
   assert.equal(cleaned.data.evidence.every(row => !row.reference.startsWith('/') && !row.reference.includes('..')), true)
@@ -561,6 +571,8 @@ test('profile lifecycle deliberate failure leaves finish line to the induced pro
   assert.match(successCatalog, /\[\[validation\]\][\s\S]*\.\/fixture-validation\.mjs/u)
   assert.match(successGuide, /Before the final response[\s\S]*terminal_marker/u)
   assert.doesNotMatch(failureCatalog, /\[\[validation\]\]/u)
+  assert.match(readFileSync(join(successWorkdir, 'VALIDATION.toml'), 'utf8'), /\[\[validation\]\]/u)
+  assert.doesNotMatch(readFileSync(join(failureWorkdir, 'VALIDATION.toml'), 'utf8'), /\[\[validation\]\]/u)
   assert.doesNotMatch(failureGuide, /Before the final response[\s\S]*terminal_marker/u)
   assert.match(failureGuide, /typed induced failure[\s\S]*stop immediately/iu)
 })
