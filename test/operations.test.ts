@@ -488,7 +488,7 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join } from 'node:path'
 if (process.argv.length === 3 && process.argv[2] === '--version') {
   const versionFile = join(dirname(process.argv[1]), 'agent-hook-version')
-  const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '1.36.3'
+  const version = existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '1.36.6'
   process.stdout.write('agent-hook ' + version + ' (v' + version + ', test)\\n')
   process.exit(0)
 }
@@ -2749,19 +2749,19 @@ test('doctor enforces the supported nils release on the agent-hook companion and
     assert.equal(healthy.status, 0, healthy.stderr)
     assert.equal(healthy.value.data.status, 'healthy')
     assert.equal(healthy.value.data.agent_docs, undefined)
-    assert.equal(healthy.value.data.agent_hook.version, '1.36.3')
+    assert.equal(healthy.value.data.agent_hook.version, '1.36.6')
     assert.equal(existsSync(sentinel), false)
 
     setVersion('1.27.13')
     const old = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(old.status, 65)
     assert.equal(old.value.data.agent_hook.ok, false)
-    assert.match(old.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.3/)
+    assert.match(old.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.6/)
 
-    setVersion('1.36.4')
+    setVersion('1.36.7')
     const newer = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(newer.status, 65)
-    assert.match(newer.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.3/)
+    assert.match(newer.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.6/)
 
     setVersion('1.27.12')
     const retiredCandidate = run(subject, ['doctor', '--profile', 'work'], {
@@ -2776,10 +2776,10 @@ test('doctor enforces the supported nils release on the agent-hook companion and
     assert.equal(unknownCandidate.status, 65)
     assert.match(unknownCandidate.value.data.agent_hook.error, /compatibility candidate is invalid/)
 
-    setVersion('1.36.3')
+    setVersion('1.36.6')
     const current = run(subject, ['doctor', '--profile', 'work'])
     assert.equal(current.status, 0, current.stderr)
-    assert.equal(current.value.data.agent_hook.version, '1.36.3')
+    assert.equal(current.value.data.agent_hook.version, '1.36.6')
     assert.equal(existsSync(sentinel), false)
   } finally {
     subject.cleanup()
@@ -2803,13 +2803,13 @@ process.stdout.write('${dshRelease}\\n')
         assert.equal(oldNils.value.data.status, 'needs-attention')
         assert.deepEqual(oldNils.value.data.dsh, { ok: true, version: dshRelease })
         assert.equal(oldNils.value.data.agent_hook.ok, false)
-        assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.3/)
+        assert.match(oldNils.value.data.agent_hook.error, /supported range 1\.33\.0 through 1\.36\.6/)
       }
-      setVersion('1.36.3')
+      setVersion('1.36.6')
       const currentNils = run(subject, ['doctor', '--profile', 'work'])
       assert.equal(currentNils.status, 0, currentNils.stderr)
       assert.equal(currentNils.value.data.status, 'healthy')
-      assert.equal(currentNils.value.data.agent_hook.version, '1.36.3')
+      assert.equal(currentNils.value.data.agent_hook.version, '1.36.6')
     }
   } finally {
     subject.cleanup()
