@@ -85,7 +85,7 @@ const nilsCompatibility = JSON.parse(
 assert.equal(nilsCompatibility.schema_version, 'dsh-runtime-kit.nils-compatibility.v1')
 assert.equal(nilsCompatibility.status, 'released')
 assert.equal(nilsCompatibility.minimum_supported_release, '1.33.0')
-assert.equal(nilsCompatibility.validated_release, '1.33.13')
+assert.equal(nilsCompatibility.validated_release, '1.36.6')
 const dshIngressCompatibility = nilsCompatibility.commands.find(
   command => command.id === 'agent-hook.dispatch.dsh',
 )
@@ -603,11 +603,15 @@ try {
     )
   }
   mkdirSync(sessionStateHome, { recursive: true })
+  // nils-cli 1.36.2 and later read the contract only from VALIDATION.toml;
+  // older releases inside the supported window read AGENT_DOCS.toml.
   writeFileSync(join(projectWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
+  writeFileSync(join(projectWorkspace, 'VALIDATION.toml'), projectDocsConfig)
   writeFileSync(join(projectWorkspace, '.gitignore'), '.dsh-validation-count\n')
   mkdirSync(plainWorkspace, { recursive: true })
   writeFileSync(join(plainWorkspace, 'notes.md'), 'notes\n')
   writeFileSync(join(plainWorkspace, 'AGENT_DOCS.toml'), projectDocsConfig)
+  writeFileSync(join(plainWorkspace, 'VALIDATION.toml'), projectDocsConfig)
   assert.equal(existsSync(join(plainWorkspace, '.git')), false)
   installSkill(privateSkillsRoot, 'bootstrap', 'private-bootstrap-marker')
   installSkill(privateSkillsRoot, 'private-only', 'private-only-marker')

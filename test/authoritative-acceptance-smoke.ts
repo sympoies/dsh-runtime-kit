@@ -395,13 +395,17 @@ try {
 
   run('/usr/bin/git', ['init', '--quiet', '--initial-branch=main'], { cwd: workspace })
   writeFileSync(join(workspace, 'tracked.txt'), 'baseline\n', { mode: 0o600 })
-  writeFileSync(join(workspace, 'AGENT_DOCS.toml'), `[[validation]]
+  const validationContract = `[[validation]]
 context = "project-dev"
 product = "dsh"
 commands = [${JSON.stringify(validationCommand)}, ${JSON.stringify(cancellationCommand)}]
 description = "authoritative acceptance canary"
-`, { mode: 0o600 })
-  run('/usr/bin/git', ['add', 'tracked.txt', 'AGENT_DOCS.toml'], { cwd: workspace })
+`
+  // nils-cli 1.36.2 and later read the contract only from VALIDATION.toml;
+  // older releases inside the supported window read AGENT_DOCS.toml.
+  writeFileSync(join(workspace, 'AGENT_DOCS.toml'), validationContract, { mode: 0o600 })
+  writeFileSync(join(workspace, 'VALIDATION.toml'), validationContract, { mode: 0o600 })
+  run('/usr/bin/git', ['add', 'tracked.txt', 'AGENT_DOCS.toml', 'VALIDATION.toml'], { cwd: workspace })
   run('/usr/bin/git', [
     '-c', 'user.name=DSH Acceptance',
     '-c', 'user.email=dsh-acceptance@example.invalid',

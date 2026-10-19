@@ -1061,7 +1061,7 @@ import, then validates consumed export kinds and the Context/service method
 shape before any DSH registration. These checks intentionally do not infer
 compatibility from a semver range or inspect private implementation helpers.
 
-Package CI downloads the exact nils-cli `1.33.13` archive, authenticates its
+Package CI downloads the exact nils-cli `1.36.6` archive, authenticates its
 retained SHA-256, and runs the packed candidate through the real `agent-hook`
 subprocess boundary; p95 or post-disposal child/admission leakage blocks
 promotion. The reviewed-source candidate additionally runs a packed end-to-end

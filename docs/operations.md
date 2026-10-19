@@ -553,7 +553,7 @@ them individually:
   digest-verified copy of the packaged guidance documents; without an
   activation `runtime_context` reads them from the installed package
 
-`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` must pin the released and validated v1.33.13
+`DSH_RUNTIME_KIT_AGENT_HOOK_BIN` must pin the released and validated v1.36.6
 executable for every supported DSH row. The `agent-docs` companion is retired;
 the runtime neither resolves nor runs it, and a package that still declares it
 is read only as an inert legacy lifecycle declaration. The retired agent-docs
