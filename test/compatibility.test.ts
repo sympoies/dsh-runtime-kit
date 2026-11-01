@@ -382,7 +382,7 @@ test('selected DSH non-workspace runtime dependencies are exact and lockfile-bou
     '@standard-schema/spec': '1.1.0',
     chokidar: '5.0.0',
     yaml: '2.9.0',
-    zod: '4.4.3',
+    zod: '4.6.7',
   }
   const packageManifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'))
   const packageLock = JSON.parse(readFileSync(join(projectRoot, 'package-lock.json'), 'utf8'))
