@@ -77,7 +77,3 @@ this file natively as the repository policy.
   mechanism is, and what must never go into it belong to the `project-dev`
   devlog capability in the agent home (for DSH, `runtime_context` intent
   `devlog`), not to this file.
-
-## Project skills
-
-- Project-local skills live under `.agents/skills/<name>/`.
