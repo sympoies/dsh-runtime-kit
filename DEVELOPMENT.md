@@ -6,8 +6,7 @@ build, packaging, compatibility, patch, smoke, acceptance, and delivery
 procedures live in
 [`docs/development-reference.md`](docs/development-reference.md).
 The mandatory validation order, evidence rules, and failure routing live in
-[`docs/development-testing.md`](docs/development-testing.md) and are applied by
-the project-local `project-runtime-development` skill.
+[`docs/development-testing.md`](docs/development-testing.md).
 
 ## Before editing
 
@@ -35,7 +34,7 @@ the project-local `project-runtime-development` skill.
 
 ## Change workflow
 
-1. Use the `project-runtime-development` skill to define the observable
+1. Use the [layered development policy](docs/development-testing.md) to define the observable
    contract delta and a validation map: earliest proving layer, owner, focused
    command, expected receipt, identities, and permitted side effects.
 2. For testable behavior, capture a meaningful regression failure before the

@@ -12,7 +12,7 @@ agent-out/
 # otherwise clean tree.
 .cache/
 
-# Project-local Claude directory (skills live in .agents/skills/)
+# Project-local Claude directory
 .claude/
 dist/
 

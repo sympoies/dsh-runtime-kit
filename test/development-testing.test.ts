@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, constants, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
@@ -26,49 +26,18 @@ function normalizedSection(markdown: string, heading: string): string {
   return markdownSection(markdown, heading).replace(/\s+/gu, ' ')
 }
 
-test('layered development policy is mandatory and routed through the project skill', async () => {
+test('layered development policy is mandatory and directly routed', async () => {
   const [agents, validation, development] = await Promise.all([
     readFile(new URL('AGENTS.md', root), 'utf8'),
     readFile(new URL('VALIDATION.toml', root), 'utf8'),
     readFile(new URL('DEVELOPMENT.md', root), 'utf8'),
   ])
 
-  assert.match(agents, /project-runtime-development/u)
   assert.match(agents, /docs\/development-testing\.md/u)
   assert.match(agents, /stop and replan/iu)
   assert.match(development, /Layered development and testing/u)
 
   assert.match(validation, /production = \[[^\n]*"\.agents\/\*\*"/u)
-})
-
-test('project runtime development skill applies one canonical policy and closes its improvement loop', async () => {
-  const skillPath = new URL('.agents/skills/project-runtime-development/SKILL.md', root)
-  await access(skillPath, constants.R_OK)
-
-  const skill = await readFile(skillPath, 'utf8')
-  assert.match(skill, /^name: project-runtime-development$/mu)
-  assert.match(skill, /docs\/development-testing\.md/u)
-  const workflow = normalizedSection(skill, '## Workflow')
-  assert.match(workflow, /declared required layers/iu)
-  assert.match(workflow, /Invalidation prevents reuse.*does not by\s+itself require/isu)
-  assert.match(workflow, /authenticated tool identity.*permission mode.*expected induction.*installed-tree identity.*attestation/isu)
-  assert.match(workflow, /multiple profile bundles.*one transaction.*manifest tuple.*before.*repair/isu)
-  assert.match(
-    workflow,
-    /Before each provider batch.*capacity-aware subscription selector.*synchronize.*fixed within the batch/isu,
-  )
-  assert.match(
-    workflow,
-    /usage_limit_reached.*selector.*entire.*pool.*keep the candidate frozen.*do not switch provider or model/isu,
-  )
-  assert.match(workflow, /same-digest rule.*prior run.*independent attestations/isu)
-  assert.match(workflow, /generic failure.*same layer fails again.*stop and replan/isu)
-  assert.match(workflow, /unactivated fallback.*activation manifest.*DSH_RUNTIME_KIT_AGENT_HOOK_STATE_DIR.*agree.*authenticated-asset transition/isu)
-  assert.match(skill, /## Self-improvement loop/u)
-  assert.match(skill, /does not grant/iu)
-  for (const owner of ['nils-cli', 'dsh-runtime-kit', 'dsh-applications', 'sympoies-infra']) {
-    assert.match(skill, new RegExp(owner, 'u'))
-  }
 })
 
 test('canonical policy orders independently diagnosable runtime-kit validation layers', async () => {
@@ -152,7 +121,7 @@ test('canonical policy orders independently diagnosable runtime-kit validation l
     'Add a focused failing regression',
     'Repair the owner',
     'Rerun only the focused layer',
-    'Update this policy or the project skill only when the lesson generalizes',
+    'Update this policy only when the lesson generalizes',
     'Record the new diagnostic or validation decision',
   ])
   assert.match(improvement, /never authorizes an automatic issue.*deployment.*provider mutation.*model substitution.*cross-repository write/isu)
