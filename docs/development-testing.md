@@ -1,8 +1,7 @@
 # Layered runtime-kit development and testing
 
 This is the mandatory validation policy for material changes to
-`dsh-runtime-kit`. Use the repository-local `project-runtime-development`
-skill to apply it.
+`dsh-runtime-kit`. Apply this policy directly.
 
 The layers prove different boundaries. A repository test cannot prove an
 installed package tree; a packed smoke cannot prove an operations-engine
@@ -377,7 +376,7 @@ Treat recurring development friction as product evidence:
    handoff and stop at the boundary requiring new authority.
 5. Rerun only the focused layer until it passes, then resume at the first
    invalidated outer layer.
-6. Update this policy or the project skill only when the lesson generalizes to
+6. Update this policy only when the lesson generalizes to
    future runtime-kit work. Keep incident-specific identities and chronology
    in the owning issue and public-safe devlog.
 7. Record the new diagnostic or validation decision in the final evidence so a

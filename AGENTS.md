@@ -28,8 +28,8 @@ this file natively as the repository policy.
 
 ## Development workflow
 
-- Use the project-local `project-runtime-development` skill and read
-  `docs/development-testing.md` for material runtime-kit development. Start at
+- Read the canonical
+  [development and testing policy](docs/development-testing.md) for material runtime-kit development. Start at
   the earliest layer that can prove the observable delta. If a failure is
   generic or the same layer fails again without new evidence, stop and replan
   around its canonical owner instead of retrying a broader matrix.
